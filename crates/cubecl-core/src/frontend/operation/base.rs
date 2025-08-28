@@ -83,13 +83,13 @@ where
     let item_lhs = list.ty;
     let item_rhs = index.ty;
 
-    let line_size = if let Some(line_size) = line_size {
+    let vec = if let Some(line_size) = line_size {
         line_size
     } else {
         find_vectorization(item_lhs, item_rhs)
     };
 
-    let item = item_lhs.line(line_size);
+    let item = item_lhs.line(vec);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -97,7 +97,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size,
+        line_size: line_size.unwrap_or(0),
         unroll_factor: 1,
     });
 
