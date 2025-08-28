@@ -19,6 +19,7 @@ pub struct DummyRegisterFlashMatmulConfig {
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
     cast_query: bool,
+    check_bounds: bool,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -140,6 +141,10 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
             .num_cols(ident)
             .div_ceil(self.num_units_per_row(ident))
     }
+
+    fn check_bounds(&self) -> bool {
+        self.check_bounds
+    }
 }
 
 impl DummyRegisterFlashMatmulConfig {
@@ -149,6 +154,7 @@ impl DummyRegisterFlashMatmulConfig {
         num_planes: u32,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
+        check_bounds: bool
     ) -> Result<Self, AttentionSetupError> {
         let score_config = ScoreConfig {
             plane_dim,
@@ -172,6 +178,7 @@ impl DummyRegisterFlashMatmulConfig {
             key_value_stage_line_size,
             cast_query: AP::EI::as_elem_native_unchecked()
                 == <AP::FlashPrecision as FlashPrecision>::Q::as_elem_native_unchecked(),
+            check_bounds,
         }
         .validate()
     }

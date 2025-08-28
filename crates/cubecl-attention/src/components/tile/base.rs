@@ -4,7 +4,10 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
-use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::{
+    CubeOption,
+    tensor::{View, layout::Coords3d, r#virtual::ReadWrite},
+};
 
 use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
@@ -54,6 +57,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyValue: CubeType;
     type Score: CubeType;
     type Accumulator: CubeType;
+    type OutOfBoundMask: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
@@ -65,6 +69,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 

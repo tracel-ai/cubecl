@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::tensor::r#virtual::ReadWrite;
@@ -36,6 +37,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     type Score = ScoreFragment<AP::FlashPrecision, FM>;
     type Accumulator = AccumulatorFragment<AP::FlashPrecision, FM>;
 
+    type OutOfBoundMask = (u32, u32);
+
     fn execute(
         key_tile: &Tile<AP::ES>,
         value_tile: &Tile<AP::ES>,
@@ -44,6 +47,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
         comment!("Tile: Execute");
@@ -63,9 +67,13 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             &mut score_prob.fragment,
             config,
         );
-
         score_prob.multiply_score(inv_sqrt_dk);
+
+        if config.check_bounds() {
+            score_prob.apply_mask(out_of_bound_mask.unwrap());
+        }
         let new_m = score_prob.row_max(prev_m);
+
         score_prob.to_prob(new_m);
         let row_sum = score_prob.row_sum();
 

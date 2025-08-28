@@ -126,6 +126,22 @@ macro_rules! testgen_attention {
                     64,
                 )
             }
+
+            #[test]
+            fn attention_8_58() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_longer_seq_kv::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    58,
+                )
+            }
         }
     };
 }

@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
 use cubecl_matmul::components::stage::FullStageToTileReader;
-use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
@@ -57,14 +57,28 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        let seq_kv_jump = config
+        let seq_kv_tile = config
             .stage_config()
             .tile_config()
             .attention_tile_size()
             .seq_kv;
-        let num_stage_iterations = div_ceil(seq_kv, seq_kv_jump);
 
-        for _ in 0..num_stage_iterations {
+        let seq_q_tile = config
+            .stage_config()
+            .tile_config()
+            .attention_tile_size()
+            .seq_q;
+
+        let num_stage_iterations = div_ceil(seq_kv, seq_kv_tile);
+
+        for i in 0..num_stage_iterations {
+            let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
+                CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_tile))
+                // CubeOption::new_Some((100u32.runtime(), 100u32.runtime()))
+            } else {
+                CubeOption::new_None()
+            };
+
             key_loader.load_transposed(config);
             value_loader.load(config);
             sync_cube();
@@ -77,13 +91,14 @@ impl<
                 &mut score_prob,
                 &mut accumulator,
                 &mut stage_state,
+                out_of_bounds_mask,
                 config.stage_config(),
             );
 
             sync_cube();
             comment!("Advance view");
-            key_loader.advance_view(seq_kv_jump);
-            value_loader.advance_view(seq_kv_jump);
+            key_loader.advance_view(seq_kv_tile);
+            value_loader.advance_view(seq_kv_tile);
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
