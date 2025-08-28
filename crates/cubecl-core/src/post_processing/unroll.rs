@@ -328,7 +328,7 @@ impl UnrollProcessor {
                     list,
                     index: *idx,
                     line_size: 0,
-                    unroll_factor: unroll_factor,
+                    unroll_factor,
                 }),
                 out[i],
             );
@@ -364,7 +364,7 @@ impl UnrollProcessor {
                     index: *idx,
                     line_size: 0,
                     value: value[i],
-                    unroll_factor: unroll_factor,
+                    unroll_factor,
                 }),
                 out,
             );
@@ -404,7 +404,7 @@ impl UnrollProcessor {
                 list: value[unroll_idx as usize],
                 index: sub_idx.into(),
                 line_size: 1,
-                unroll_factor: unroll_factor,
+                unroll_factor,
             }),
             out,
         )]
@@ -439,7 +439,7 @@ impl UnrollProcessor {
                 index: sub_idx.into(),
                 line_size: 1,
                 value: op.value,
-                unroll_factor: unroll_factor,
+                unroll_factor,
             }),
             out[unroll_idx as usize],
         )]
