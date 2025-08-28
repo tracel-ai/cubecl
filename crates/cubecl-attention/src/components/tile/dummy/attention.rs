@@ -1,10 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -69,9 +69,11 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         );
         score_prob.multiply_score(inv_sqrt_dk);
 
-        if config.check_bounds() {
-            score_prob.apply_mask(out_of_bound_mask.unwrap());
+        match out_of_bound_mask {
+            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
+            CubeOption::None => {}
         }
+
         let new_m = score_prob.row_max(prev_m);
 
         score_prob.to_prob(new_m);
