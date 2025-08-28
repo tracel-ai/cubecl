@@ -1,5 +1,5 @@
 //* WITH THIS MODULE `cudarc::driver::result::init().unwrap();` IS NOT LONGER HANDLES BY `CudaRuntime::create_clien()`
-//* 
+//*
 //* NCCL Multi-GPU Communication Wrapper
 //*
 //* This module provides Rust bindings for NVIDIA's NCCL (NVIDIA Collective Communication Library)
