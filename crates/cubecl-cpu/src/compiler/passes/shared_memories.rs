@@ -21,7 +21,7 @@ impl SharedMemories {
         if self.0.iter().all(|shared_memory| shared_memory.id != id) {
             let elem = variable.storage_type();
             let vectorization = variable.line_size();
-            let length = length * vectorization as u32;
+            let length = length * vectorization;
             self.0.push(SharedMemory {
                 id,
                 ty: elem,
