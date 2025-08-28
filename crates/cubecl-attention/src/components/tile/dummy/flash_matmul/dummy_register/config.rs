@@ -154,7 +154,7 @@ impl DummyRegisterFlashMatmulConfig {
         num_planes: u32,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
-        check_bounds: bool
+        check_bounds: bool,
     ) -> Result<Self, AttentionSetupError> {
         let score_config = ScoreConfig {
             plane_dim,
