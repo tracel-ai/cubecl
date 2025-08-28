@@ -25,7 +25,7 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
         _client: &ComputeClient<R::Server, R::Channel>,
-        _problem: &AttentionProblem,
+        problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
@@ -35,6 +35,7 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
             1,
             line_sizes.query as u32,
             line_sizes.key as u32,
+            problem.seq_kv as u32 % selection.attention_tile_size.seq_kv != 0,
         )
     }
 }

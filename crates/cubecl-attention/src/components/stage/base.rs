@@ -1,7 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
-use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::{
+    CubeOption,
+    tensor::{View, layout::Coords3d, r#virtual::ReadWrite},
+};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
@@ -75,6 +78,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         prev_state: &mut Self::State,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 
@@ -91,7 +95,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
+    fn init_writer(q_offset: u32, tensor: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
         query_reader: QueryRegisterReader<AP::EI>,

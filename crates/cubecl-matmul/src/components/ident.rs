@@ -1,3 +1,5 @@
+use crate::components::global::memory::ViewDirection;
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 /// Identifier for all three tensors in a matmul
 ///
@@ -13,18 +15,15 @@ impl MatmulIdent {
     pub fn into_stage(self) -> StageIdent {
         self.into()
     }
-}
 
-// #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-// /// Identifier for all three tensors in a matmul
-// ///
-// /// Useful to specialize some functions depending on the tensor
-// pub enum FlashIdent {
-//     Query,
-//     Key,
-//     Value,
-//     Out,
-// }
+    pub fn view_direction(&self) -> ViewDirection {
+        match self {
+            MatmulIdent::Lhs => ViewDirection::Col,
+            MatmulIdent::Rhs => ViewDirection::Row,
+            MatmulIdent::Out => panic!("Should not advance view on out"),
+        }
+    }
+}
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub enum StageIdent {
@@ -42,47 +41,3 @@ impl From<MatmulIdent> for StageIdent {
         }
     }
 }
-
-// #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-// /// Identifier for all three tensors in a matmul
-// ///
-// /// Useful to specialize some functions depending on the tensor
-// pub enum Ident {
-//     Lhs,
-//     Rhs,
-//     Out,
-// }
-
-// impl Ident {
-//     pub fn as_input_ident(&self) -> InputIdent {
-//         match self {
-//             Ident::Lhs => InputIdent::Lhs,
-//             Ident::Rhs => InputIdent::Rhs,
-//             Ident::Out => panic!("Out is not an input."),
-//         }
-//     }
-// }
-
-// #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-// /// Identifier for the two input tensors in a matmul.
-// ///
-// /// Useful to specialize some functions depending on the tensor
-// pub enum InputIdent {
-//     Lhs,
-//     Rhs,
-// }
-
-// impl InputIdent {
-//     pub fn as_ident(&self) -> Ident {
-//         match self {
-//             InputIdent::Lhs => Ident::Lhs,
-//             InputIdent::Rhs => Ident::Rhs,
-//         }
-//     }
-// }
-
-// impl From<InputIdent> for Ident {
-//     fn from(value: InputIdent) -> Self {
-//         value.as_ident()
-//     }
-// }

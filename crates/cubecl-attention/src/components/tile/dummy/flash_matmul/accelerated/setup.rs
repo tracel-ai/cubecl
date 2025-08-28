@@ -23,7 +23,7 @@ impl FlashMatmulFamily for AcceleratedFlashMatmul {
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
         _client: &cubecl_core::prelude::ComputeClient<R::Server, R::Channel>,
-        _problem: &crate::components::AttentionProblem,
+        problem: &crate::components::AttentionProblem,
         selection: &crate::components::AttentionSelection,
         line_sizes: &crate::components::AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
@@ -33,6 +33,7 @@ impl FlashMatmulFamily for AcceleratedFlashMatmul {
             1,
             line_sizes.query as u32,
             line_sizes.key as u32,
+            problem.seq_kv as u32 % selection.attention_tile_size.seq_kv != 0,
         )
     }
 }

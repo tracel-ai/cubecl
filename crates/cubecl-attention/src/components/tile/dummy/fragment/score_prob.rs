@@ -121,4 +121,30 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
 
         rowsum
     }
+
+    pub fn apply_mask(&mut self, row_col_remove: (u32, u32)) {
+        sync_cube();
+        if self.row < self.num_rows {
+            #[unroll]
+            for i in 0..self.num_cols_per_unit {
+                let col = self.col_start + i;
+
+                if col < self.num_cols && (self.row >= row_col_remove.0 || col >= row_col_remove.1)
+                {
+                    let index = self.row * self.num_cols + col;
+                    self.tmp_smem[index] = FP::SP::from_int(-9999999999);
+                }
+            }
+        }
+
+        sync_cube();
+
+        let tile = Tile::<FP::SP> {
+            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
+            stride: self.num_cols.runtime(),
+            layout: MatrixLayout::RowMajor,
+        };
+        FM::tmp_fill_prob(&tile, &mut self.fragment, self.config);
+        sync_cube();
+    }
 }
