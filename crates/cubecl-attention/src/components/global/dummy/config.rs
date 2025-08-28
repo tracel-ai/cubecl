@@ -50,8 +50,8 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
         GlobalMemoryConfig {
             elements_in_tile_row: num_rows,
             elements_in_tile_col: num_cols,
-            elements_in_stage_row: 1 * num_rows,
-            elements_in_stage_col: 1 * num_cols,
+            elements_in_stage_row: num_rows,
+            elements_in_stage_col: num_cols,
             global_line_size: 1,
             check_row_bounds: false,
             check_col_bounds: false,

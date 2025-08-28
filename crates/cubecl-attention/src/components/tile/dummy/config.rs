@@ -21,7 +21,7 @@ impl<T: TileConfig> StageMemoryConfig for AttentionStageMemoryConfig<T> {
 
     fn tiling_scheme(&self) -> TilingScheme {
         TilingScheme {
-            tile_size: self.tile_config.tile_size().clone(),
+            tile_size: *self.tile_config.tile_size(),
             partition_size: (1, 1, 1).into(),
             stage_size: (1, 1, 1).into(),
             global_partition_size: GlobalPartitionSize::new(1, 1, 1),

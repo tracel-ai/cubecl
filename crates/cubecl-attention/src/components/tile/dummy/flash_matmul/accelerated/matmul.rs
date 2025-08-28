@@ -194,7 +194,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     ) {
         cmma::store(
             slice,
-            &score_prob,
+            score_prob,
             config.attention_tile_size().seq_kv,
             cmma::MatrixLayout::RowMajor,
         );
