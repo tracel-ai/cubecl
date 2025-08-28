@@ -124,6 +124,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
             }
         }
     }
+
+    pub fn advance_view(this: &mut Self, offset: u32) {
+        this.tensor_reader.update_view(offset, this.ident);
+    }
 }
 
 #[cube]

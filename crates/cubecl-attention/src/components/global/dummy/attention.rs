@@ -2,14 +2,16 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
 use cubecl_matmul::components::stage::FullStageToTileReader;
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
-use crate::components::stage::StageAttention;
+use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
+use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
@@ -41,6 +43,7 @@ impl<
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
         mut writer: Self::Writer,
+        seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
         comment!("Global: Execute");
@@ -54,7 +57,14 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        let num_stage_iterations = 1;
+        let num_stage_iterations = div_ceil(
+            seq_kv,
+            config
+                .stage_config()
+                .tile_config()
+                .attention_tile_size()
+                .seq_kv,
+        );
 
         for _ in 0..num_stage_iterations {
             key_loader.load_transposed(config);
