@@ -38,7 +38,7 @@ impl OptimizerPass for ReduceStrength {
                 };
                 match op {
                     Arithmetic::Mul(op)
-                        if inst.item().elem_type() == ElemType::UInt(UIntKind::U32) =>
+                        if inst.ty().elem_type() == ElemType::UInt(UIntKind::U32) =>
                     {
                         let (const_val, dyn_val) = match (op.lhs.as_const(), op.rhs.as_const()) {
                             (None, Some(val)) => (val.as_u32(), op.lhs),
@@ -60,7 +60,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.item());
+                                let temp = *opt.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
@@ -78,7 +78,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.item());
+                                let temp = *opt.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,

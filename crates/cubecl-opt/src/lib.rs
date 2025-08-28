@@ -410,7 +410,7 @@ impl Optimizer {
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<Id> {
         match variable.kind {
-            core::VariableKind::LocalMut { id } if !variable.ty.storage.is_atomic() => Some(id),
+            core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
             _ => None,
         }
     }

@@ -244,7 +244,7 @@ impl<R: Runtime> TensorState<R> {
         let (tensor, vectorization) = match tensor {
             TensorArg::Handle {
                 handle,
-                vectorization_factor,
+                line_size: vectorization_factor,
                 ..
             } => (handle, vectorization_factor),
             TensorArg::Alias { .. } => return None,
@@ -274,7 +274,7 @@ impl<R: Runtime> TensorState<R> {
         let (array, vectorization) = match array {
             ArrayArg::Handle {
                 handle,
-                vectorization_factor,
+                line_size: vectorization_factor,
                 ..
             } => (handle, vectorization_factor),
             ArrayArg::Alias { .. } => return None,

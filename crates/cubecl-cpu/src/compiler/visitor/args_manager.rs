@@ -73,7 +73,7 @@ impl<'a, 'b> ArgsManagerBuilder<'a, 'b> {
         };
 
         for binding in kernel.buffers.iter() {
-            let inner_type = binding.ty.storage.to_type(context);
+            let inner_type = binding.ty.storage_type().to_type(context);
             let memref = MemRefType::new(inner_type, &[i64::MIN], None, None).into();
             args.function_types.push(memref);
             args.block_inputs.push((memref, location));

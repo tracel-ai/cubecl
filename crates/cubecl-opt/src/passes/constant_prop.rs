@@ -67,7 +67,7 @@ impl OptimizerPass for ConstOperandSimplify {
                             if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
                         {
                             let value = ConstantScalarValue::UInt(0, UIntKind::U32)
-                                .cast_to(op.item().storage);
+                                .cast_to(op.ty().storage_type());
                             op.operation = Operation::Copy(Variable::constant(value));
                             changes.inc();
                         }

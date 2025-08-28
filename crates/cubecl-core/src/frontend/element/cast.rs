@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use cubecl_ir::{ExpandElement, Operator};
 
 use crate::frontend::{CubePrimitive, CubeType, cast};
@@ -20,7 +18,7 @@ pub trait Cast: CubePrimitive {
             return value.expand.into();
         }
         let new_var = scope.create_local(
-            Type::new(<Self as CubePrimitive>::as_type(scope)).line(value.expand.ty.line_size),
+            Type::new(<Self as CubePrimitive>::as_type(scope)).line(value.expand.ty.line_size()),
         );
         cast::expand(scope, value, new_var.clone().into());
         new_var.into()
@@ -49,7 +47,7 @@ pub trait Reinterpret: CubePrimitive {
         let var: Variable = *value;
         let line_size = var.ty.size() / Self::as_type(scope).size();
         let new_var = scope.create_local(
-            Type::new(<Self as CubePrimitive>::as_type(scope)).line(NonZero::new(line_size as u8)),
+            Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size as u32),
         );
         scope.register(Instruction::new(
             Operator::Reinterpret(UnaryOperator { input: *value }),

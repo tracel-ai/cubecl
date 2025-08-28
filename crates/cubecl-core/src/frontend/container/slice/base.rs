@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use crate::{self as cubecl, unexpanded};
 use cubecl::prelude::*;
@@ -87,11 +87,11 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<Line<E>, IO> {
             let (input, offset) = self.__to_raw_parts();
             let mut item = input.ty;
 
-            if line_size as u8 == item.line_size.unwrap_or(NonZero::new(1).unwrap()).get() {
+            if line_size == item.line_size() {
                 return self;
             }
 
-            let current = input.ty.line_size.map(|a| a.get()).unwrap_or(1) as u32;
+            let current = input.ty.line_size();
             let mut out = self.clone();
 
             if current < line_size {

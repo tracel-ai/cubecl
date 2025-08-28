@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use serde::{Deserialize, Serialize};
 
@@ -60,7 +60,7 @@ pub enum ArrayArg<'a, R: Runtime> {
         /// The array handle.
         handle: ArrayHandleRef<'a, R>,
         /// The vectorization factor.
-        vectorization_factor: u8,
+        line_size: u8,
     },
     /// The array is aliasing another input array.
     Alias {
@@ -93,7 +93,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
                     length,
                     E::size().expect("Element should have a size"),
                 ),
-                vectorization_factor,
+                line_size: vectorization_factor,
             }
         }
     }
@@ -112,7 +112,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
         unsafe {
             ArrayArg::Handle {
                 handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
-                vectorization_factor,
+                line_size: vectorization_factor,
             }
         }
     }
@@ -156,16 +156,13 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
-            ArrayArg::Handle {
-                vectorization_factor,
-                ..
-            } => ArrayCompilationArg {
+            ArrayArg::Handle { line_size, .. } => ArrayCompilationArg {
                 inplace: None,
-                line_size: LineSize::Some(NonZero::new(*vectorization_factor).unwrap()),
+                line_size: *line_size as u32,
             },
             ArrayArg::Alias { input_pos } => ArrayCompilationArg {
                 inplace: Some(*input_pos as Id),
-                line_size: LineSize::None,
+                line_size: 0,
             },
         }
     }

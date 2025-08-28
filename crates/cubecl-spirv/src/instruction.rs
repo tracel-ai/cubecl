@@ -145,7 +145,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = out.unwrap();
         match op {
             Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let is_atomic = op.list.ty.storage.is_atomic();
+                let is_atomic = op.list.ty.is_atomic();
                 let value = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);

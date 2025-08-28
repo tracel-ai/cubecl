@@ -366,9 +366,6 @@ pub fn plane_ballot(_elem: bool) -> Line<u32> {
 
 /// Module containing the expand function for [plane_ballot()].
 pub mod plane_ballot {
-
-    use std::num::NonZero;
-
     use cubecl_ir::UIntKind;
 
     use super::*;
@@ -379,7 +376,7 @@ pub mod plane_ballot {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<Line<u32>> {
         let elem: ExpandElement = elem.into();
-        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).line(NonZero::new(4));
+        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).line(4);
         let output = scope.create_local(out_item);
 
         let out = *output;

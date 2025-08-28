@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, num::NonZero};
+use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::CubeDim;
@@ -1138,7 +1138,7 @@ impl<D: Dialect> CppCompiler<D> {
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec = NonZero::new(inst.input.item().vectorization as u8);
+                let vec = inst.input.item().vectorization as u32;
                 self.compile_type(
                     gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec),
                 );
@@ -1220,7 +1220,7 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
-                elem: self.compile_storage_type(item.storage),
+                elem: self.compile_storage_type(item.storage_type()),
                 in_struct: self.compilation_options.grid_constants,
             },
             gpu::VariableKind::TensorMap(id) => {
@@ -1468,11 +1468,13 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_type(&mut self, ty: gpu::Type) -> Item<D> {
-        let item = Item::new(
-            self.compile_storage_type(ty.storage),
-            ty.line_size.map(NonZero::get).unwrap_or(1).into(),
-            false,
-        );
+        let item = match ty {
+            gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
+            gpu::Type::Line(ty, line_size) => {
+                Item::new(self.compile_storage_type(ty), line_size as usize, false)
+            }
+            gpu::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+        };
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);
             self.items.insert(item.optimized());

@@ -8,7 +8,7 @@ use crate::{
 };
 use cubecl_ir::ExpandElement;
 use cubecl_macros::{cube, intrinsic};
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use crate as cubecl;
 
@@ -226,22 +226,6 @@ mod line {
             scope: &mut Scope,
         ) -> u32 {
             expand.__expand_line_size_method(scope)
-        }
-    }
-
-    impl<P: CubePrimitive> ExpandElementTyped<Tensor<Line<P>>> {
-        /// Comptime version of [size](Tensor::line_size).
-        pub fn line_size(&self) -> u32 {
-            self.expand
-                .ty
-                .line_size
-                .unwrap_or(NonZero::new(1).unwrap())
-                .get() as u32
-        }
-
-        // Expand method of [size](Tensor::line_size).
-        pub fn __expand_line_size_method(&self, _content: &mut Scope) -> u32 {
-            self.line_size()
         }
     }
 }

@@ -69,7 +69,7 @@ pub fn value_of_var(var: &Variable) -> Option<Value> {
     let val = match var.kind {
         VariableKind::GlobalInputArray(id) => Value::Input(id, item),
         VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
-        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage),
+        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage_type()),
         VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
         VariableKind::LocalConst { id } => Value::Local(Local {
             id,

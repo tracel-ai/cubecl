@@ -29,7 +29,7 @@ use crate::{
     transformers::{BitwiseTransform, ErfTransform},
 };
 
-pub const MAX_VECTORIZATION: u8 = 4;
+pub const MAX_VECTORIZATION: u32 = 4;
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,

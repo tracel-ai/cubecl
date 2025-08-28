@@ -49,7 +49,7 @@ pub fn expand_checked_index_assign(
     out: Variable,
     unroll_factor: u32,
 ) {
-    scope.register_type::<FloatExpand<0>>(rhs.ty.storage);
+    scope.register_type::<FloatExpand<0>>(rhs.ty.storage_type());
     checked_index_assign::expand::<FloatExpand<0>>(
         scope,
         ExpandElement::Plain(lhs).into(),
@@ -88,7 +88,7 @@ fn erf_positive<F: Float>(x: Line<F>) -> Line<F> {
 
 #[allow(missing_docs)]
 pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
-    scope.register_type::<FloatExpand<0>>(input.ty.storage);
+    scope.register_type::<FloatExpand<0>>(input.ty.storage_type());
     let res = erf::expand::<FloatExpand<0>>(scope, ExpandElement::Plain(input).into());
     assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
 }

@@ -63,7 +63,7 @@ impl Ranges {
                     _ => continue,
                 };
                 match op {
-                    Arithmetic::Add(binop) if is_uint(inst.item()) => {
+                    Arithmetic::Add(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -74,7 +74,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Sub(binop) if is_uint(inst.item()) => {
+                    Arithmetic::Sub(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -85,7 +85,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Mul(binop) if is_uint(inst.item()) => {
+                    Arithmetic::Mul(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -96,7 +96,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Div(binop) if is_uint(inst.item()) => {
+                    Arithmetic::Div(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -107,7 +107,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Modulo(binop) if is_uint(inst.item()) => {
+                    Arithmetic::Modulo(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);

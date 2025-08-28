@@ -1,5 +1,3 @@
-use std::num::{NonZero, NonZeroU8};
-
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
     IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
@@ -24,9 +22,9 @@ where
     let item_lhs = lhs.ty;
     let item_rhs = rhs.ty;
 
-    let vectorization = find_vectorization(item_lhs.line_size, item_rhs.line_size);
+    let line_size = find_vectorization(item_lhs, item_rhs);
 
-    let item = Type::new(item_lhs.storage).line(vectorization);
+    let item = item_lhs.line(line_size);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -52,7 +50,7 @@ where
 
     let item_lhs = list.ty;
 
-    let item = Type::new(item_lhs.storage);
+    let item = item_lhs.line(0);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -85,13 +83,13 @@ where
     let item_lhs = list.ty;
     let item_rhs = index.ty;
 
-    let vectorization = if let Some(line_size) = line_size {
-        NonZero::new(line_size as u8)
+    let line_size = if let Some(line_size) = line_size {
+        line_size
     } else {
-        find_vectorization(item_lhs.line_size, item_rhs.line_size)
+        find_vectorization(item_lhs, item_rhs)
     };
 
-    let item = Type::new(item_lhs.storage).line(vectorization);
+    let item = item_lhs.line(line_size);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -99,7 +97,7 @@ where
     let op = func(IndexOperator {
         list,
         index,
-        line_size: line_size.unwrap_or(0),
+        line_size,
         unroll_factor: 1,
     });
 
@@ -148,12 +146,7 @@ where
     let rhs: Variable = *rhs;
     let item = lhs.ty;
 
-    find_vectorization(item.line_size, rhs.ty.line_size);
-
-    let out_item = Type {
-        storage: ElemType::Bool.into(),
-        line_size: item.line_size,
-    };
+    let out_item = Type::scalar(ElemType::Bool).line(item.line_size());
 
     let out = scope.create_local(out_item);
     let out_var = *out;
@@ -180,8 +173,6 @@ where
     }
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
-
-    find_vectorization(lhs_var.ty.line_size, rhs.ty.line_size);
 
     let op = func(BinaryOperator { lhs: lhs_var, rhs });
 
@@ -255,24 +246,11 @@ where
     out
 }
 
-fn find_vectorization(lhs: LineSize, rhs: LineSize) -> LineSize {
-    match (lhs, rhs) {
-        (None, None) => None,
-        (None, Some(rhs)) => Some(rhs),
-        (Some(lhs), None) => Some(lhs),
-        (Some(lhs), Some(rhs)) => {
-            if lhs == rhs {
-                Some(lhs)
-            } else if lhs == NonZeroU8::new(1).unwrap() || rhs == NonZeroU8::new(1).unwrap() {
-                Some(core::cmp::max(lhs, rhs))
-            } else {
-                panic!(
-                    "Left and right have different vectorizations.
-                    Left: {lhs}, right: {rhs}.
-                    Auto-matching fixed vectorization currently unsupported."
-                );
-            }
-        }
+fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+    if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
+        0
+    } else {
+        lhs.line_size().max(rhs.line_size())
     }
 }
 
@@ -296,7 +274,7 @@ pub fn array_assign_binary_op_expand<
 
     let array_item = match array.kind {
         // In that case, the array is a line.
-        VariableKind::LocalMut { .. } => array.ty.line(None),
+        VariableKind::LocalMut { .. } => array.ty.line(0),
         _ => array.ty,
     };
     let array_value = scope.create_local(array_item);

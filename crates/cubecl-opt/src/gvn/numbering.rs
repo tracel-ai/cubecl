@@ -109,7 +109,7 @@ impl ValueTable {
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         match &inst.operation {
             Operation::Copy(variable) => {
-                let item = inst.item();
+                let item = inst.ty();
                 let out = value_of_var(&inst.out());
                 let num = self.lookup_or_add_var(variable)?;
                 Ok((Expression::Copy(num, item), out))

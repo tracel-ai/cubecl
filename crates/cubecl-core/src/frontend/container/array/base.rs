@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use cubecl_ir::{ExpandElement, Scope};
 
@@ -112,22 +112,6 @@ mod line {
             expand.__expand_line_size_method(scope)
         }
     }
-
-    impl<P: CubePrimitive> ExpandElementTyped<Array<Line<P>>> {
-        /// Comptime version of [size](Array::line_size).
-        pub fn line_size(&self) -> u32 {
-            self.expand
-                .ty
-                .line_size
-                .unwrap_or(NonZero::new(1).unwrap())
-                .get() as u32
-        }
-
-        // Expand method of [size](Array::line_size).
-        pub fn __expand_line_size_method(&self, _content: &mut Scope) -> u32 {
-            self.line_size()
-        }
-    }
 }
 
 /// Module that contains the implementation details of vectorization functions.
@@ -143,10 +127,7 @@ mod vectorization {
         pub fn vectorized(#[comptime] length: u32, #[comptime] line_size: u32) -> Self {
             intrinsic!(|scope| {
                 scope
-                    .create_local_array(
-                        Type::new(T::as_type(scope)).line(NonZero::new(line_size as u8)),
-                        length,
-                    )
+                    .create_local_array(Type::new(T::as_type(scope)).line(line_size), length)
                     .into()
             })
         }
@@ -156,7 +137,7 @@ mod vectorization {
             intrinsic!(|scope| {
                 let factor = line_size;
                 let var = self.expand.clone();
-                let item = Type::new(var.storage_type()).line(NonZero::new(factor as u8));
+                let item = Type::new(var.storage_type()).line(factor);
 
                 let new_var = if factor == 1 {
                     let new_var = scope.create_local(item);

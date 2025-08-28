@@ -1,7 +1,6 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
-use core::num::NonZero;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -79,8 +78,6 @@ pub enum StorageType {
     Packed(ElemType, u32),
     /// Atomically accessed version of `ElemType`
     Atomic(ElemType),
-    /// No defined physcial representation, purely semantic. i.e. barrier, pipeline
-    Semantic(SemanticType),
 }
 
 impl ElemType {
@@ -301,7 +298,6 @@ impl StorageType {
     pub fn elem_type(&self) -> ElemType {
         match self {
             StorageType::Scalar(ty) | StorageType::Packed(ty, _) | StorageType::Atomic(ty) => *ty,
-            StorageType::Semantic(_) => unimplemented!("Semantic type has no elem type"),
         }
     }
 
@@ -324,7 +320,6 @@ impl StorageType {
         match self {
             StorageType::Packed(ty, factor) => ty.size_bits() * *factor as usize,
             StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
-            StorageType::Semantic(_) => 0,
         }
     }
 
@@ -362,33 +357,40 @@ impl From<ElemType> for StorageType {
     }
 }
 
+impl From<StorageType> for Type {
+    fn from(val: StorageType) -> Self {
+        Type::new(val)
+    }
+}
+
 impl From<SemanticType> for Type {
     fn from(val: SemanticType) -> Self {
-        Type::new(StorageType::Semantic(val))
+        Type::semantic(val)
     }
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Type {
-    pub storage: StorageType,
-    pub line_size: LineSize,
+pub enum Type {
+    /// Scalar type containing a single storage element
+    Scalar(StorageType),
+    /// Line wrapping `n` storage elements
+    Line(StorageType, u32),
+    /// No defined physcial representation, purely semantic. i.e. barrier, pipeline
+    Semantic(SemanticType),
 }
 
-pub type LineSize = Option<NonZero<u8>>;
+pub type LineSize = u32;
 
 impl Type {
     /// Fetch the elem of the item.
     pub fn elem_type(&self) -> ElemType {
-        self.storage.elem_type()
+        self.storage_type().elem_type()
     }
 
     /// Create a new item
     pub fn new(storage: StorageType) -> Self {
-        Self {
-            storage,
-            line_size: None,
-        }
+        Type::Scalar(storage)
     }
 
     pub fn scalar(elem: ElemType) -> Self {
@@ -396,56 +398,81 @@ impl Type {
     }
 
     pub fn semantic(ty: SemanticType) -> Self {
-        Self::new(StorageType::Semantic(ty))
+        Self::Semantic(ty)
     }
 
     pub fn line(self, line_size: LineSize) -> Type {
-        Type {
-            storage: self.storage,
-            line_size,
+        match line_size > 1 {
+            true => Type::Line(self.storage_type(), line_size),
+            false => Type::Scalar(self.storage_type()),
         }
     }
 
-    pub fn line_size(&self) -> u8 {
-        self.line_size.map(|it| it.get()).unwrap_or(1)
+    pub fn line_size(&self) -> u32 {
+        match self {
+            Type::Scalar(_) => 1,
+            Type::Line(_, line_size) => *line_size,
+            Type::Semantic(_) => 0,
+        }
     }
 
     pub fn size(&self) -> usize {
-        self.storage.size() * self.line_size() as usize
+        match self {
+            Type::Scalar(ty) => ty.size(),
+            Type::Line(ty, line_size) => ty.size() * *line_size as usize,
+            Type::Semantic(_) => 0,
+        }
     }
 
     pub fn size_bits(&self) -> usize {
-        self.storage.size_bits() * self.line_size() as usize
+        match self {
+            Type::Scalar(ty) => ty.size_bits(),
+            Type::Line(ty, line_size) => ty.size_bits() * *line_size as usize,
+            Type::Semantic(_) => 0,
+        }
     }
 
     pub fn is_atomic(&self) -> bool {
-        self.storage.is_atomic()
+        !self.is_semantic() && self.storage_type().is_atomic()
     }
 
     pub fn is_int(&self) -> bool {
-        self.storage.is_int()
+        !self.is_semantic() && self.storage_type().is_int()
     }
 
     pub fn is_signed_int(&self) -> bool {
-        self.storage.is_signed_int()
+        !self.is_semantic() && self.storage_type().is_signed_int()
     }
 
     pub fn is_unsigned_int(&self) -> bool {
-        self.storage.is_unsigned_int()
+        !self.is_semantic() && self.storage_type().is_unsigned_int()
     }
 
     pub fn is_float(&self) -> bool {
-        self.storage.is_float()
+        !self.is_semantic() && self.storage_type().is_float()
+    }
+
+    pub fn storage_type(&self) -> StorageType {
+        match self {
+            Type::Scalar(ty) | Type::Line(ty, _) => *ty,
+            Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
+        }
+    }
+
+    pub fn is_semantic(&self) -> bool {
+        match self {
+            Type::Scalar(_) | Type::Line(_, _) => false,
+            Type::Semantic(_) => true,
+        }
     }
 }
 
 impl Display for Type {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.line_size {
-            Some(vec) if vec.get() > 1 => {
-                write!(f, "line<{}, {}>", self.storage, vec.get())
-            }
-            _ => write!(f, "{}", self.storage),
+        match self {
+            Type::Scalar(ty) => write!(f, "{ty}"),
+            Type::Line(ty, line_size) => write!(f, "line<{ty}, {line_size}>"),
+            Type::Semantic(ty) => write!(f, "{ty}"),
         }
     }
 }
@@ -456,7 +483,6 @@ impl Display for StorageType {
             StorageType::Scalar(ty) => writeln!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
             StorageType::Atomic(ty) => write!(f, "atomic<{ty}>"),
-            StorageType::Semantic(ty) => write!(f, "{ty}"),
         }
     }
 }

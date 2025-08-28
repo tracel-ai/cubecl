@@ -87,7 +87,7 @@ impl Instruction {
         self.out.unwrap()
     }
 
-    pub fn item(&self) -> Type {
+    pub fn ty(&self) -> Type {
         self.out().ty
     }
 }
@@ -141,14 +141,14 @@ impl Display for Instruction {
                     f,
                     "{} = cast<{}>({}) : ({}) -> ({})",
                     self.out(),
-                    self.item(),
+                    self.ty(),
                     op.input,
                     op.input.ty,
                     self.out().ty,
                 )
             }
             Operation::Operator(Operator::Reinterpret(op)) => {
-                write!(f, "{} = bitcast<{}>({})", self.out(), self.item(), op.input)
+                write!(f, "{} = bitcast<{}>({})", self.out(), self.ty(), op.input)
             }
             _ => {
                 if let Some(out) = self.out {

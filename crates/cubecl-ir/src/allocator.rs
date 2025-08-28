@@ -54,7 +54,7 @@ impl Allocator {
     /// Try to reuse a previously defined but unused mutable variable if possible.
     /// Else, this define a new variable.
     pub fn create_local_mut(&self, item: Type) -> ExpandElement {
-        if item.storage.is_atomic() {
+        if item.is_atomic() {
             self.create_local_restricted(item)
         } else {
             self.reuse_local_mut(item)

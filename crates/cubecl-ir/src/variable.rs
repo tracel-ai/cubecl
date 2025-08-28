@@ -1,4 +1,3 @@
-use core::num::NonZero;
 use core::{fmt::Display, hash::Hash};
 
 use crate::{BarrierLevel, StorageType, TypeHash};
@@ -41,7 +40,7 @@ impl Variable {
     }
 
     pub fn storage_type(&self) -> StorageType {
-        self.ty.storage
+        self.ty.storage_type()
     }
 }
 
@@ -456,8 +455,8 @@ impl Display for ConstantScalarValue {
 }
 
 impl Variable {
-    pub fn line_size(&self) -> u8 {
-        self.ty.line_size.map(NonZero::get).unwrap_or(1u8)
+    pub fn line_size(&self) -> u32 {
+        self.ty.line_size()
     }
 
     pub fn index(&self) -> Option<Id> {

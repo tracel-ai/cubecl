@@ -58,7 +58,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Bitwise::LeadingZeros(op) => {
-                let width = op.input.ty.storage.size() as u32 * 8;
+                let width = op.input.ty.storage_type().size() as u32 * 8;
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     // Indices are zero based, so subtract 1
                     let width = out_ty.const_u32(b, width - 1);

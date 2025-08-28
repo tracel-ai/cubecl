@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use cubecl_ir::{
     Allocator, Arithmetic, BinaryOperator, Branch, CoopMma, CopyMemoryBulkOperator, ExpandElement,
     IndexAssignOperator, IndexOperator, Instruction, MatrixLayout, Metadata, Operation,
@@ -17,7 +15,7 @@ pub enum TransformAction {
 
 #[derive(new, Debug)]
 pub struct UnrollProcessor {
-    max_line_size: u8,
+    max_line_size: u32,
 }
 
 struct Mappings(HashMap<Variable, Vec<ExpandElement>>);
@@ -27,8 +25,8 @@ impl Mappings {
         &mut self,
         alloc: &Allocator,
         var: Variable,
-        unroll_factor: u8,
-        line_size: u8,
+        unroll_factor: u32,
+        line_size: u32,
     ) -> Vec<Variable> {
         self.0
             .entry(var)
@@ -93,7 +91,7 @@ impl UnrollProcessor {
         }
 
         let args = inst.operation.args().unwrap_or_default();
-        if (inst.out.is_some() && inst.item().line_size() > self.max_line_size)
+        if (inst.out.is_some() && inst.ty().line_size() > self.max_line_size)
             || args.iter().any(|arg| arg.line_size() > self.max_line_size)
         {
             let line_size = max_line_size(&inst.out, &args);
@@ -276,7 +274,7 @@ impl UnrollProcessor {
         alloc: &Allocator,
         op: &CopyMemoryBulkOperator,
         out: Variable,
-        unroll_factor: u8,
+        unroll_factor: u32,
     ) -> Vec<Instruction> {
         let (mul1, in_index) = mul_index(alloc, op.in_index, unroll_factor);
         let (mul2, offset_input) = mul_index(alloc, op.offset_input, unroll_factor);
@@ -313,7 +311,7 @@ impl UnrollProcessor {
         out: Variable,
         op: &IndexOperator,
         operator: impl Fn(IndexOperator) -> Operator,
-        unroll_factor: u8,
+        unroll_factor: u32,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
@@ -348,7 +346,7 @@ impl UnrollProcessor {
         out: Variable,
         op: &IndexAssignOperator,
         operator: impl Fn(IndexAssignOperator) -> Operator,
-        unroll_factor: u8,
+        unroll_factor: u32,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let (mul, start_idx) = mul_index(alloc, op.index, unroll_factor);
@@ -387,7 +385,7 @@ impl UnrollProcessor {
         out: Variable,
         op: &IndexOperator,
         operator: impl Fn(IndexOperator) -> Operator,
-        unroll_factor: u8,
+        unroll_factor: u32,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
@@ -422,7 +420,7 @@ impl UnrollProcessor {
         out: Variable,
         op: &IndexAssignOperator,
         operator: impl Fn(IndexAssignOperator) -> Operator,
-        unroll_factor: u8,
+        unroll_factor: u32,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let index = op
@@ -460,7 +458,7 @@ impl UnrollProcessor {
             .into_iter()
             .map(|mut var| {
                 if var.line_size() > self.max_line_size {
-                    var.ty.line_size = NonZero::new(self.max_line_size);
+                    var.ty = var.ty.line(self.max_line_size);
                 }
                 var
             })
@@ -476,7 +474,7 @@ impl UnrollProcessor {
         alloc: &Allocator,
         inst: &Instruction,
         args: Vec<Variable>,
-        unroll_factor: u8,
+        unroll_factor: u32,
         mappings: &mut Mappings,
     ) -> Vec<Instruction> {
         let op_code = inst.operation.op_code();
@@ -602,7 +600,7 @@ impl Processor for UnrollProcessor {
     }
 }
 
-fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> u8 {
+fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> u32 {
     let line_size = args.iter().map(|it| it.line_size()).max().unwrap();
     line_size.max(out.map(|out| out.line_size()).unwrap_or(1))
 }
@@ -610,15 +608,15 @@ fn max_line_size(out: &Option<Variable>, args: &[Variable]) -> u8 {
 fn create_unrolled(
     allocator: &Allocator,
     var: &Variable,
-    max_line_size: u8,
-    unroll_factor: u8,
+    max_line_size: u32,
+    unroll_factor: u32,
 ) -> Vec<ExpandElement> {
     // Preserve scalars
     if var.line_size() == 1 {
         return vec![ExpandElement::Plain(*var); unroll_factor as usize];
     }
 
-    let item = Type::new(var.storage_type()).line(NonZero::new(max_line_size));
+    let item = Type::new(var.storage_type()).line(max_line_size);
     (0..unroll_factor as usize)
         .map(|_| match var.kind {
             VariableKind::LocalMut { .. } | VariableKind::Versioned { .. } => {
@@ -630,7 +628,7 @@ fn create_unrolled(
         .collect()
 }
 
-fn add_index(alloc: &Allocator, idx: Variable, i: u8) -> (Instruction, ExpandElement) {
+fn add_index(alloc: &Allocator, idx: Variable, i: u32) -> (Instruction, ExpandElement) {
     let add_idx = alloc.create_local(idx.ty);
     let add = Instruction::new(
         Arithmetic::Add(BinaryOperator {
@@ -642,7 +640,7 @@ fn add_index(alloc: &Allocator, idx: Variable, i: u8) -> (Instruction, ExpandEle
     (add, add_idx)
 }
 
-fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instruction, ExpandElement) {
+fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u32) -> (Instruction, ExpandElement) {
     let mul_idx = alloc.create_local(idx.ty);
     let mul = Instruction::new(
         Arithmetic::Mul(BinaryOperator {
@@ -654,8 +652,8 @@ fn mul_index(alloc: &Allocator, idx: Variable, unroll_factor: u8) -> (Instructio
     (mul, mul_idx)
 }
 
-fn unroll_array(mut var: Variable, max_line_size: u8, factor: u8) -> Variable {
-    var.ty.line_size = NonZero::new(max_line_size);
+fn unroll_array(mut var: Variable, max_line_size: u32, factor: u32) -> Variable {
+    var.ty = var.ty.line(max_line_size);
 
     match &mut var.kind {
         VariableKind::LocalArray { unroll_factor, .. }

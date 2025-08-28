@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use crate as cubecl;
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped},
@@ -47,18 +45,12 @@ mod new {
                 elem.expand.into()
             })
         }
+    }
 
-        #[allow(unused_variables)]
+    impl<P: CubePrimitive> Line<P> {
         /// Get the length of the current line.
         pub fn line_size(&self) -> comptime_type!(u32) {
-            intrinsic!(|_| {
-                let elem: ExpandElementTyped<Line<P>> = self;
-                elem.expand
-                    .ty
-                    .line_size
-                    .map(|a| a.get() as u32)
-                    .unwrap_or(1)
-            })
+            unexpanded!()
         }
     }
 }
@@ -84,7 +76,7 @@ mod fill {
         #[allow(unused_variables)]
         pub fn fill(self, value: P) -> Self {
             intrinsic!(|scope| {
-                let length = self.expand.ty.line_size;
+                let length = self.expand.ty.line_size();
                 let output = scope.create_local(Type::new(P::as_type(scope)).line(length));
 
                 cast::expand::<P>(scope, value, output.clone().into());
@@ -110,11 +102,10 @@ mod empty {
         pub fn empty(#[comptime] size: u32) -> Self {
             let zero = Line::<P>::cast_from(0);
             intrinsic!(|scope| {
-                let length = NonZero::new(size as u8);
                 // We don't declare const variables in our compilers, only mut variables.
                 // So we need to create the variable as mut here.
                 let var: ExpandElementTyped<Line<P>> = scope
-                    .create_local_mut(Type::new(Self::as_type(scope)).line(length))
+                    .create_local_mut(Type::new(Self::as_type(scope)).line(size))
                     .into();
                 cubecl::frontend::assign::expand(scope, zero, var.clone());
                 var
@@ -144,18 +135,14 @@ mod size {
 
         /// Expand function of [size](Self::size).
         pub fn __expand_size(scope: &mut Scope, element: ExpandElementTyped<P>) -> u32 {
-            element.__expand_vectorization_factor_method(scope)
+            element.__expand_line_size_method(scope)
         }
     }
 
     impl<P: CubePrimitive> ExpandElementTyped<Line<P>> {
         /// Comptime version of [size](Line::size).
         pub fn size(&self) -> u32 {
-            self.expand
-                .ty
-                .line_size
-                .unwrap_or(NonZero::new(1).unwrap())
-                .get() as u32
+            self.expand.ty.line_size()
         }
 
         /// Expand method of [size](Line::size).
@@ -184,7 +171,7 @@ macro_rules! impl_line_comparison {
                     #[allow(unused_variables)]
                     pub fn $name(self, other: Self) -> Line<bool> {
                         intrinsic!(|scope| {
-                            let size = self.expand.ty.line_size;
+                            let size = self.expand.ty.line_size();
                             let lhs = self.expand.into();
                             let rhs = other.expand.into();
 
@@ -291,8 +278,7 @@ impl<N: Numeric> Dot for Line<N> {
         rhs: ExpandElementTyped<Self>,
     ) -> ExpandElementTyped<Self> {
         let lhs: ExpandElement = lhs.into();
-        let mut item = lhs.ty;
-        item.line_size = None;
+        let item = lhs.ty.storage_type().into();
         binary_expand_fixed_output(scope, lhs, rhs.into(), item, Arithmetic::Dot).into()
     }
 }

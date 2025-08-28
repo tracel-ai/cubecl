@@ -341,7 +341,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.buffers[pos as usize];
                 Variable::GlobalOutputArray(id, self.compile_type(item), pos)
             }
-            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage),
+            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage_type()),
             ir::VariableKind::LocalMut { id } => {
                 let item = self.compile_type(item);
                 let var = self.get_local(id, &item, variable);

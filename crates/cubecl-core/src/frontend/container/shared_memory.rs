@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use crate::{self as cubecl, prelude::expand_length_native};
 use cubecl_ir::ExpandElement;
@@ -39,17 +39,13 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn __expand_new_lined(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
-        vectorization_factor: u32,
+        line_size: u32,
     ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
         let size = size
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(
-            Type::new(T::as_type(scope)).line(NonZero::new(vectorization_factor as u8)),
-            size,
-            None,
-        );
+        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -60,17 +56,13 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn __expand_vectorized(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
-        vectorization_factor: u32,
+        line_size: u32,
     ) -> <Self as CubeType>::ExpandType {
         let size = size
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(
-            Type::new(T::as_type(scope)).line(NonZero::new(vectorization_factor as u8)),
-            size,
-            None,
-        );
+        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -92,12 +84,12 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new_aligned(
         #[comptime] size: u32,
-        #[comptime] vectorization_factor: u32,
+        #[comptime] line_size: u32,
         #[comptime] alignment: u32,
     ) -> SharedMemory<Line<T>> {
         intrinsic!(|scope| {
             let var = scope.create_shared(
-                Type::new(T::as_type(scope)).line(NonZero::new(vectorization_factor as u8)),
+                Type::new(T::as_type(scope)).line(line_size),
                 size,
                 Some(alignment),
             );

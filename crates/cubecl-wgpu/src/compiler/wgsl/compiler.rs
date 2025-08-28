@@ -1,5 +1,3 @@
-use std::num::NonZero;
-
 use super::Subgroup;
 use super::{ConstantArray, shader::ComputeShader};
 use super::{Item, LocalArray, SharedMemory};
@@ -18,7 +16,7 @@ use cubecl_core::{
     post_processing::unroll::UnrollProcessor,
 };
 
-pub const MAX_LINE_SIZE: u8 = 4;
+pub const MAX_LINE_SIZE: u32 = 4;
 
 /// Wgsl Compiler.
 #[derive(Clone, Default)]
@@ -113,7 +111,7 @@ impl WgslCompiler {
                     // This is safe when combined with the unroll transform that adjusts all indices.
                     // Must not be used alone
                     if it.ty.line_size() > MAX_LINE_SIZE {
-                        it.ty.line_size = NonZero::new(MAX_LINE_SIZE);
+                        it.ty = it.ty.line(MAX_LINE_SIZE);
                     }
                     self.compile_binding(it)
                 })
@@ -150,13 +148,18 @@ impl WgslCompiler {
     }
 
     fn compile_type(&mut self, item: cube::Type) -> Item {
-        let elem = self.compile_storage_type(item.storage);
-        match item.line_size.map(|it| it.get()).unwrap_or(1) {
-            1 => wgsl::Item::Scalar(elem),
-            2 => wgsl::Item::Vec2(elem),
-            3 => wgsl::Item::Vec3(elem),
-            4 => wgsl::Item::Vec4(elem),
-            _ => panic!("Unsupported vectorizations scheme {:?}", item.line_size),
+        match item {
+            cube::Type::Scalar(ty) => wgsl::Item::Scalar(self.compile_storage_type(ty)),
+            cube::Type::Line(ty, size) => {
+                let elem = self.compile_storage_type(ty);
+                match size {
+                    2 => wgsl::Item::Vec2(elem),
+                    3 => wgsl::Item::Vec3(elem),
+                    4 => wgsl::Item::Vec4(elem),
+                    _ => panic!("Unsupported vectorizations scheme {:?}", item.line_size()),
+                }
+            }
+            cube::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }
     }
 
@@ -180,9 +183,6 @@ impl WgslCompiler {
             },
             cube::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in WGSL")
-            }
-            cube::StorageType::Semantic(_) => {
-                unimplemented!("Semantic types not yet supported in WGSL")
             }
         }
     }
@@ -232,7 +232,7 @@ impl WgslCompiler {
                 wgsl::Variable::GlobalInputArray(id, self.compile_type(item))
             }
             cube::VariableKind::GlobalScalar(id) => {
-                wgsl::Variable::GlobalScalar(id, self.compile_storage_type(item.storage))
+                wgsl::Variable::GlobalScalar(id, self.compile_storage_type(item.storage_type()))
             }
             cube::VariableKind::LocalMut { id } | cube::VariableKind::Versioned { id, .. } => {
                 wgsl::Variable::LocalMut {
@@ -414,7 +414,7 @@ impl WgslCompiler {
 
         for mut var in processing.variables {
             if var.ty.line_size() > MAX_LINE_SIZE {
-                var.ty.line_size = NonZero::new(MAX_LINE_SIZE);
+                var.ty = var.ty.line(MAX_LINE_SIZE);
             }
             instructions.push(wgsl::Instruction::DeclareVariable {
                 var: self.compile_variable(var),

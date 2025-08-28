@@ -275,9 +275,14 @@ impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
+    /// Comptime version of [size](Array::line_size).
+    pub fn line_size(&self) -> u32 {
+        self.expand.ty.line_size()
+    }
+
     // Expanded version of vectorization factor.
-    pub fn __expand_vectorization_factor_method(self, _scope: &mut Scope) -> u32 {
-        self.expand.ty.line_size.map(|it| it.get()).unwrap_or(1) as u32
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+        self.expand.ty.line_size()
     }
 
     pub fn into_variable(self) -> Variable {

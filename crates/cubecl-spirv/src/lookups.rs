@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, num::NonZero};
+use std::collections::VecDeque;
 
 use cubecl_core::{
     compute::{Binding, Location, Visibility},
@@ -110,7 +110,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 // This is safe when combined with the unroll transform that adjusts all indices.
                 // Must not be used alone
                 if binding.ty.line_size() > MAX_VECTORIZATION {
-                    binding.ty.line_size = NonZero::new(MAX_VECTORIZATION);
+                    binding.ty = binding.ty.line(MAX_VECTORIZATION);
                 }
                 let var = ir::Variable::new(VariableKind::GlobalInputArray(binding.id), binding.ty);
                 let name = self.name_of_var(var);

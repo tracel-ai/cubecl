@@ -13,7 +13,7 @@ use super::prelude::*;
 
 impl IntoType for ir::Type {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
-        let inner_type = self.storage.to_type(context);
+        let inner_type = self.storage_type().to_type(context);
         match self.line_size {
             Some(size) if size.get() > 1 => Type::vector(&[size.get() as u64], inner_type),
             _ => inner_type,
@@ -30,31 +30,31 @@ impl<'a> Visitor<'a> {
         var: Variable,
         item: ir::Type,
     ) -> Option<Attribute<'a>> {
-        let r#type = item.storage.to_type(context);
+        let r#type = item.storage_type().to_type(context);
         match var.kind {
             VariableKind::ConstantScalar(ConstantScalarValue::Float(float, _)) => {
-                if item.storage.is_float() {
+                if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, float).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, float as i64).into())
                 }
             }
             VariableKind::ConstantScalar(ConstantScalarValue::Bool(bool)) => {
-                if item.storage.is_float() {
+                if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, bool as i64 as f64).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, bool as i64).into())
                 }
             }
             VariableKind::ConstantScalar(ConstantScalarValue::Int(int, _)) => {
-                if item.storage.is_float() {
+                if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, int as f64).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, int).into())
                 }
             }
             VariableKind::ConstantScalar(ConstantScalarValue::UInt(u_int, _)) => {
-                if item.storage.is_float() {
+                if item.is_float() {
                     Some(FloatAttribute::new(context, r#type, u_int as f64).into())
                 } else {
                     Some(IntegerAttribute::new(r#type, u_int as i64).into())
@@ -65,7 +65,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn create_float_constant_from_item(&self, item: ir::Type, constant: f64) -> Value<'a, 'a> {
-        let float = item.storage.to_type(self.context);
+        let float = item.storage_type().to_type(self.context);
         let constant = FloatAttribute::new(self.context, float, constant);
         let constant = self.append_operation_with_result(arith::constant(
             self.context,
@@ -85,7 +85,7 @@ impl<'a> Visitor<'a> {
     }
 
     pub fn create_int_constant_from_item(&self, item: ir::Type, constant: i64) -> Value<'a, 'a> {
-        let integer = item.storage.to_type(self.context);
+        let integer = item.storage_type().to_type(self.context);
         let constant = IntegerAttribute::new(integer, constant);
         let constant = self.append_operation_with_result(arith::constant(
             self.context,

@@ -259,7 +259,7 @@ impl<P: CountOnes> Line<P> {
     pub fn count_ones(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size);
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::CountOnes(UnaryOperator {
@@ -277,7 +277,7 @@ impl<P: LeadingZeros> Line<P> {
     pub fn leading_zeros(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size);
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::LeadingZeros(UnaryOperator {
@@ -295,7 +295,7 @@ impl<P: FindFirstSet> Line<P> {
     pub fn find_first_set(self) -> Line<u32> {
         intrinsic!(|scope| {
             let out_item =
-                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size);
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::FindFirstSet(UnaryOperator {

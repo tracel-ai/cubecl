@@ -294,12 +294,12 @@ impl Elem {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_type(&mut self, item: core::Type) -> Item {
-        let elem = self.compile_storage_type(item.storage);
-        let vectorization = item.line_size.map(|it| it.get()).unwrap_or(1);
-        if vectorization == 1 {
-            Item::Scalar(elem)
-        } else {
-            Item::Vector(elem, vectorization as u32)
+        match item {
+            core::Type::Scalar(storage) => Item::Scalar(self.compile_storage_type(storage)),
+            core::Type::Line(storage, size) => {
+                Item::Vector(self.compile_storage_type(storage), size)
+            }
+            core::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
         }
     }
 
@@ -308,9 +308,6 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             core::StorageType::Scalar(ty) | core::StorageType::Atomic(ty) => self.compile_elem(ty),
             core::StorageType::Packed(_, _) => {
                 unimplemented!("Packed types not yet supported in SPIR-V")
-            }
-            core::StorageType::Semantic(_) => {
-                unimplemented!("No semantic types supported in SPIR-V")
             }
         }
     }

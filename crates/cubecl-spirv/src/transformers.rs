@@ -49,7 +49,7 @@ impl IrTransformer for BitwiseTransform {
             }
             Bitwise::ReverseBits(op) if op.input.storage_type().size() != 4 => {
                 let mut scope = scope.child();
-                scope.register_type::<IntExpand<0>>(op.input.ty.storage);
+                scope.register_type::<IntExpand<0>>(op.input.ty.storage_type());
                 let input = ExpandElement::Plain(op.input);
                 match op.input.storage_type().size() {
                     8 => {
