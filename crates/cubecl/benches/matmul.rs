@@ -11,11 +11,19 @@ use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionArgs;
 use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
+use cubecl_matmul::kernels::layered::{
+    MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
+};
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
+use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{
     self as matmul, MatmulInputHandle, SyncLoadingStrategy, SyncPartialLoadingStrategy,
 };
+use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
+use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
+use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
 use std::collections::BTreeMap;
+use std::time::Duration;
 
 use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
