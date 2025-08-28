@@ -49,6 +49,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     options: RuntimeOptions,
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
+    #[cfg(not(feature = "nccl"))]
     cudarc::driver::result::init().unwrap();
     let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
     let arch_major;
