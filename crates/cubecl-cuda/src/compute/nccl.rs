@@ -1,5 +1,81 @@
-//* Note that `cudarc::driver::result::init().unwrap()` will not longer be handled
-//* in `crate::runtime::create_client` when nccl is activated.
+//* NCCL Multi-GPU Communication Wrapper
+//*
+//* This module provides Rust bindings for NVIDIA's NCCL (NVIDIA Collective Communication Library)
+//* to enable efficient multi-GPU communication operations like all-reduce, broadcast, and point-to-point
+//* transfers in CUDA environments.
+//*
+//* ## Key Components
+//*
+//* ### `NcclDevice`
+//* Represents a single GPU device with NCCL communication capabilities.
+//* - `init(rank, id)` - Initialize device for a specific rank in the communicator
+//* - `all_reduce()` - Sum/aggregate data across all devices
+//* - `broadcast()` - Copy data from root device to all other devices
+//* - `reduce()` - Aggregate data from all devices to a single root device
+//* - `send()/recv()` - Point-to-point communication between specific devices
+//* - `barrier()` - Synchronize all operations on this device
+//*
+//* ### `LazyNccl`
+//* Manages a group of NCCL devices for collective operations across all available GPUs.
+//* Automatically initializes all devices and provides group-wide operations.
+//*
+//* ## Basic Usage Examples
+//*
+//* ### All-Reduce (sum data across all GPUs):
+//* ```rust
+//* let nccl_group = LazyNccl::new();
+//* let data = vec![1.0f32, 2.0, 3.0, 4.0];
+//* let handles = nccl_group.create_copies(f32::as_bytes(&data));
+//* nccl_group.all_reduce::<f32>(&handles, None, ReduceOp::Sum);
+//* nccl_group.barrier();
+//* let results = nccl_group.read_intervall(handles);
+//* // Each GPU now contains the sum across all devices
+//* ```
+//*
+//* ### Broadcast (copy from GPU 0 to all others):
+//* ```rust
+//* let nccl_group = LazyNccl::new();
+//* // Create different data on each GPU
+//* let mut handles = Vec::new();
+//* for i in 0..nccl_group.device_count {
+//*     let data = vec![i as f32; 4]; // Different data per GPU
+//*     handles.push(nccl_group.get_client(i).create(f32::as_bytes(&data)));
+//* }
+//* nccl_group.broadcast::<f32>(&handles, None, 0); // Root = GPU 0
+//* nccl_group.barrier();
+//* // All GPUs now have the same data as GPU 0
+//* ```
+//*
+//* ### Point-to-Point Transfer:
+//* ```rust
+//* let nccl_group = LazyNccl::new();
+//* let send_data = vec![1.0f32, 2.0, 3.0];
+//* let send_handle = nccl_group.get_client(0).create(f32::as_bytes(&send_data));
+//* let recv_handle = nccl_group.get_client(1).empty(12); // 3 * sizeof(f32)
+//* nccl_group.send_recv(0, &send_handle, 1, &recv_handle); // GPU 0 -> GPU 1
+//* nccl_group.barrier();
+//* ```
+//*
+//* ## Supported Operations
+//* - **All-Reduce**: Aggregate values across all GPUs (Sum, Product, Max, Min, Average)
+//* - **Broadcast**: Copy data from one GPU to all others
+//* - **Reduce**: Aggregate values from all GPUs to a single root GPU
+//* - **Send/Recv**: Direct transfer between two specific GPUs
+//*
+//* ## Data Types
+//* Currently supports Float types (f16, f32, f64) that implement `Float + CubeElement`.
+//* The NCCL data type is automatically inferred from the Rust type size.
+//*
+//* ## Thread Safety & Synchronization
+//* - Operations are asynchronous by default
+//* - Use `barrier()` to ensure completion before reading results
+//* - Group operations (LazyNccl methods) use NCCL groups for optimal performance
+//* - Individual device operations can be mixed with group operations
+//*
+//* ## Requirements
+//* - CUDA-capable GPUs with NCCL support
+//* - Proper CUDA context initialization
+//* - All participating GPUs must be visible to the process
 #![allow(unused)]
 use crate::CudaDevice;
 use crate::compute::CudaServer;
