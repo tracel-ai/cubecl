@@ -54,7 +54,9 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        for _ in 0..config.num_stage_iterations() {
+        let num_stage_iterations = 1;
+
+        for _ in 0..num_stage_iterations {
             key_loader.load_transposed(config);
             value_loader.load(config);
             SA::execute(
