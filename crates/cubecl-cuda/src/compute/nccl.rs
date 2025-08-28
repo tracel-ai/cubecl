@@ -66,10 +66,10 @@ impl NcclDevice {
         output: Option<&Handle>,
         op: ReduceOp,
     ) {
-        let in_ptr = NcclPtr::<N>::get(self.client(), &input);
+        let in_ptr = NcclPtr::<N>::get(self.client(), input);
         let out_ptr = output
             .map(|h| NcclPtr::<N>::get(self.client(), h))
-            .unwrap_or_else(|| in_ptr.clone());
+            .unwrap_or_else(|| in_ptr);
 
         unsafe {
             cudarc::nccl::result::all_reduce(
