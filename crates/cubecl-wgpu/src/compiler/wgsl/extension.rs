@@ -40,11 +40,11 @@ impl Display for Extension {
                 &[
                     VectorIdent {
                         name: "lhs",
-                        item: item.clone(),
+                        item: *item,
                     },
                     VectorIdent {
                         name: "rhs",
-                        item: item.clone(),
+                        item: *item,
                     },
                 ],
                 *item,
@@ -144,23 +144,20 @@ fn construct_vector(
     for VectorIdent { name, item } in inputs {
         write!(f, "{name}: {item}, ")?;
     }
-    write!(f, ") -> {output}{{\n")?;
+    writeln!(f, ") -> {output}{{")?;
 
     let indent = "    ";
 
-    match output {
-        Item::Scalar(_) => {
-            write!(f, "{indent}return {primitive_name}(")?;
-            for VectorIdent { name, item: _ } in inputs {
-                write!(f, "{name}, ")?;
-            }
-            write!(f, ");\n}}\n")?;
-            return Ok(());
+    if let Item::Scalar(_) = output {
+        write!(f, "{indent}return {primitive_name}(")?;
+        for VectorIdent { name, item: _ } in inputs {
+            write!(f, "{name}, ")?;
         }
-        _ => {}
+        write!(f, ");\n}}\n")?;
+        return Ok(());
     }
 
-    write!(f, "{indent}return vec{vec_factor}(\n")?;
+    writeln!(f, "{indent}return vec{vec_factor}(")?;
 
     for i in 0..vec_factor {
         write!(f, "{indent}{indent}{primitive_name}(")?;
@@ -174,7 +171,7 @@ fn construct_vector(
                 }
             }
         }
-        write!(f, "),\n")?;
+        writeln!(f, "),")?;
     }
 
     write!(f, "{indent});\n}}\n")?;
