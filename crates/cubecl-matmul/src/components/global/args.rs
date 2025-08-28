@@ -1084,6 +1084,7 @@ impl MatmulArgs for TensorArgs {
     ) -> comptime_type!(u32) {
         unsafe { (*state.1).line_size() }
     }
+
     #[allow(unused_variables)]
     fn line_size_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
@@ -1095,6 +1096,7 @@ impl MatmulArgs for TensorArgs {
             }
         })
     }
+
     fn line_size_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
     ) -> comptime_type!(u32) {
