@@ -1,3 +1,5 @@
+//* WITH THIS MODULE `cudarc::driver::result::init().unwrap();` IS NOT LONGER HANDLES BY `CudaRuntime::create_clien()`
+//* 
 //* NCCL Multi-GPU Communication Wrapper
 //*
 //* This module provides Rust bindings for NVIDIA's NCCL (NVIDIA Collective Communication Library)
@@ -61,21 +63,7 @@
 //* - **Broadcast**: Copy data from one GPU to all others
 //* - **Reduce**: Aggregate values from all GPUs to a single root GPU
 //* - **Send/Recv**: Direct transfer between two specific GPUs
-//*
-//* ## Data Types
-//* Currently supports Float types (f16, f32, f64) that implement `Float + CubeElement`.
-//* The NCCL data type is automatically inferred from the Rust type size.
-//*
-//* ## Thread Safety & Synchronization
-//* - Operations are asynchronous by default
-//* - Use `barrier()` to ensure completion before reading results
-//* - Group operations (LazyNccl methods) use NCCL groups for optimal performance
-//* - Individual device operations can be mixed with group operations
-//*
-//* ## Requirements
-//* - CUDA-capable GPUs with NCCL support
-//* - Proper CUDA context initialization
-//* - All participating GPUs must be visible to the process
+
 #![allow(unused)]
 use crate::CudaDevice;
 use crate::compute::CudaServer;
