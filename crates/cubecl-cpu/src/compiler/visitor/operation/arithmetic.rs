@@ -420,7 +420,7 @@ impl<'a> Visitor<'a> {
 
     fn get_absolute_val(&self, item: ir::Type, value: Value<'a, 'a>) -> Value<'a, 'a> {
         let result_type = item.to_type(self.context);
-        if item.storage.is_int() {
+        if item.is_int() {
             self.append_operation_with_result(llvm::intr_abs(
                 self.context,
                 value,

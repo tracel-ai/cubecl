@@ -120,7 +120,7 @@ impl<'a> Visitor<'a> {
                         ));
                         let max = self.create_int_constant_from_item(
                             out.ty,
-                            unary_operator.input.ty.storage.size_bits() as i64,
+                            unary_operator.input.ty.storage_type().size_bits() as i64,
                         );
                         self.append_operation_with_result(arith::minui(value, max, self.location))
                     }
@@ -158,7 +158,7 @@ impl<'a> Visitor<'a> {
 
                 let max = self.create_int_constant_from_item(
                     unary_operator.input.ty,
-                    unary_operator.input.ty.storage.size_bits() as i64 + 1,
+                    unary_operator.input.ty.storage_type().size_bits() as i64 + 1,
                 );
                 let cond = self.append_operation_with_result(arith::cmpi(
                     self.context,

@@ -336,7 +336,7 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
         if target_item.is_vectorized() {
-            let vectorization = target_item.line_size.map(NonZero::get).unwrap_or(1u8) as i64;
+            let vectorization = target_item.line_size() as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(
                 self.context,

@@ -14,13 +14,13 @@ use super::prelude::*;
 impl IntoType for ir::Type {
     fn to_type<'a>(self, context: &'a Context) -> Type<'a> {
         let inner_type = self.storage_type().to_type(context);
-        match self.line_size {
-            Some(size) if size.get() > 1 => Type::vector(&[size.get() as u64], inner_type),
+        match self.line_size() {
+            size if size > 1 => Type::vector(&[size as u64], inner_type),
             _ => inner_type,
         }
     }
     fn is_vectorized(&self) -> bool {
-        matches!(self.line_size, Some(size) if size.get() > 1)
+        self.line_size() > 1
     }
 }
 
@@ -107,7 +107,7 @@ impl<'a> Visitor<'a> {
     pub fn cast_to_bool(&self, value: Value<'a, 'a>, item: ir::Type) -> Value<'a, 'a> {
         let mut bool = IntegerType::new(self.context, 1).into();
         if item.is_vectorized() {
-            bool = Type::vector(&[item.line_size.unwrap().get() as u64], bool);
+            bool = Type::vector(&[item.line_size() as u64], bool);
         }
         self.append_operation_with_result(arith::trunci(value, bool, self.location))
     }
@@ -115,7 +115,7 @@ impl<'a> Visitor<'a> {
     pub fn cast_to_u8(&self, value: Value<'a, 'a>, item: ir::Type) -> Value<'a, 'a> {
         let mut byte = IntegerType::new(self.context, 8).into();
         if item.is_vectorized() {
-            byte = Type::vector(&[item.line_size.unwrap().get() as u64], byte);
+            byte = Type::vector(&[item.line_size() as u64], byte);
         }
         self.append_operation_with_result(arith::extui(value, byte, self.location))
     }
