@@ -42,7 +42,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
             GA::init_key_loader(key, global_config),
             GA::init_value_loader(value, global_config),
             GA::init_writer(out, global_config),
-            value.shape(0),
+            value.shape(1),
             config.global_config(),
         )
     }

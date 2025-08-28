@@ -57,18 +57,18 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        let num_stage_iterations = div_ceil(
-            seq_kv,
-            config
-                .stage_config()
-                .tile_config()
-                .attention_tile_size()
-                .seq_kv,
-        );
+        let seq_kv_jump = config
+            .stage_config()
+            .tile_config()
+            .attention_tile_size()
+            .seq_kv;
+        let num_stage_iterations = div_ceil(seq_kv, seq_kv_jump);
 
         for _ in 0..num_stage_iterations {
             key_loader.load_transposed(config);
             value_loader.load(config);
+            sync_cube();
+
             SA::execute(
                 &key_reader,
                 &value_reader,
@@ -79,6 +79,11 @@ impl<
                 &mut stage_state,
                 config.stage_config(),
             );
+
+            sync_cube();
+            comment!("Advance view");
+            key_loader.advance_view(seq_kv_jump);
+            value_loader.advance_view(seq_kv_jump);
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());

@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::TensorReader;
+use cubecl_matmul::components::global::memory::{TensorReader, ViewDirection};
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
@@ -26,6 +26,7 @@ pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     #[cube(comptime)]
     _phantom: PhantomData<(AP, G)>,
 }
+
 #[derive(CubeType)]
 pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
@@ -125,8 +126,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    pub fn advance_view(this: &mut Self, offset: u32) {
-        this.tensor_reader.update_view(offset, this.ident);
+    pub fn advance_view(&mut self, offset: u32) {
+        self.tensor_reader
+            .update_view(offset, comptime!(ViewDirection::Row));
     }
 }
 
@@ -191,6 +193,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
                 }
             }
         }
+    }
+
+    pub fn advance_view(&mut self, offset: u32) {
+        self.tensor_reader
+            .update_view(offset, comptime!(ViewDirection::Row));
     }
 }
 

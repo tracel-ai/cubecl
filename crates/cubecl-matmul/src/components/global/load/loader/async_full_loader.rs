@@ -153,6 +153,7 @@ impl<
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader.update_view(k_offset, this.ident);
+        this.tensor_reader
+            .update_view(k_offset, comptime!(this.ident.view_direction()));
     }
 }

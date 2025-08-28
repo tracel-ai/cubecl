@@ -55,6 +55,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         let prev_l = state.l;
 
         FM::fill_key_value(key_tile, key_value.key_mut(), config);
+        FM::zero_score_prob(&mut score_prob.fragment, config);
 
         FM::score_matmul(
             &query.fragment,
