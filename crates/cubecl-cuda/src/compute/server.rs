@@ -18,7 +18,7 @@ use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
 use super::fence::{Fence, SyncStream};
-use super::storage::CudaStorage;
+use super::storage::CudaStorageType;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{Elem, IntKind, UIntKind};
 use cubecl_core::prelude::*;
@@ -62,7 +62,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorage>,
+    memory_management: MemoryManagement<CudaStorageType>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -184,7 +184,7 @@ impl CudaServer {
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type Storage = CudaStorage;
+    type Storage = CudaStorageType;
     type Feature = Feature;
     type Info = ();
 
@@ -585,7 +585,7 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResourc
 
 impl CudaContext {
     pub fn new(
-        memory_management: MemoryManagement<CudaStorage>,
+        memory_management: MemoryManagement<CudaStorageType>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,

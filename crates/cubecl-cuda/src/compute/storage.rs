@@ -1,10 +1,9 @@
+use super::uninit_vec;
+use crate::compute::ExpandableSegment;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::{DriverError, sys::CUstream};
 use std::collections::HashMap;
-
-use super::uninit_vec;
-
 /// Buffer storage for cuda.
 pub struct CudaStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
@@ -20,9 +19,14 @@ struct PtrBindings {
 }
 
 impl PtrBindings {
-    fn new() -> Self {
+    fn new(max_bindings: Option<usize>) -> Self {
+        let num_slots = match max_bindings {
+            Some(nbind) => nbind,
+            None => crate::device::CUDA_MAX_BINDINGS as usize,
+        };
+
         Self {
-            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
+            slots: uninit_vec(num_slots),
             cursor: 0,
         }
     }
@@ -58,7 +62,7 @@ impl CudaStorage {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
-            ptr_bindings: PtrBindings::new(),
+            ptr_bindings: PtrBindings::new(None),
             mem_alignment,
         }
     }
@@ -154,3 +158,211 @@ impl ComputeStorage for CudaStorage {
         self.perform_deallocations();
     }
 }
+
+/// CUDA storage version with VMM support.
+/// Handles VMM based allocations (see vmm.rs, specifically the [`ExpandableSegments`] struct)
+pub struct ExpandableCudaStorage {
+    /// Device ID for this storage
+    device_id: i32,
+    /// CUDA stream for async operations
+    stream: CUstream,
+    /// Expandable segment for VMM allocations
+    expandable_segment: ExpandableSegment,
+
+    /// Memory alignment requirement
+    mem_alignment: usize,
+
+    /// Pointer bindings for kernel parameters (from original CudaStorage)
+    /// This circular buffer manages device pointers for kernel launches
+    ptr_bindings: PtrBindings,
+}
+
+/// Implement ComputeStorage trait for VMM-enabled storage
+impl ComputeStorage for ExpandableCudaStorage {
+    type Resource = CudaResource;
+
+    /// Return memory alignment requirement
+    fn alignment(&self) -> usize {
+        self.mem_alignment
+    }
+
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let mapping = self
+            .expandable_segment
+            .get_mapping(handle.id) // This function returns a mapped memory region
+            .expect("Storage handle not found");
+
+        let base_ptr = mapping.device_ptr();
+        let final_ptr = base_ptr + handle.offset();
+        let binding_ptr = self.ptr_bindings.register(final_ptr);
+
+        CudaResource::new(
+            final_ptr,
+            binding_ptr as *const u64 as *mut std::ffi::c_void,
+            handle.offset(),
+            handle.size(),
+        )
+    }
+
+    /// Allocates memory
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        let id = StorageId::new();
+        let alloc = self.expandable_segment.alloc_and_map(size, id)?; // Allocates a new mapped region
+
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization {
+                offset: 0,
+                size: alloc.size,
+            },
+        ))
+    }
+
+    /// Deallocate memory directly from the storage, but it is kept in the mapped vector inside the [`ExpandableSegment`].
+    fn dealloc(&mut self, id: StorageId) {
+        // self.deallocations.push(id);
+
+        self.expandable_segment
+            .dealloc(id)
+            .unwrap_or_else(|e| panic!("Failed to dealloc id {:?}: {}", id, e));
+    }
+
+    /// Unmaps all mapped blocks
+    fn flush(&mut self) {
+        self.expandable_segment
+            .release_all(true)
+            .unwrap_or_else(|e| panic!("Failed to flush VMM storage: {}", e)); // Unmaps all blocks and releases the physical memory.
+        self.expandable_segment.clear_handles();
+    }
+}
+
+unsafe impl Send for ExpandableCudaStorage {}
+
+impl ExpandableCudaStorage {
+    /// Create new VMM-enabled CUDA storage
+    ///
+    /// # Arguments
+    /// - `device_id`: CUDA device index
+    /// - `stream`: CUDA stream for operations
+    /// - `mem_alignment`: Memory alignment requirement
+    /// - `max_bindings`: Size of pointer binding circular buffer
+    pub fn new(
+        device_id: i32,
+        stream: CUstream,
+        mem_alignment: usize,
+        virtual_size: u64,
+        handle_size: u64,
+        max_bindings: usize,
+        gc_threshold_ratio: f64,
+    ) -> Self {
+        let expandable_segment =
+            ExpandableSegment::new(device_id, virtual_size, handle_size, gc_threshold_ratio)
+                .expect("Failed to create ExpandableSegment");
+
+        Self {
+            device_id,
+            stream,
+            expandable_segment,
+            mem_alignment,
+            ptr_bindings: PtrBindings::new(Some(max_bindings)),
+        }
+    }
+}
+
+/// Unified storage type that supports both regular and VMM allocation
+///
+/// This enum allows the CUDA runtime to use either storage backend transparently.
+/// The choice is made at initialization time based on RuntimeOptions.
+pub enum CudaStorageType {
+    /// Regular CUDA storage using cudaMalloc/cudaFree
+    Regular(CudaStorage),
+    /// VMM-enabled CUDA storage with expandable segments
+    Vmm(ExpandableCudaStorage),
+}
+
+impl CudaStorageType {
+    /// Create regular CUDA storage
+    pub fn regular(mem_alignment: usize, stream: CUstream) -> Self {
+        Self::Regular(CudaStorage::new(mem_alignment, stream))
+    }
+
+    /// Create VMM-enabled CUDA storage with custom configuration
+    pub fn vmm(
+        device_id: i32,
+        stream: CUstream,
+        mem_alignment: usize,
+        max_bindings: usize,
+        virtual_size: u64,
+        handle_size: u64,
+        gc_threshold_ratio: f64,
+    ) -> Self {
+        let vmm = ExpandableCudaStorage::new(
+            device_id,
+            stream,
+            mem_alignment,
+            virtual_size,
+            handle_size,
+            max_bindings,
+            gc_threshold_ratio,
+        );
+        Self::Vmm(vmm)
+    }
+
+    /// Check if this storage uses VMM
+    pub fn uses_vmm(&self) -> bool {
+        matches!(self, Self::Vmm(_))
+    }
+
+    /// Get a string description of the storage type for logging
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Self::Regular(_) => "Regular",
+            Self::Vmm(_) => "VMM",
+        }
+    }
+}
+
+/// Implement ComputeStorage by delegating to the appropriate backend
+///
+/// This ensures that both storage types have identical interfaces and can be
+/// used interchangeably by the memory management system.
+impl ComputeStorage for CudaStorageType {
+    type Resource = CudaResource;
+
+    fn alignment(&self) -> usize {
+        match self {
+            Self::Regular(storage) => storage.alignment(),
+            Self::Vmm(storage) => storage.alignment(),
+        }
+    }
+
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        match self {
+            Self::Regular(storage) => storage.get(handle),
+            Self::Vmm(storage) => storage.get(handle),
+        }
+    }
+
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        match self {
+            Self::Regular(storage) => storage.alloc(size),
+            Self::Vmm(storage) => storage.alloc(size),
+        }
+    }
+
+    fn dealloc(&mut self, id: StorageId) {
+        match self {
+            Self::Regular(storage) => storage.dealloc(id),
+            Self::Vmm(storage) => storage.dealloc(id),
+        }
+    }
+
+    fn flush(&mut self) {
+        match self {
+            Self::Regular(storage) => storage.flush(),
+            Self::Vmm(storage) => storage.flush(),
+        }
+    }
+}
+
+unsafe impl Send for CudaStorageType {}
