@@ -683,9 +683,14 @@ impl CudaContext {
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
+        let cccl_include_path = cccl_include_path();
+        let cccl_include_option = format!("--include-path={}", include_path.to_str().unwrap());
         let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
         if fast_math {
             options.push("--use_fast_math");
+        }
+        if cccl_include_path.exists() {
+            options.push(&cccl_include_option);
         }
 
         #[cfg(feature = "compilation-cache")]
@@ -831,6 +836,16 @@ fn include_path() -> PathBuf {
         Note: Default paths are used for Linux (/usr/local/cuda) and Windows (C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/), which may not be correct.
     ");
     path.push("include");
+    path
+}
+
+fn cccl_include_path() -> PathBuf {
+    let mut path = cuda_path().expect("
+        CUDA installation not found.
+        Please ensure that CUDA is installed and the CUDA_PATH environment variable is set correctly.
+        Note: Default paths are used for Linux (/usr/local/cuda) and Windows (C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/), which may not be correct.
+    ");
+    path.push("include/cccl");
     path
 }
 
