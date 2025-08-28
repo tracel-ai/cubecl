@@ -34,9 +34,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                             let ids = (0..vec)
                                 .map(|i| {
-                                    let elem_i = b
-                                        .composite_extract(elem_ty, None, input, vec![i])
-                                        .unwrap();
+                                    let elem_i =
+                                        b.composite_extract(elem_ty, None, input, vec![i]).unwrap();
                                     b.group_non_uniform_all(bool_ty, None, subgroup, elem_i)
                                         .unwrap()
                                 })
@@ -62,9 +61,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
                             let ids = (0..vec)
                                 .map(|i| {
-                                    let elem_i = b
-                                        .composite_extract(elem_ty, None, input, vec![i])
-                                        .unwrap();
+                                    let elem_i =
+                                        b.composite_extract(elem_ty, None, input, vec![i]).unwrap();
                                     b.group_non_uniform_any(bool_ty, None, subgroup, elem_i)
                                         .unwrap()
                                 })
