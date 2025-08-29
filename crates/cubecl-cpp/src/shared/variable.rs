@@ -224,7 +224,6 @@ impl<D: Dialect> Display for Variable<D> {
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::E2M1
-                    | gpu::FloatKind::E2M1x2
                     | gpu::FloatKind::E2M3
                     | gpu::FloatKind::E3M2
                     | gpu::FloatKind::E4M3

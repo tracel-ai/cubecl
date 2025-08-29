@@ -261,7 +261,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
 ) {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::line_size_elem(&F::as_elem_native_unchecked()),
+        R::line_size_type(&F::as_type_native_unchecked()),
         input.shape,
         input.strides,
         input.shape.len() - 1,

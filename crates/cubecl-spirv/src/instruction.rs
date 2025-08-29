@@ -145,7 +145,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let out = out.unwrap();
         match op {
             Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let is_atomic = op.list.item.elem.is_atomic();
+                let is_atomic = op.list.ty.is_atomic();
                 let value = self.compile_variable(op.list);
                 let index = self.compile_variable(op.index);
                 let out = self.compile_variable(out);
@@ -219,7 +219,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .into_iter()
                     .map(|it| self.read(&it))
                     .collect::<Vec<_>>();
-                let item = self.compile_item(out.item);
+                let item = self.compile_type(out.ty);
                 let out = self.compile_variable(out);
                 let out_id = self.write_id(&out);
                 self.mark_uniformity(out_id, uniform);

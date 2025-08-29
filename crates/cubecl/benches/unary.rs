@@ -62,7 +62,7 @@ impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
         format!(
             "unary-{}-{}-{:?}",
             R::name(&client),
-            E::as_elem_native_unchecked(),
+            E::as_type_native_unchecked(),
             self.vectorization
         )
         .to_lowercase()

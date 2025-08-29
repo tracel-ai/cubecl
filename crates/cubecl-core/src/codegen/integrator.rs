@@ -1,5 +1,5 @@
 use cubecl_common::CubeDim;
-use cubecl_ir::{Elem, Id, Item, Scope};
+use cubecl_ir::{Id, Scope, StorageType, Type};
 
 use crate::{
     compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
@@ -77,7 +77,7 @@ impl KernelSettings {
 #[derive(Clone, Debug)]
 pub struct BufferInfo {
     pub id: Id,
-    pub item: Item,
+    pub item: Type,
     pub visibility: Visibility,
     /// Whether this input has extended metadata (rank, shape, strides)
     pub has_extended_meta: bool,
@@ -86,7 +86,7 @@ pub struct BufferInfo {
 /// Information related to a scalar input.
 #[derive(Clone, Debug)]
 pub struct ScalarInfo {
-    pub elem: Elem,
+    pub ty: StorageType,
     pub count: usize,
 }
 
@@ -107,7 +107,7 @@ impl KernelIntegrator {
         self.register_scalars();
         self.register_tensor_maps();
 
-        self.scalar_bindings.sort_by_key(|binding| binding.elem);
+        self.scalar_bindings.sort_by_key(|binding| binding.ty);
 
         KernelDefinition {
             buffers: self.buffer_bindings,
@@ -123,7 +123,7 @@ impl KernelIntegrator {
         for buffer in self.expansion.buffers.drain(..) {
             self.buffer_bindings.push(Binding {
                 id: buffer.id,
-                item: buffer.item,
+                ty: buffer.item,
                 visibility: buffer.visibility,
                 location: Location::Storage,
                 has_extended_meta: buffer.has_extended_meta,
@@ -135,7 +135,7 @@ impl KernelIntegrator {
     fn register_scalars(&mut self) {
         for scalar in self.expansion.scalars.drain(..) {
             self.scalar_bindings.push(ScalarBinding {
-                elem: scalar.elem,
+                ty: scalar.ty,
                 count: scalar.count,
             });
         }

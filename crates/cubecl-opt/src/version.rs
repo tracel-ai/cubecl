@@ -3,7 +3,7 @@ use std::{
     mem::take,
 };
 
-use cubecl_ir::{Id, Instruction, Item, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Type, Variable, VariableKind};
 use petgraph::visit::EdgeRef;
 
 use crate::{ControlFlow, EdgeIndex, NodeIndex};
@@ -185,7 +185,7 @@ impl Optimizer {
                             id,
                             version: *version,
                         },
-                        var.item,
+                        var.ty,
                     )
                 }
             }
@@ -204,7 +204,7 @@ impl Optimizer {
                             id,
                             version: *version,
                         },
-                        var.item,
+                        var.ty,
                     )
                 }
             }
@@ -213,9 +213,9 @@ impl Optimizer {
     }
 }
 
-fn as_versioned(var: Variable) -> Option<(Id, Item, u16)> {
+fn as_versioned(var: Variable) -> Option<(Id, Type, u16)> {
     match var.kind {
-        VariableKind::Versioned { id, version } => Some((id, var.item, version)),
+        VariableKind::Versioned { id, version } => Some((id, var.ty, version)),
         _ => None,
     }
 }

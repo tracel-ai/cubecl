@@ -82,9 +82,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
         let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
-            tf32::as_elem_native_unchecked()
+            tf32::as_type_native_unchecked()
         } else {
-            Lhs::as_elem_native_unchecked()
+            Lhs::as_type_native_unchecked()
         };
 
         let mut elem_stride = vec![1; 2 + problem.stride.len()];
@@ -115,7 +115,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_rhs,
             },
             rhs.data().as_tensor_arg(1),
-            Rhs::as_elem_native_unchecked(),
+            Rhs::as_type_native_unchecked(),
         )
         .with_prefetch(prefetch_rhs);
 

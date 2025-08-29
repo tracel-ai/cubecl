@@ -1,5 +1,5 @@
 use cubecl_common::{e2m1, e2m1x2};
-use cubecl_ir::{Elem, ExpandElement, FloatKind, Scope};
+use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::{
     Runtime,
@@ -16,8 +16,8 @@ impl CubeType for e2m1 {
 
 impl CubePrimitive for e2m1 {
     /// Return the element type to use on GPU
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::Float(FloatKind::E2M1))
+    fn as_type_native() -> Option<StorageType> {
+        Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)))
     }
 }
 
@@ -40,8 +40,8 @@ impl CubeType for e2m1x2 {
 
 impl CubePrimitive for e2m1x2 {
     /// Return the element type to use on GPU
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::Float(FloatKind::E2M1x2))
+    fn as_type_native() -> Option<StorageType> {
+        Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2))
     }
 }
 

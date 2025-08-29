@@ -47,10 +47,10 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &P::EG::as_elem_native_unchecked(),
-        &P::EG::as_elem_native_unchecked(),
-        &P::EG::as_elem_native_unchecked(),
+    let line_sizes = AvailableLineSizes::from_types::<R>(
+        &P::EG::as_type_native_unchecked(),
+        &P::EG::as_type_native_unchecked(),
+        &P::EG::as_type_native_unchecked(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes

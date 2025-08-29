@@ -84,44 +84,44 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
             // Types fully supported.
             let types = vec![
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16), // m
-                    gpu::Elem::Float(gpu::FloatKind::F16), // n
-                    gpu::Elem::Float(gpu::FloatKind::F16), // k
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // m
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // n
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // k
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
                 (
-                    gpu::Elem::Int(gpu::IntKind::I8),
-                    gpu::Elem::Int(gpu::IntKind::I8),
-                    gpu::Elem::Int(gpu::IntKind::I32),
+                    gpu::ElemType::Int(gpu::IntKind::I8),
+                    gpu::ElemType::Int(gpu::IntKind::I8),
+                    gpu::ElemType::Int(gpu::IntKind::I32),
                 ),
                 (
-                    gpu::Elem::UInt(gpu::UIntKind::U8),
-                    gpu::Elem::UInt(gpu::UIntKind::U8),
-                    gpu::Elem::Int(gpu::IntKind::I32),
+                    gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    gpu::ElemType::UInt(gpu::UIntKind::U8),
+                    gpu::ElemType::Int(gpu::IntKind::I32),
                 ),
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
                 .map(|(m, n, k)| {
                     let dimensions = tdims.clone();
-                    (m, n, k, dimensions)
+                    (m.into(), n.into(), k.into(), dimensions)
                 })
                 .collect();
             result.extend(combinations);
             if arch.get_version() >= 80 {
                 result.push((
-                    gpu::Elem::Float(gpu::FloatKind::TF32),
-                    gpu::Elem::Float(gpu::FloatKind::TF32),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                     vec![(16, 16, 8)],
                 ));
             }
