@@ -12,8 +12,7 @@ use cudarc::driver::sys::{
     cuMemAddressReserve, cuMemCreate, cuMemGetAllocationGranularity, cuMemGetInfo_v2, cuMemMap,
     cuMemRelease, cuMemSetAccess, cuMemUnmap, cudaError_enum::CUDA_SUCCESS,
 };
-use std::collections::{HashMap, BTreeMap, BTreeSet};
-
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 /// GPU page size (2MB) used by CUDA VMM
 ///
@@ -86,7 +85,7 @@ pub enum AllocationStrategy {
 
     ExpandableSegments {
         /// Size of each physical memory segment.
-        handle_size: u64,  // The intuition behind this parameters is the following:
+        handle_size: u64, // The intuition behind this parameters is the following:
         // Handles are always aligned up to the GPU page size. Typically, this correspondes to about 2MiB. Therefore, it is not a good idea to configure the allocation strategy with a handle size that is smaller than that.
         virtual_size: u64, // Total virtual address space to reserve. The total number of handles that you will be able to create will be virtual_size / handle_size.
     },
@@ -98,158 +97,238 @@ impl Default for AllocationStrategy {
     }
 }
 
-/// Represents a physical memory handle in VMM
-///
-/// In VMM, physical memory is allocated separately from virtual addresses.
-/// This handle represents actual GPU memory that can be mapped to virtual addresses.
-#[derive(Debug, Clone, Copy)]
-pub struct VmemHandle {
-    /// CUDA generic allocation handle
-    pub handle: CUmemGenericAllocationHandle,
-    /// Size of this physical memory chunk. Metadata as handle size is accessed via the field inside the ExpandableSegment
-    #[allow(dead_code)]
-    pub size: u64,
-}
-
-
-
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct HandleRange {
     start_idx: usize,
     length: usize,
+    is_mapped: bool,
 }
 
 
-// The handle manager is a struct responsible of managing
-struct HandleManager {
-    handles: Vec<Option<VmemHandle>>,
-    free_ranges: BTreeMap<usize, BTreeSet<HandleRange>>, // length -> ranges
-    allocated_ranges: BTreeMap<usize, usize>,            // start -> length
-}
+impl HandleRange {
 
-
-impl HandleManager {
-    fn new() -> Self {
+    fn new(start_idx:usize, length: usize) -> Self {
         Self {
-            handles: Vec::new(),
-            free_ranges: BTreeMap::new(),
-            allocated_ranges: BTreeMap::new(),
+            start_idx,
+            length,
+            is_mapped: false
         }
     }
 
+}
 
+struct HandleManager {
+    handles: Vec<Option<CUmemGenericAllocationHandle>>, // Pool of handles.
+    // To guarantee that handles are contiguous in memory, we allocate them in ranges and map them to virtual addresses based on the index on the vector of handles. Therefore the handle associated VA is computed: addr = index * handle_size. This has the disadvantage that the handle size must be fixed (That is, physical memory allocations are fixed size), but it is not a problem since we can expand the size of an expandable block ([`resize`]) by adding new handles to it.
+    free_ranges: BTreeMap<usize, BTreeSet<HandleRange>>, // length -> ranges
+    allocated_ranges: HashMap<usize, HandleRange>,       // start_id of the range -> range
+    handle_size: usize,
+}
 
-    fn remove_handle(&mut self, idx: usize) -> Option<VmemHandle>{
-        self.handles[idx].take()
+impl HandleManager {
+    fn new(handle_size: usize, max_handles: usize) -> Self {
+        Self {
+            handles: vec![None; max_handles], // Preallocate the vector since we know the max number of handles from the beginning
+            free_ranges: BTreeMap::new(),
+            allocated_ranges: HashMap::new(),
+            handle_size,
+        }
+    }
+
+    /// Create a physical memory handle
+    ///
+    /// This allocates actual GPU memory that can be mapped to virtual addresses.
+    /// Uses POSIX file descriptors as the handle type. In PyTorch impl, they try to use FABRIC handle types, which are more optimized for sharing across devices (RDMA).
+    // However, I still have to take a look at burn-communication to see if there are implications there, so for now I decided to keep it this way for this first test.
+    fn create_handle() -> Result<CUmemGenericAllocationHandle, IoError> {
+        let mut handle = 0;
+
+        let prop = CUmemAllocationProp {
+            type_: CU_MEM_ALLOCATION_TYPE_PINNED,
+            requestedHandleTypes: CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
+            location: CUmemLocation {
+                type_: CU_MEM_LOCATION_TYPE_DEVICE,
+                id: self.device_id,
+            },
+            win32HandleMetaData: std::ptr::null_mut(),
+            allocFlags: Default::default(),
+        };
+
+        cuda_driver_try!(
+            cuMemCreate(&mut handle, self.handle_size as usize, &prop, 0),
+            IoError::BufferTooBig(self.handle_size as usize)
+        );
+
+        Ok(handle)
+    }
+
+    fn remove_handle(&mut self, idx: usize) -> Option<CUmemGenericAllocationHandle> {
+        if let Some(handle) = self.handles[idx].take() {
+            cuda_driver_check!(cuMemRelease(handle));
+        }
+    }
+
+    fn insert_handle(&mut self, idx: usize) -> Result<(), IoError> {
+        if let Some(handle) = self.handles[idx].take() {
+            // There is already a handle at that position, re-insert and return an error.
+            // If we do not do that two handles might have assigned the same address
+            self.handles[idx] = Some(handle);
+            return Err(IoError::InvalidHandle);
+        }
+
+        let new_handle = self.create_new_handle()?;
+        self.handles[idx] = Some(new_handle);
+        Ok(())
+    }
+
+    fn get_handle(&self, idx: usize) -> Result<&CUmemGenericAllocationHandle, IoError> {
+        let handle = self.handles.get(idx).ok_or(IoError::InvalidHandle);
+        Ok(handle)
     }
 
     fn clear(&mut self) {
-     for handle in &mut self.handles {
+        for mut handle in self.handles.drain(..) {
             if let Some(hand) = handle.take() {
-                cuda_driver_check!(cuMemRelease(hand.handle));
 
+                cuda_driver_check!(cuMemRelease(hand.handle));
             }
         }
 
         // Clear the handles vector and reset the HandleManager state
-        self.handles.clear();
         self.free_ranges.clear();
         self.allocated_ranges.clear();
     }
 
-
+    // Find the first free range of at least `required_count` handles
+    // Returns None if there are no handles available.
     fn find_free_range(&self, required_count: usize) -> Option<HandleRange> {
-        for (_len, ranges) in self.free_ranges.range(required_count..) {
-            for &range in ranges {
-                if self.is_range_valid(range, required_count) {
-                    return Some(range);
-                }
+        for (&len, ranges) in self.free_ranges.range(required_count..) {
+            if let Some(range) = ranges.iter().next() {
+                return Some(*range);
             }
-        }
-
-        // If no free ranges are found, attempt to extend at the end.
-        if self.handles.len() + required_count <= self.handles.capacity() {
-            return Some(HandleRange {
-                start_idx: self.handles.len(),
-                length: required_count,
-            });
-        }
-
+        } // No free ranges available. The caller should return an IOError here
         None
     }
 
-    fn allocate_range(&mut self, count: usize) -> Result<Vec<usize>, String> {
-        let range = self.find_free_range(count).ok_or("No free range")?;
+    // Alloc a range of a specified size, reusing handles if possible.
+    // Returns the start idx of the first handle.
+    // Note that no real allocation happens here. The real stuff happens at the insert_handle function. This is critical for lazy allocation. The allocation will happen when the physical memory is actually required by the expandable block.
+    fn alloc_range(&mut self, count: usize) -> Result<usize, IOError> {
+        let range = self
+            .find_free_range(count)
+            .ok_or(Err(IoError::InvalidHandle));
 
-        // If it is an existent free range
-        if self.free_ranges.get_mut(&range.length).map(|s| s.remove(&range)) == Some(true) {
-            let allocated = range.start_idx..range.start_idx + count;
+        // Remove range from free_ranges
+        let ranges = self.free_ranges.get_mut(&range.length).unwrap();
+        ranges.remove(&range);
 
-            // If there is extra space try to occupy it.
-            if count < range.length {
-                let leftover = HandleRange {
-                    start_idx: range.start_idx + count,
-                    length: range.length - count,
-                };
-                self.free_ranges
-                    .entry(leftover.length)
-                    .or_default()
-                    .insert(leftover);
+        // If there are no more free ranges of that specified length, remove the key.
+        if ranges.is_empty() {
+            self.free_ranges.remove(&range.length);
+        }
+
+        let allocated = HandleRange::new(
+            range.start_idx,
+            count,
+        );
+        self.allocated_ranges.insert(range.start_idx, allocated);
+
+        // If there are leftover ranges in the freelist, re-insert them
+        if range.length > count {
+            let leftover = HandleRange::new(
+               range.start_idx + count,
+               range.length - count,
+            );
+            self.free_ranges
+                .entry(leftover.length)
+                .or_insert_with(BTreeSet::new)
+                .insert(leftover);
+        }
+        Ok((allocated.start_idx))
+    }
+
+
+    // Unmaps a range of handles.
+    fn unmap_range(&mut self, start_idx: usize) -> Result<(), IoError> {
+        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
+            // Fail early if already unmapped.
+            if !range.is_mapped {
+                return Err(IoError::InvalidHandle);
             }
 
-            self.allocated_ranges.insert(range.start_idx, count);
-            Ok(allocated.collect())
+            for idx in range.start_idx..(range.start_idx + range.length) {
+                // Use get_handle to get a reference to the handle
+                match self.get_handle(idx) {
+                    Ok(handle) => {
+                        // Handles are contiguous in memory
+                        let virtual_addr = self.virtual_addr + (handle_idx as u64 * handle_size);
+                        // Note: I am not sure if it is a good idea to let return an error here in case of failure on the device side. It is what PyTorch does, so I assume there should not be any issues (See the macro C10_CUDA_DRIVER_CHECK  at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp)
+                        cuda_driver_try!(
+                            cuMemUnmap(virtual_addr, handle_size as usize),
+                            IoError::InvalidHandle
+                        );
+                        range.is_mapped = false;
+                    }
+                    Err(_) => {
+                        // Handle is None.
+                        // Here we have to return an error since handles must be allocated at this point.
+                        return Err(IoError::InvalidHandle);
+                    }
+                }
+            }
+        }
+    }
+
+    // Maps a range of handles to their virtual addresses.
+    // Doing it here ensures:
+    // A) Handles are always contiguous in memory.
+    // B) No allocated handles are None in the handles vec.
+    fn map_range(&mut self, start_idx: usize) -> Result<(), IoError> {
+        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
+            // Fail early if already mapped.
+            if range.is_mapped {
+                return Err(IoError::InvalidHandle);
+            }
+
+            // Iterate over the found range.
+            for idx in range.start_idx..(range.start_idx + range.length) {
+                // Use get_handle to get a reference to the handle
+                match self.get_handle(idx) {
+                    Ok(handle) => {
+                        // Handles are contiguous in memory
+                        let virtual_addr = self.virtual_addr + (idx as u64 * self.handle_size);
+                        cuda_driver_try!(
+                            cuMemMap(virtual_addr, self.handle_size as usize, handle),
+                            IoError::InvalidHandle
+                        );
+                        range.is_mapped = true; // Set mapped
+                    }
+                    Err(_) => {
+                        // Handle is None.
+                        // Here we have to return an error since handles must be allocated at this point.
+                        return Err(IoError::InvalidHandle);
+                    }
+                }
+            }
+
+            Ok(())
         } else {
-            //  Otherwise the handle should be appended at the end of the vector.
-            let start = range.start_idx;
-            self.handles.resize(start + count, Some(VmemHandle { handle: 0, size: 0 }));
-            self.allocated_ranges.insert(start, count);
-            Ok((start..start + count).collect())
+            // The range does not exist
+            Err(IoError::InvalidHandle)
         }
     }
 
-    // Moves a handle range from the map of allocated ranges to the map of free ranges.
-    fn free_range(&mut self, start: usize) {
-        if let Some(length) = self.allocated_ranges.remove(&start) {
-            let range = HandleRange {
-                start_idx: start,
-                length,
-            };
-            self.free_ranges.entry(length).or_default().insert(range);
+    // Removes the range from the hashmap of allocated ranges and puts it on the btreeset of free ranges (This way we can reuse ranges without having to make a lot of calls to cuMemReserve)
+    fn free_range(&mut self, start_idx: usize) -> Result<(), String> {
+        if let Some(range) = self.allocated_ranges.remove(&start_idx) {
+            self.free_ranges
+                .entry(range.length)
+                .or_insert_with(BTreeSet::new)
+                .insert(range);
+            Ok(())
+        } else {
+            Err("Range not found".into())
         }
-    }
-
-    fn is_range_valid(&self, range: HandleRange, required_count: usize) -> bool {
-        let end = range.start_idx + required_count;
-        if end > self.handles.len() {
-            return false;
-        }
-        self.handles[range.start_idx..end]
-            .iter()
-            .all(|h| h.is_some())
-    }
-}
-
-/// Represents a mapped virtual memory range
-///
-/// This combines a virtual address with its backing physical memory.
-/// Multiple virtual ranges can potentially map to the same physical memory.
-#[derive(Debug)]
-pub struct VmemMapping {
-    /// Virtual device pointer that kernels will use
-    pub virtual_addr: CUdeviceptr,
-    /// Size of the mapped region (Not the handle , the whole region of handles)
-    pub size: u64,
-    /// Physical memory handle backing this virtual region
-    #[allow(dead_code)]
-    pub handle: VmemHandle, // For now this field is just metadata.
-                           // Semantically, it is the first allocation handle in the set of handles that are mapped to this virtual address.
-}
-
-impl VmemMapping {
-    pub fn device_ptr(&self) -> CUdeviceptr {
-        self.virtual_addr
     }
 }
 
@@ -270,24 +349,67 @@ enum MemoryPressureLevel {
 
 #[derive(Debug)]
 pub struct ExpandableBlock {
-    virtual_addr: CUdeviceptr,
+    base_addr: CUdeviceptr,
     size: u64,
     gc_count_base: u64,    // Garbage-Collection count when this block was inserted
     allocation_count: u64, // How many times has this block been reused.
-    state: BlockState,
-    handle_indices: Vec<usize>,
+    state: BlockState, // Unmapped -> Mapped -> Allocated.
+    handle_ranges: Vec<usize>, // This is a vector of the start_idx of the ranges inside the
+    // HandleManager. This way if we wanted to expand a block, we just allocate a new handle range and append it here, since handle allocations happen in ranges.
+
+}
+
+impl Default for ExpandableBlock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ExpandableBlock {
-    pub fn new(virtual_addr: CUdeviceptr, size: u64, handle_indices: Vec<usize>) -> Self {
+    pub fn new() -> Self {
+
         Self {
-            virtual_addr,
-            size,
+            base_addr: 0,
+            size: 0,
             state: BlockState::Unmapped,
-            handle_indices,
             gc_count_base: 0,
             allocation_count: 0,
+            ranges: Vec::with_capacity(1); // We will always have at least one range
         }
+    }
+
+    fn alloc(start_idx: usize, size: u64, handle_size: usize, manager: &mut HandleManager) -> Result<Self, IoError> {
+        let base_addr = start_idx * handle_size;
+        let required_handles = size / handle_size;
+        let start_idx = manager.alloc_range(required_handles)?;
+        Self {
+            base_addr,
+            size,
+            state: BlockState::Unmapped,
+            gc_count_base: 0,
+            allocation_count: 0,
+            ranges: vec![start_idx; 1]; // We will always have at least one range
+        }
+
+    }
+
+
+    // Expands the current block to a new target size by appending a new range of handles at the end.
+    // Note that the handles might not be fully contiguous in memory here, which might be less efficient but still valid. As long as we make sure that handle size is a multiple of the granularity, memory fragmentation should be minimal.
+    fn expand(&mut self, new_size: u64, handle_size: usize, &mut HandleManager) -> Result<(), IOError>{
+        // Some check to make sure the new size is always bigger than the previous.
+        assert!(new_size >= self.size, "Invalid size. Cannot expand block from {} to {}", self.size, new_size);
+        let required_size = new_size - self.size;
+        let required_handles = size / handle_size;
+        let start_idx = manager.alloc_range(required_handles)?;
+        self.ranges.push(start_idx);
+        self.size = new_size;
+        Ok(())
+
+    }
+
+    pub fn device_ptr(&self) -> CUdeviceptr {
+        self.base_addr
     }
 
     /// Compute the age of the block for garbage collection
@@ -301,18 +423,13 @@ impl ExpandableBlock {
         self.gc_count_base = current_gc_count;
     }
 
-    fn unmap_handles(&self, handle_size: u64) {
-        for (i, &_handle_idx) in self.handle_indices.iter().enumerate() {
-            let virtual_addr = self.virtual_addr + (i as u64 * handle_size);
-            // Note: I am not sure if it is a good idea to let panicking here in case of failure on the device side. It is what PyTorch does, so I assume there should not be any issues (See the macro C10_CUDA_DRIVER_CHECK  at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp)
-            cuda_driver_check!(cuMemUnmap(virtual_addr, handle_size as usize));
-        }
-    }
+
+
 }
 
-/// [`Expandable segments`]
+/// [`Expandable Storage`]
 ///
-/// Inspired by PyTorch's caching allocator. The idea is to reserve a large
+/// Inspired by PyTorch's expandable segments. The idea is to reserve a large
 /// virtual address (VA) range once and *expand* it on demand by mapping
 /// additional physical pages into that range. This avoids repeatedly
 /// allocating slightly-larger chunks as shapes fluctuate (e.g. batched
@@ -387,7 +504,7 @@ impl ExpandableBlock {
 ///
 /// -> CuMemUnmap -> Unmaps the handle to the Virtual Address. As it does not destroy physical memory, we can map it again later for reuse (Important to set again the permissions via [`CuMemSetAccess`])
 /// The idea then is to keep a pool of freed physical handles, which can then be remapped to VAs
-pub struct ExpandableSegment {
+pub struct ExpandableStorage {
     device_id: i32,
     base_address: CUdeviceptr,
     virtual_size: u64,
@@ -405,7 +522,7 @@ pub struct ExpandableSegment {
                                  // Any value between 0.6 and 0.7 should be okay
 }
 
-impl ExpandableSegment {
+impl ExpandableStorage {
     /// This reserves virtual address space but doesn't allocate any physical memory yet.
     /// Physical memory will be allocated and mapped on-demand in alloc_and_map().
     pub fn new(
@@ -414,13 +531,13 @@ impl ExpandableSegment {
         handle_size: u64,
         gc_threshold_ratio: f64,
     ) -> Result<Self, IoError> {
-
         let mut base_address: CUdeviceptr = 0;
 
         let mut device: CUdevice = 0;
         cuda_driver_check!(cuDeviceGet(&mut device as *mut CUdevice, device_id));
 
-        let granularity: u64 = match get_min_granularity(device).try_into() { // This can fail on x32 architectures, so we fallback to the hardcoded value (typically GPU page size is 2MiB)
+        let granularity: u64 = match get_min_granularity(device).try_into() {
+            // This can fail on x32 architectures, so we fallback to the hardcoded value (typically GPU page size is 2MiB)
             Ok(val) => val,
             Err(_) => GPU_PAGE_SIZE,
         };
@@ -433,9 +550,7 @@ impl ExpandableSegment {
         );
 
         let max_handles = (virtual_size / handle_size) as usize;
-        let mut handle_manager = HandleManager::new();
-        handle_manager.handles.reserve(max_handles);
-
+        let mut handle_manager = HandleManager::new(handle_size, max_handles);
 
         Ok(Self {
             device_id,
@@ -454,20 +569,51 @@ impl ExpandableSegment {
 
     // Obtain an allocated mapping by the block id on the blocks HashMap.
     // Refuses to return the block if it is not allocated.
-    pub fn get_ptr(&self, storage_id: StorageId) -> Option<VmemMapping> {
+    pub fn get_ptr(&self, storage_id: StorageId) -> Option<CUdeviceptr> {
         let block = self.blocks.get(&storage_id)?;
 
         if block.state != BlockState::Allocated {
             return None;
         }
 
-        let first_handle_idx = block.handle_indices.first()?;
+        Some(block.device_ptr())
+    }
 
-        self.handle_manager.handles.get(*first_handle_idx).as_ref()?.as_ref().map(|first_handle| VmemMapping {
-            virtual_addr: block.virtual_addr,
-           size: block.size,
-            handle: *first_handle,
-        })
+
+
+    fn create_new_block(
+        &mut self,
+        aligned_size: u64,
+        storage_id: StorageId,
+    ) -> Result<(), IoError> {
+        let required_handles = (aligned_size / self.handle_size) as usize;
+        // Allocate handle indices using HandleManager
+        let handle_indices = self
+            .handle_manager
+            .allocate_range(handle_count)
+            .map_err(|_| IoError::BufferTooBig(aligned_size as usize))?;
+
+        let mut new_handles = Vec::with_capacity(handle_count);
+
+        for &index in handle_indices.iter() {
+            // Create a new physical handle on GPU memory
+            let handle = self.create_physical_handle(self.handle_size)?;
+            new_handles.push(handle);
+            self.handle_manager.handles[index] = Some(handle);
+        }
+
+        let virtual_addr = self.base_address + (handle_indices[0] as u64 * self.handle_size);
+
+        // Perform the actual mapping. If it fails, will return and error and will trigger the retrial on the [`alloc_and_map`] method.
+        self.map_handle_set(virtual_addr, &new_handles)?;
+
+        let mut block = ExpandableBlock::new(virtual_addr, aligned_size, handle_indices);
+        block.state = BlockState::Allocated;
+        self.total_allocated_memory += block.size;
+        block.mark_used(self.gc_count);
+        self.blocks.insert(storage_id, block);
+
+        Ok(())
     }
 
     // Utility methods to find blocks by size:
@@ -503,7 +649,7 @@ impl ExpandableSegment {
         &mut self,
         reuse_id: StorageId,
         storage_id: StorageId,
-    ) -> Result<VmemMapping, IoError> {
+    ) -> Result<CUdeviceptr, IoError> {
         // Remove old block
         let mut block = self
             .blocks
@@ -514,33 +660,15 @@ impl ExpandableSegment {
         block.state = BlockState::Allocated;
         block.mark_used(self.gc_count);
 
-
-         // Get first handle using HandleManager
-        let first_handle = *block.handle_indices
-            .first()
-            .and_then(|&idx| self.handle_manager.handles.get(idx).and_then(|h| h.as_ref()))
-            .ok_or(IoError::InvalidHandle)?;
-
-        // Create mapping
-        let mapping = VmemMapping {
-            virtual_addr: block.virtual_addr,
-            size: block.size,
-            handle: first_handle // Note, we return the first handle as the representation for the mapping.
-        };
-
         // Store under new storage_id
         self.blocks.insert(storage_id, block);
         self.mapped_blocks.retain(|&id| id != reuse_id);
         self.total_allocated_memory += mapping.size;
 
-        Ok(mapping)
+        Ok(())
     }
 
-    pub fn alloc_and_map(
-        &mut self,
-        size: u64,
-        storage_id: StorageId,
-    ) -> Result<VmemMapping, IoError> {
+    pub fn alloc_and_map(&mut self, size: u64, storage_id: StorageId) -> Result<(), IoError> {
         let aligned_size = size.next_multiple_of(self.handle_size);
 
         // 1. Attempt to reuse mapped blocks.
@@ -569,6 +697,7 @@ impl ExpandableSegment {
                 }
             }
         }
+        Ok(())
     }
 
     // Remaps an existing block to a new storage identifier.
@@ -577,7 +706,7 @@ impl ExpandableSegment {
         remap_id: StorageId,
         storage_id: StorageId,
         required_size: u64,
-    ) -> Result<VmemMapping, IoError> {
+    ) -> Result<(), IoError> {
         // Remove the unmapped block from the HashMap
         let mut block = self
             .blocks
@@ -601,7 +730,13 @@ impl ExpandableSegment {
         let handles_to_map: Vec<VmemHandle> = block
             .handle_indices
             .iter()
-            .filter_map(|&idx| self.handle_manager.handles.get(idx).and_then(|h| h.as_ref()).copied())
+            .filter_map(|&idx| {
+                self.handle_manager
+                    .handles
+                    .get(idx)
+                    .and_then(|h| h.as_ref())
+                    .copied()
+            })
             .collect();
 
         // Perform the actual memory mapping on the GPU.
@@ -614,15 +749,10 @@ impl ExpandableSegment {
         block.mark_used(self.gc_count);
 
         self.unmapped_blocks.retain(|&idx| idx != remap_id);
-        let mapping = VmemMapping {
-            virtual_addr: block.virtual_addr,
-            size: block.size,
-            handle: handles_to_map[0]
-        };
 
         self.blocks.insert(storage_id, block);
 
-        Ok(mapping)
+        Ok(())
     }
 
     // Utility to perform an actual mapping between a virtual address and a set of handles.
@@ -655,86 +785,14 @@ impl ExpandableSegment {
     // Releases a set of handles. Will panic in case of failure.
     fn release_handle_set(&self, handles: Vec<VmemHandle>) {
         for handle in handles.into_iter() {
-            if handle.handle != 0 { // Check if the handle is valid
+            if handle.handle != 0 {
+                // Check if the handle is valid
                 cuda_driver_check!(cuMemRelease(handle.handle));
             }
         }
     }
 
-    fn create_new_block(
-        &mut self,
-        aligned_size: u64,
-        storage_id: StorageId,
-    ) -> Result<VmemMapping, IoError> {
-        let handle_count = (aligned_size / self.handle_size) as usize;
 
-        // Allocate handle indices using HandleManager
-        let handle_indices = self.handle_manager
-            .allocate_range(handle_count)
-            .map_err(|_| IoError::BufferTooBig(aligned_size as usize))?;
-
-
-
-        let mut new_handles = Vec::with_capacity(handle_count);
-
-        for  &index in handle_indices.iter() {
-            // Create a new physical handle on GPU memory
-            let handle = self.create_physical_handle(self.handle_size)?;
-            new_handles.push(handle);
-
-            // Ensure HandleManager has enough capacity
-            if index >= self.handle_manager.handles.len() {
-                self.handle_manager.handles.resize(index + 1, Some(VmemHandle { handle: 0, size: 0 }));
-            }
-            self.handle_manager.handles[index] = Some(handle);
-        }
-
-        let virtual_addr = self.base_address + (handle_indices[0] as u64 * self.handle_size);
-
-        // Perform the actual mapping. If it fails, will return and error and will trigger the retrial on the [`alloc_and_map`] method.
-        self.map_handle_set(virtual_addr, &new_handles)?;
-
-        let mut block = ExpandableBlock::new(virtual_addr, aligned_size, handle_indices);
-        block.state = BlockState::Allocated;
-        self.total_allocated_memory += block.size;
-        block.mark_used(self.gc_count);
-        self.blocks.insert(storage_id, block);
-
-        Ok(VmemMapping {
-            virtual_addr,
-            size: aligned_size,
-            handle: new_handles[0],
-        })
-    }
-
-
-
-    /// Create a physical memory handle
-    ///
-    /// This allocates actual GPU memory that can be mapped to virtual addresses.
-    /// Uses POSIX file descriptors as the handle type. In PyTorch impl, they try to use FABRIC handle types, which are more optimized for sharing across devices (RDMA).
-    // However, I still have to take a look at burn-communication to see if there are implications there, so for now I decided to keep it this way for this first test.
-    fn create_physical_handle(&self, size: u64) -> Result<VmemHandle, IoError> {
-        let mut handle = 0;
-
-        let prop = CUmemAllocationProp {
-            type_: CU_MEM_ALLOCATION_TYPE_PINNED,
-            requestedHandleTypes: CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR,
-            location: CUmemLocation {
-                type_: CU_MEM_LOCATION_TYPE_DEVICE,
-                id: self.device_id,
-            },
-            win32HandleMetaData: std::ptr::null_mut(),
-            allocFlags: Default::default(),
-        };
-
-        cuda_driver_try!(
-            cuMemCreate(&mut handle, size as usize, &prop, 0),
-            IoError::BufferTooBig(size as usize)
-        );
-
-        Ok(VmemHandle { handle, size })
-    }
 
     /// Sets memory access permissions for the mapped range
     ///
@@ -880,7 +938,6 @@ impl ExpandableSegment {
 
         for storage_id in blocks_to_release {
             if force_free {
-
                 if self.dealloc_flush(storage_id).is_ok() {
                     freed_any = true
                 }
@@ -898,7 +955,6 @@ impl ExpandableSegment {
     // DESIGN DECISION IS TO KEEP ALL DEALLOCS AS SAFE-NO-OPS in case the storage id is not found.
     pub fn dealloc(&mut self, storage_id: StorageId) -> Result<(), IoError> {
         if let Some(block) = self.blocks.get_mut(&storage_id) {
-
             if block.state != BlockState::Allocated {
                 return Ok(());
             }
@@ -943,7 +999,6 @@ impl ExpandableSegment {
         // Update block state
         block.state = BlockState::Unmapped;
 
-
         // Move from mapped to unmapped pool
         self.mapped_blocks.retain(|&id| id != storage_id);
         self.unmapped_blocks.push(storage_id);
@@ -952,7 +1007,7 @@ impl ExpandableSegment {
     }
 
     pub fn clear_handles(&mut self) {
-       self.handle_manager.clear();
+        self.handle_manager.clear();
     }
 
     /// Completely deallocates a block, releasing all handles, therefore returning memory to the device.
@@ -984,11 +1039,10 @@ impl ExpandableSegment {
             }
         }
 
-    // Free the handle range in HandleManager
+        // Free the handle range in HandleManager
         if let Some(&first_idx) = block.handle_indices.first() {
             self.handle_manager.free_range(first_idx);
         }
-
 
         // See ExpandableSegments::unmap_handles at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp
         self.release_handle_set(handles_to_release);
@@ -1029,8 +1083,6 @@ impl Drop for ExpandableSegment {
         ));
     }
 }
-
-
 
 #[cfg(test)]
 mod expandable_segment_tests {
@@ -1253,7 +1305,8 @@ mod expandable_segment_tests {
     }
 
     #[test]
-    fn test_mark_used() { // Basically validates that when you call mark_used it updates the gc_age value of the block.
+    fn test_mark_used() {
+        // Basically validates that when you call mark_used it updates the gc_age value of the block.
         let mut segment = create_test_segment();
         let storage_id = StorageId::new();
         let alloc_size = 1024 * 1024;
@@ -1275,20 +1328,19 @@ mod expandable_segment_tests {
     }
 
     #[test]
-    fn test_release_blocks_by_size() { // Test for the second level garbage collection method
+    fn test_release_blocks_by_size() {
+        // Test for the second level garbage collection method
         let mut segment = create_test_segment();
         let storage_ids: Vec<StorageId> = (0..5).map(|_| StorageId::new()).collect();
         let alloc_size = 1024 * 1024;
 
-        for  &storage_id in storage_ids.iter() {
-
+        for &storage_id in storage_ids.iter() {
             segment.alloc_and_map(alloc_size, storage_id).unwrap();
         }
 
         assert_eq!(segment.mapped_blocks.len(), 0); // Should be empty as all blocks are allocated here.
 
         for (i, &storage_id) in storage_ids.iter().enumerate() {
-
             segment.dealloc(storage_id).unwrap();
 
             // Make some blocks older
@@ -1300,7 +1352,6 @@ mod expandable_segment_tests {
 
         segment.gc_count = 10;
         let required_size = alloc_size * 3; // Need to free 2 blocks worth
-
 
         assert_eq!(
             segment.mapped_blocks.len(),
@@ -1316,7 +1367,6 @@ mod expandable_segment_tests {
             segment.unmapped_blocks.len() >= 2,
             "Should unmap at least 2 blocks"
         );
-
     }
 
     #[test]
@@ -1327,7 +1377,12 @@ mod expandable_segment_tests {
 
         // Allocate
         let _mapping = segment.alloc_and_map(alloc_size, storage_id).unwrap();
-        let handle_count = segment.handle_manager.handles.iter().filter(|h| h.is_some()).count();
+        let handle_count = segment
+            .handle_manager
+            .handles
+            .iter()
+            .filter(|h| h.is_some())
+            .count();
 
         // Flush should completely remove the block and handles
         let result = segment.dealloc_flush(storage_id);
@@ -1341,7 +1396,12 @@ mod expandable_segment_tests {
         assert!(!segment.unmapped_blocks.contains(&storage_id));
 
         // Handles should be cleaned up (though some may remain as None)
-        let remaining_handles = segment.handle_manager.handles.iter().filter(|h| h.is_some()).count();
+        let remaining_handles = segment
+            .handle_manager
+            .handles
+            .iter()
+            .filter(|h| h.is_some())
+            .count();
         assert!(
             remaining_handles < handle_count,
             "Some handles should be released"
@@ -1365,7 +1425,8 @@ mod expandable_segment_tests {
     }
 
     #[test]
-    fn test_invalid_storage_id() { // Error handling test
+    fn test_invalid_storage_id() {
+        // Error handling test
         let mut segment = create_test_segment();
         let invalid_id = StorageId::new();
 
@@ -1374,7 +1435,6 @@ mod expandable_segment_tests {
         assert!(segment.dealloc_unmap(invalid_id).is_ok());
         assert!(segment.dealloc_flush(invalid_id).is_ok());
     }
-
 
     // Validates storage level transitions are well rounded for blocks.
     #[test]
@@ -1396,5 +1456,4 @@ mod expandable_segment_tests {
         // Should not be able to get mapping in unmapped state
         assert!(segment.get_mapping(storage_id).is_none());
     }
-
 }
