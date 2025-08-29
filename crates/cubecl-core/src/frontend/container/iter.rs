@@ -1,13 +1,13 @@
 use cubecl_ir::ExpandElement;
 
 use crate::{
-    ir::{Branch, Item, RangeLoop, Scope},
+    ir::{Branch, RangeLoop, Scope, Type},
     prelude::{CubeIndex, CubePrimitive, CubeType, ExpandElementTyped, Iterable, index},
 };
 
 use super::Array;
 
-pub trait SizedContainer: CubeIndex<Output = Self::Item> + Sized {
+pub trait SizedContainer: CubeIndex<Idx = u32, Output = Self::Item> + Sized {
     type Item: CubePrimitive;
 
     /// Return the length of the container.
@@ -26,7 +26,7 @@ impl<T: SizedContainer + CubeType<ExpandType = ExpandElementTyped<T>>> Iterable<
         scope: &mut Scope,
         mut body: impl FnMut(&mut Scope, <T::Item as CubeType>::ExpandType),
     ) {
-        let index_ty = Item::new(u32::as_elem(scope));
+        let index_ty = Type::new(u32::as_type(scope));
         let len: ExpandElement = T::len(&self.expand, scope);
 
         let mut child = scope.child();

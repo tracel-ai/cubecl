@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Debug, num::NonZero};
+use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
 use cubecl_core::CubeDim;
@@ -17,10 +17,9 @@ use cubecl_runtime::DeviceProperties;
 use crate::shared::MmaShape;
 
 use super::{
-    AtomicKind, BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect,
-    Elem, FP6Kind, Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction,
-    IndexInstruction, Instruction, Item, LocalArray, SharedMemory, UnaryInstruction, Variable,
-    WarpInstruction, WmmaInstruction,
+    BinaryInstruction, Binding, Body, Component, ComputeKernel, ConstArray, Dialect, Elem, FP6Kind,
+    Fragment, FragmentIdent, FragmentLayout, IndexAssignInstruction, IndexInstruction, Instruction,
+    Item, LocalArray, SharedMemory, UnaryInstruction, Variable, WarpInstruction, WmmaInstruction,
 };
 use super::{FP4Kind, barrier::BarrierOps};
 use super::{FP8Kind, pipeline::PipelineOps};
@@ -131,7 +130,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         ir
     }
 
-    fn elem_size(&self, elem: gpu::Elem) -> usize {
+    fn elem_size(&self, elem: gpu::ElemType) -> usize {
         elem.size()
     }
 
@@ -153,7 +152,7 @@ impl<D: Dialect> CppCompiler<D> {
         let scalars = value
             .scalars
             .into_iter()
-            .map(|binding| (self.compile_elem(binding.elem), binding.count))
+            .map(|binding| (self.compile_storage_type(binding.ty), binding.count))
             .collect();
 
         // translation flags
@@ -249,7 +248,7 @@ impl<D: Dialect> CppCompiler<D> {
             .drain(..)
             .map(|(var, values)| ConstArray {
                 index: var.index().unwrap(),
-                item: self.compile_item(var.item),
+                item: self.compile_type(var.ty),
                 size: values.len() as u32,
                 values: values
                     .into_iter()
@@ -961,17 +960,12 @@ impl<D: Dialect> CppCompiler<D> {
                 out: self.compile_variable(out),
             }),
             gpu::Arithmetic::Recip(op) => {
-                let elem = op.input.item.elem();
+                let elem = op.input.ty.elem_type();
                 let lhs = match elem {
-                    gpu::Elem::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
-                    gpu::Elem::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
-                    gpu::Elem::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
-                    gpu::Elem::Bool => gpu::ConstantScalarValue::Bool(true),
-                    gpu::Elem::AtomicInt(_)
-                    | gpu::Elem::AtomicUInt(_)
-                    | gpu::Elem::AtomicFloat(_) => {
-                        panic!("Cannot use recip with atomics")
-                    }
+                    gpu::ElemType::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
+                    gpu::ElemType::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
+                    gpu::ElemType::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
+                    gpu::ElemType::Bool => gpu::ConstantScalarValue::Bool(true),
                 };
 
                 instructions.push(Instruction::Div(BinaryInstruction {
@@ -1137,19 +1131,20 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             // Needs special conversion semantics
             gpu::Operator::Cast(op)
-                if is_fp4_fp6_fp8(op.input.elem()) || is_fp4_fp6_fp8(out.elem()) =>
+                if is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()) =>
             {
                 let inst = self.compile_unary(op, out);
 
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec = NonZero::new(inst.input.item().vectorization as u8);
-                self.compile_item(gpu::Item::vectorized(gpu::Elem::Float(FloatKind::F16), vec));
-                self.compile_item(gpu::Item::vectorized(
-                    gpu::Elem::Float(FloatKind::BF16),
-                    vec,
-                ));
+                let vec = inst.input.item().vectorization as u32;
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec),
+                );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec),
+                );
 
                 instructions.push(Instruction::SpecialCast(inst));
             }
@@ -1218,14 +1213,14 @@ impl<D: Dialect> CppCompiler<D> {
     }
 
     fn compile_variable(&mut self, value: gpu::Variable) -> Variable<D> {
-        let item = value.item;
+        let item = value.ty;
         match value.kind {
             gpu::VariableKind::GlobalInputArray(id) => {
-                Variable::GlobalInputArray(id, self.compile_item(item))
+                Variable::GlobalInputArray(id, self.compile_type(item))
             }
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
-                elem: self.compile_elem(item.elem),
+                elem: self.compile_storage_type(item.storage_type()),
                 in_struct: self.compilation_options.grid_constants,
             },
             gpu::VariableKind::TensorMap(id) => {
@@ -1234,21 +1229,21 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::LocalMut { id } => Variable::LocalMut {
                 id,
-                item: self.compile_item(item),
+                item: self.compile_type(item),
             },
             gpu::VariableKind::Versioned { id, .. } => Variable::LocalMut {
                 id,
-                item: self.compile_item(item),
+                item: self.compile_type(item),
             },
             gpu::VariableKind::LocalConst { id } => Variable::LocalConst {
                 id,
-                item: self.compile_item(item),
+                item: self.compile_type(item),
             },
             gpu::VariableKind::GlobalOutputArray(id) => {
-                Variable::GlobalOutputArray(id, self.compile_item(item))
+                Variable::GlobalOutputArray(id, self.compile_type(item))
             }
             gpu::VariableKind::ConstantScalar(value) => {
-                Variable::ConstantScalar(value, self.compile_elem(value.elem()))
+                Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
             gpu::VariableKind::SharedMemory {
                 id,
@@ -1256,7 +1251,7 @@ impl<D: Dialect> CppCompiler<D> {
                 unroll_factor,
                 alignment,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 if !self.shared_memories.iter().any(|s| s.index == id) {
                     self.shared_memories.push(SharedMemory::new(
                         id,
@@ -1272,7 +1267,7 @@ impl<D: Dialect> CppCompiler<D> {
                 length,
                 unroll_factor,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 Variable::ConstantArray(id, item, length * unroll_factor)
             }
             gpu::VariableKind::Builtin(builtin) => match builtin {
@@ -1396,7 +1391,7 @@ impl<D: Dialect> CppCompiler<D> {
                 length,
                 unroll_factor,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 if !self.local_arrays.iter().any(|s| s.index == id) {
                     self.local_arrays
                         .push(LocalArray::new(id, item, length * unroll_factor));
@@ -1410,16 +1405,9 @@ impl<D: Dialect> CppCompiler<D> {
                     frag: self.compile_matrix(mat),
                 }
             }
-            gpu::VariableKind::Pipeline {
-                id,
-                item,
-                num_stages,
-            } => {
+            gpu::VariableKind::Pipeline { id, num_stages } => {
                 self.flags.op_pipeline = true;
-                let pipeline = Variable::Pipeline {
-                    id,
-                    item: self.compile_item(item),
-                };
+                let pipeline = Variable::Pipeline { id };
                 if !self.pipelines.iter().any(|s| s.pipeline_id() == id) {
                     self.pipelines.push(PipelineOps::Init {
                         pipeline,
@@ -1428,7 +1416,7 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 pipeline
             }
-            gpu::VariableKind::Barrier { id, item, level } => {
+            gpu::VariableKind::Barrier { id, level } => {
                 self.flags.op_barrier = true;
                 match level {
                     gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
@@ -1437,11 +1425,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                     _ => {}
                 }
-                Variable::Barrier {
-                    id,
-                    item: self.compile_item(item),
-                    level,
-                }
+                Variable::Barrier { id, level }
             }
         }
     }
@@ -1452,7 +1436,7 @@ impl<D: Dialect> CppCompiler<D> {
             m: matrix.m,
             n: matrix.n,
             k: matrix.k,
-            elem: self.compile_elem(matrix.elem),
+            elem: self.compile_storage_type(matrix.storage),
             layout: self.compile_matrix_layout(matrix.layout),
         }
     }
@@ -1476,19 +1460,21 @@ impl<D: Dialect> CppCompiler<D> {
     fn compile_binding(&mut self, binding: cubecl_core::compute::Binding) -> Binding<D> {
         Binding {
             id: binding.id,
-            item: self.compile_item(binding.item),
+            item: self.compile_type(binding.ty),
             location: binding.location,
             size: binding.size,
             vis: binding.visibility,
         }
     }
 
-    fn compile_item(&mut self, item: gpu::Item) -> Item<D> {
-        let item = Item::new(
-            self.compile_elem(item.elem),
-            item.vectorization.map(NonZero::get).unwrap_or(1).into(),
-            false,
-        );
+    fn compile_type(&mut self, ty: gpu::Type) -> Item<D> {
+        let item = match ty {
+            gpu::Type::Scalar(ty) => Item::new(self.compile_storage_type(ty), 1, false),
+            gpu::Type::Line(ty, line_size) => {
+                Item::new(self.compile_storage_type(ty), line_size as usize, false)
+            }
+            gpu::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+        };
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);
             self.items.insert(item.optimized());
@@ -1502,16 +1488,55 @@ impl<D: Dialect> CppCompiler<D> {
         item
     }
 
-    fn compile_elem(&mut self, value: gpu::Elem) -> Elem<D> {
+    fn compile_storage_type(&mut self, value: gpu::StorageType) -> Elem<D> {
         match value {
-            gpu::Elem::Float(kind) => match kind {
+            gpu::StorageType::Scalar(ty) => self.compile_elem(ty),
+            gpu::StorageType::Atomic(ty) => Elem::Atomic(ty.into()),
+            gpu::StorageType::Packed(gpu::ElemType::Float(kind), 2) => match kind {
+                FloatKind::E2M1 => {
+                    self.flags.elem_fp4 = true;
+                    Elem::FP4x2(FP4Kind::E2M1)
+                }
+                FloatKind::E2M3 => {
+                    self.flags.elem_fp6 = true;
+                    Elem::FP6x2(FP6Kind::E2M3)
+                }
+                FloatKind::E3M2 => {
+                    self.flags.elem_fp6 = true;
+                    Elem::FP6(FP6Kind::E3M2)
+                }
+                FloatKind::E4M3 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8x2(FP8Kind::E4M3)
+                }
+                FloatKind::E5M2 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8x2(FP8Kind::E5M2)
+                }
+                FloatKind::UE8M0 => {
+                    self.flags.elem_fp8 = true;
+                    Elem::FP8x2(FP8Kind::UE8M0)
+                }
+                FloatKind::F16 => {
+                    self.flags.elem_f16 = true;
+                    Elem::F16x2
+                }
+                FloatKind::BF16 => {
+                    self.flags.elem_bf16 = true;
+                    Elem::BF16x2
+                }
+                other => unimplemented!("Unsupported storage type: packed<{other:?}, 2>"),
+            },
+            other => unimplemented!("Unsupported storage type: {other}"),
+        }
+    }
+
+    fn compile_elem(&mut self, value: gpu::ElemType) -> Elem<D> {
+        match value {
+            gpu::ElemType::Float(kind) => match kind {
                 gpu::FloatKind::E2M1 => {
                     self.flags.elem_fp4 = true;
                     Elem::FP4(FP4Kind::E2M1)
-                }
-                gpu::FloatKind::E2M1x2 => {
-                    self.flags.elem_fp4 = true;
-                    Elem::FP4x2(FP4Kind::E2M1)
                 }
                 gpu::FloatKind::E2M3 => {
                     self.flags.elem_fp6 = true;
@@ -1546,46 +1571,28 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::FloatKind::F32 => Elem::F32,
                 gpu::FloatKind::F64 => Elem::F64,
             },
-            gpu::Elem::AtomicFloat(kind) => match kind {
-                gpu::FloatKind::F16 => Elem::Atomic(AtomicKind::F16),
-                gpu::FloatKind::BF16 => Elem::Atomic(AtomicKind::BF16),
-                gpu::FloatKind::F32 => Elem::Atomic(AtomicKind::F32),
-                gpu::FloatKind::F64 => Elem::Atomic(AtomicKind::F64),
-                kind => unimplemented!("atomic<{kind:?}> not yet supported"),
-            },
-            gpu::Elem::Int(kind) => match kind {
+            gpu::ElemType::Int(kind) => match kind {
                 gpu::IntKind::I8 => Elem::I8,
                 gpu::IntKind::I16 => Elem::I16,
                 gpu::IntKind::I32 => Elem::I32,
                 gpu::IntKind::I64 => Elem::I64,
             },
-            gpu::Elem::AtomicInt(kind) => match kind {
-                gpu::IntKind::I32 => Elem::Atomic(AtomicKind::I32),
-                gpu::IntKind::I64 => Elem::Atomic(AtomicKind::I64),
-                kind => panic!("atomic<{kind:?}> isn't supported yet"),
-            },
-            gpu::Elem::UInt(kind) => match kind {
+            gpu::ElemType::UInt(kind) => match kind {
                 gpu::UIntKind::U8 => Elem::U8,
                 gpu::UIntKind::U16 => Elem::U16,
                 gpu::UIntKind::U32 => Elem::U32,
                 gpu::UIntKind::U64 => Elem::U64,
             },
-            gpu::Elem::AtomicUInt(kind) => match kind {
-                gpu::UIntKind::U32 => Elem::Atomic(AtomicKind::U32),
-                gpu::UIntKind::U64 => Elem::Atomic(AtomicKind::U64),
-                kind => unimplemented!("atomic<{kind:?}> not yet supported"),
-            },
-            gpu::Elem::Bool => Elem::Bool,
+            gpu::ElemType::Bool => Elem::Bool,
         }
     }
 }
 
-fn is_fp4_fp6_fp8(elem: gpu::Elem) -> bool {
+fn is_fp4_fp6_fp8(elem: gpu::ElemType) -> bool {
     match elem {
-        gpu::Elem::Float(kind) => matches!(
+        gpu::ElemType::Float(kind) => matches!(
             kind,
             FloatKind::E2M1
-                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3
@@ -1605,29 +1612,36 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
 
 pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     let supported_types = [
-        gpu::Elem::UInt(gpu::UIntKind::U8),
-        gpu::Elem::UInt(gpu::UIntKind::U16),
-        gpu::Elem::UInt(gpu::UIntKind::U32),
-        gpu::Elem::UInt(gpu::UIntKind::U64),
-        gpu::Elem::Int(gpu::IntKind::I8),
-        gpu::Elem::Int(gpu::IntKind::I16),
-        gpu::Elem::Int(gpu::IntKind::I32),
-        gpu::Elem::Int(gpu::IntKind::I64),
-        gpu::Elem::AtomicInt(gpu::IntKind::I32),
-        gpu::Elem::AtomicInt(gpu::IntKind::I64),
-        gpu::Elem::AtomicUInt(gpu::UIntKind::U32),
-        gpu::Elem::AtomicUInt(gpu::UIntKind::U64),
-        gpu::Elem::Float(gpu::FloatKind::BF16),
-        gpu::Elem::Float(gpu::FloatKind::F16),
-        gpu::Elem::Float(gpu::FloatKind::F32),
-        gpu::Elem::Float(gpu::FloatKind::Flex32),
-        gpu::Elem::AtomicFloat(gpu::FloatKind::F32),
+        gpu::ElemType::UInt(gpu::UIntKind::U8),
+        gpu::ElemType::UInt(gpu::UIntKind::U16),
+        gpu::ElemType::UInt(gpu::UIntKind::U32),
+        gpu::ElemType::UInt(gpu::UIntKind::U64),
+        gpu::ElemType::Int(gpu::IntKind::I8),
+        gpu::ElemType::Int(gpu::IntKind::I16),
+        gpu::ElemType::Int(gpu::IntKind::I32),
+        gpu::ElemType::Int(gpu::IntKind::I64),
+        gpu::ElemType::Float(gpu::FloatKind::BF16),
+        gpu::ElemType::Float(gpu::FloatKind::F16),
+        gpu::ElemType::Float(gpu::FloatKind::F32),
+        gpu::ElemType::Float(gpu::FloatKind::Flex32),
         // Causes CUDA_ERROR_INVALID_VALUE for matmul, disabling until that can be investigated
         //gpu::Elem::Float(gpu::FloatKind::F64),
-        gpu::Elem::Bool,
+        gpu::ElemType::Bool,
+    ];
+
+    let supported_atomic_types = [
+        gpu::ElemType::Int(gpu::IntKind::I32),
+        gpu::ElemType::Int(gpu::IntKind::I64),
+        gpu::ElemType::UInt(gpu::UIntKind::U32),
+        gpu::ElemType::UInt(gpu::UIntKind::U64),
+        gpu::ElemType::Float(gpu::FloatKind::F32),
     ];
 
     for ty in supported_types {
-        props.register_feature(Feature::Type(ty));
+        props.register_feature(Feature::Type(gpu::StorageType::Scalar(ty)));
+    }
+
+    for ty in supported_atomic_types {
+        props.register_feature(Feature::Type(gpu::StorageType::Atomic(ty)));
     }
 }

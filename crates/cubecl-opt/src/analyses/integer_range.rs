@@ -4,7 +4,7 @@ use std::{
 };
 
 use cubecl_ir::{
-    Arithmetic, Builtin, ConstantScalarValue, Elem, Id, Operation, Variable, VariableKind,
+    Arithmetic, Builtin, ConstantScalarValue, ElemType, Id, Operation, Type, Variable, VariableKind,
 };
 
 use crate::{Optimizer, VarId};
@@ -63,7 +63,7 @@ impl Ranges {
                     _ => continue,
                 };
                 match op {
-                    Arithmetic::Add(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Add(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -74,7 +74,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Sub(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Sub(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -85,7 +85,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Mul(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Mul(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -96,7 +96,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Div(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Div(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -107,7 +107,7 @@ impl Ranges {
                             }
                         }
                     }
-                    Arithmetic::Modulo(binop) if is_uint(inst.item().elem()) => {
+                    Arithmetic::Modulo(binop) if is_uint(inst.ty()) => {
                         if let Some(out_id) = var_id(&inst.out()) {
                             let lhs_range = self.range_of(opt, &binop.lhs);
                             let rhs_range = self.range_of(opt, &binop.rhs);
@@ -126,16 +126,12 @@ impl Ranges {
     }
 }
 
-fn is_uint(elem: Elem) -> bool {
-    matches!(elem, Elem::UInt(_))
-}
-
 impl Ranges {
     /// The possible range of values of any variable, if applicable. Returns unbounded range if no range
     /// can be determined, or the type is not an integer.
     pub fn range_of(&self, opt: &Optimizer, var: &Variable) -> Range {
         match var.kind {
-            VariableKind::Versioned { id, version } if is_uint(var.item.elem()) => self
+            VariableKind::Versioned { id, version } if is_uint(var.ty) => self
                 .int_ranges
                 .get(&(id, version))
                 .copied()
@@ -148,7 +144,7 @@ impl Ranges {
                 .get(&(id, version))
                 .copied()
                 .unwrap_or_default(),
-            VariableKind::LocalConst { id } if is_uint(var.item.elem()) => {
+            VariableKind::LocalConst { id } if is_uint(var.ty) => {
                 self.int_ranges.get(&(id, 0)).copied().unwrap_or(Range {
                     lower_bound: Some(0),
                     upper_bound: None,
@@ -180,6 +176,10 @@ pub(crate) fn var_id(var: &Variable) -> Option<(Id, u16)> {
         VariableKind::LocalConst { id } => Some((id, 0)),
         _ => None,
     }
+}
+
+fn is_uint(ty: Type) -> bool {
+    matches!(ty.elem_type(), ElemType::UInt(_))
 }
 
 mod range_ops {

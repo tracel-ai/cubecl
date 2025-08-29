@@ -73,7 +73,7 @@ impl<T: CubePrimitive> RuntimeCell<T> {
 impl<T: CubeIndexMut> RuntimeCell<T> {
     /// Store a new value in the cell at the given index.
     #[allow(unused_variables)]
-    pub fn store_at(&mut self, index: u32, value: T::Output) {
+    pub fn store_at(&mut self, index: T::Idx, value: T::Output) {
         intrinsic!(|scope| { self.value.expand_index_mut(scope, index, value) })
     }
 }
@@ -82,7 +82,7 @@ impl<T: CubeIndexMut> RuntimeCell<T> {
 impl<T: CubeIndex> RuntimeCell<T> {
     /// Read a value in the cell at the given index.
     #[allow(unused_variables)]
-    pub fn read_at(&self, index: u32) -> T::Output {
+    pub fn read_at(&self, index: T::Idx) -> T::Output {
         intrinsic!(|scope| { self.value.expand_index(scope, index) })
     }
 }

@@ -102,50 +102,50 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                 let tdims = vec![(16, 16, 16), (16, 16, 32)];
                 let types = vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16), // m / i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
+                        gpu::ElemType::Float(gpu::FloatKind::F16), // m / i
+                        gpu::ElemType::Float(gpu::FloatKind::F32), // n / o
+                        gpu::ElemType::Float(gpu::FloatKind::F32), // k / c
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F32),
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16),
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F32),
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::F32),
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16),
                     ),
                 ];
                 types
                     .into_iter()
                     .map(|(i, o, c)| {
                         let dimensions = tdims.clone();
-                        (i, o, c, dimensions)
+                        (i.into(), o.into(), c.into(), dimensions)
                     })
                     .collect()
             }
             AMDArchitecture::GFX908 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // m / i
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // n / o
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),
@@ -160,9 +160,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -172,9 +172,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -184,9 +184,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -196,23 +196,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        vec![
-                            (16, 16, 8),
-                            (16, 16, 16),
-                            (16, 16, 32),
-                            (32, 32, 4),
-                            (32, 32, 8),
-                            (32, 32, 16),
-                            (32, 32, 32),
-                        ],
-                    ),
-                    (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 8),
                             (16, 16, 16),
@@ -224,9 +210,23 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                        vec![
+                            (16, 16, 8),
+                            (16, 16, 16),
+                            (16, 16, 32),
+                            (32, 32, 4),
+                            (32, 32, 8),
+                            (32, 32, 16),
+                            (32, 32, 32),
+                        ],
+                    ),
+                    (
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                         vec![
                             (16, 16, 8),
                             (16, 16, 16),
@@ -242,9 +242,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
             AMDArchitecture::GFX90A | AMDArchitecture::GFX94 => {
                 vec![
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F32), // m / i
-                        gpu::Elem::Float(gpu::FloatKind::F32), // n / o
-                        gpu::Elem::Float(gpu::FloatKind::F32), // k / c
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // m / i
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // n / o
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(), // k / c
                         vec![
                             //m  n   k
                             (16, 16, 4),
@@ -259,9 +259,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -271,9 +271,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -283,9 +283,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
-                        gpu::Elem::Float(gpu::FloatKind::F16),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -295,9 +295,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -307,9 +307,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::F32),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),
@@ -319,9 +319,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for RocWmmaCompiler {
                         ],
                     ),
                     (
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
-                        gpu::Elem::Float(gpu::FloatKind::BF16),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                        gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                         vec![
                             (16, 16, 16),
                             (16, 16, 32),

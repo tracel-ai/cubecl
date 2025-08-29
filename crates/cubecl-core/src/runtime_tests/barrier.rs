@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 
 #[cube(launch)]
 pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::<F>::new(BarrierLevel::unit());
+    let barrier = Barrier::new(BarrierLevel::unit());
     let mut smem = SharedMemory::<F>::new_lined(1u32, 1u32);
 
     let source = input.slice(2, 3);
@@ -47,7 +47,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
 fn one_load<F: Float>(lhs: &Tensor<Line<F>>, output: &mut Tensor<Line<F>>) {
     let mut lhs_smem = SharedMemory::<F>::new_lined(4u32, 1u32);
 
-    let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
+    let barrier = Barrier::new(BarrierLevel::cube_manual(0u32));
     sync_cube();
 
     // Can't use lhs.to_slice() because then generated input_length will not exist
@@ -72,7 +72,7 @@ fn two_loads<F: Float>(
     let mut lhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
     let mut rhs_smem = SharedMemory::<F>::new_lined(num_data, 1u32);
 
-    let barrier = Barrier::<F>::new(BarrierLevel::cube_manual(0u32));
+    let barrier = Barrier::new(BarrierLevel::cube_manual(0u32));
     sync_cube();
 
     let start = UNIT_POS_X * num_data / 2;

@@ -5,10 +5,12 @@ use std::{
 
 use alloc::collections::BTreeMap;
 
-use cubecl_ir::{ExpandElement, Scope, TargetProperties, Variable, VariableKind};
+use cubecl_ir::{
+    ExpandElement, Scope, SemanticType, StorageType, TargetProperties, Variable, VariableKind,
+};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
-use crate::ir::{Elem, Id, Item};
+use crate::ir::{Id, Type};
 use crate::prelude::KernelDefinition;
 use crate::{BufferInfo, KernelSettings, ScalarInfo};
 use crate::{KernelExpansion, KernelIntegrator};
@@ -20,7 +22,7 @@ pub struct KernelBuilder {
     /// Cube [scope](Scope).
     pub scope: Scope,
     buffers: Vec<BufferInfo>,
-    scalars: BTreeMap<Elem, usize>,
+    scalars: BTreeMap<StorageType, usize>,
     tensor_maps: Vec<Id>,
 }
 
@@ -28,9 +30,9 @@ static DEBUG: AtomicI8 = AtomicI8::new(-1);
 
 impl KernelBuilder {
     /// Register a scalar and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn scalar(&mut self, elem: Elem) -> ExpandElement {
-        let id = self.scalars.entry(elem).or_default();
-        let expand = self.scope.scalar(*id as Id, elem);
+    pub fn scalar(&mut self, storage: StorageType) -> ExpandElement {
+        let id = self.scalars.entry(storage).or_default();
+        let expand = self.scope.scalar(*id as Id, storage);
         *id += 1;
         expand
     }
@@ -40,7 +42,7 @@ impl KernelBuilder {
     }
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_tensor(&mut self, item: Item) -> ExpandElement {
+    pub fn output_tensor(&mut self, item: Type) -> ExpandElement {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -57,12 +59,12 @@ impl KernelBuilder {
         self.tensor_maps.push(id);
         ExpandElement::Plain(Variable::new(
             VariableKind::TensorMap(id),
-            Item::new(Elem::Bool),
+            Type::semantic(SemanticType::TensorMap),
         ))
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_tensor(&mut self, item: Item) -> ExpandElement {
+    pub fn input_tensor(&mut self, item: Type) -> ExpandElement {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -74,7 +76,7 @@ impl KernelBuilder {
     }
 
     /// Register an output array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn output_array(&mut self, item: Item) -> ExpandElement {
+    pub fn output_array(&mut self, item: Type) -> ExpandElement {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -97,7 +99,7 @@ impl KernelBuilder {
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn input_array(&mut self, item: Item) -> ExpandElement {
+    pub fn input_array(&mut self, item: Type) -> ExpandElement {
         let id = self.buffer_id();
         self.buffers.push(BufferInfo {
             id,
@@ -117,7 +119,7 @@ impl KernelBuilder {
         let scalars = self
             .scalars
             .into_iter()
-            .map(|(elem, count)| ScalarInfo { elem, count })
+            .map(|(ty, count)| ScalarInfo { ty, count })
             .collect();
         KernelIntegrator::new(KernelExpansion {
             scope: self.scope,

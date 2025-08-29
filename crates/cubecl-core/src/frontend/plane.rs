@@ -3,7 +3,7 @@ use cubecl_ir::ExpandElement;
 use super::{CubePrimitive, Line};
 use crate::prelude::ExpandElementTyped;
 use crate::{
-    ir::{Elem, Instruction, Item, Plane, Scope, UnaryOperator},
+    ir::{ElemType, Instruction, Plane, Scope, Type, UnaryOperator},
     unexpanded,
 };
 
@@ -19,7 +19,7 @@ pub mod plane_elect {
 
     /// Expand method of [plane_elect()].
     pub fn expand(scope: &mut Scope) -> ExpandElementTyped<bool> {
-        let output = scope.create_local(Item::new(Elem::Bool));
+        let output = scope.create_local(Type::scalar(ElemType::Bool));
         let out = *output;
 
         scope.register(Instruction::new(Plane::Elect, out));
@@ -46,7 +46,7 @@ pub mod plane_broadcast {
         value: ExpandElementTyped<E>,
         id: ExpandElementTyped<u32>,
     ) -> ExpandElementTyped<E> {
-        let output = scope.create_local(value.expand.item);
+        let output = scope.create_local(value.expand.ty);
         let out = *output;
         let lhs = *value.expand;
         let rhs = *id.expand;
@@ -76,7 +76,7 @@ pub mod plane_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -108,7 +108,7 @@ pub mod plane_inclusive_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -144,7 +144,7 @@ pub mod plane_exclusive_sum {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -173,7 +173,7 @@ pub mod plane_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -205,7 +205,7 @@ pub mod plane_inclusive_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -241,7 +241,7 @@ pub mod plane_exclusive_prod {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -270,7 +270,7 @@ pub mod plane_max {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -296,7 +296,7 @@ pub mod plane_min {
         elem: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<E> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -320,7 +320,7 @@ pub mod plane_all {
     /// Expand method of [plane_all()].
     pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -344,7 +344,7 @@ pub mod plane_any {
     /// Expand method of [plane_any()].
     pub fn expand(scope: &mut Scope, elem: ExpandElementTyped<bool>) -> ExpandElementTyped<bool> {
         let elem: ExpandElement = elem.into();
-        let output = scope.create_local(elem.item);
+        let output = scope.create_local(elem.ty);
 
         let out = *output;
         let input = *elem;
@@ -366,9 +366,6 @@ pub fn plane_ballot(_elem: bool) -> Line<u32> {
 
 /// Module containing the expand function for [plane_ballot()].
 pub mod plane_ballot {
-
-    use std::num::NonZero;
-
     use cubecl_ir::UIntKind;
 
     use super::*;
@@ -379,7 +376,7 @@ pub mod plane_ballot {
         elem: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<Line<u32>> {
         let elem: ExpandElement = elem.into();
-        let out_item = Item::vectorized(Elem::UInt(UIntKind::U32), NonZero::new(4));
+        let out_item = Type::scalar(ElemType::UInt(UIntKind::U32)).line(4);
         let output = scope.create_local(out_item);
 
         let out = *output;

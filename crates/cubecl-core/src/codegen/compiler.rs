@@ -1,6 +1,6 @@
 use cubecl_common::ExecutionMode;
 
-use crate::{compute::KernelDefinition, ir::Elem};
+use crate::{compute::KernelDefinition, ir::ElemType};
 
 /// Compiles the representation into its own representation that can be formatted into tokens.
 pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
@@ -16,7 +16,7 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
         mode: ExecutionMode,
     ) -> Self::Representation;
     /// The size of the given element in bytes.
-    fn elem_size(&self, elem: Elem) -> usize;
+    fn elem_size(&self, elem: ElemType) -> usize;
 
     /// The default extension for the runtime's kernel/shader code.
     /// Might change based on which compiler is used.

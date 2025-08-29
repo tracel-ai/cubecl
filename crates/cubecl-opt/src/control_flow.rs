@@ -4,8 +4,8 @@ use std::mem::transmute;
 
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, Elem, If, IfElse,
-    Instruction, Item, Loop, Operation, RangeLoop, Switch, Variable, VariableKind,
+    Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, ElemType, If, IfElse,
+    Instruction, Loop, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
 };
 use petgraph::visit::EdgeRef;
 
@@ -259,7 +259,7 @@ impl Optimizer {
             _ => unreachable!(),
         };
         let i = range_loop.i;
-        self.program.variables.insert(i_id, i.item);
+        self.program.variables.insert(i_id, i.ty);
 
         let assign = Instruction::new(Operation::Copy(range_loop.start), i);
         self.current_block_mut().ops.borrow_mut().push(assign);
@@ -303,13 +303,13 @@ impl Optimizer {
         self.current_block = Some(next);
 
         // For loop constructs
-        self.insert_phi(header, i_id, range_loop.start.item);
+        self.insert_phi(header, i_id, range_loop.start.ty);
         {
             let op = match range_loop.inclusive {
                 true => Comparison::LowerEqual,
                 false => Comparison::Lower,
             };
-            let tmp = *self.allocator.create_local(Item::new(Elem::Bool));
+            let tmp = *self.allocator.create_local(Type::scalar(ElemType::Bool));
             self.program[header].ops.borrow_mut().push(Instruction::new(
                 op(BinaryOperator {
                     lhs: i,

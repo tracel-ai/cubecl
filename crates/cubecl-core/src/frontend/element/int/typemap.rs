@@ -1,6 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::*;
-use cubecl_ir::{Elem, ExpandElement, IntKind, Scope, Variable};
+use cubecl_ir::{ElemType, ExpandElement, IntKind, Scope, StorageType, Variable};
 use derive_more::derive::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
     DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
@@ -142,8 +142,8 @@ impl<const POS: u8> CubeType for IntExpand<POS> {
 
 impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(scope: &Scope) -> Elem {
-        scope.resolve_elem::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> StorageType {
+        scope.resolve_type::<Self>().expect("Type to be registered")
     }
 }
 
@@ -155,7 +155,7 @@ impl<const POS: u8> From<IntExpand<POS>> for Variable {
                 val.0,
                 cubecl_ir::IntKind::I32,
             )),
-            crate::ir::Item::new(Elem::Int(IntKind::I64)),
+            crate::ir::Type::scalar(ElemType::Int(IntKind::I64)),
         )
     }
 }
@@ -215,7 +215,7 @@ impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(IntExpand::<POS>::as_elem(&builder.scope))
+            .scalar(IntExpand::<POS>::as_type(&builder.scope))
             .into()
     }
 }

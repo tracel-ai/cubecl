@@ -33,7 +33,7 @@ pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Cl
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
 pub trait AsyncLoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
     /// Execute the `task_id`th loading task
-    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<IP::Global>,

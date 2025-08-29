@@ -12,7 +12,7 @@ use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::layout::{Coords3d, TensorView},
+    tensor::{View, layout::Coords3d},
 };
 
 #[cube]
@@ -41,7 +41,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncFullLoader<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
@@ -58,7 +58,7 @@ pub struct AsyncFullLoader<
 #[cube]
 impl<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
@@ -66,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        view: TensorView<IP::Global, Coords3d>,
+        view: View<IP::Global, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

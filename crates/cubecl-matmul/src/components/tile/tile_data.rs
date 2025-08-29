@@ -66,14 +66,10 @@ impl<ES: Numeric> Tile<ES> {
     /// Returns:
     /// - The unlined slice
     /// - The updated stride to account for line width removal
-    pub fn as_unlined<T: TileConfig>(
-        &self,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: T,
-    ) -> (Slice<ES>, u32) {
+    pub fn as_unlined(&self, #[comptime] stage_line_size: u32) -> (Slice<ES>, u32) {
         (
             self.slice.try_cast_unchecked(),
-            self.stride * config.stage_line_size(ident),
+            self.stride * stage_line_size,
         )
     }
 

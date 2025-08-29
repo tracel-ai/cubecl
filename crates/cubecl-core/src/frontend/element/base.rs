@@ -275,13 +275,14 @@ impl<T: CubeType> CubeDebug for ExpandElementTyped<T> {
 }
 
 impl<T: CubeType> ExpandElementTyped<T> {
+    /// Comptime version of [size](Array::line_size).
+    pub fn line_size(&self) -> u32 {
+        self.expand.ty.line_size()
+    }
+
     // Expanded version of vectorization factor.
-    pub fn __expand_vectorization_factor_method(self, _scope: &mut Scope) -> u32 {
-        self.expand
-            .item
-            .vectorization
-            .map(|it| it.get())
-            .unwrap_or(1) as u32
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+        self.expand.ty.line_size()
     }
 
     pub fn into_variable(self) -> Variable {
@@ -317,7 +318,7 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
     /// Create an [ExpandElementTyped] from a value that is normally a literal.
     pub fn from_lit<L: Into<Variable>>(scope: &Scope, lit: L) -> Self {
         let variable: Variable = lit.into();
-        let variable = T::as_elem(scope).from_constant(variable);
+        let variable = T::as_type(scope).from_constant(variable);
 
         ExpandElementTyped::new(ExpandElement::Plain(variable))
     }
@@ -404,7 +405,7 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 ) -> ExpandElementTyped<Out> {
     let input: ExpandElementTyped<C> = val.into();
     let const_val = input.expand.as_const().unwrap();
-    let var = Variable::constant(const_val.cast_to(Out::as_elem(scope)));
+    let var = Variable::constant(const_val.cast_to(Out::as_type(scope)));
     ExpandElement::Plain(var).into()
 }
 

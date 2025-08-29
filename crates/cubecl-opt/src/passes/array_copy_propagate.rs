@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{Id, Instruction, Item, Operation, Operator, Variable, VariableKind};
+use cubecl_ir::{Id, Instruction, Operation, Operator, Type, Variable, VariableKind};
 
 use crate::{AtomicCounter, Optimizer, analyses::writes::Writes};
 
@@ -38,7 +38,7 @@ impl OptimizerPass for CopyPropagateArray {
                 .collect::<Vec<_>>();
             for var in &vars {
                 let local_id = opt.local_variable_id(var).unwrap();
-                opt.program.variables.insert(local_id, var.item);
+                opt.program.variables.insert(local_id, var.ty);
             }
             replace_const_arrays(opt, arr_id, &vars);
             changes.inc();
@@ -50,7 +50,7 @@ impl OptimizerPass for CopyPropagateArray {
 struct Array {
     id: Id,
     length: u32,
-    item: Item,
+    item: Type,
 }
 
 fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
@@ -68,7 +68,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                         unroll_factor,
                     } = index.list.kind
                     {
-                        let item = index.list.item;
+                        let item = index.list.ty;
                         arrays.insert(
                             id,
                             Array {
@@ -90,7 +90,7 @@ fn find_const_arrays(opt: &mut Optimizer) -> Vec<Array> {
                         unroll_factor,
                     } = op.out().kind
                     {
-                        let item = op.out().item;
+                        let item = op.out().ty;
                         arrays.insert(
                             id,
                             Array {

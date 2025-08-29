@@ -20,7 +20,7 @@ impl Processor for CudaMmaProcessor {
                 Operation::CoopMma(CoopMma::RowIndex { lane_id, i, matrix }) => {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
-                    let elems_per_reg = 32 / matrix.elem.size_bits();
+                    let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let mut scope = Scope::root(false).with_allocator(allocator.clone());
                     let row_idx: ExpandElement = row_index::expand(
                         &mut scope,
@@ -46,7 +46,7 @@ impl Processor for CudaMmaProcessor {
                 Operation::CoopMma(CoopMma::ColIndex { lane_id, i, matrix }) => {
                     let lane_id = ExpandElement::Plain(lane_id);
                     let i = ExpandElement::Plain(i);
-                    let elems_per_reg = 32 / matrix.elem.size_bits();
+                    let elems_per_reg = 32 / matrix.storage.elem_type().size_bits();
                     let mut scope = Scope::root(false).with_allocator(allocator.clone());
                     let col_idx: ExpandElement = col_index::expand(
                         &mut scope,
