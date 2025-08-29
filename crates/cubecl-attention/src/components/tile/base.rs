@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
-use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::tensor::{View, layout::Coords3d, };
 
 use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{

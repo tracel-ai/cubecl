@@ -15,7 +15,7 @@ use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::tensor::{layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::tensor::{layout::Coords3d, };
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;

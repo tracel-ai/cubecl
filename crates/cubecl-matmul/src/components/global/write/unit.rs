@@ -2,7 +2,7 @@ use crate::components::global::memory::TensorWriter;
 use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::tensor::{View, layout::Coords3d, };
 
 use super::GlobalWriter;
 

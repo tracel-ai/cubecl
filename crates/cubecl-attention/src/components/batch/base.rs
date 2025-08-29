@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{tensor::r#virtual::ReadWrite, tensor::r#virtual::VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,

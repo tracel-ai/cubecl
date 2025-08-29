@@ -19,7 +19,7 @@ use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::tensor::{layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::tensor::{layout::Coords3d, };
 
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using asynchronous loading

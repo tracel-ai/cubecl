@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{global::memory::TensorWriter, stage::StageMemoryConfig as _};
 use cubecl_std::{
     div_ceil,
-    tensor::{View, layout::Coords3d, r#virtual::ReadWrite},
+    tensor::{View, layout::Coords3d, },
 };
 
 use crate::components::{FlashIdent, global::GlobalAttentionConfig};
