@@ -1,6 +1,7 @@
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::{DriverError, sys::CUstream};
+use feat_hijekt::hijekt;
 use std::collections::HashMap;
 
 use super::uninit_vec;
@@ -76,6 +77,7 @@ impl CudaStorage {
 }
 
 /// The memory resource that can be allocated for CUDA.
+#[hijekt(feat = "nccl", add("stream: cudarc::driver::sys::CUstream"))]
 #[derive(new, Debug)]
 pub struct CudaResource {
     /// The wgpu buffer.
@@ -119,12 +121,23 @@ impl ComputeStorage for CudaStorage {
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        CudaResource::new(
+        #[cfg(not(feature = "nccl"))]
+        let res = CudaResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
             offset,
             size,
-        )
+        );
+
+        #[cfg(feature = "nccl")]
+        let res = CudaResource::new(
+            *ptr,
+            ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
+            offset,
+            size,
+            self.stream,
+        );
+        res
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
