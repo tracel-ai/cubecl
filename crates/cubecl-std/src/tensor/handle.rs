@@ -158,7 +158,7 @@ where
         let rank = shape.len();
         let output = Self::empty(client, shape);
 
-        let vectorization_factor = tensor_line_size_parallel(
+        let line_size = tensor_line_size_parallel(
             R::supported_line_sizes().iter().cloned(),
             &output.shape,
             &output.strides,
@@ -166,8 +166,7 @@ where
         );
 
         let cube_dim = CubeDim::default();
-        let cube_count =
-            calculate_cube_count_elemwise(num_elements / vectorization_factor as usize, cube_dim);
+        let cube_count = calculate_cube_count_elemwise(num_elements / line_size as usize, cube_dim);
         let array_len = output.handle.size() as usize / size_of::<E>();
 
         unsafe {
@@ -175,7 +174,7 @@ where
                 client,
                 cube_count,
                 cube_dim,
-                ArrayArg::from_raw_parts::<E>(&output.handle, array_len, vectorization_factor),
+                ArrayArg::from_raw_parts::<E>(&output.handle, array_len, line_size),
             )
         };
 
