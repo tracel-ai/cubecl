@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use cubecl_core::{LineSizeError, Runtime, ir::Elem, tensor_line_size_parallel};
+use cubecl_core::{LineSizeError, Runtime, ir::StorageType, tensor_line_size_parallel};
 
 use crate::components::{AttentionSetupError, FlashIdent};
 
@@ -29,10 +29,14 @@ pub struct AvailableLineSizes {
 }
 
 impl AvailableLineSizes {
-    pub fn from_elem_types<R: Runtime>(elem_in: &Elem, elem_mask: &Elem, elem_out: &Elem) -> Self {
-        let in_available: Vec<u8> = R::line_size_elem(elem_in).collect();
-        let mask_available: Vec<u8> = R::line_size_elem(elem_mask).collect();
-        let out_available = R::line_size_elem(elem_out).collect();
+    pub fn from_elem_types<R: Runtime>(
+        elem_in: &StorageType,
+        elem_mask: &StorageType,
+        elem_out: &StorageType,
+    ) -> Self {
+        let in_available: Vec<u8> = R::line_size_type(elem_in).collect();
+        let mask_available: Vec<u8> = R::line_size_type(elem_mask).collect();
+        let out_available = R::line_size_type(elem_out).collect();
 
         AvailableLineSizes {
             query: in_available.clone(),

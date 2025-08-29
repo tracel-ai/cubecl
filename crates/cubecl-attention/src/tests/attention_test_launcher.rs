@@ -47,9 +47,9 @@ pub fn test_attention_algorithm<A, P, R>(
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &P::EG::as_elem_native_unchecked(),
-        &P::EM::as_elem_native_unchecked(),
-        &P::EG::as_elem_native_unchecked(),
+        &P::EG::as_type_native_unchecked(),
+        &P::EM::as_type_native_unchecked(),
+        &P::EG::as_type_native_unchecked(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes

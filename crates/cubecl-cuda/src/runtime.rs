@@ -7,7 +7,10 @@ use crate::{
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
-    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
+    ir::{
+        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
+        UIntKind,
+    },
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
@@ -230,12 +233,16 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    device_props.register_feature(Feature::Type(Elem::Float(FloatKind::TF32)));
+    device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::TF32).into()));
     if arch_version >= 60 {
-        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F64)));
+        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
+            FloatKind::F64,
+        ))));
     }
     if arch_version >= 70 {
-        device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
+        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
+            FloatKind::F16,
+        ))));
         device_props.register_feature(Feature::Pipeline);
         device_props.register_feature(Feature::Barrier);
         device_props.register_feature(Feature::SyncPlane);
@@ -249,8 +256,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // }
 
     if arch_version >= 89 {
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E4M3)));
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E5M2)));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E4M3).into()));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E5M2).into()));
     }
     if arch_version >= 90 {
         device_props.register_feature(Feature::Tma(TmaFeature::Base));
@@ -266,18 +273,26 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // major version. Try to keep this up to date with new arch major revisions if they also
     // implement it.
     if arch_major == 10 || arch_major == 12 {
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E2M1)));
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E2M3)));
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::E3M2)));
-        device_props.register_feature(Feature::Type(Elem::Float(FloatKind::UE8M0)));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M1).into()));
+        device_props.register_feature(Feature::Type(StorageType::Packed(
+            ElemType::Float(FloatKind::E2M1),
+            2,
+        )));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M3).into()));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E3M2).into()));
+        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::UE8M0).into()));
     }
 
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     // Supported by all architectures
-    device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
-    device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
+        IntKind::I32,
+    ))));
+    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
+        UIntKind::U32,
+    ))));
     device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
     device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));

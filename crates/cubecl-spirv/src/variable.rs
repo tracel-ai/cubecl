@@ -153,7 +153,7 @@ impl ConstVal {
 
 impl From<ConstantScalarValue> for ConstVal {
     fn from(value: ConstantScalarValue) -> Self {
-        let width = value.elem().size() as u32 * 8;
+        let width = value.elem_type().size() as u32 * 8;
         match value {
             ConstantScalarValue::Int(val, _) => ConstVal::from_int(val, width),
             ConstantScalarValue::Float(_, FloatKind::BF16) => {
@@ -319,10 +319,10 @@ pub enum IndexedVariable {
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_variable(&mut self, variable: ir::Variable) -> Variable {
-        let item = variable.item;
+        let item = variable.ty;
         match variable.kind {
             ir::VariableKind::ConstantScalar(value) => {
-                let item = self.compile_item(ir::Item::new(value.elem()));
+                let item = self.compile_type(ir::Type::new(value.storage_type()));
                 let const_val = value.into();
 
                 if let Some(existing) = self.state.constants.get(&(const_val, item.clone())) {
@@ -335,30 +335,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             ir::VariableKind::GlobalInputArray(pos) => {
                 let id = self.state.buffers[pos as usize];
-                Variable::GlobalInputArray(id, self.compile_item(item), pos)
+                Variable::GlobalInputArray(id, self.compile_type(item), pos)
             }
             ir::VariableKind::GlobalOutputArray(pos) => {
                 let id = self.state.buffers[pos as usize];
-                Variable::GlobalOutputArray(id, self.compile_item(item), pos)
+                Variable::GlobalOutputArray(id, self.compile_type(item), pos)
             }
-            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.elem),
+            ir::VariableKind::GlobalScalar(id) => self.global_scalar(id, item.storage_type()),
             ir::VariableKind::LocalMut { id } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 let var = self.get_local(id, &item, variable);
                 Variable::Local { id: var, item }
             }
             ir::VariableKind::Versioned { id, version } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 let id = (id, version);
                 Variable::Versioned { id, item, variable }
             }
             ir::VariableKind::LocalConst { id } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 Variable::LocalBinding { id, item, variable }
             }
             ir::VariableKind::Builtin(builtin) => self.compile_builtin(builtin),
             ir::VariableKind::ConstantArray { id, length, .. } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
@@ -368,7 +368,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 unroll_factor,
                 alignment,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 let id = if let Some(arr) = self.state.shared_memories.get(&id) {
                     arr.id
                 } else {
@@ -390,7 +390,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 length,
                 unroll_factor,
             } => {
-                let item = self.compile_item(item);
+                let item = self.compile_type(item);
                 let id = if let Some(arr) = self.state.local_arrays.get(&id) {
                     arr.id
                 } else {
@@ -411,7 +411,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Variable::LocalArray(id, item, length)
             }
             ir::VariableKind::Matrix { id, mat } => {
-                let elem = self.compile_item(ir::Item::new(mat.elem)).elem();
+                let elem = self.compile_type(ir::Type::new(mat.storage)).elem();
                 if self.state.matrices.contains_key(&id) {
                     Variable::CoopMatrix(id, elem)
                 } else {

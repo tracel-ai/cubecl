@@ -4,9 +4,9 @@ use core::cell::RefCell;
 use hashbrown::HashMap;
 use portable_atomic::{AtomicU32, Ordering};
 
-use crate::{BarrierLevel, Elem};
+use crate::{BarrierLevel, SemanticType};
 
-use super::{Item, Matrix, Variable, VariableKind};
+use super::{Matrix, Type, Variable, VariableKind};
 
 /// An allocator for local variables of a kernel.
 ///
@@ -30,7 +30,7 @@ use super::{Item, Matrix, Variable, VariableKind};
 #[derive(Clone, Debug, Default, TypeHash)]
 pub struct Allocator {
     #[cfg_attr(feature = "serde", serde(skip))]
-    local_mut_pool: Rc<RefCell<HashMap<Item, Vec<ExpandElement>>>>,
+    local_mut_pool: Rc<RefCell<HashMap<Type, Vec<ExpandElement>>>>,
     next_id: Rc<AtomicU32>,
 }
 
@@ -44,7 +44,7 @@ impl Eq for Allocator {}
 
 impl Allocator {
     /// Create a new immutable local variable of type specified by `item`.
-    pub fn create_local(&self, item: Item) -> ExpandElement {
+    pub fn create_local(&self, item: Type) -> ExpandElement {
         let id = self.new_local_index();
         let local = VariableKind::LocalConst { id };
         ExpandElement::Plain(Variable::new(local, item))
@@ -53,8 +53,8 @@ impl Allocator {
     /// Create a new mutable local variable of type specified by `item`.
     /// Try to reuse a previously defined but unused mutable variable if possible.
     /// Else, this define a new variable.
-    pub fn create_local_mut(&self, item: Item) -> ExpandElement {
-        if item.elem.is_atomic() {
+    pub fn create_local_mut(&self, item: Type) -> ExpandElement {
+        if item.is_atomic() {
             self.create_local_restricted(item)
         } else {
             self.reuse_local_mut(item)
@@ -63,13 +63,13 @@ impl Allocator {
     }
 
     /// Create a new mutable restricted local variable of type specified by `item`.
-    pub fn create_local_restricted(&self, item: Item) -> ExpandElement {
+    pub fn create_local_restricted(&self, item: Type) -> ExpandElement {
         let id = self.new_local_index();
         let local = VariableKind::LocalMut { id };
         ExpandElement::Plain(Variable::new(local, item))
     }
 
-    pub fn create_local_array(&self, item: Item, array_size: u32) -> ExpandElement {
+    pub fn create_local_array(&self, item: Type, array_size: u32) -> ExpandElement {
         let id = self.new_local_index();
         let local_array = Variable::new(
             VariableKind::LocalArray {
@@ -87,7 +87,7 @@ impl Allocator {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Matrix { id, mat: matrix },
-            Item::new(matrix.elem),
+            Type::new(matrix.storage),
         );
         ExpandElement::Plain(variable)
     }
@@ -96,7 +96,7 @@ impl Allocator {
         let id = self.new_local_index();
         let variable = Variable::new(
             VariableKind::Pipeline { id, num_stages },
-            Item::new(Elem::Bool),
+            SemanticType::Pipeline.into(),
         );
         ExpandElement::Plain(variable)
     }
@@ -104,12 +104,15 @@ impl Allocator {
     pub fn create_barrier(&self, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
         // Dummy elem for now, awaiting a rework to item to include non-native conceptual types
-        let variable = Variable::new(VariableKind::Barrier { id, level }, Item::new(Elem::Bool));
+        let variable = Variable::new(
+            VariableKind::Barrier { id, level },
+            SemanticType::Barrier.into(),
+        );
         ExpandElement::Plain(variable)
     }
 
     // Try to return a reusable mutable variable for the given `item` or `None` otherwise.
-    pub fn reuse_local_mut(&self, item: Item) -> Option<ExpandElement> {
+    pub fn reuse_local_mut(&self, item: Type) -> Option<ExpandElement> {
         // Among the candidates, take a variable if it's only referenced by the pool.
         // Arbitrarily takes the first it finds in reversed order.
         self.local_mut_pool.borrow().get(&item).and_then(|vars| {
@@ -121,7 +124,7 @@ impl Allocator {
     }
 
     /// Add a new variable to the pool with type specified by `item` for the given `scope`.
-    pub fn add_local_mut(&self, item: Item) -> Rc<Variable> {
+    pub fn add_local_mut(&self, item: Type) -> Rc<Variable> {
         let id = self.new_local_index();
         let local = Variable::new(VariableKind::LocalMut { id }, item);
         let var = Rc::new(local);

@@ -1,8 +1,8 @@
 use std::{collections::HashMap, mem::take};
 
 use cubecl_ir::{
-    Id, IndexAssignOperator, IndexOperator, Instruction, Item, LineInitOperator, Operation,
-    Operator, Variable, VariableKind,
+    Id, IndexAssignOperator, IndexOperator, Instruction, LineInitOperator, Operation, Operator,
+    Type, Variable, VariableKind,
 };
 use stable_vec::StableVec;
 
@@ -56,14 +56,14 @@ impl OptimizerPass for CompositeMerge {
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
                 {
-                    let item = op.out.unwrap().item;
+                    let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {
                         let index = index.as_u32();
-                        let vectorization = item.vectorization.map(|it| it.get()).unwrap_or(1);
-                        if vectorization > 1 {
+                        let line_size = item.line_size();
+                        if line_size > 1 {
                             let assigns = assigns.entry(id).or_default();
                             assigns.push((idx, index, value));
-                            if assigns.len() as u8 == vectorization {
+                            if assigns.len() as u32 == line_size {
                                 merge_assigns(
                                     &mut opt.program[block].ops.borrow_mut(),
                                     take(assigns),
@@ -90,7 +90,7 @@ fn merge_assigns(
     ops: &mut StableVec<Instruction>,
     mut assigns: Vec<(usize, u32, Variable)>,
     id: Id,
-    item: Item,
+    item: Type,
 ) {
     for assignment in assigns.iter() {
         ops.remove(assignment.0);
@@ -122,8 +122,8 @@ impl OptimizerPass for RemoveIndexScalar {
                     && let Some(index) = index.as_const()
                 {
                     let index = index.as_u32();
-                    let vectorization = list.item.vectorization.map(|it| it.get()).unwrap_or(1);
-                    if vectorization == 1 {
+                    let line_size = list.ty.line_size();
+                    if line_size == 1 {
                         assert_eq!(index, 0, "Can't index into scalar");
                         op.operation = Operation::Copy(*list);
                         changes.inc();

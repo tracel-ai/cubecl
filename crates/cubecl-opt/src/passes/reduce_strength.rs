@@ -1,7 +1,7 @@
 use std::mem::take;
 
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Bitwise, Elem, Instruction, Operation, UIntKind, Variable,
+    Arithmetic, BinaryOperator, Bitwise, ElemType, Instruction, Operation, UIntKind, Variable,
 };
 
 use crate::{AtomicCounter, Optimizer};
@@ -37,7 +37,9 @@ impl OptimizerPass for ReduceStrength {
                     }
                 };
                 match op {
-                    Arithmetic::Mul(op) if inst.item().elem() == Elem::UInt(UIntKind::U32) => {
+                    Arithmetic::Mul(op)
+                        if inst.ty().elem_type() == ElemType::UInt(UIntKind::U32) =>
+                    {
                         let (const_val, dyn_val) = match (op.lhs.as_const(), op.rhs.as_const()) {
                             (None, Some(val)) => (val.as_u32(), op.lhs),
                             (Some(val), None) => (val.as_u32(), op.rhs),
@@ -58,7 +60,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val + 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.item());
+                                let temp = *opt.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
@@ -76,7 +78,7 @@ impl OptimizerPass for ReduceStrength {
                                 changes.inc();
                             }
                             val if (val - 1).is_power_of_two() => {
-                                let temp = *opt.allocator.create_local(inst.item());
+                                let temp = *opt.allocator.create_local(inst.ty());
                                 new_ops.push(Instruction::new(
                                     Bitwise::ShiftLeft(BinaryOperator {
                                         lhs: dyn_val,
@@ -139,7 +141,7 @@ impl OptimizerPass for ReduceStrength {
 }
 
 fn is_pow2(var: Variable) -> bool {
-    var.item.elem() == Elem::UInt(UIntKind::U32)
+    var.ty.elem_type() == ElemType::UInt(UIntKind::U32)
         && var
             .as_const()
             .map(|it| it.as_u32().is_power_of_two())

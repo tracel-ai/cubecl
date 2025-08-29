@@ -3,7 +3,7 @@ use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     channel::MpscComputeChannel,
     client::ComputeClient,
-    ir::{Elem, TargetProperties},
+    ir::{StorageType, TargetProperties},
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
@@ -95,7 +95,7 @@ impl Runtime for CpuRuntime {
         &[64, 32, 16, 8, 4, 2, 1]
     }
 
-    fn line_size_elem(elem: &Elem) -> impl Iterator<Item = u8> + Clone {
+    fn line_size_type(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
         Self::supported_line_sizes()
             .iter()
             .filter(|v| **v as usize * elem.size() <= 64)

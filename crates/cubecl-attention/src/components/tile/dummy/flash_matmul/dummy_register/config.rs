@@ -170,8 +170,8 @@ impl DummyRegisterFlashMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: AP::EI::as_elem_native_unchecked()
-                == <AP::FlashPrecision as FlashPrecision>::Q::as_elem_native_unchecked(),
+            cast_query: AP::EI::as_type_native_unchecked()
+                == <AP::FlashPrecision as FlashPrecision>::Q::as_type_native_unchecked(),
         }
         .validate()
     }

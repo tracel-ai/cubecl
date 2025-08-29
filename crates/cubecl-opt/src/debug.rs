@@ -261,7 +261,6 @@ impl Display for Constant {
             Constant::Int(val, IntKind::I32) => write!(f, "{val}i32"),
             Constant::Int(val, IntKind::I64) => write!(f, "{val}i64"),
             Constant::Float(val, FloatKind::E2M1) => write!(f, "{}e2m1", val.0),
-            Constant::Float(val, FloatKind::E2M1x2) => write!(f, "{}e2m1x2", val.0),
             Constant::Float(val, FloatKind::E2M3) => write!(f, "{}e2m3", val.0),
             Constant::Float(val, FloatKind::E3M2) => write!(f, "{}e3m2", val.0),
             Constant::Float(val, FloatKind::E4M3) => write!(f, "{}e4m3", val.0),

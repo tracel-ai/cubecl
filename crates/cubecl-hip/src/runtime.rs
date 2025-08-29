@@ -12,7 +12,10 @@ use cubecl_cpp::{
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{Elem, FloatKind, IntKind, MatrixLayout, MmaProperties, TargetProperties, UIntKind},
+    ir::{
+        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
+        UIntKind,
+    },
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
@@ -161,7 +164,9 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     );
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP
-    device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F32)));
+    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
+        FloatKind::F32,
+    ))));
     // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
@@ -170,8 +175,12 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
 
     // Supported by all architectures
-    device_props.register_feature(Feature::Type(Elem::AtomicInt(IntKind::I32)));
-    device_props.register_feature(Feature::Type(Elem::AtomicUInt(UIntKind::U32)));
+    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
+        IntKind::I32,
+    ))));
+    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
+        UIntKind::U32,
+    ))));
     device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
     device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
     device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));

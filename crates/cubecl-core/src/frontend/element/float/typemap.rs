@@ -28,7 +28,7 @@ use num_traits::{Num, NumCast, One, ToPrimitive, Zero};
 use serde::Serialize;
 
 use crate::{
-    ir::{Elem, FloatKind, Scope, Variable},
+    ir::{ElemType, FloatKind, Scope, Variable},
     prelude::Numeric,
 };
 
@@ -181,8 +181,8 @@ impl<const POS: u8> CubeType for ElemExpand<POS> {
 
 impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
     /// Return the element type to use on GPU
-    fn as_elem(scope: &Scope) -> Elem {
-        scope.resolve_elem::<Self>().expect("Type to be registered")
+    fn as_type(scope: &Scope) -> StorageType {
+        scope.resolve_type::<Self>().expect("Type to be registered")
     }
 }
 
@@ -194,7 +194,7 @@ impl<const POS: u8> From<ElemExpand<POS>> for Variable {
                 val.0 as f64,
                 FloatKind::F32,
             )),
-            crate::ir::Item::new(Elem::Float(FloatKind::F32)),
+            crate::ir::Type::scalar(ElemType::Float(FloatKind::F32)),
         )
     }
 }
@@ -382,7 +382,7 @@ impl<const POS: u8> LaunchArgExpand for ElemExpand<POS> {
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         builder
-            .scalar(ElemExpand::<POS>::as_elem(&builder.scope))
+            .scalar(ElemExpand::<POS>::as_type(&builder.scope))
             .into()
     }
 }

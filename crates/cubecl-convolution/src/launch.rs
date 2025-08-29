@@ -176,10 +176,10 @@ where
     Input<Alg, MP>: ConcreteInputsFactory,
     Output<Alg, MP>: ConcreteOutputFactory,
 {
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &LhsG::<MP>::as_elem_native_unchecked(),
-        &RhsG::<MP>::as_elem_native_unchecked(),
-        &MP::EO::as_elem_native_unchecked(),
+    let line_sizes = AvailableLineSizes::from_types::<R>(
+        &LhsG::<MP>::as_type_native_unchecked(),
+        &RhsG::<MP>::as_type_native_unchecked(),
+        &MP::EO::as_type_native_unchecked(),
     )
     .filter_lhs_with_tensor(input.data().strides, input.data().shape, problem.lhs_layout)
     .filter_rhs_with_tensor(

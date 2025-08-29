@@ -61,17 +61,17 @@ where
         strides: &[usize],
     ) {
         let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_elem_native().expect("To be a native type"),
-            b: ES::as_elem_native().expect("To be a native type"),
-            c: EG::as_elem_native().expect("To be a native type"),
+            a: ES::as_type_native().expect("To be a native type"),
+            b: ES::as_type_native().expect("To be a native type"),
+            c: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 16,
             n: 16,
         });
         let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_elem_native().expect("To be a native type"),
-            b: ES::as_elem_native().expect("To be a native type"),
-            c: EG::as_elem_native().expect("To be a native type"),
+            a: ES::as_type_native().expect("To be a native type"),
+            b: ES::as_type_native().expect("To be a native type"),
+            c: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 8,
             n: 16,
@@ -434,12 +434,14 @@ where
                     // Step E: update numerator accumulator:
                     // acc = exp(m - m_new) * acc + Ptilde @ V_block
                     // First scale old accumulator by epm
+                    #[allow(clippy::needless_range_loop)]
                     for d in 0..head_dim {
                         acc_row[d] = epm * acc_row[d];
                     }
                     // Add Ptilde @ V_block
                     for (bj, j) in (k_block_start..k_block_end).enumerate() {
                         let p_val = p_tilde[bj];
+                        #[allow(clippy::needless_range_loop)]
                         for d in 0..head_dim {
                             let v_idx = b * value_strides[0]
                                 + j * value_strides[1]
@@ -466,6 +468,7 @@ where
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);
                 let denom = if l > eps { l } else { eps };
+                #[allow(clippy::needless_range_loop)]
                 for d in 0..head_dim {
                     let out_idx = out_base + d * out_strides[3];
                     out[out_idx] = (acc_row[d] / denom).cast_into();

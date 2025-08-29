@@ -1,8 +1,8 @@
-use cubecl_ir::{ExpandElement, Scope, UIntKind};
+use cubecl_ir::{ExpandElement, Scope, StorageType, UIntKind};
 
 use crate::Runtime;
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
-use crate::ir::Elem;
+use crate::ir::ElemType;
 use crate::prelude::{KernelBuilder, KernelLauncher};
 
 use super::{
@@ -17,8 +17,8 @@ macro_rules! declare_uint {
         }
 
         impl CubePrimitive for $primitive {
-            fn as_elem_native() -> Option<Elem> {
-                Some(Elem::UInt(UIntKind::$kind))
+            fn as_type_native() -> Option<StorageType> {
+                Some(ElemType::UInt(UIntKind::$kind).into())
             }
         }
 
@@ -48,7 +48,7 @@ macro_rules! declare_uint {
                 _: &Self::CompilationArg,
                 builder: &mut KernelBuilder,
             ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_elem(&builder.scope)).into()
+                builder.scalar($primitive::as_type(&builder.scope)).into()
             }
         }
 
