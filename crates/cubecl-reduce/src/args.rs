@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 use cubecl_std::tensor::r#virtual::{
-    ReadWrite, VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
+    VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
 };
 
 pub trait ReduceDType {

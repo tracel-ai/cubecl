@@ -13,7 +13,7 @@ use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 use std::marker::PhantomData;
 

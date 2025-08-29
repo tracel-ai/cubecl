@@ -7,7 +7,7 @@ use crate::components::batch::CubeCountInput;
 use crate::components::batch::base::BatchAttention;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 type Input<Args, EI> = <Args as AttentionArgs>::Input<EI>;
 type Output<Args, EO> = <Args as AttentionArgs>::Output<EO>;

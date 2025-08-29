@@ -10,7 +10,6 @@ use crate::tensor::{
         strided::{StridedLayout, StridedLayoutLaunch},
         virtual_layout,
     },
-    r#virtual::Read,
 };
 
 /// Maps a linear index based on line count to a potentially strided tensor. Only applies the
@@ -99,7 +98,7 @@ virtual_layout!(LinearLayout, LinearLayoutExpand);
 
 /// [TensorView] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
-pub type LinearView<E, IO = Read> = TypedView<E, LinearLayout, IO>;
+pub type LinearView<E, IO = ReadOnly> = TypedView<E, LinearLayout, IO>;
 /// Launch type for [LinearTensorView].
 pub type LinearViewLaunch<'a, R> = TypedViewLaunch<'a, LinearLayout, R>;
 
