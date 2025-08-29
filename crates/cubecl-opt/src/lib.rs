@@ -35,7 +35,7 @@ use std::{
 use analyses::{AnalysisCache, dominance::DomFrontiers, liveness::Liveness, writes::Writes};
 use cubecl_common::CubeDim;
 use cubecl_ir::{
-    self as core, Allocator, Branch, Id, Item, Operation, Operator, Processor, Scope, Variable,
+    self as core, Allocator, Branch, Id, Operation, Operator, Processor, Scope, Type, Variable,
     VariableKind,
 };
 use gvn::GvnPass;
@@ -99,14 +99,14 @@ impl AtomicCounter {
 pub struct ConstArray {
     pub id: Id,
     pub length: u32,
-    pub item: Item,
+    pub item: Type,
     pub values: Vec<core::Variable>,
 }
 
 #[derive(Default, Debug, Clone)]
 pub struct Program {
     pub const_arrays: Vec<ConstArray>,
-    pub variables: HashMap<Id, Item>,
+    pub variables: HashMap<Id, Type>,
     pub graph: StableDiGraph<BasicBlock, u32>,
     root: NodeIndex,
 }
@@ -351,7 +351,7 @@ impl Optimizer {
 
         for var in processed.variables {
             if let VariableKind::LocalMut { id } = var.kind {
-                self.program.variables.insert(id, var.item);
+                self.program.variables.insert(id, var.ty);
             }
         }
 
@@ -367,7 +367,7 @@ impl Optimizer {
             self.program.const_arrays.push(ConstArray {
                 id,
                 length: length * unroll_factor,
-                item: var.item,
+                item: var.ty,
                 values,
             });
         }
@@ -410,7 +410,7 @@ impl Optimizer {
     /// Gets the `id` and `depth` of the variable if it's a `Local` and not atomic, `None` otherwise.
     pub fn local_variable_id(&mut self, variable: &core::Variable) -> Option<Id> {
         match variable.kind {
-            core::VariableKind::LocalMut { id } if !variable.item.elem.is_atomic() => Some(id),
+            core::VariableKind::LocalMut { id } if !variable.ty.is_atomic() => Some(id),
             _ => None,
         }
     }
@@ -444,7 +444,7 @@ mod test {
     use cubecl_core as cubecl;
     use cubecl_core::cube;
     use cubecl_core::prelude::*;
-    use cubecl_ir::{Elem, ExpandElement, Item, UIntKind, Variable, VariableKind};
+    use cubecl_ir::{ElemType, ExpandElement, Type, UIntKind, Variable, VariableKind};
 
     use crate::Optimizer;
 
@@ -467,15 +467,15 @@ mod test {
         let mut ctx = Scope::root(false);
         let x = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(0),
-            Item::new(Elem::UInt(UIntKind::U32)),
+            Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
         let cond = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalScalar(1),
-            Item::new(Elem::UInt(UIntKind::U32)),
+            Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
         let arr = ExpandElement::Plain(Variable::new(
             VariableKind::GlobalOutputArray(0),
-            Item::new(Elem::UInt(UIntKind::U32)),
+            Type::scalar(ElemType::UInt(UIntKind::U32)),
         ));
 
         pre_kernel::expand(&mut ctx, x.into(), cond.into(), arr.into());

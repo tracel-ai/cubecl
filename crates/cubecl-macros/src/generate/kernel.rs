@@ -230,7 +230,7 @@ impl Launch {
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
         let io_map = self.io_mappings();
-        let register_type = self.analysis.register_elems();
+        let register_type = self.analysis.register_types();
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);

@@ -1,4 +1,4 @@
-use std::{marker::PhantomData, num::NonZero};
+use std::marker::PhantomData;
 
 use crate::{self as cubecl, prelude::expand_length_native};
 use cubecl_ir::ExpandElement;
@@ -6,7 +6,7 @@ use cubecl_macros::{cube, intrinsic};
 
 use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementTyped, IntoMut, indexation::Index},
-    ir::{Item, Scope},
+    ir::{Scope, Type},
     prelude::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
     },
@@ -39,17 +39,13 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn __expand_new_lined(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
-        vectorization_factor: u32,
+        line_size: u32,
     ) -> <SharedMemory<Line<T>> as CubeType>::ExpandType {
         let size = size
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(
-            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
-            size,
-            None,
-        );
+        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -60,17 +56,13 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     pub fn __expand_vectorized(
         scope: &mut Scope,
         size: ExpandElementTyped<u32>,
-        vectorization_factor: u32,
+        line_size: u32,
     ) -> <Self as CubeType>::ExpandType {
         let size = size
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(
-            Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
-            size,
-            None,
-        );
+        let var = scope.create_shared(Type::new(T::as_type(scope)).line(line_size), size, None);
         ExpandElementTyped::new(var)
     }
 
@@ -82,7 +74,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             .constant()
             .expect("Shared memory need constant initialization value")
             .as_u32();
-        let var = scope.create_shared(Item::new(T::as_elem(scope)), size, None);
+        let var = scope.create_shared(Type::new(T::as_type(scope)), size, None);
         ExpandElementTyped::new(var)
     }
 }
@@ -92,12 +84,12 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     #[allow(unused_variables)]
     pub fn new_aligned(
         #[comptime] size: u32,
-        #[comptime] vectorization_factor: u32,
+        #[comptime] line_size: u32,
         #[comptime] alignment: u32,
     ) -> SharedMemory<Line<T>> {
         intrinsic!(|scope| {
             let var = scope.create_shared(
-                Item::vectorized(T::as_elem(scope), NonZero::new(vectorization_factor as u8)),
+                Type::new(T::as_type(scope)).line(line_size),
                 size,
                 Some(alignment),
             );
@@ -126,7 +118,7 @@ mod indexation {
         #[allow(unused_variables)]
         pub unsafe fn index_unchecked(&self, i: u32) -> &E {
             intrinsic!(|scope| {
-                let out = scope.create_local(self.expand.item);
+                let out = scope.create_local(self.expand.ty);
                 scope.register(Instruction::new(
                     Operator::UncheckedIndex(IndexOperator {
                         list: *self.expand,
@@ -197,7 +189,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     }
 
     fn line_size(&self) -> u32 {
-        self.expand.item.vectorization() as u32
+        self.expand.ty.line_size()
     }
 }
 

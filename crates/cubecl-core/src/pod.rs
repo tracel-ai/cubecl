@@ -1,7 +1,8 @@
 use cubecl_common::{e2m1, e2m1x2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_ir::StorageType;
 
 use crate::{
-    ir::{Elem, FloatKind, IntKind, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
     prelude::Numeric,
 };
 
@@ -14,7 +15,7 @@ pub trait CubeElement: core::fmt::Debug + Send + Sync + 'static + Clone + bytemu
     /// Convert a slice of bytes to a slice of elements.
     fn from_bytes(bytes: &[u8]) -> &[Self];
     /// Element representation for `cubecl`.
-    fn cube_elem() -> Elem;
+    fn cube_type() -> StorageType;
     /// Highest possible value
     fn maximum_value() -> Self;
     /// Lowest possible value
@@ -31,8 +32,8 @@ impl CubeElement for u64 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::UInt(UIntKind::U64)
+    fn cube_type() -> StorageType {
+        ElemType::UInt(UIntKind::U64).into()
     }
     fn maximum_value() -> Self {
         u64::MAX
@@ -52,8 +53,8 @@ impl CubeElement for u32 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::UInt(UIntKind::U32)
+    fn cube_type() -> StorageType {
+        ElemType::UInt(UIntKind::U32).into()
     }
     fn maximum_value() -> Self {
         u32::MAX
@@ -73,8 +74,8 @@ impl CubeElement for u16 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::UInt(UIntKind::U16)
+    fn cube_type() -> StorageType {
+        ElemType::UInt(UIntKind::U16).into()
     }
     fn maximum_value() -> Self {
         u16::MAX
@@ -94,8 +95,8 @@ impl CubeElement for u8 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::UInt(UIntKind::U8)
+    fn cube_type() -> StorageType {
+        ElemType::UInt(UIntKind::U8).into()
     }
     fn maximum_value() -> Self {
         u8::MAX
@@ -115,8 +116,8 @@ impl CubeElement for i64 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Int(IntKind::I64)
+    fn cube_type() -> StorageType {
+        ElemType::Int(IntKind::I64).into()
     }
     fn maximum_value() -> Self {
         // Seems to cause problem for some GPU
@@ -138,8 +139,8 @@ impl CubeElement for i32 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Int(IntKind::I32)
+    fn cube_type() -> StorageType {
+        ElemType::Int(IntKind::I32).into()
     }
     fn maximum_value() -> Self {
         // Seems to cause problem for some GPU
@@ -161,8 +162,8 @@ impl CubeElement for i16 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Int(IntKind::I16)
+    fn cube_type() -> StorageType {
+        ElemType::Int(IntKind::I16).into()
     }
     fn maximum_value() -> Self {
         // Seems to cause problem for some GPU
@@ -184,8 +185,8 @@ impl CubeElement for i8 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Int(IntKind::I8)
+    fn cube_type() -> StorageType {
+        ElemType::Int(IntKind::I8).into()
     }
     fn maximum_value() -> Self {
         // Seems to cause problem for some GPU
@@ -207,8 +208,8 @@ impl CubeElement for f64 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::F64)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::F64).into()
     }
     fn maximum_value() -> Self {
         f64::MAX
@@ -228,8 +229,8 @@ impl CubeElement for f32 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::F32)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::F32).into()
     }
     fn maximum_value() -> Self {
         f32::MAX
@@ -249,8 +250,8 @@ impl CubeElement for half::f16 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::F16)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::F16).into()
     }
     fn maximum_value() -> Self {
         half::f16::MAX
@@ -270,8 +271,8 @@ impl CubeElement for half::bf16 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::BF16)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::BF16).into()
     }
     fn maximum_value() -> Self {
         half::bf16::MAX
@@ -291,8 +292,8 @@ impl CubeElement for flex32 {
     fn from_bytes(bytes: &[u8]) -> &[Self] {
         bytemuck::cast_slice(bytes)
     }
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::Flex32)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::Flex32).into()
     }
     fn maximum_value() -> Self {
         <flex32 as num_traits::Float>::max_value()
@@ -315,8 +316,8 @@ impl CubeElement for tf32 {
         bytemuck::cast_slice(bytes)
     }
 
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::TF32)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::TF32).into()
     }
 
     fn maximum_value() -> Self {
@@ -341,8 +342,8 @@ impl CubeElement for e4m3 {
         bytemuck::cast_slice(bytes)
     }
 
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::E4M3)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::E4M3).into()
     }
 
     fn maximum_value() -> Self {
@@ -367,8 +368,8 @@ impl CubeElement for e5m2 {
         bytemuck::cast_slice(bytes)
     }
 
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::E5M2)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::E5M2).into()
     }
 
     fn maximum_value() -> Self {
@@ -393,8 +394,8 @@ impl CubeElement for ue8m0 {
         bytemuck::cast_slice(bytes)
     }
 
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::UE8M0)
+    fn cube_type() -> StorageType {
+        ElemType::Float(FloatKind::UE8M0).into()
     }
 
     fn maximum_value() -> Self {
@@ -419,8 +420,8 @@ impl CubeElement for e2m1x2 {
         bytemuck::cast_slice(bytes)
     }
 
-    fn cube_elem() -> Elem {
-        Elem::Float(FloatKind::E2M1x2)
+    fn cube_type() -> StorageType {
+        StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2)
     }
 
     fn maximum_value() -> Self {

@@ -15,7 +15,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
-use cubecl_ir::Elem;
+use cubecl_ir::StorageType;
 use thiserror::Error;
 
 #[derive(Debug, Clone)]
@@ -239,7 +239,7 @@ pub struct Bindings {
     /// Ordered by inputs, then outputs, then tensormaps
     pub metadata: MetadataBinding,
     /// Scalar bindings
-    pub scalars: BTreeMap<Elem, ScalarBinding>,
+    pub scalars: BTreeMap<StorageType, ScalarBinding>,
     /// Tensor map bindings
     pub tensor_maps: Vec<TensorMapBinding>,
 }
@@ -263,16 +263,16 @@ impl Bindings {
     }
 
     /// Add a scalar parameter
-    pub fn with_scalar(mut self, elem: Elem, length: usize, data: Vec<u64>) -> Self {
+    pub fn with_scalar(mut self, ty: StorageType, length: usize, data: Vec<u64>) -> Self {
         self.scalars
-            .insert(elem, ScalarBinding::new(elem, length, data));
+            .insert(ty, ScalarBinding::new(ty, length, data));
         self
     }
 
     /// Extend the scalars with `bindings`
     pub fn with_scalars(mut self, bindings: Vec<ScalarBinding>) -> Self {
         self.scalars
-            .extend(bindings.into_iter().map(|binding| (binding.elem, binding)));
+            .extend(bindings.into_iter().map(|binding| (binding.ty, binding)));
         self
     }
 
@@ -302,7 +302,7 @@ pub struct MetadataBinding {
 #[derive(new, Debug, Clone)]
 pub struct ScalarBinding {
     /// Type of the scalars
-    pub elem: Elem,
+    pub ty: StorageType,
     /// Unpadded length of the underlying data
     pub length: usize,
     /// Type-erased data of the scalars. Padded and represented by u64 to prevent misalignment.
@@ -380,8 +380,8 @@ pub struct TensorMapMeta {
     pub prefetch: TensorMapPrefetch,
     /// OOB fill value
     pub oob_fill: OobFill,
-    /// Element type
-    pub elem: Elem,
+    /// Storage type
+    pub storage_ty: StorageType,
 }
 
 impl Handle {

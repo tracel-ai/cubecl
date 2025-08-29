@@ -95,7 +95,7 @@ impl Compiler for AutoCompiler {
         }
     }
 
-    fn elem_size(&self, elem: cubecl_core::ir::Elem) -> usize {
+    fn elem_size(&self, elem: cubecl_core::ir::ElemType) -> usize {
         match self {
             AutoCompiler::Wgsl(wgsl_compiler) => wgsl_compiler.elem_size(elem),
             #[cfg(feature = "spirv")]

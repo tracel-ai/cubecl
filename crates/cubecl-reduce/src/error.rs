@@ -1,6 +1,6 @@
 use core::fmt;
 
-use cubecl_core::ir::Elem;
+use cubecl_core::ir::StorageType;
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub enum ReduceError {
@@ -18,7 +18,7 @@ pub enum ReduceError {
         output_shape: Vec<usize>,
     },
     /// Indicate that we can't launch a shared sum because the atomic addition is not supported.
-    MissingAtomicAdd(Elem),
+    MissingAtomicAdd(StorageType),
 }
 
 impl fmt::Display for ReduceError {

@@ -1,16 +1,16 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Feature, Runtime};
+use cubecl_core::{client::ComputeClient, ir::StorageType};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{MatrixLayout, StageIdent, TileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
 pub struct AcceleratedConfig {
-    tiling_scheme: TilingScheme,
+    tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -51,7 +51,7 @@ impl TileConfig for AcceleratedConfig {
     }
 
     fn tile_size(&self) -> &TileSize {
-        &self.tiling_scheme.tile_size
+        &self.tile_size
     }
 }
 
@@ -64,7 +64,7 @@ impl AcceleratedConfig {
     /// - cmma is unavailable for given types
     pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,
-        tiling_scheme: TilingScheme,
+        tile_size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
@@ -75,7 +75,7 @@ impl AcceleratedConfig {
         rhs_stage_line_size: u32,
     ) -> Result<Self, MatmulSetupError> {
         Self {
-            tiling_scheme,
+            tile_size,
             plane_dim,
             lhs_layout,
             rhs_layout,
@@ -92,21 +92,27 @@ impl AcceleratedConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        let lhs = Lhs::as_elem_native_unchecked();
-        let rhs = Rhs::as_elem_native_unchecked();
-        let acc = Acc::as_elem_native_unchecked();
+        let lhs = Lhs::as_type_native_unchecked();
+        let rhs = Rhs::as_type_native_unchecked();
+        let acc = Acc::as_type_native_unchecked();
 
         let lhs = match lhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => lhs,
         };
         let rhs = match rhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => rhs,
         };
 
         let ea = match acc {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => acc,
         };
 

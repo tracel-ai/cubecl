@@ -108,7 +108,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Arithmetic::Dot(op) => {
-                if op.lhs.item.vectorization.map(|it| it.get()).unwrap_or(1) == 1 {
+                if op.lhs.ty.line_size() == 1 {
                     self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                         match out_ty.elem() {
                             Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),

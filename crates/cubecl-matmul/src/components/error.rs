@@ -1,4 +1,4 @@
-use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::Elem};
+use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::StorageType};
 use std::fmt::{Debug, Display};
 
 use crate::components::TileSize;
@@ -27,13 +27,17 @@ pub enum MatmulAvailabilityError {
     PlaneDimUnsupported { plane_dim: u32 },
 
     /// The required data types for input or output are not supported.
-    TypesUnavailable { lhs: Elem, rhs: Elem, output: Elem },
+    TypesUnavailable {
+        lhs: StorageType,
+        rhs: StorageType,
+        output: StorageType,
+    },
 
     /// The required CMMA instruction is not supported for the given element types and tile size.
     CmmaInstructionUnavailable {
-        lhs: Elem,
-        rhs: Elem,
-        output: Elem,
+        lhs: StorageType,
+        rhs: StorageType,
+        output: StorageType,
         size: Option<TileSize>,
     },
 

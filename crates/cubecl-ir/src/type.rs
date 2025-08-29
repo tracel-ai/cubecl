@@ -1,7 +1,6 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
-use core::num::NonZero;
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -10,8 +9,6 @@ use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 pub enum FloatKind {
     /// FP4, 2 bit exponent, 1 bit mantissa
     E2M1,
-    /// FP4x2, 2 bit exponent, 1 bit mantissa, packed
-    E2M1x2,
     /// FP6, 2 bit exponent, 3 bit mantissa
     /// Note: represented by an 8-bit value, with the upper two bits being insignificant
     E2M3,
@@ -52,32 +49,47 @@ pub enum UIntKind {
     U64,
 }
 
+/// Conceptual element type, not necessarily the physical type used in the code
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[allow(missing_docs)]
-pub enum Elem {
+pub enum ElemType {
     Float(FloatKind),
     Int(IntKind),
     UInt(UIntKind),
-    AtomicFloat(FloatKind),
-    AtomicInt(IntKind),
-    AtomicUInt(UIntKind),
     Bool,
 }
 
-impl Elem {
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SemanticType {
+    Barrier,
+    Pipeline,
+    TensorMap,
+}
+
+/// Physical type containing one or more elements
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum StorageType {
+    /// `ElemType` is the same as the physical type
+    Scalar(ElemType),
+    /// Packed values of type `ElemType`
+    Packed(ElemType, u32),
+    /// Atomically accessed version of `ElemType`
+    Atomic(ElemType),
+}
+
+impl ElemType {
     /// Create a constant scalar from a float.
     ///
     /// The output will have the same type as the element.
     pub fn constant_from_f64(&self, val: f64) -> Variable {
         Variable::constant(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0.0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val, *kind),
+            ElemType::Float(kind) => ConstantScalarValue::Float(val, *kind),
+            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            ElemType::Bool => ConstantScalarValue::Bool(val > 0.0),
         })
     }
     /// Create a constant scalar from a signed integer.
@@ -85,13 +97,10 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_i64(&self, val: i64) -> Variable {
         Variable::constant(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val, *kind),
-            Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val, *kind),
-            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            ElemType::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            ElemType::Int(kind) => ConstantScalarValue::Int(val, *kind),
+            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            ElemType::Bool => ConstantScalarValue::Bool(val > 0),
         })
     }
     /// Create a constant scalar from a unsigned integer.
@@ -99,13 +108,10 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_u64(&self, val: u64) -> Variable {
         Variable::constant(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt(kind) => ConstantScalarValue::UInt(val, *kind),
-            Elem::Bool => ConstantScalarValue::Bool(val > 0),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val, *kind),
-            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            ElemType::Float(kind) => ConstantScalarValue::Float(val as f64, *kind),
+            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            ElemType::UInt(kind) => ConstantScalarValue::UInt(val, *kind),
+            ElemType::Bool => ConstantScalarValue::Bool(val > 0),
         })
     }
     /// Create a constant scalar from a boolean.
@@ -113,13 +119,10 @@ impl Elem {
     /// The output will have the same type as the element.
     pub fn constant_from_bool(&self, val: bool) -> Variable {
         Variable::constant(match self {
-            Elem::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
-            Elem::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::AtomicInt(kind) => ConstantScalarValue::Int(val as i64, *kind),
-            Elem::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::AtomicUInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
-            Elem::AtomicFloat(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
-            Elem::Bool => ConstantScalarValue::Bool(val),
+            ElemType::Float(kind) => ConstantScalarValue::Float(val as u32 as f64, *kind),
+            ElemType::Int(kind) => ConstantScalarValue::Int(val as i64, *kind),
+            ElemType::UInt(kind) => ConstantScalarValue::UInt(val as u64, *kind),
+            ElemType::Bool => ConstantScalarValue::Bool(val),
         })
     }
 
@@ -140,9 +143,8 @@ impl Elem {
     /// Get the size in bytes.
     pub const fn size(&self) -> usize {
         match self {
-            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+            ElemType::Float(kind) => match kind {
                 FloatKind::E2M1
-                | FloatKind::E2M1x2
                 | FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3
@@ -155,28 +157,27 @@ impl Elem {
                 FloatKind::Flex32 => core::mem::size_of::<f32>(),
                 FloatKind::TF32 => core::mem::size_of::<f32>(),
             },
-            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
+            ElemType::Int(kind) => match kind {
                 IntKind::I8 => core::mem::size_of::<i8>(),
                 IntKind::I16 => core::mem::size_of::<i16>(),
                 IntKind::I32 => core::mem::size_of::<i32>(),
                 IntKind::I64 => core::mem::size_of::<i64>(),
             },
-            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
+            ElemType::UInt(kind) => match kind {
                 UIntKind::U8 => core::mem::size_of::<u8>(),
                 UIntKind::U16 => core::mem::size_of::<u16>(),
                 UIntKind::U32 => core::mem::size_of::<u32>(),
                 UIntKind::U64 => core::mem::size_of::<u64>(),
             },
-            Elem::Bool => core::mem::size_of::<bool>(),
+            ElemType::Bool => core::mem::size_of::<bool>(),
         }
     }
 
     /// Get the size in bits.
     pub const fn size_bits(&self) -> usize {
         match self {
-            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
-                FloatKind::E2M1x2
-                | FloatKind::E2M3
+            ElemType::Float(kind) => match kind {
+                FloatKind::E2M3
                 | FloatKind::E3M2
                 | FloatKind::E4M3
                 | FloatKind::E5M2
@@ -189,63 +190,37 @@ impl Elem {
                 | FloatKind::TF32 => self.size() * 8,
                 FloatKind::E2M1 => 4,
             },
-            Elem::Int(_)
-            | Elem::AtomicInt(_)
-            | Elem::UInt(_)
-            | Elem::AtomicUInt(_)
-            | Elem::Bool => self.size() * 8,
+            ElemType::Int(_) | ElemType::UInt(_) | ElemType::Bool => self.size() * 8,
         }
-    }
-
-    pub const fn unpacked(&self) -> Elem {
-        match self {
-            Elem::Float(FloatKind::E2M1x2) => Elem::Float(FloatKind::E2M1),
-            elem => *elem,
-        }
-    }
-
-    pub const fn packing_factor(&self) -> usize {
-        self.size_bits() / self.unpacked().size_bits()
     }
 
     pub const fn min_line_size(&self) -> u8 {
         match self {
-            Elem::Float(FloatKind::E2M1) => 2,
+            ElemType::Float(FloatKind::E2M1) => 2,
             _ => 1,
         }
     }
 
-    pub fn is_atomic(&self) -> bool {
-        matches!(
-            self,
-            Elem::AtomicFloat(_) | Elem::AtomicInt(_) | Elem::AtomicUInt(_)
-        )
-    }
-
     pub fn is_int(&self) -> bool {
-        matches!(
-            self,
-            Elem::Int(_) | Elem::AtomicInt(_) | Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool
-        )
+        matches!(self, ElemType::Int(_) | ElemType::UInt(_) | ElemType::Bool)
     }
 
     pub fn is_signed_int(&self) -> bool {
-        matches!(self, Elem::Int(_) | Elem::AtomicInt(_))
+        matches!(self, ElemType::Int(_))
     }
 
     pub fn is_unsigned_int(&self) -> bool {
-        matches!(self, Elem::UInt(_) | Elem::AtomicUInt(_) | Elem::Bool)
+        matches!(self, ElemType::UInt(_) | ElemType::Bool)
     }
 
     pub fn is_float(&self) -> bool {
-        matches!(self, Elem::Float(_) | Elem::AtomicFloat(_))
+        matches!(self, ElemType::Float(_))
     }
 
     pub fn max_variable(&self) -> Variable {
         let value = match self {
-            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+            ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1),
-                FloatKind::E2M1x2 => ConstantScalarValue::Float(e2m1::MAX, FloatKind::E2M1x2),
                 FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MAX, FloatKind::E2M3),
                 FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MAX, FloatKind::E3M2),
                 FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MAX, FloatKind::E4M3),
@@ -262,29 +237,28 @@ impl Elem {
                 FloatKind::TF32 => ConstantScalarValue::Float(f32::MAX.into(), FloatKind::TF32),
                 FloatKind::F64 => ConstantScalarValue::Float(f64::MAX, FloatKind::F64),
             },
-            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
+            ElemType::Int(kind) => match kind {
                 IntKind::I8 => ConstantScalarValue::Int(i8::MAX.into(), IntKind::I8),
                 IntKind::I16 => ConstantScalarValue::Int(i16::MAX.into(), IntKind::I16),
                 IntKind::I32 => ConstantScalarValue::Int(i32::MAX.into(), IntKind::I32),
                 IntKind::I64 => ConstantScalarValue::Int(i64::MAX, IntKind::I64),
             },
-            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
+            ElemType::UInt(kind) => match kind {
                 UIntKind::U8 => ConstantScalarValue::UInt(u8::MAX.into(), UIntKind::U8),
                 UIntKind::U16 => ConstantScalarValue::UInt(u16::MAX.into(), UIntKind::U16),
                 UIntKind::U32 => ConstantScalarValue::UInt(u32::MAX.into(), UIntKind::U32),
                 UIntKind::U64 => ConstantScalarValue::UInt(u64::MAX, UIntKind::U64),
             },
-            Elem::Bool => ConstantScalarValue::Bool(true),
+            ElemType::Bool => ConstantScalarValue::Bool(true),
         };
 
-        Variable::new(VariableKind::ConstantScalar(value), Item::new(*self))
+        Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
     }
 
     pub fn min_variable(&self) -> Variable {
         let value = match self {
-            Elem::Float(kind) | Elem::AtomicFloat(kind) => match kind {
+            ElemType::Float(kind) => match kind {
                 FloatKind::E2M1 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1),
-                FloatKind::E2M1x2 => ConstantScalarValue::Float(e2m1::MIN, FloatKind::E2M1x2),
                 FloatKind::E2M3 => ConstantScalarValue::Float(e2m3::MIN, FloatKind::E2M3),
                 FloatKind::E3M2 => ConstantScalarValue::Float(e3m2::MIN, FloatKind::E3M2),
                 FloatKind::E4M3 => ConstantScalarValue::Float(e4m3::MIN, FloatKind::E4M3),
@@ -301,37 +275,223 @@ impl Elem {
                 FloatKind::TF32 => ConstantScalarValue::Float(f32::MIN.into(), FloatKind::TF32),
                 FloatKind::F64 => ConstantScalarValue::Float(f64::MIN, FloatKind::F64),
             },
-            Elem::Int(kind) | Elem::AtomicInt(kind) => match kind {
+            ElemType::Int(kind) => match kind {
                 IntKind::I8 => ConstantScalarValue::Int(i8::MIN.into(), IntKind::I8),
                 IntKind::I16 => ConstantScalarValue::Int(i16::MIN.into(), IntKind::I16),
                 IntKind::I32 => ConstantScalarValue::Int(i32::MIN.into(), IntKind::I32),
                 IntKind::I64 => ConstantScalarValue::Int(i64::MIN, IntKind::I64),
             },
-            Elem::UInt(kind) | Elem::AtomicUInt(kind) => match kind {
+            ElemType::UInt(kind) => match kind {
                 UIntKind::U8 => ConstantScalarValue::UInt(u8::MIN.into(), UIntKind::U8),
                 UIntKind::U16 => ConstantScalarValue::UInt(u16::MIN.into(), UIntKind::U16),
                 UIntKind::U32 => ConstantScalarValue::UInt(u32::MIN.into(), UIntKind::U32),
                 UIntKind::U64 => ConstantScalarValue::UInt(u64::MIN, UIntKind::U64),
             },
-            Elem::Bool => ConstantScalarValue::Bool(false),
+            ElemType::Bool => ConstantScalarValue::Bool(false),
         };
 
-        Variable::new(VariableKind::ConstantScalar(value), Item::new(*self))
+        Variable::new(VariableKind::ConstantScalar(value), Type::scalar(*self))
     }
 }
 
-impl From<Elem> for Item {
-    fn from(val: Elem) -> Self {
-        Item::new(val)
+impl StorageType {
+    pub fn elem_type(&self) -> ElemType {
+        match self {
+            StorageType::Scalar(ty) | StorageType::Packed(ty, _) | StorageType::Atomic(ty) => *ty,
+        }
+    }
+
+    pub fn packing_factor(&self) -> u32 {
+        match self {
+            StorageType::Packed(_, factor) => *factor,
+            _ => 1,
+        }
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        matches!(self, StorageType::Atomic(_))
+    }
+
+    pub fn size(&self) -> usize {
+        self.size_bits().div_ceil(8)
+    }
+
+    pub fn size_bits(&self) -> usize {
+        match self {
+            StorageType::Packed(ty, factor) => ty.size_bits() * *factor as usize,
+            StorageType::Scalar(ty) | StorageType::Atomic(ty) => ty.size_bits(),
+        }
+    }
+
+    /// Ensure that the variable provided, when a constant, is the same type as elem.
+    pub fn from_constant(&self, constant: Variable) -> Variable {
+        self.elem_type().from_constant(constant)
+    }
+
+    pub fn is_int(&self) -> bool {
+        self.elem_type().is_int()
+    }
+
+    pub fn is_signed_int(&self) -> bool {
+        self.elem_type().is_signed_int()
+    }
+
+    pub fn is_unsigned_int(&self) -> bool {
+        self.elem_type().is_unsigned_int()
+    }
+
+    pub fn is_float(&self) -> bool {
+        self.elem_type().is_float()
     }
 }
 
-impl Display for Elem {
+impl From<ElemType> for Type {
+    fn from(val: ElemType) -> Self {
+        Type::scalar(val)
+    }
+}
+
+impl From<ElemType> for StorageType {
+    fn from(val: ElemType) -> Self {
+        StorageType::Scalar(val)
+    }
+}
+
+impl From<StorageType> for Type {
+    fn from(val: StorageType) -> Self {
+        Type::new(val)
+    }
+}
+
+impl From<SemanticType> for Type {
+    fn from(val: SemanticType) -> Self {
+        Type::semantic(val)
+    }
+}
+
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Type {
+    /// Scalar type containing a single storage element
+    Scalar(StorageType),
+    /// Line wrapping `n` storage elements
+    Line(StorageType, u32),
+    /// No defined physcial representation, purely semantic. i.e. barrier, pipeline
+    Semantic(SemanticType),
+}
+
+pub type LineSize = u32;
+
+impl Type {
+    /// Fetch the elem of the item.
+    pub fn elem_type(&self) -> ElemType {
+        self.storage_type().elem_type()
+    }
+
+    /// Create a new item
+    pub fn new(storage: StorageType) -> Self {
+        Type::Scalar(storage)
+    }
+
+    pub fn scalar(elem: ElemType) -> Self {
+        Self::new(StorageType::Scalar(elem))
+    }
+
+    pub fn semantic(ty: SemanticType) -> Self {
+        Self::Semantic(ty)
+    }
+
+    pub fn line(self, line_size: LineSize) -> Type {
+        match line_size > 1 {
+            true => Type::Line(self.storage_type(), line_size),
+            false => Type::Scalar(self.storage_type()),
+        }
+    }
+
+    pub fn line_size(&self) -> u32 {
+        match self {
+            Type::Scalar(_) => 1,
+            Type::Line(_, line_size) => *line_size,
+            Type::Semantic(_) => 0,
+        }
+    }
+
+    pub fn size(&self) -> usize {
+        match self {
+            Type::Scalar(ty) => ty.size(),
+            Type::Line(ty, line_size) => ty.size() * *line_size as usize,
+            Type::Semantic(_) => 0,
+        }
+    }
+
+    pub fn size_bits(&self) -> usize {
+        match self {
+            Type::Scalar(ty) => ty.size_bits(),
+            Type::Line(ty, line_size) => ty.size_bits() * *line_size as usize,
+            Type::Semantic(_) => 0,
+        }
+    }
+
+    pub fn is_atomic(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_atomic()
+    }
+
+    pub fn is_int(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_int()
+    }
+
+    pub fn is_signed_int(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_signed_int()
+    }
+
+    pub fn is_unsigned_int(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_unsigned_int()
+    }
+
+    pub fn is_float(&self) -> bool {
+        !self.is_semantic() && self.storage_type().is_float()
+    }
+
+    pub fn storage_type(&self) -> StorageType {
+        match self {
+            Type::Scalar(ty) | Type::Line(ty, _) => *ty,
+            Type::Semantic(_) => unimplemented!("Can't get storage for semantic type"),
+        }
+    }
+
+    pub fn is_semantic(&self) -> bool {
+        match self {
+            Type::Scalar(_) | Type::Line(_, _) => false,
+            Type::Semantic(_) => true,
+        }
+    }
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Type::Scalar(ty) => write!(f, "{ty}"),
+            Type::Line(ty, line_size) => write!(f, "line<{ty}, {line_size}>"),
+            Type::Semantic(ty) => write!(f, "{ty}"),
+        }
+    }
+}
+
+impl Display for StorageType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            StorageType::Scalar(ty) => writeln!(f, "{ty}"),
+            StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
+            StorageType::Atomic(ty) => write!(f, "atomic<{ty}>"),
+        }
+    }
+}
+
+impl Display for ElemType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Float(kind) => match kind {
                 FloatKind::E2M1 => f.write_str("e2m1"),
-                FloatKind::E2M1x2 => f.write_str("e2m1x2"),
                 FloatKind::E2M3 => f.write_str("e2m3"),
                 FloatKind::E3M2 => f.write_str("e3m2"),
                 FloatKind::E4M3 => f.write_str("e4m3"),
@@ -344,76 +504,29 @@ impl Display for Elem {
                 FloatKind::F32 => f.write_str("f32"),
                 FloatKind::F64 => f.write_str("f64"),
             },
-            Self::AtomicFloat(kind) => write!(f, "atomic<{}>", Elem::Float(*kind)),
             Self::Int(kind) => match kind {
                 IntKind::I8 => f.write_str("i8"),
                 IntKind::I16 => f.write_str("i16"),
                 IntKind::I32 => f.write_str("i32"),
                 IntKind::I64 => f.write_str("i64"),
             },
-            Self::AtomicInt(kind) => write!(f, "atomic<{}>", Elem::Int(*kind)),
             Self::UInt(kind) => match kind {
                 UIntKind::U8 => f.write_str("u8"),
                 UIntKind::U16 => f.write_str("u16"),
                 UIntKind::U32 => f.write_str("u32"),
                 UIntKind::U64 => f.write_str("u64"),
             },
-            Self::AtomicUInt(kind) => write!(f, "atomic<{}>", Elem::UInt(*kind)),
             Self::Bool => f.write_str("bool"),
         }
     }
 }
 
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Item {
-    pub elem: Elem,
-    pub vectorization: Vectorization,
-}
-
-pub type Vectorization = Option<NonZero<u8>>;
-
-impl Item {
-    /// Fetch the elem of the item.
-    pub fn elem(&self) -> Elem {
-        self.elem
-    }
-
-    /// Create a new item without vectorization
-    pub fn new(elem: Elem) -> Self {
-        Self {
-            elem,
-            vectorization: None,
-        }
-    }
-
-    /// Create a new item with vectorization
-    pub fn vectorized(elem: Elem, vectorization: Vectorization) -> Self {
-        Self {
-            elem,
-            vectorization,
-        }
-    }
-
-    pub fn vectorize(&self, vectorization: Vectorization) -> Item {
-        Item {
-            elem: self.elem,
-            vectorization,
-        }
-    }
-
-    pub fn vectorization(&self) -> u8 {
-        self.vectorization.map(|it| it.get()).unwrap_or(1)
-    }
-}
-
-impl Display for Item {
+impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self.vectorization {
-            Some(vec) if vec.get() > 1 => {
-                write!(f, "vector{}<{}>", vec.get(), self.elem)
-            }
-            _ => write!(f, "{}", self.elem),
+        match self {
+            SemanticType::Barrier => f.write_str("barrier"),
+            SemanticType::Pipeline => f.write_str("pipeline"),
+            SemanticType::TensorMap => f.write_str("tensor_map"),
         }
     }
 }

@@ -1,7 +1,7 @@
-use std::{collections::HashMap, num::NonZero};
+use std::collections::HashMap;
 
 use cubecl_core::ir::{
-    Builtin, ConstantScalarValue, FloatKind, IntKind, Item, UIntKind, VariableKind,
+    self, Builtin, ConstantScalarValue, FloatKind, IntKind, UIntKind, VariableKind,
 };
 use tracel_llvm::melior::{
     dialect::{
@@ -19,7 +19,7 @@ use super::prelude::*;
 #[derive(Default, Debug)]
 pub struct Variables<'a> {
     pub local: HashMap<VariableKind, Value<'a, 'a>>,
-    pub global_constant: HashMap<u32, Item>,
+    pub global_constant: HashMap<u32, ir::Type>,
 }
 
 impl<'a> Variables<'a> {
@@ -51,10 +51,10 @@ impl<'a> Visitor<'a> {
     }
 
     fn get_mutable_memory(&mut self, variable: Variable, length: u32) -> Value<'a, 'a> {
-        let r#type = variable.elem().to_type(self.context);
+        let r#type = variable.storage_type().to_type(self.context);
         let memref_type = MemRefType::new(
             r#type,
-            &[variable.vectorization_factor() as i64 * length as i64],
+            &[variable.line_size() as i64 * length as i64],
             None,
             None,
         );
@@ -102,15 +102,14 @@ impl<'a> Visitor<'a> {
         lhs: Variable,
         rhs: Variable,
     ) -> (Value<'a, 'a>, Value<'a, 'a>) {
-        let vectorization_factor =
-            std::cmp::max(lhs.vectorization_factor(), rhs.vectorization_factor());
+        let vectorization_factor = std::cmp::max(lhs.line_size(), rhs.line_size());
         let (mut lhs_value, mut rhs_value) = (self.get_variable(lhs), self.get_variable(rhs));
 
         if lhs_value.r#type().is_vector() || rhs_value.r#type().is_vector() {
             if !lhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
                     &[vectorization_factor as u64],
-                    lhs.elem().to_type(self.context),
+                    lhs.storage_type().to_type(self.context),
                 );
                 lhs_value = self.append_operation_with_result(vector::splat(
                     self.context,
@@ -122,7 +121,7 @@ impl<'a> Visitor<'a> {
             if !rhs_value.r#type().is_vector() {
                 let vector_type = Type::vector(
                     &[vectorization_factor as u64],
-                    rhs.elem().to_type(self.context),
+                    rhs.storage_type().to_type(self.context),
                 );
                 rhs_value = self.append_operation_with_result(vector::splat(
                     self.context,
@@ -245,10 +244,9 @@ impl<'a> Visitor<'a> {
                     attribute,
                     self.location,
                 ));
-                match variable.item.is_vectorized() {
+                match variable.ty.is_vectorized() {
                     true => {
-                        let vector =
-                            Type::vector(&[variable.vectorization_factor() as u64], const_type);
+                        let vector = Type::vector(&[variable.line_size() as u64], const_type);
                         self.append_operation_with_result(vector::splat(
                             self.context,
                             vector,
@@ -270,7 +268,7 @@ impl<'a> Visitor<'a> {
                     .local
                     .get(&variable.kind)
                     .expect("Variable should have been declared before");
-                let result_type = variable.item.to_type(self.context);
+                let result_type = variable.ty.to_type(self.context);
                 let integer = IntegerAttribute::new(Type::index(self.context), 0).into();
                 let zero = self.append_operation_with_result(arith::constant(
                     self.context,
@@ -278,7 +276,7 @@ impl<'a> Visitor<'a> {
                     integer,
                     self.location,
                 ));
-                if variable.item.is_vectorized() {
+                if variable.ty.is_vectorized() {
                     self.append_operation_with_result(vector::load(
                         self.context,
                         result_type,
@@ -294,7 +292,7 @@ impl<'a> Visitor<'a> {
                 let memref = *self
                     .args_manager
                     .scalars_memref
-                    .get(&variable.elem())
+                    .get(&variable.storage_type())
                     .unwrap();
                 let index = self
                     .block
@@ -310,11 +308,11 @@ impl<'a> Visitor<'a> {
                     &[index],
                     self.location,
                 ));
-                match variable.item.is_vectorized() {
+                match variable.ty.is_vectorized() {
                     true => {
                         let vector = Type::vector(
-                            &[variable.vectorization_factor() as u64],
-                            variable.elem().to_type(self.context),
+                            &[variable.line_size() as u64],
+                            variable.storage_type().to_type(self.context),
                         );
                         self.append_operation_with_result(vector::splat(
                             self.context,
@@ -330,7 +328,7 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn get_index(&self, variable: Variable, target_item: Item) -> Value<'a, 'a> {
+    pub fn get_index(&self, variable: Variable, target_item: ir::Type) -> Value<'a, 'a> {
         let index = self.get_variable(variable);
         let mut index = self.append_operation_with_result(index::casts(
             index,
@@ -338,7 +336,7 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
         if target_item.is_vectorized() {
-            let vectorization = target_item.vectorization.map(NonZero::get).unwrap_or(1u8) as i64;
+            let vectorization = target_item.line_size() as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(
                 self.context,

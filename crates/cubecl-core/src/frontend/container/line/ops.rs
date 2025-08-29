@@ -1,4 +1,4 @@
-use cubecl_ir::{Bitwise, Elem, Instruction, UIntKind, UnaryOperator};
+use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
@@ -258,8 +258,8 @@ impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 impl<P: CountOnes> Line<P> {
     pub fn count_ones(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::CountOnes(UnaryOperator {
@@ -276,8 +276,8 @@ impl<P: CountOnes> Line<P> {
 impl<P: LeadingZeros> Line<P> {
     pub fn leading_zeros(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::LeadingZeros(UnaryOperator {
@@ -294,8 +294,8 @@ impl<P: LeadingZeros> Line<P> {
 impl<P: FindFirstSet> Line<P> {
     pub fn find_first_set(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::FindFirstSet(UnaryOperator {

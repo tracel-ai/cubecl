@@ -1,7 +1,7 @@
-use cubecl_ir::{ExpandElement, Scope};
+use cubecl_ir::{ExpandElement, Scope, StorageType};
 
 use crate::frontend::{CubePrimitive, CubeType};
-use crate::ir::Elem;
+use crate::ir::ElemType;
 
 use super::{
     ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime, into_mut_expand_element,
@@ -17,7 +17,7 @@ pub trait BoolOps {
         _scope: &mut Scope,
         value: ExpandElementTyped<bool>,
     ) -> ExpandElementTyped<bool> {
-        ExpandElement::Plain(Elem::Bool.from_constant(*value.expand)).into()
+        ExpandElement::Plain(ElemType::Bool.from_constant(*value.expand)).into()
     }
 }
 
@@ -28,8 +28,8 @@ impl CubeType for bool {
 }
 
 impl CubePrimitive for bool {
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::Bool)
+    fn as_type_native() -> Option<StorageType> {
+        Some(StorageType::Scalar(ElemType::Bool))
     }
 }
 

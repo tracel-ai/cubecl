@@ -1,5 +1,5 @@
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
-use cubecl_ir::{Bitwise, Operator};
+use cubecl_ir::{Bitwise, Operator, Type};
 use half::{bf16, f16};
 
 use crate::{
@@ -47,6 +47,12 @@ macro_rules! impl_unary_func {
     }
 }
 
+impl Exp for f32 {
+    fn exp(x: Self) -> Self {
+        x.exp()
+    }
+}
+
 macro_rules! impl_unary_func_fixed_out_vectorization {
     ($trait_name:ident, $method_name:ident, $method_name_expand:ident, $operator:expr, $out_vectorization: expr, $($type:ty),*) => {
         pub trait $trait_name: CubePrimitive + Sized {
@@ -57,8 +63,7 @@ macro_rules! impl_unary_func_fixed_out_vectorization {
 
             fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<Self> {
                 let expand_element: ExpandElement = x.into();
-                let mut item = expand_element.item;
-                item.vectorization = $out_vectorization;
+                let item = expand_element.ty.line($out_vectorization);
                 unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
@@ -77,8 +82,7 @@ macro_rules! impl_unary_func_fixed_out_ty {
 
             fn $method_name_expand(scope: &mut Scope, x: Self::ExpandType) -> ExpandElementTyped<$out_ty> {
                 let expand_element: ExpandElement = x.into();
-                let mut item = expand_element.item;
-                item.elem = <$out_ty as CubePrimitive>::as_elem(scope);
+                let item = Type::new(<$out_ty as CubePrimitive>::as_type(scope)).line(expand_element.ty.line_size());
                 unary_expand_fixed_output(scope, expand_element, item, $operator).into()
             }
         }
@@ -120,7 +124,7 @@ impl_unary_func!(
     bf16,
     flex32,
     tf32,
-    f32,
+    // f32,
     f64
 );
 impl_unary_func!(
@@ -260,7 +264,7 @@ impl_unary_func_fixed_out_vectorization!(
     magnitude,
     __expand_magnitude,
     Arithmetic::Magnitude,
-    None,
+    0,
     f16,
     bf16,
     flex32,

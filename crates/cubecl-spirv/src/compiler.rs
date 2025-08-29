@@ -29,7 +29,7 @@ use crate::{
     transformers::{BitwiseTransform, ErfTransform},
 };
 
-pub const MAX_VECTORIZATION: u8 = 4;
+pub const MAX_VECTORIZATION: u32 = 4;
 
 pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
     pub target: Target,
@@ -146,7 +146,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         let scalars = value
             .scalars
             .iter()
-            .map(|s| (self.compile_elem(s.elem), s.count))
+            .map(|s| (self.compile_storage_type(s.ty), s.count))
             .collect();
         let mut ext_meta_pos = Vec::new();
         let mut num_ext = 0;
@@ -183,7 +183,7 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         }
     }
 
-    fn elem_size(&self, elem: core::Elem) -> usize {
+    fn elem_size(&self, elem: core::ElemType) -> usize {
         elem.size()
     }
 
