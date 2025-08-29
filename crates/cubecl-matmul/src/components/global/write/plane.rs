@@ -5,7 +5,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, };
+use cubecl_std::tensor::View;
 use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 
 use super::GlobalWriter;

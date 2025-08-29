@@ -9,7 +9,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, layout::Coords3d, };
+use cubecl_std::tensor::{View, layout::Coords3d};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
