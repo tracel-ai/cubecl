@@ -208,10 +208,10 @@ pub fn register_features(
 
 #[cfg(feature = "spirv")]
 fn is_vulkan(adapter: &Adapter) -> bool {
-    unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan, _, _>(|adapter| adapter.is_some()) }
+    unsafe { adapter.as_hal::<wgpu::hal::api::Vulkan>().is_some() }
 }
 
 #[cfg(all(feature = "msl", target_os = "macos"))]
 fn is_metal(adapter: &Adapter) -> bool {
-    unsafe { adapter.as_hal::<wgpu::hal::api::Metal, _, _>(|adapter| adapter.is_some()) }
+    unsafe { adapter.as_hal::<wgpu::hal::api::Metal>().is_some() }
 }

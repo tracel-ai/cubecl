@@ -16,9 +16,8 @@ pub async fn request_metal_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wgp
         .features()
         .difference(Features::MAPPABLE_PRIMARY_BUFFERS);
     unsafe {
-        adapter.as_hal::<hal::api::Metal, _, _>(|hal_adapter| {
-            request_device(adapter, hal_adapter.unwrap(), features, limits)
-        })
+        let hal_adapter = adapter.as_hal::<hal::api::Metal>().unwrap();
+        request_device(adapter, hal_adapter, features, limits);
     }
 }
 
@@ -60,11 +59,9 @@ pub fn register_metal_features(
 ) {
     let features = adapter.features();
     unsafe {
-        adapter.as_hal::<hal::api::Metal, _, _>(|hal_adapter| {
-            if let Some(adapter) = hal_adapter {
-                register_features(adapter, props, features, comp_options);
-            }
-        })
+        if let Some(adapter) = adapter.as_hal::<hal::api::Metal>() {
+            register_features(adapter, props, features, comp_options);
+        }
     }
 }
 
