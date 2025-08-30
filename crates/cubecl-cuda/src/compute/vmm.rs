@@ -181,6 +181,78 @@ impl HandleManager {
         Ok(())
     }
 
+
+
+    // Unmaps a range of handles.
+    fn unmap_range(&mut self, start_idx: usize, base_addr: CUdeviceptr) -> Result<(), IoError> {
+        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
+            // Fail early if already unmapped.
+            if self.state != BlockState::Unmapped {
+                return Err(IoError::InvalidHandle);
+            }
+
+            for (i, idx) in (range.start_idx..(range.start_idx + range.length)).enumerate() {
+                // Use get_handle to get a reference to the handle
+                match self.get_handle(idx) {
+                    Ok(handle) => {
+                        // Handles of the same range are contiguous in memory
+                        let virtual_addr = base_addr + (i as u64 * handle_size);
+                        // Note: I am not sure if it is a good idea to let return an error here in case of failure on the device side. It is what PyTorch does, so I assume there should not be any issues (See the macro C10_CUDA_DRIVER_CHECK  at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp)
+                        cuda_driver_try!(
+                            cuMemUnmap(virtual_addr, handle_size as usize),
+                            IoError::InvalidHandle
+                        );
+                        range.is_mapped = false;
+                    }
+                    Err(_) => {
+                        // Handle is None.
+                        // Here we have to return an error since handles must be allocated at this point.
+                        return Err(IoError::InvalidHandle);
+                    }
+                }
+            }
+        }
+    }
+
+    // Maps a range of handles to their virtual addresses.
+    // Doing it here ensures:
+    // A) Handles are always contiguous in memory.
+    // B) No allocated handles are None in the handles vec.
+    fn map_range(&mut self, start_idx: usize, base_addr: CUdeviceptr) -> Result<(), IoError> {
+        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
+            // Fail early if already mapped.
+            if range.is_mapped {
+                return Err(IoError::InvalidHandle);
+            }
+
+            // Iterate over the found range.
+            for (i, idx) in (range.start_idx..(range.start_idx + range.length).enumerate()) {
+                // Use get_handle to get a reference to the handle
+                match self.get_handle(idx) {
+                    Ok(handle) => {
+                        // Handles of the same range are contiguous in memory
+                        let virtual_addr = base_addr + (i as u64 * self.handle_size);
+                        cuda_driver_try!(
+                            cuMemMap(virtual_addr, self.handle_size as usize, handle),
+                            IoError::InvalidHandle
+                        );
+                        range.is_mapped = true; // Set mapped
+                    }
+                    Err(_) => {
+                        // Handle is None.
+                        // Here we have to return an error since handles must be allocated at this point.
+                        return Err(IoError::InvalidHandle);
+                    }
+                }
+            }
+
+            Ok(())
+        } else {
+            // The range does not exist
+            Err(IoError::InvalidHandle)
+        }
+    }
+
     fn get_handle(&self, idx: usize) -> Result<&CUmemGenericAllocationHandle, IoError> {
         let handle = self.handles.get(idx).ok_or(IoError::InvalidHandle);
         Ok(handle)
@@ -248,75 +320,6 @@ impl HandleManager {
     }
 
 
-    // Unmaps a range of handles.
-    fn unmap_range(&mut self, start_idx: usize) -> Result<(), IoError> {
-        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
-            // Fail early if already unmapped.
-            if !range.is_mapped {
-                return Err(IoError::InvalidHandle);
-            }
-
-            for idx in range.start_idx..(range.start_idx + range.length) {
-                // Use get_handle to get a reference to the handle
-                match self.get_handle(idx) {
-                    Ok(handle) => {
-                        // Handles are contiguous in memory
-                        let virtual_addr = self.virtual_addr + (handle_idx as u64 * handle_size);
-                        // Note: I am not sure if it is a good idea to let return an error here in case of failure on the device side. It is what PyTorch does, so I assume there should not be any issues (See the macro C10_CUDA_DRIVER_CHECK  at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp)
-                        cuda_driver_try!(
-                            cuMemUnmap(virtual_addr, handle_size as usize),
-                            IoError::InvalidHandle
-                        );
-                        range.is_mapped = false;
-                    }
-                    Err(_) => {
-                        // Handle is None.
-                        // Here we have to return an error since handles must be allocated at this point.
-                        return Err(IoError::InvalidHandle);
-                    }
-                }
-            }
-        }
-    }
-
-    // Maps a range of handles to their virtual addresses.
-    // Doing it here ensures:
-    // A) Handles are always contiguous in memory.
-    // B) No allocated handles are None in the handles vec.
-    fn map_range(&mut self, start_idx: usize) -> Result<(), IoError> {
-        if let Some(mut range) = self.allocated_ranges.get_mut(&start_idx) {
-            // Fail early if already mapped.
-            if range.is_mapped {
-                return Err(IoError::InvalidHandle);
-            }
-
-            // Iterate over the found range.
-            for idx in range.start_idx..(range.start_idx + range.length) {
-                // Use get_handle to get a reference to the handle
-                match self.get_handle(idx) {
-                    Ok(handle) => {
-                        // Handles are contiguous in memory
-                        let virtual_addr = self.virtual_addr + (idx as u64 * self.handle_size);
-                        cuda_driver_try!(
-                            cuMemMap(virtual_addr, self.handle_size as usize, handle),
-                            IoError::InvalidHandle
-                        );
-                        range.is_mapped = true; // Set mapped
-                    }
-                    Err(_) => {
-                        // Handle is None.
-                        // Here we have to return an error since handles must be allocated at this point.
-                        return Err(IoError::InvalidHandle);
-                    }
-                }
-            }
-
-            Ok(())
-        } else {
-            // The range does not exist
-            Err(IoError::InvalidHandle)
-        }
-    }
 
     // Removes the range from the hashmap of allocated ranges and puts it on the btreeset of free ranges (This way we can reuse ranges without having to make a lot of calls to cuMemReserve)
     fn free_range(&mut self, start_idx: usize) -> Result<(), String> {
@@ -354,8 +357,8 @@ pub struct ExpandableBlock {
     gc_count_base: u64,    // Garbage-Collection count when this block was inserted
     allocation_count: u64, // How many times has this block been reused.
     state: BlockState, // Unmapped -> Mapped -> Allocated.
-    handle_ranges: Vec<usize>, // This is a vector of the start_idx of the ranges inside the
-    // HandleManager. This way if we wanted to expand a block, we just allocate a new handle range and append it here, since handle allocations happen in ranges.
+    handle_range: Option<usize>, // This is a pointer to a mapped range allocated from the
+    // HandleManager. This way if we wanted to expand a block, we just de-map this range and try to map again a bigger one, which has almost zero-cost as it does not move physical memory at all.
 
 }
 
@@ -374,39 +377,108 @@ impl ExpandableBlock {
             state: BlockState::Unmapped,
             gc_count_base: 0,
             allocation_count: 0,
-            ranges: Vec::with_capacity(1); // We will always have at least one range
+            range: None
         }
     }
 
-    fn alloc(start_idx: usize, size: u64, handle_size: usize, manager: &mut HandleManager) -> Result<Self, IoError> {
+
+    // Does not allocate actual memory, just creates a new block with an assigned memory range of the specified size.
+    fn init(start_idx: usize, size: u64, handle_size: usize, manager: &mut HandleManager) -> Result<Self, IoError> {
         let base_addr = start_idx * handle_size;
         let required_handles = size / handle_size;
-        let start_idx = manager.alloc_range(required_handles)?;
+
+        let range_start = manager.alloc_range(required_handles)?;
         Self {
             base_addr,
             size,
             state: BlockState::Unmapped,
             gc_count_base: 0,
             allocation_count: 0,
-            ranges: vec![start_idx; 1]; // We will always have at least one range
+            range: Some(range_start)
         }
+
+    }
+
+    //  Allocate physical memory for this block.
+    fn alloc(&self, manager: &mut Handleanager) -> Result<(), IOError> {
+
+    }
+
+    // Deallocate physical memory for this block.
+    fn dealloc(&self, manager: &mut Handleanager) -> Result<(), IOError> {
+
+    }
+
+    fn is_initalized(&self) -> bool {
+        self.range.is_some()
+    }
+
+    fn map(&mut self, manager: &mut HandleManager) -> Result<(), IOError> {
+        if !self.is_initalized || self.state != BlockState::Unmapped {
+            return Err(IOError::InvalidHandle);
+        }
+
+        manager.map_range(self.range.unwrap(), // Wont panic here as we already checked if is some
+        self.base_addr
+
+    )?;
+        self.state = BlockState::Mapped;
+        Ok(())
+
+    }
+
+    fn unmap(&mut self, manager: &mut HandleManager) -> Result<(), IOError> {
+        if self.state == BlockState::Allocated {
+            return Err(IOError::InvalidHandle);
+        }
+
+        if !self.is_initalized || self.state == BlockState::Unmapped {
+            return Ok(()); // Do not fail here
+        }
+
+        manager.unmap_range(self.range.unwrap(), // Wont panic here as we already checked if is some
+        self.base_addr
+
+    )?;
+        self.state = BlockState::Unmapped;
+        Ok(())
 
     }
 
 
     // Expands the current block to a new target size by appending a new range of handles at the end.
     // Note that the handles might not be fully contiguous in memory here, which might be less efficient but still valid. As long as we make sure that handle size is a multiple of the granularity, memory fragmentation should be minimal.
-    fn expand(&mut self, new_size: u64, handle_size: usize, &mut HandleManager) -> Result<(), IOError>{
-        // Some check to make sure the new size is always bigger than the previous.
-        assert!(new_size >= self.size, "Invalid size. Cannot expand block from {} to {}", self.size, new_size);
-        let required_size = new_size - self.size;
-        let required_handles = size / handle_size;
+    fn expand(&mut self, new_size: u64, handle_size: usize, manager: &mut HandleManager) -> Result<(), IOError>{
+        match self.state {
+
+            BlockState::Mapped => {
+            self.unmap(manager)?;
+            },
+            BlockState::Allocated => {
+
+                return Err(IOError::InvalidHandle)
+            },
+            _ => {}
+
+        };
+
+        if let Some(range) = self.range {
+            manager.free_range(range)?;
+            self.range = None // Deallocate current range
+        };
+
+        let required_handles = new_size / handle_size;
         let start_idx = manager.alloc_range(required_handles)?;
-        self.ranges.push(start_idx);
+        self.range = Some(start_idx);
         self.size = new_size;
+        self.map(manager);
         Ok(())
 
     }
+
+
+    fn f
+
 
     pub fn device_ptr(&self) -> CUdeviceptr {
         self.base_addr
