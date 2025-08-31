@@ -1,4 +1,4 @@
-use crate::compute::{AllocationStrategy, CudaStorageType, ExpandableCudaStorage};
+
 use crate::{
     WmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
@@ -29,13 +29,23 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::cuMemGetAllocationGranularity;
+use cudarc::driver::sys::CUmemLocationType_enum::CU_MEM_LOCATION_TYPE_DEVICE;
+use cudarc::driver::sys::CUmemLocation;
+use cudarc::driver::sys::CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED;
+use cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+use cudarc::driver::sys::CUmemAllocationProp;
 use std::mem::MaybeUninit;
+use crate::compute::CudaStorageType;
+use crate::compute::ExpandableStorage;
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
+    expandable_storage_enabled: bool, // ¿Does the runtime want to use expandable storage?
     pub memory_config: MemoryConfiguration,
-    pub strategy: AllocationStrategy,
+
+
 }
 
 #[derive(Debug)]
@@ -82,26 +92,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // NB: cudamalloc and co. actually align to _256_ bytes. Worth
     // trying this in the future to see if it reduces memory coalescing.
     // TODO: Find the correct value from the driver.
-    // let mem_alignment = 32;
-    // SOLVED THIS TODO! --> Get proper memory alignment from device
-    let mem_alignment = unsafe {
-        // Try to get texture alignment first (this is what cudaMalloc typically uses)
-        let texture_alignment = cudarc::driver::result::device::get_attribute(
-            device_ptr,
-            cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_TEXTURE_ALIGNMENT,
-        )
-        .unwrap_or(256) as usize; // Default to 256 if query fails
+    let mem_alignment = 32;
 
-        // For VMM, we might want different alignment
-        if vmm_supported {
-            // VMM works with GPU page boundaries (2MB), but for smaller allocations
-            // we still want good cache line alignment
-            texture_alignment.max(256) // At least 256 bytes for good coalescing
-        } else {
-            // Regular cudaMalloc alignment
-            texture_alignment.max(32) // At least 32 bytes as before
-        }
-    };
 
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
@@ -121,19 +113,71 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cudarc::driver::result::stream::StreamKind::NonBlocking,
     )
     .unwrap();
+
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
 
-    //  let storage = CudaStorage::new(mem_alignment, stream);
-    let mem_properties = MemoryDeviceProperties {
-        max_page_size: max_memory / 4,
-        alignment: mem_alignment as u64,
+
+  let (mem_properties, storage) = if !vmm_supported && !options.expandable_storage_enabled {
+
+        let storage = CudaStorage::new(mem_alignment, stream);
+        let mem_properties = MemoryDeviceProperties {
+            max_page_size: max_memory / 4,
+            alignment: mem_alignment as u64,
+        };
+       (mem_properties, CudaStorageType::Regular(storage))
+
+   } else {
+
+        let mut granularity: usize = 0;
+        let handle_type = {
+        #[cfg(unix)]
+        {
+            CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+        }
+        #[cfg(target_os = "windows")]
+        {
+            CU_MEM_HANDLE_TYPE_WIN32
+        }
+        };
+
+        let prop = CUmemAllocationProp {
+            type_: CU_MEM_ALLOCATION_TYPE_PINNED,
+            requestedHandleTypes: handle_type,
+            location: CUmemLocation {
+                type_: CU_MEM_LOCATION_TYPE_DEVICE,
+                id: device_ptr,
+            },
+            win32HandleMetaData: std::ptr::null_mut(),
+            allocFlags: Default::default(),
+        };
+        unsafe {
+            cuMemGetAllocationGranularity(
+                &mut granularity,
+                &prop,
+                cudarc::driver::sys::CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+            )
+        };
+        // For expandable storage, the memory should be aligned to the granularity. Therefore here there is a straightforward way to configure the mem_alignment.
+        let mem_properties = MemoryDeviceProperties {
+            max_page_size: max_memory / 4,
+            alignment: granularity as u64,
+        };
+        let virtual_size =  3 * (max_memory / 4); // Avoid reserving all the mmeory in the gpu
+        let storage = ExpandableStorage::new(
+            device.index.try_into().unwrap(), // Note that this storage type needs an associated device  to perform allocations. If you do not desire that, the storage API should change, as the [`alloc`] method does not accept a device_id.
+            stream,
+            virtual_size, // Reserve only a percentage of the gpu memory for safety
+            granularity as u64, // Alignment is set to the granularity value.
+            granularity as u64, // For now handle size will default to alignment. Can be set configurable in the future.
+        );
+
+        (mem_properties, CudaStorageType::Expandable(storage))
     };
 
-    //  log::debug!("Using memory alignment: {} bytes for device {}", mem_alignment, device.index);
 
     let mut comp_opts = CompilationOptions::default();
 
@@ -184,47 +228,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
-    let memory_management = if !vmm_supported
-        || matches!(options.strategy, AllocationStrategy::Disabled)
-    {
-        // Use existing CudaStorage (VMM not supported or explicitly disabled)
-        if !vmm_supported && !matches!(options.strategy, AllocationStrategy::Disabled) {
-            log::warn!(
-                "VMM requested but not supported by device {}, falling back to regular allocation",
-                device.index
-            );
-        }
-        let storage = CudaStorage::new(mem_alignment, stream);
-        MemoryManagement::from_configuration(
-            CudaStorageType::Regular(storage),
+    let memory_management = MemoryManagement::from_configuration(
+        storage,
             &mem_properties,
             options.memory_config,
-        )
-    } else {
-        // Use VMM-enabled storage
-
-        let (handle_size, virtual_size) = match &options.strategy {
-            AllocationStrategy::ExpandableSegments {
-                handle_size,
-                virtual_size,
-            } => (*handle_size, *virtual_size),
-            _ => unreachable!("Checked before: strategy cannot be Disabled here"),
-        };
-        let storage = ExpandableCudaStorage::new(
-            device.index as i32,
-            stream,
-            mem_alignment,
-            handle_size,
-            virtual_size,
-            crate::device::CUDA_MAX_BINDINGS as usize,
-            0.65, // Good value for garbage collection threshold
         );
-        MemoryManagement::from_configuration(
-            CudaStorageType::Vmm(storage),
-            &mem_properties,
-            options.memory_config,
-        )
-    };
+
 
     let mut device_props = DeviceProperties::new(
         &[Feature::Plane],

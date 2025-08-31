@@ -2,6 +2,7 @@ use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::IoError,
 };
+ use crate::compute::CudaStorage;
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
@@ -21,7 +22,6 @@ use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
 use super::fence::{Fence, SyncStream};
-use super::storage::CudaStorageType;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
@@ -54,7 +54,7 @@ use std::{ffi::CString, mem::MaybeUninit};
 
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
-
+use crate::compute::CudaStorageType;
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -65,7 +65,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorageType>,
+    memory_management: MemoryManagement<CudaStorageType>, // Set this to allow dispatching on the storage at runtime based on device properties and configuration.
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -187,7 +187,7 @@ impl CudaServer {
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type Storage = CudaStorageType;
+    type Storage = CudaStorage;
     type Feature = Feature;
     type Info = ();
 
