@@ -13,14 +13,14 @@ macro_rules! virtual_layout {
                     &self,
                     scope: &mut Scope,
                     pos: CoordsExpand,
-                ) -> <u32 as CubeType>::ExpandType {
+                ) -> <SourceCoords as CubeType>::ExpandType {
                     L::__expand_to_source_pos(scope, self.clone(), pos)
                 }
                 fn __expand_to_source_pos_checked_method(
                     &self,
                     scope: &mut Scope,
                     pos: CoordsExpand,
-                ) -> <(u32, bool) as CubeType>::ExpandType {
+                ) -> <(SourceCoords, bool) as CubeType>::ExpandType {
                     L::__expand_to_source_pos_checked(scope, self.clone(), pos)
                 }
                 fn __expand_shape_method(&self, scope: &mut Scope) -> CoordsExpand {
