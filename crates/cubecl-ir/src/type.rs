@@ -480,7 +480,7 @@ impl Display for Type {
 impl Display for StorageType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            StorageType::Scalar(ty) => writeln!(f, "{ty}"),
+            StorageType::Scalar(ty) => write!(f, "{ty}"),
             StorageType::Packed(ty, factor) => write!(f, "packed<{ty}, {factor}>"),
             StorageType::Atomic(ty) => write!(f, "atomic<{ty}>"),
         }
