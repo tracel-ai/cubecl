@@ -9,18 +9,16 @@ use crate::tensor::layout::{
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct PlainLayout {
     len: u32,
-    #[cube(comptime)]
-    line_size: u8,
 }
 
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize], line_size: &'a u8) -> Self {
+    pub fn from_shape(shape: &[usize]) -> Self {
         let len = shape.iter().product::<usize>();
-        Self::new(ScalarArg::new(len as u32), line_size)
+        Self::new(ScalarArg::new(len as u32))
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: &'a u8) -> Self {
-        Self::from_shape(handle.shape, line_size)
+    pub fn from_handle(handle: &TensorHandleRef<'_, R>) -> Self {
+        Self::from_shape(handle.shape)
     }
 }
 
@@ -29,8 +27,8 @@ impl Layout for PlainLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
-        pos * comptime!(this.line_size as u32)
+    fn to_source_pos(_this: &Self, pos: Self::Coordinates) -> u32 {
+        pos
     }
 
     fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {

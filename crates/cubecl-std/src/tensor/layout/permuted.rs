@@ -68,7 +68,7 @@ impl Layout for PermutedLayout {
             &this.shape,
             &this.strides,
             comptime![this.line_size as u32],
-        ) * comptime![this.line_size as u32]
+        )
     }
 
     fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {

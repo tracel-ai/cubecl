@@ -54,7 +54,8 @@ impl Layout for StridedLayout {
     fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
         let offset_abs = pos * comptime![this.line_size as u32];
         let (y, x) = this.shape.div_mod(offset_abs);
-        y * this.stride + x
+        let offset = y * this.stride + x;
+        offset / comptime![this.line_size as u32]
     }
 
     fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {

@@ -255,8 +255,6 @@ macro_rules! impl_operations_1d {
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
             ) -> <T>::ExpandType {
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                let pos = div::expand(scope, pos, line_size.into());
                 <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
             }
 
@@ -267,8 +265,6 @@ macro_rules! impl_operations_1d {
             ) -> <T>::ExpandType {
                 let len = self.clone().__expand_len_method(scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
-                let line_size = self.clone().__expand_line_size_method(scope);
-                let pos = div::expand(scope, pos, line_size.into());
                 let slice = self.clone().__expand_to_slice_method(scope);
                 let zero = T::__expand_cast_from(scope, 0.into());
                 read_masked::expand::<T>(scope, in_bounds, slice, pos, zero)
@@ -279,8 +275,6 @@ macro_rules! impl_operations_1d {
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
             ) -> <T>::ExpandType {
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                let pos = div::expand(scope, pos, line_size.into());
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(&self, scope, pos)
             }
 
@@ -290,17 +284,12 @@ macro_rules! impl_operations_1d {
                 pos: ExpandElementTyped<u32>,
                 size: ExpandElementTyped<u32>,
             ) -> SliceExpand<T, ReadOnly> {
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                let pos = div::expand(scope, pos, line_size.into());
-                let size = div::expand(scope, size, line_size.into());
                 let end = add::expand(scope, pos.clone(), size);
                 <Self as SliceOperatorExpand<T>>::__expand_slice_method(&self, scope, pos, end)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-                let len = <Self as ListExpand<T>>::__expand_len_method(&self, scope);
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                mul::expand(scope, len, line_size.into())
+                <Self as ListExpand<T>>::__expand_len_method(&self, scope)
             }
 
             fn __expand_is_in_bounds_method(
@@ -329,8 +318,6 @@ macro_rules! impl_operations_1d {
                 pos: ExpandElementTyped<u32>,
                 value: <T>::ExpandType,
             ) {
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                let pos = div::expand(scope, pos, line_size.into());
                 <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
             }
 
@@ -342,8 +329,6 @@ macro_rules! impl_operations_1d {
             ) {
                 let len = <Self as ListExpand<T>>::__expand_len_method(&self, scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
-                let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-                let pos = div::expand(scope, pos, line_size.into());
                 if_expand(scope, in_bounds.into(), |scope| {
                     <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
                 })
@@ -368,9 +353,7 @@ mod slice {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> <T>::ExpandType {
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListExpand<T>>::__expand_read_method(&self, scope, pos)
+            <Self as ListExpand<T>>::__expand_read_method(self, scope, pos)
         }
 
         fn __expand_read_checked_method(
@@ -380,8 +363,6 @@ mod slice {
         ) -> <T>::ExpandType {
             let len = self.__expand_len_method(scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
             let slice = self.clone().__expand_to_slice_method(scope);
             let zero = T::__expand_cast_from(scope, 0.into());
             read_masked::expand::<T>(scope, in_bounds, slice, pos, zero)
@@ -392,9 +373,7 @@ mod slice {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> <T>::ExpandType {
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListExpand<T>>::__expand_read_unchecked_method(&self, scope, pos)
+            <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
         fn __expand_slice_method(
@@ -403,17 +382,12 @@ mod slice {
             pos: ExpandElementTyped<u32>,
             size: ExpandElementTyped<u32>,
         ) -> SliceExpand<T, ReadOnly> {
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            let size = div::expand(scope, size, line_size.into());
             let end = add::expand(scope, pos.clone(), size);
-            <Self as SliceOperatorExpand<T>>::__expand_slice_method(&self, scope, pos, end)
+            <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, pos, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            let len = <Self as ListExpand<T>>::__expand_len_method(&self, scope);
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            mul::expand(scope, len, line_size.into())
+            <Self as ListExpand<T>>::__expand_len_method(self, scope)
         }
 
         fn __expand_is_in_bounds_method(
@@ -426,11 +400,11 @@ mod slice {
         }
 
         fn line_size(&self) -> u32 {
-            <Self as ListExpand<T>>::line_size(&self)
+            <Self as ListExpand<T>>::line_size(self)
         }
 
         fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            <Self as ListExpand<T>>::__expand_line_size_method(&self, scope)
+            <Self as ListExpand<T>>::__expand_line_size_method(self, scope)
         }
     }
 
@@ -442,9 +416,7 @@ mod slice {
             pos: ExpandElementTyped<u32>,
             value: <T>::ExpandType,
         ) {
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
+            <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
         }
 
         fn __expand_write_checked_method(
@@ -453,12 +425,10 @@ mod slice {
             pos: ExpandElementTyped<u32>,
             value: <T>::ExpandType,
         ) {
-            let len = <Self as ListExpand<T>>::__expand_len_method(&self, scope);
+            let len = <Self as ListExpand<T>>::__expand_len_method(self, scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
-            let line_size = <Self as ListExpand<T>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
             if_expand(scope, in_bounds.into(), |scope| {
-                <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
+                <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
             })
         }
     }
@@ -476,9 +446,7 @@ mod virtual_tensor {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> <Line<T> as CubeType>::ExpandType {
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListExpand<Line<T>>>::__expand_read_method(&self, scope, pos)
+            <Self as ListExpand<Line<T>>>::__expand_read_method(self, scope, pos)
         }
 
         fn __expand_read_checked_method(
@@ -488,8 +456,6 @@ mod virtual_tensor {
         ) -> <Line<T> as CubeType>::ExpandType {
             let len = self.__expand_len_method(scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
             let slice = self.clone().__expand_to_slice_method(scope);
             let zero = Line::__expand_cast_from(scope, 0.into());
             read_masked::expand::<Line<T>>(scope, in_bounds, slice, pos, zero)
@@ -500,9 +466,7 @@ mod virtual_tensor {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> <Line<T> as CubeType>::ExpandType {
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListExpand<Line<T>>>::__expand_read_unchecked_method(&self, scope, pos)
+            <Self as ListExpand<Line<T>>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
         fn __expand_slice_method(
@@ -511,17 +475,12 @@ mod virtual_tensor {
             pos: ExpandElementTyped<u32>,
             size: ExpandElementTyped<u32>,
         ) -> SliceExpand<Line<T>, ReadOnly> {
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            let size = div::expand(scope, size, line_size.into());
             let end = add::expand(scope, pos.clone(), size);
-            <Self as SliceOperatorExpand<Line<T>>>::__expand_slice_method(&self, scope, pos, end)
+            <Self as SliceOperatorExpand<Line<T>>>::__expand_slice_method(self, scope, pos, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            let len = <Self as ListExpand<Line<T>>>::__expand_len_method(&self, scope);
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            mul::expand(scope, len, line_size.into())
+            <Self as ListExpand<Line<T>>>::__expand_len_method(self, scope)
         }
 
         fn __expand_is_in_bounds_method(
@@ -534,11 +493,11 @@ mod virtual_tensor {
         }
 
         fn line_size(&self) -> u32 {
-            <Self as ListExpand<Line<T>>>::line_size(&self)
+            <Self as ListExpand<Line<T>>>::line_size(self)
         }
 
         fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope)
+            <Self as ListExpand<Line<T>>>::__expand_line_size_method(self, scope)
         }
     }
 
@@ -550,9 +509,7 @@ mod virtual_tensor {
             pos: ExpandElementTyped<u32>,
             value: <Line<T> as CubeType>::ExpandType,
         ) {
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
-            <Self as ListMutExpand<Line<T>>>::__expand_write_method(&self, scope, pos, value)
+            <Self as ListMutExpand<Line<T>>>::__expand_write_method(self, scope, pos, value)
         }
 
         fn __expand_write_checked_method(
@@ -561,12 +518,10 @@ mod virtual_tensor {
             pos: ExpandElementTyped<u32>,
             value: <Line<T> as CubeType>::ExpandType,
         ) {
-            let len = <Self as ListExpand<Line<T>>>::__expand_len_method(&self, scope);
+            let len = <Self as ListExpand<Line<T>>>::__expand_len_method(self, scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
-            let line_size = <Self as ListExpand<Line<T>>>::__expand_line_size_method(&self, scope);
-            let pos = div::expand(scope, pos, line_size.into());
             if_expand(scope, in_bounds.into(), |scope| {
-                <Self as ListMutExpand<Line<T>>>::__expand_write_method(&self, scope, pos, value)
+                <Self as ListMutExpand<Line<T>>>::__expand_write_method(self, scope, pos, value)
             })
         }
     }
@@ -627,7 +582,9 @@ pub struct VirtualViewMut<
     S: Coordinates,
     V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
 > {
+    #[allow(unused)]
     view: V,
+    #[allow(unused)]
     layout: VirtualLayout<C, S>,
     #[cube(comptime)]
     _ty: PhantomData<T>,
@@ -849,7 +806,7 @@ mod view {
         }
 
         fn line_size(&self) -> u32 {
-            ViewExpand::line_size(&self)
+            ViewExpand::line_size(self)
         }
 
         fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
