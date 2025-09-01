@@ -314,16 +314,20 @@ impl HandlePool {
 
         }
 
-        if cuda_driver_try!(cuMemMap(new_addr, self.handle_size as usize, 0, handle, 0)).is_ok(){
+        if let Err(e) = cuda_driver_try!(cuMemMap(new_addr, self.handle_size as usize, 0, handle, 0)){
+            eprintln!("ERROR AL MAPEAR MEMORIA {e}");
+            eprintln!(
+                   "Handle address {} must be aligned to handle_size {}. Handle is: {}",
+                   new_addr, self.handle_size, handle);
+            Err(IoError::InvalidHandle)
 
 
+        }
+        else{
             // Set the access permissions for this device.
             self.set_access_permissions(new_addr, self.device_id);
             self.allocated_handles.insert(new_addr, handle);
             Ok(new_addr)
-        }
-        else{
-            Err(IoError::InvalidHandle)
         }
     }
 
@@ -485,6 +489,7 @@ pub struct ExpandableStorage {
     /// CUDA stream for async operations
     stream: CUstream,
     base_addr: CUdeviceptr,
+    next_addr: CUdeviceptr,
     virtual_size: u64,
     handle_size: u64,
     mem_alignment: usize,
@@ -493,6 +498,7 @@ pub struct ExpandableStorage {
 
     // Blocks marked for deallocation
     deallocations: Vec<StorageId>,
+    max_deallocations: usize,
 
     ptr_bindings: PtrBindings,
 }
@@ -503,13 +509,13 @@ impl ExpandableStorage {
         stream: CUstream,
         virtual_size: u64,
         alignment: u64,
-        handle_size: u64
+        handle_size: u64,
     ) -> Self {
 
         let mut base_addr = 0;
         let handle_size = handle_size.next_multiple_of(alignment);
         let virtual_size = virtual_size.next_multiple_of(alignment);
-
+        let max_deallocations = (virtual_size / handle_size * 3) as usize;
 
         if let Err(e) = cuda_driver_try!(cuMemAddressReserve(
             &mut base_addr,
@@ -526,6 +532,7 @@ impl ExpandableStorage {
             device_id,
             stream,
             base_addr,
+            next_addr: base_addr, // Initialize the next block's addr to the base addr of the storage.
             virtual_size,
             handle_size,
             mem_alignment: handle_size as usize,
@@ -538,21 +545,39 @@ impl ExpandableStorage {
             memory: HashMap::new(),    // All blocks go here
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(None),
+            max_deallocations
         }
     }
 
 
     // Returns the next memory address that can be assigned, to ensure that blocks are contiguous in memory.
     fn next_addr(&self) -> CUdeviceptr {
-    if self.memory.is_empty() {
-        self.base_addr
-    } else {
-        self.base_addr + (self.memory.len() as u64 * self.handle_size)
+    self.next_addr
+}
+
+    fn set_next_addr(&mut self, next_addr: CUdeviceptr) {
+        self.next_addr = next_addr;
     }
 
 
 
-}
+
+
+
+// Deallocates all pending handles in the
+    fn perform_deallocations(&mut self) {
+       for id in self.deallocations.drain(..) {
+            if let Some(mut block) = self.memory.remove(&id) {
+                for i in 0..block.num_handles {
+                        let addr = block.base_addr + i as u64 * self.handle_size;
+                        self.pool.deallocate_handle(addr);
+                }
+
+            }
+
+        }
+
+    }
 
     #[cfg(test)]
     pub fn deallocations_len(&self) -> usize {
@@ -617,6 +642,9 @@ impl ComputeStorage for ExpandableStorage {
             self.pool.allocate_handle(addr)?;
         }
 
+        let next_addr = next_addr + block.num_handles as u64 * self.handle_size;
+        self.set_next_addr(next_addr);
+
         block.set_mapped(); // All handles are mapped now so we set the block to mapped state
         self.memory.insert(id, block);
 
@@ -633,22 +661,15 @@ impl ComputeStorage for ExpandableStorage {
    // I leave it this way for you to decide wether you want to keep it or not in the future.
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
+
+    }
+
+    fn flush(&mut self){
+        self.perform_deallocations()
     }
 
 
-    // Deallocates all pending handles in the
-    fn flush(&mut self) {
-        for id in self.deallocations.drain(..) {
-            if let Some(mut block) = self.memory.remove(&id) {
-                for i in 0..block.num_handles {
-                        let addr = block.base_addr + i as u64 * self.handle_size;
-                        self.pool.deallocate_handle(addr);
-                }
 
-            }
-
-        }
-    }
 }
 
 
@@ -657,8 +678,14 @@ impl Drop for ExpandableStorage {
 
     fn drop(&mut self) {
 
-        // We need to drop the pool first to prevent memory leaks.
+        self.flush();
+
+        for (addr, _) in &self.pool.allocated_handles {
+            let _ = cuda_driver_try!(cuMemUnmap(*addr, self.handle_size as usize));
+        }
+
         self.pool.allocated_handles.drain().for_each(|(_, handle)| {
+
             let _ = cuda_driver_try!(cuMemRelease(handle));
         });
         self.pool.allocated_handles.clear();

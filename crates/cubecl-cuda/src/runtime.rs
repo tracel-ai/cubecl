@@ -122,7 +122,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
 
   let (mem_properties, storage) = if !vmm_supported && !options.expandable_storage_enabled {
-
+        
         let storage = CudaStorage::new(mem_alignment, stream);
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
