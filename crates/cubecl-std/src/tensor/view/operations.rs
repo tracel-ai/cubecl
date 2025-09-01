@@ -765,7 +765,7 @@ mod view {
         for ViewExpand<T, C, IO>
     {
         fn __expand_read_method(&self, scope: &mut Scope, pos: <C>::ExpandType) -> <T>::ExpandType {
-            View::__expand_read(scope, self.clone(), pos)
+            ViewExpand::__expand_read_method(self.clone(), scope, pos)
         }
 
         fn __expand_read_checked_method(
@@ -773,7 +773,7 @@ mod view {
             scope: &mut Scope,
             pos: <C>::ExpandType,
         ) -> <T>::ExpandType {
-            View::__expand_read_checked(scope, self.clone(), pos)
+            ViewExpand::__expand_read_checked_method(self.clone(), scope, pos)
         }
 
         fn __expand_read_unchecked_method(
@@ -781,7 +781,7 @@ mod view {
             scope: &mut Scope,
             pos: <C>::ExpandType,
         ) -> <T>::ExpandType {
-            View::__expand_read_unchecked(scope, self.clone(), pos)
+            ViewExpand::__expand_read_unchecked_method(self.clone(), scope, pos)
         }
 
         fn __expand_slice_method(
@@ -790,11 +790,11 @@ mod view {
             pos: <C>::ExpandType,
             size: ExpandElementTyped<u32>,
         ) -> SliceExpand<T, ReadOnly> {
-            View::__expand_slice(scope, self.clone(), pos, size)
+            ViewExpand::__expand_slice_method(self.clone(), scope, pos, size)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
-            View::__expand_shape(scope, self.clone())
+            ViewExpand::__expand_shape_method(self.clone(), scope)
         }
 
         fn __expand_is_in_bounds_method(
@@ -802,7 +802,7 @@ mod view {
             scope: &mut Scope,
             pos: <C>::ExpandType,
         ) -> ExpandElementTyped<bool> {
-            View::__expand_is_in_bounds(scope, self.clone(), pos)
+            ViewExpand::__expand_is_in_bounds_method(self.clone(), scope, pos)
         }
 
         fn line_size(&self) -> u32 {
@@ -810,7 +810,7 @@ mod view {
         }
 
         fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            View::__expand_line_size(scope, self.clone())
+            ViewExpand::__expand_line_size_method(self.clone(), scope)
         }
     }
 
@@ -824,7 +824,7 @@ mod view {
             pos: <C>::ExpandType,
             value: <T>::ExpandType,
         ) {
-            View::__expand_write(scope, self.clone(), pos, value);
+            ViewExpand::__expand_write_method(self.clone(), scope, pos, value);
         }
 
         fn __expand_write_checked_method(
@@ -833,7 +833,7 @@ mod view {
             pos: <C>::ExpandType,
             value: <T>::ExpandType,
         ) {
-            View::__expand_write_checked(scope, self.clone(), pos, value);
+            ViewExpand::__expand_write_checked_method(self.clone(), scope, pos, value);
         }
     }
 }

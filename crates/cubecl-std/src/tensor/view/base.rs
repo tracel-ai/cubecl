@@ -322,7 +322,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
 
     /// Expand method for [TensorView::write_checked]
     pub fn __expand_write_checked_method(
-        &self,
+        self,
         scope: &mut Scope,
         pos: C::ExpandType,
         value: ExpandElementTyped<E>,
