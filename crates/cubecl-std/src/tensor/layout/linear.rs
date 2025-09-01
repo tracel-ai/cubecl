@@ -17,6 +17,8 @@ use crate::tensor::{
 /// necessary level of striding, either none, only the last dim (for freshly allocated strided
 /// tensors), or all dimensions.
 ///
+/// Treats indices as the line index, with the shape being adjusted for line size.
+///
 /// `Layout` version of [index_offset_contiguous]
 #[derive(CubeType, CubeLaunch, Clone)]
 pub enum LinearLayout {
@@ -65,25 +67,18 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
 #[cube]
 impl Layout for LinearLayout {
     type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
         match this {
             LinearLayout::Plain { .. } => pos,
-            LinearLayout::Strided(strided_layout) => strided_layout.to_linear_pos(pos),
-            LinearLayout::Permuted(permuted_layout) => permuted_layout.to_linear_pos(pos),
+            LinearLayout::Strided(strided_layout) => strided_layout.to_source_pos(pos),
+            LinearLayout::Permuted(permuted_layout) => permuted_layout.to_source_pos(pos),
         }
     }
 
-    fn to_linear_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        match this {
-            LinearLayout::Plain { len } => {
-                let idx = this.to_linear_pos(pos);
-                let in_bounds = pos < *len;
-                (idx, in_bounds)
-            }
-            LinearLayout::Strided(strided_layout) => strided_layout.to_linear_pos_checked(pos),
-            LinearLayout::Permuted(permuted_layout) => permuted_layout.to_linear_pos_checked(pos),
-        }
+    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
+        (this.to_source_pos(pos), this.is_in_bounds(pos))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
@@ -91,6 +86,14 @@ impl Layout for LinearLayout {
             LinearLayout::Plain { len } => *len,
             LinearLayout::Strided(strided_layout) => strided_layout.shape(),
             LinearLayout::Permuted(permuted_layout) => permuted_layout.shape(),
+        }
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        match this {
+            LinearLayout::Plain { len } => pos < *len,
+            LinearLayout::Strided(strided_layout) => strided_layout.is_in_bounds(pos),
+            LinearLayout::Permuted(permuted_layout) => permuted_layout.is_in_bounds(pos),
         }
     }
 }

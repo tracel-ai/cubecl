@@ -63,7 +63,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
-        tensor: View<IP::Global, Coords3d>,
+        tensor: View<Line<IP::Global>, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

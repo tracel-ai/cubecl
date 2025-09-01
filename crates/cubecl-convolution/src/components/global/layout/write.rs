@@ -4,7 +4,9 @@ use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::{
     FastDivmod,
     tensor::{
-        layout::{Coords3d, Layout},
+        layout::{
+            Coords1d, Coords3d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
+        },
         r#virtual::{ReadWrite, VirtualTensor},
     },
 };
@@ -73,8 +75,9 @@ impl NhwcOutGlobalLayout {
 #[cube]
 impl Layout for NhwcOutGlobalLayout {
     type Coordinates = Coords3d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
+    fn to_source_pos(this: &Self, coords: Self::Coordinates) -> u32 {
         let (_, view_m, view_n) = coords;
 
         let (n, out_pos) = div_mod_seq(view_m, &this.shape_out);
@@ -93,19 +96,19 @@ impl Layout for NhwcOutGlobalLayout {
         write_pos / this.config.global_line_size
     }
 
-    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        let linear_pos = Self::to_linear_pos(this, coords);
-
-        let (_, m, n) = coords;
-        let check_m = comptime![this.config.check_row_bounds];
-        let check_n = comptime![this.config.check_col_bounds];
-        let in_bounds = (!check_m || m < this.shape_m) && (!check_n || n < this.shape_n);
-
-        (linear_pos, in_bounds)
+    fn to_source_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
+        (this.to_source_pos(coords), this.is_in_bounds(coords))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         (1, this.shape_m, this.shape_n)
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        let (_, m, n) = pos;
+        let check_m = comptime![this.config.check_row_bounds];
+        let check_n = comptime![this.config.check_col_bounds];
+        (!check_m || m < this.shape_m) && (!check_n || n < this.shape_n)
     }
 }
 

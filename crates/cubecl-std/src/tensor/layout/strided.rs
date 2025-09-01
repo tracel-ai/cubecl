@@ -49,22 +49,24 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
 #[cube]
 impl Layout for StridedLayout {
     type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
         let offset_abs = pos * comptime![this.line_size as u32];
         let (y, x) = this.shape.div_mod(offset_abs);
-        let offset = y * this.stride + x;
-        offset / comptime![this.line_size as u32]
+        y * this.stride + x
     }
 
-    fn to_linear_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        let idx = this.to_linear_pos(pos);
-        let in_bounds = pos < this.len;
-        (idx, in_bounds)
+    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
+        (this.to_source_pos(pos), this.is_in_bounds(pos))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         this.len
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        pos < this.len
     }
 }
 

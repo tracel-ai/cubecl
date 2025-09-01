@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
 use cubecl_std::{
     FastDivmod,
     tensor::{
-        layout::{Coords3d, Layout},
+        layout::{Coords1d, Coords3d, Layout},
         r#virtual::VirtualTensor,
     },
 };
@@ -107,16 +107,17 @@ impl Im2colGlobalLayout {
 #[cube]
 impl Layout for Im2colGlobalLayout {
     type Coordinates = Coords3d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
-        Self::to_linear_pos_checked(this, coords).0
+    fn to_source_pos(this: &Self, coords: Self::Coordinates) -> u32 {
+        Self::to_source_pos_checked(this, coords).0
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         (1, this.shape_m, this.shape_k)
     }
 
-    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
+    fn to_source_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
         let (_, view_m, view_k) = coords;
 
         let (batch, out_offs) = div_mod_seq(view_m, &this.shape_out);
@@ -182,6 +183,14 @@ impl Layout for Im2colGlobalLayout {
         let line_size = this.config.global_line_size;
 
         (read_pos / line_size, in_bounds)
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        let (_, view_m, view_k) = pos;
+        // Shouldn't be relied on because it doesn't check spatial
+        let m_in_bounds = comptime!(!this.config.check_row_bounds) || view_m < this.shape_m;
+        let k_in_bounds = comptime!(!this.config.check_col_bounds) || view_k < this.shape_k;
+        m_in_bounds && k_in_bounds
     }
 }
 

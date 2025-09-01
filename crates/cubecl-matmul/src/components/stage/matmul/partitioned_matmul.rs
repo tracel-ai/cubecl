@@ -29,7 +29,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: View<EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -213,7 +213,7 @@ where
     }
 
     fn init_writer(
-        tensor: View<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<MP::EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

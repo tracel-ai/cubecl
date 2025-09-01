@@ -40,7 +40,7 @@ impl StagePartitioner for PlanePartitioner {
     type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: View<EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
