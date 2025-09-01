@@ -12,13 +12,14 @@ pub struct PlainLayout {
 }
 
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize]) -> Self {
+    pub fn from_shape(shape: &[usize], line_size: &u8) -> Self {
         let len = shape.iter().product::<usize>();
+        let len = len / *line_size as usize;
         Self::new(ScalarArg::new(len as u32))
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>) -> Self {
-        Self::from_shape(handle.shape)
+    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: &u8) -> Self {
+        Self::from_shape(handle.shape, line_size)
     }
 }
 

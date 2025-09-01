@@ -13,7 +13,7 @@ use crate::{
     components::{
         ConvolutionConfig,
         global::{
-            layout::{SpatialCoords, unwrap, virtual_layout},
+            layout::{NhwcCoords, unwrap, virtual_layout},
             load::im2col_tma::div_mod_seq,
         },
     },
@@ -78,9 +78,9 @@ impl Im2colGlobalLayout {
 #[cube]
 impl Layout for Im2colGlobalLayout {
     type Coordinates = Coords3d;
-    type SourceCoordinates = SpatialCoords;
+    type SourceCoordinates = NhwcCoords;
 
-    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> SpatialCoords {
+    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> NhwcCoords {
         let (_, view_m, view_k) = pos;
 
         let (batch, out_offs) = div_mod_seq(view_m, &this.shape_out);
@@ -109,7 +109,7 @@ impl Layout for Im2colGlobalLayout {
 
         let in_pos = in_pos.rev();
 
-        SpatialCoords {
+        NhwcCoords {
             batch,
             spatial: in_pos,
             channel,
@@ -120,7 +120,7 @@ impl Layout for Im2colGlobalLayout {
         (1, this.shape_m, this.shape_k)
     }
 
-    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (SpatialCoords, bool) {
+    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (NhwcCoords, bool) {
         (this.to_source_pos(pos), this.is_in_bounds(pos))
     }
 

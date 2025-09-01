@@ -263,7 +263,7 @@ macro_rules! impl_operations_1d {
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
             ) -> <T>::ExpandType {
-                let len = self.clone().__expand_len_method(scope);
+                let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
                 let slice = self.clone().__expand_to_slice_method(scope);
                 let zero = T::__expand_cast_from(scope, 0.into());
@@ -289,7 +289,7 @@ macro_rules! impl_operations_1d {
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-                <Self as ListExpand<T>>::__expand_len_method(&self, scope)
+                self.clone().__expand_buffer_len_method(scope)
             }
 
             fn __expand_is_in_bounds_method(
@@ -297,7 +297,7 @@ macro_rules! impl_operations_1d {
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
             ) -> ExpandElementTyped<bool> {
-                let len = self.__expand_shape_method(scope);
+                let len = self.clone().__expand_buffer_len_method(scope);
                 lt::expand(scope, pos, len)
             }
 
@@ -327,7 +327,7 @@ macro_rules! impl_operations_1d {
                 pos: ExpandElementTyped<u32>,
                 value: <T>::ExpandType,
             ) {
-                let len = <Self as ListExpand<T>>::__expand_len_method(&self, scope);
+                let len = self.clone().__expand_buffer_len_method(scope);
                 let in_bounds = lt::expand(scope, pos.clone(), len);
                 if_expand(scope, in_bounds.into(), |scope| {
                     <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
@@ -454,7 +454,7 @@ mod virtual_tensor {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> <Line<T> as CubeType>::ExpandType {
-            let len = self.__expand_len_method(scope);
+            let len = self.clone().__expand_buffer_len_method(scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
             let slice = self.clone().__expand_to_slice_method(scope);
             let zero = Line::__expand_cast_from(scope, 0.into());
@@ -480,7 +480,7 @@ mod virtual_tensor {
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            <Self as ListExpand<Line<T>>>::__expand_len_method(self, scope)
+            self.clone().__expand_buffer_len_method(scope)
         }
 
         fn __expand_is_in_bounds_method(
@@ -488,7 +488,7 @@ mod virtual_tensor {
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<bool> {
-            let len = self.__expand_shape_method(scope);
+            let len = self.clone().__expand_buffer_len_method(scope);
             lt::expand(scope, pos, len)
         }
 
@@ -518,7 +518,7 @@ mod virtual_tensor {
             pos: ExpandElementTyped<u32>,
             value: <Line<T> as CubeType>::ExpandType,
         ) {
-            let len = <Self as ListExpand<Line<T>>>::__expand_len_method(self, scope);
+            let len = self.clone().__expand_buffer_len_method(scope);
             let in_bounds = lt::expand(scope, pos.clone(), len);
             if_expand(scope, in_bounds.into(), |scope| {
                 <Self as ListMutExpand<Line<T>>>::__expand_write_method(self, scope, pos, value)

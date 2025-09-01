@@ -59,7 +59,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     ) -> Self {
         let rank = shape.len();
         if rank == 1 || is_contiguous(shape, strides) {
-            Self::Plain(PlainLayoutLaunch::from_shape(shape))
+            Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
         } else if is_contiguous_pitched(shape, strides) {
             Self::Strided(StridedLayoutLaunch::from_shape_strides(
                 client, shape, strides, line_size,

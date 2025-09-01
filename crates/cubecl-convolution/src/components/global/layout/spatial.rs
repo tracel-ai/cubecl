@@ -1,6 +1,5 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
-use cubecl_matmul::components::global::GlobalConfig;
 use cubecl_std::tensor::{
     layout::{
         Coordinates, Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
@@ -8,18 +7,18 @@ use cubecl_std::tensor::{
     r#virtual::VirtualTensor,
 };
 
-use crate::components::{ConvGemmConfig, ConvolutionConfig, global::layout::virtual_layout};
+use crate::components::{Dimensionality, global::layout::virtual_layout};
 
 #[derive(CubeType, Clone)]
-pub struct SpatialCoords {
+pub struct NhwcCoords {
     pub batch: u32,
     pub spatial: Sequence<i32>,
     pub channel: u32,
 }
 
-impl SpatialCoordsExpand {
+impl NhwcCoordsExpand {
     pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
-        SpatialCoordsExpand {
+        NhwcCoordsExpand {
             batch: self.batch.clone(),
             spatial: self.spatial.clone(),
             channel: self.channel.clone(),
@@ -27,12 +26,12 @@ impl SpatialCoordsExpand {
     }
 }
 
-impl Coordinates for SpatialCoords {}
+impl Coordinates for NhwcCoords {}
 
 /// Layout for a spatial (i.e. NHWC) tensor. Bounds check only applies to spatial dimensions, not
 /// channel or batch (because these are implicitly checked in the layouts used with spatial tensors).
 #[derive(CubeType, Clone)]
-pub struct SpatialLayout {
+pub struct NhwcLayout {
     /// Stride for N
     pub stride_batch: u32,
     /// Strides for DHW
@@ -54,12 +53,13 @@ pub struct SpatialLayout {
 }
 
 #[cube]
-impl SpatialLayout {
-    pub fn new<E: Numeric, M: GlobalConfig>(
-        tensor: VirtualTensor<E>,
-        #[comptime] config: ConvolutionConfig<M>,
+impl NhwcLayout {
+    pub fn new<E: Numeric, IO: Clone>(
+        tensor: VirtualTensor<E, IO>,
+        #[comptime] dim: Dimensionality,
+        #[comptime] check_spatial: bool,
     ) -> Self {
-        let spatial_dims = comptime![config.dimensionality().num_dims()];
+        let spatial_dims = comptime![dim.num_dims()];
         let mut strides_spatial = Sequence::new();
         let mut shapes_spatial = Sequence::new();
 
@@ -75,7 +75,7 @@ impl SpatialLayout {
         let shape_batch = tensor.shape(0);
         let shape_channel = tensor.shape(spatial_dims + 1);
 
-        SpatialLayout {
+        NhwcLayout {
             stride_batch,
             strides_spatial,
             stride_channel,
@@ -83,18 +83,18 @@ impl SpatialLayout {
             shapes_spatial,
             shape_channel,
             line_size: tensor.line_size(),
-            check_spatial: comptime![config.check_spatial_bounds()],
+            check_spatial,
         }
     }
 }
 
 #[cube]
-impl Layout for SpatialLayout {
-    type Coordinates = SpatialCoords;
+impl Layout for NhwcLayout {
+    type Coordinates = NhwcCoords;
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(this: &Self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        let SpatialCoords {
+        let NhwcCoords {
             batch,
             spatial,
             channel,
@@ -138,7 +138,7 @@ impl Layout for SpatialLayout {
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        SpatialCoords {
+        NhwcCoords {
             batch: this.shape_batch,
             spatial: cast_seq(this.shapes_spatial.clone()),
             channel: this.shape_channel,
@@ -146,7 +146,7 @@ impl Layout for SpatialLayout {
     }
 }
 
-virtual_layout!(SpatialLayout, SpatialLayoutExpand);
+virtual_layout!(NhwcLayout, NhwcLayoutExpand);
 
 #[allow(unused_variables)]
 #[cube]

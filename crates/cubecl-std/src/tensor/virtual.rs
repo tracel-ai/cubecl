@@ -87,7 +87,7 @@ impl<E: Numeric, IO: Clone> SliceOperatorExpand<Line<E>> for VirtualTensorExpand
     }
 
     fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<Line<E>, ReadOnly> {
-        let end = self.__expand_len_method(scope);
+        let end = self.clone().__expand_buffer_len_method(scope);
         self.state
             .clone()
             .__expand_read_window_method(scope, 0.into(), end)
