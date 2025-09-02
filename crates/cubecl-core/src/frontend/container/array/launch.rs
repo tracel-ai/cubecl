@@ -84,7 +84,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     pub unsafe fn from_raw_parts<E: CubePrimitive>(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
-        vectorization_factor: u8,
+        line_size: u8,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
@@ -93,7 +93,7 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
                     length,
                     E::size().expect("Element should have a size"),
                 ),
-                line_size: vectorization_factor,
+                line_size,
             }
         }
     }
@@ -106,13 +106,13 @@ impl<'a, R: Runtime> ArrayArg<'a, R> {
     pub unsafe fn from_raw_parts_and_size(
         handle: &'a cubecl_runtime::server::Handle,
         length: usize,
-        vectorization_factor: u8,
+        line_size: u8,
         elem_size: usize,
     ) -> Self {
         unsafe {
             ArrayArg::Handle {
                 handle: ArrayHandleRef::from_raw_parts(handle, length, elem_size),
-                line_size: vectorization_factor,
+                line_size,
             }
         }
     }
