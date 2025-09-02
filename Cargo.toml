@@ -91,5 +91,5 @@ futures-lite = { version = "2.3.0", default-features = false }
 sysinfo = "0.36.1"
 
 [profile.dev]
-debug = 1     # Speed up compilation time and not necessary.
+debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0

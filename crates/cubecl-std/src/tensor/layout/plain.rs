@@ -11,6 +11,13 @@ pub struct PlainLayout {
     len: u32,
 }
 
+#[cube]
+impl PlainLayout {
+    pub fn new(len: u32) -> Self {
+        PlainLayout { len }
+    }
+}
+
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
     pub fn from_shape(shape: &[usize], line_size: &u8) -> Self {
         let len = shape.iter().product::<usize>();
