@@ -109,7 +109,7 @@ pub struct AsyncFullCyclicJob {
 impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
     for AsyncFullCyclicJob
 {
-    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<IP::Global>,

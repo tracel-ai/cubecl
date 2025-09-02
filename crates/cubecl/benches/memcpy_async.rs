@@ -758,7 +758,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         format!(
             "memcpy_async-{}-{}-{:?}",
             R::name(&client),
-            E::as_elem_native_unchecked(),
+            E::as_type_native_unchecked(),
             self.strategy
         )
         .to_lowercase()

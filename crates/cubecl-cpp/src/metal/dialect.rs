@@ -1151,27 +1151,27 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
         vec![
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
         ]

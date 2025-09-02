@@ -1,7 +1,7 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::{Elem, FloatKind};
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Feature, Runtime};
+use cubecl_core::{client::ComputeClient, ir::StorageType};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -122,15 +122,13 @@ impl PlaneVecMatInnerProductConfig {
 
         if m != 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Only m=1 is supported, got m={:?}",
-                m
+                "Only m=1 is supported, got m={m:?}",
             ))));
         }
 
         if lhs_line != rhs_line {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Lhs and Rhs must have same line size, got lhs={:?} and rhs={:?}",
-                lhs_line, rhs_line
+                "Lhs and Rhs must have same line size, got lhs={lhs_line:?} and rhs={rhs_line:?}",
             ))));
         }
 
@@ -143,8 +141,7 @@ impl PlaneVecMatInnerProductConfig {
 
         if n % out_line != 0 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "n must be divisible by out line size, got n={:?}, out_line_size={:?}",
-                n, out_line
+                "n must be divisible by out line size, got n={n:?}, out_line_size={out_line:?}",
             ))));
         }
 
@@ -161,21 +158,27 @@ impl PlaneVecMatInnerProductConfig {
             ));
         }
 
-        let lhs = Lhs::as_elem_native_unchecked();
-        let rhs = Rhs::as_elem_native_unchecked();
-        let acc = Acc::as_elem_native_unchecked();
+        let lhs = Lhs::as_type_native_unchecked();
+        let rhs = Rhs::as_type_native_unchecked();
+        let acc = Acc::as_type_native_unchecked();
 
         let lhs = match lhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => lhs,
         };
         let rhs = match rhs {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => rhs,
         };
 
         let output = match acc {
-            Elem::Float(FloatKind::Flex32) => Elem::Float(FloatKind::F32),
+            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
+                ElemType::Float(FloatKind::F32).into()
+            }
             _ => acc,
         };
 

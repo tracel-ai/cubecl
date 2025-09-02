@@ -1,12 +1,13 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::components::StageIdent;
 use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources, tile::tile_data::Tile,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection, StageIdent};
+use crate::components::{MatmulLineSizes, MatmulSelection};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -30,7 +31,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         client: &ComputeClient<R::Server, R::Channel>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
-        line_sizes: &MatmulLineSizes,
+        matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.

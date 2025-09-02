@@ -9,10 +9,7 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{
-    layout::{Coords3d, TensorView},
-    r#virtual::ReadWrite,
-};
+use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
@@ -36,7 +33,7 @@ impl StagePartitioner for UnitPartitioner {
     type WriteCoords = Coords3d;
 
     fn init_writer<EO: Numeric>(
-        tensor: TensorView<EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<EO, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -44,10 +41,16 @@ impl StagePartitioner for UnitPartitioner {
         UnitWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
     }
 
-    fn position<S: StageConfig>(#[comptime] config: S) -> u32 {
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
         let plane_id = RoleRule::new(config.role_rule_config()).compute_index();
 
-        UNIT_POS_X + config.plane_dim() * plane_id
+        let absolute_index = UNIT_POS_X + config.plane_dim() * plane_id;
+
+        let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
+        (
+            absolute_index / num_partitions_n,
+            absolute_index % num_partitions_n,
+        )
     }
 
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {

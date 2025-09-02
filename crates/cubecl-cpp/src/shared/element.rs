@@ -1,5 +1,8 @@
 use cubecl_common::{e2m1, e2m1x2, e3m2, e5m2};
-use cubecl_core::tf32;
+use cubecl_core::{
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
+    tf32,
+};
 use half::{bf16, f16};
 use std::fmt::Display;
 
@@ -185,6 +188,22 @@ pub enum AtomicKind<D: Dialect> {
     F64,
     /// Required to construct the inner `Elem` of the atomic value
     _Dialect(std::marker::PhantomData<D>),
+}
+
+impl<D: Dialect> From<ElemType> for AtomicKind<D> {
+    fn from(value: ElemType) -> Self {
+        match value {
+            ElemType::Float(FloatKind::F16) => AtomicKind::F16,
+            ElemType::Float(FloatKind::BF16) => AtomicKind::BF16,
+            ElemType::Float(FloatKind::F32) => AtomicKind::F32,
+            ElemType::Float(FloatKind::F64) => AtomicKind::F64,
+            ElemType::Int(IntKind::I32) => AtomicKind::I32,
+            ElemType::Int(IntKind::I64) => AtomicKind::I64,
+            ElemType::UInt(UIntKind::U32) => AtomicKind::U32,
+            ElemType::UInt(UIntKind::U64) => AtomicKind::U64,
+            other => unimplemented!("Invalid atomic type: {other}"),
+        }
+    }
 }
 
 impl<D: Dialect> Display for AtomicKind<D> {

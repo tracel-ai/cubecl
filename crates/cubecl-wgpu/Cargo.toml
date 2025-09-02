@@ -78,6 +78,7 @@ matmul_tests_all = [
     "matmul_tests_hypercube",
 ]
 conv_tests = ["cubecl-convolution/conv_tests"]
+attention_tests = ["cubecl-attention/attention_tests"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
@@ -132,6 +133,9 @@ cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
     "export_tests",
 ] }
 cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", features = [
+    "export_tests",
+] }
+cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
     "export_tests",
 ] }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [

@@ -1,5 +1,5 @@
 use cubecl_common::tf32;
-use cubecl_ir::{Elem, ExpandElement, FloatKind, Scope};
+use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
 use half::f16;
 
 use crate::prelude::{Numeric, into_runtime_expand_element};
@@ -16,8 +16,8 @@ impl CubeType for tf32 {
 
 impl CubePrimitive for tf32 {
     /// Return the element type to use on GPU
-    fn as_elem_native() -> Option<Elem> {
-        Some(Elem::Float(FloatKind::TF32))
+    fn as_type_native() -> Option<StorageType> {
+        Some(ElemType::Float(FloatKind::TF32).into())
     }
 }
 
@@ -86,6 +86,6 @@ impl LaunchArgExpand for tf32 {
     type CompilationArg = ();
 
     fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_elem(&builder.scope)).into()
+        builder.scalar(tf32::as_type(&builder.scope)).into()
     }
 }

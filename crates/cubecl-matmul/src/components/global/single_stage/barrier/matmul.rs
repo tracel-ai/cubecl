@@ -11,10 +11,10 @@ use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
+use crate::components::global::memory::SimpleGlobalLayout;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
-use crate::components::{InputPrecision, global::memory::SimpleGlobalLayout};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -48,20 +48,8 @@ where
     RL: AsyncFullLoadingStrategy,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
-    type LhsLoader = AsyncFullLoader<
-        MP::Lhs,
-        Barrier<<MP::Lhs as InputPrecision>::Stage>,
-        SMM::Config,
-        LL,
-        Self::Config,
-    >;
-    type RhsLoader = AsyncFullLoader<
-        MP::Rhs,
-        Barrier<<MP::Rhs as InputPrecision>::Stage>,
-        SMM::Config,
-        RL,
-        Self::Config,
-    >;
+    type LhsLoader = AsyncFullLoader<MP::Lhs, Barrier, SMM::Config, LL, Self::Config>;
+    type RhsLoader = AsyncFullLoader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -79,11 +67,12 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
-        let lhs_barrier = Barrier::<<MP::Lhs as InputPrecision>::Stage>::new(barrier_level);
-        let rhs_barrier = Barrier::<<MP::Rhs as InputPrecision>::Stage>::new(barrier_level);
+        let lhs_barrier = Barrier::new(barrier_level);
+        let rhs_barrier = Barrier::new(barrier_level);
 
         for loop_iter in 0..num_loops {
             sync_cube();
@@ -114,13 +103,20 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(

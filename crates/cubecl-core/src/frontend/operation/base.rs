@@ -1,9 +1,7 @@
-use std::num::{NonZero, NonZeroU8};
-
 use cubecl_ir::{
-    Arithmetic, BinaryOperator, Comparison, Elem, ExpandElement, IndexAssignOperator,
-    IndexOperator, Instruction, Item, Operation, Operator, Scope, UnaryOperator, Variable,
-    VariableKind, Vectorization,
+    Arithmetic, BinaryOperator, Comparison, ElemType, ExpandElement, IndexAssignOperator,
+    IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
+    Variable, VariableKind,
 };
 
 use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
@@ -21,12 +19,12 @@ where
     let lhs = lhs.consume();
     let rhs = rhs.consume();
 
-    let item_lhs = lhs.item;
-    let item_rhs = rhs.item;
+    let item_lhs = lhs.ty;
+    let item_rhs = rhs.ty;
 
-    let vectorization = find_vectorization(item_lhs.vectorization, item_rhs.vectorization);
+    let line_size = find_vectorization(item_lhs, item_rhs);
 
-    let item = Item::vectorized(item_lhs.elem, vectorization);
+    let item = item_lhs.line(line_size);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -50,9 +48,9 @@ where
     let list = list.consume();
     let index = index.consume();
 
-    let item_lhs = list.item;
+    let item_lhs = list.ty;
 
-    let item = Item::new(item_lhs.elem);
+    let item = item_lhs.line(0);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -82,16 +80,16 @@ where
     let list = list.consume();
     let index = index.consume();
 
-    let item_lhs = list.item;
-    let item_rhs = index.item;
+    let item_lhs = list.ty;
+    let item_rhs = index.ty;
 
-    let vectorization = if let Some(line_size) = line_size {
-        NonZero::new(line_size as u8)
+    let vec = if let Some(line_size) = line_size {
+        line_size
     } else {
-        find_vectorization(item_lhs.vectorization, item_rhs.vectorization)
+        find_vectorization(item_lhs, item_rhs)
     };
 
-    let item = Item::vectorized(item_lhs.elem, vectorization);
+    let item = item_lhs.line(vec);
 
     let output = scope.create_local(item);
     let out = *output;
@@ -112,7 +110,7 @@ pub(crate) fn binary_expand_fixed_output<F>(
     scope: &mut Scope,
     lhs: ExpandElement,
     rhs: ExpandElement,
-    out_item: Item,
+    out_item: Type,
     func: F,
 ) -> ExpandElement
 where
@@ -146,14 +144,9 @@ where
 {
     let lhs: Variable = *lhs;
     let rhs: Variable = *rhs;
-    let item = lhs.item;
+    let item = lhs.ty;
 
-    find_vectorization(item.vectorization, rhs.item.vectorization);
-
-    let out_item = Item {
-        elem: Elem::Bool,
-        vectorization: item.vectorization,
-    };
+    let out_item = Type::scalar(ElemType::Bool).line(item.line_size());
 
     let out = scope.create_local(out_item);
     let out_var = *out;
@@ -181,8 +174,6 @@ where
     let lhs_var: Variable = *lhs;
     let rhs: Variable = *rhs;
 
-    find_vectorization(lhs_var.item.vectorization, rhs.item.vectorization);
-
     let op = func(BinaryOperator { lhs: lhs_var, rhs });
 
     scope.register(Instruction::new(op, lhs_var));
@@ -196,7 +187,7 @@ where
     Op: Into<Operation>,
 {
     let input = input.consume();
-    let item = input.item;
+    let item = input.ty;
 
     let out = scope.create_local(item);
     let out_var = *out;
@@ -211,7 +202,7 @@ where
 pub fn unary_expand_fixed_output<F, Op>(
     scope: &mut Scope,
     input: ExpandElement,
-    out_item: Item,
+    out_item: Type,
     func: F,
 ) -> ExpandElement
 where
@@ -239,7 +230,7 @@ where
     F: Fn(Variable) -> Operation,
 {
     let input_var: Variable = *input;
-    let item = input.item;
+    let item = input.ty;
 
     let out = if mutable {
         scope.create_local_mut(item)
@@ -255,24 +246,11 @@ where
     out
 }
 
-fn find_vectorization(lhs: Vectorization, rhs: Vectorization) -> Vectorization {
-    match (lhs, rhs) {
-        (None, None) => None,
-        (None, Some(rhs)) => Some(rhs),
-        (Some(lhs), None) => Some(lhs),
-        (Some(lhs), Some(rhs)) => {
-            if lhs == rhs {
-                Some(lhs)
-            } else if lhs == NonZeroU8::new(1).unwrap() || rhs == NonZeroU8::new(1).unwrap() {
-                Some(core::cmp::max(lhs, rhs))
-            } else {
-                panic!(
-                    "Left and right have different vectorizations.
-                    Left: {lhs}, right: {rhs}.
-                    Auto-matching fixed vectorization currently unsupported."
-                );
-            }
-        }
+fn find_vectorization(lhs: Type, rhs: Type) -> LineSize {
+    if matches!(lhs, Type::Scalar(_)) && matches!(rhs, Type::Scalar(_)) {
+        0
+    } else {
+        lhs.line_size().max(rhs.line_size())
     }
 }
 
@@ -296,8 +274,8 @@ pub fn array_assign_binary_op_expand<
 
     let array_item = match array.kind {
         // In that case, the array is a line.
-        VariableKind::LocalMut { .. } => array.item.vectorize(None),
-        _ => array.item,
+        VariableKind::LocalMut { .. } => array.ty.line(0),
+        _ => array.ty,
     };
     let array_value = scope.create_local(array_item);
 

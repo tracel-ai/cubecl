@@ -54,27 +54,31 @@ where
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = (range + k_step - 1) / k_step;
-        let num_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
-        let num_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
+
+        let lhs_elem_size = LhsS::<MP>::elem_size();
+        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let num_bytes_lhs =
+            comptime!(config.tiling_scheme().elements_in_stage_mk() * lhs_elem_size);
+        let num_bytes_rhs =
+            comptime!(config.tiling_scheme().elements_in_stage_nk() * rhs_elem_size);
+        let num_bytes_stages = num_bytes_lhs + num_bytes_rhs;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
-        let barrier_lhs = Barrier::<LhsS<MP>>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
-        let barrier_rhs = Barrier::<RhsS<MP>>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
             // Start loading
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier_lhs, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier_rhs, config);
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, config);
 
-            arrive_tma::<LhsS<MP>>(&barrier_lhs, num_elems_lhs);
-            arrive_tma::<RhsS<MP>>(&barrier_rhs, num_elems_rhs);
+            arrive_tma(&barrier, num_bytes_stages);
 
-            barrier_lhs.wait();
-            barrier_rhs.wait();
+            barrier.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
@@ -86,13 +90,20 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(

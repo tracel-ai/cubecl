@@ -1,7 +1,7 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_core::{self as cubecl, Runtime};
 
-use cubecl_core::{AutotuneKey, ir::Elem};
+use cubecl_core::{AutotuneKey, ir::ElemType};
 use serde::{Deserialize, Serialize};
 
 use cubecl_std::tensor::{MatrixBatchLayout, matrix_batch_layout};
@@ -25,9 +25,9 @@ pub struct MatmulProblemDefinition {
     pub k: usize,
     pub lhs_pow2_factor: u8,
     pub rhs_pow2_factor: u8,
-    pub elem_lhs: Elem,
-    pub elem_rhs: Elem,
-    pub elem_out: Elem,
+    pub elem_lhs: ElemType,
+    pub elem_rhs: ElemType,
+    pub elem_out: ElemType,
     pub matrix_layout_lhs: MatrixBatchLayout,
     pub matrix_layout_rhs: MatrixBatchLayout,
 }
@@ -77,9 +77,9 @@ impl MatmulAutotuneKey {
         rhs_shape: &[usize],
         lhs_strides: &[usize],
         rhs_strides: &[usize],
-        elem_lhs: Elem,
-        elem_rhs: Elem,
-        elem_out: Elem,
+        elem_lhs: ElemType,
+        elem_rhs: ElemType,
+        elem_out: ElemType,
     ) -> MatmulAutotuneKey {
         let ndims = lhs_shape.len();
         let m = lhs_shape[ndims - 2];

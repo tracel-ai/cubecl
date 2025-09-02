@@ -1,4 +1,4 @@
-use cubecl_core::{ir::Elem, prelude::*};
+use cubecl_core::{ir::StorageType, prelude::*};
 use half::{bf16, f16};
 
 use super::global::args::{MatmulArgs, TensorArgs};
@@ -187,27 +187,27 @@ pub type EO<MS> = <<MS as MatmulSpec>::Precision as MatmulPrecision>::EO;
 pub type Args<MS> = <MS as MatmulSpec>::Args;
 
 pub struct MatmulElems {
-    pub lhs_global: Elem,
-    pub rhs_global: Elem,
-    pub lhs_stage: Elem,
-    pub rhs_stage: Elem,
-    pub lhs_register: Elem,
-    pub rhs_register: Elem,
-    pub acc: Elem,
-    pub out: Elem,
+    pub lhs_global: StorageType,
+    pub rhs_global: StorageType,
+    pub lhs_stage: StorageType,
+    pub rhs_stage: StorageType,
+    pub lhs_register: StorageType,
+    pub rhs_register: StorageType,
+    pub acc: StorageType,
+    pub out: StorageType,
 }
 
 impl MatmulElems {
     pub fn new<MP: MatmulPrecision>() -> Self {
         Self {
-            lhs_global: <MP::Lhs as InputPrecision>::Global::as_elem_native_unchecked(),
-            rhs_global: <MP::Rhs as InputPrecision>::Global::as_elem_native_unchecked(),
-            lhs_stage: <MP::Lhs as InputPrecision>::Stage::as_elem_native_unchecked(),
-            rhs_stage: <MP::Rhs as InputPrecision>::Stage::as_elem_native_unchecked(),
-            lhs_register: <MP::Lhs as InputPrecision>::Register::as_elem_native_unchecked(),
-            rhs_register: <MP::Rhs as InputPrecision>::Register::as_elem_native_unchecked(),
-            acc: MP::EA::as_elem_native_unchecked(),
-            out: MP::EO::as_elem_native_unchecked(),
+            lhs_global: <MP::Lhs as InputPrecision>::Global::as_type_native_unchecked(),
+            rhs_global: <MP::Rhs as InputPrecision>::Global::as_type_native_unchecked(),
+            lhs_stage: <MP::Lhs as InputPrecision>::Stage::as_type_native_unchecked(),
+            rhs_stage: <MP::Rhs as InputPrecision>::Stage::as_type_native_unchecked(),
+            lhs_register: <MP::Lhs as InputPrecision>::Register::as_type_native_unchecked(),
+            rhs_register: <MP::Rhs as InputPrecision>::Register::as_type_native_unchecked(),
+            acc: MP::EA::as_type_native_unchecked(),
+            out: MP::EO::as_type_native_unchecked(),
         }
     }
 }

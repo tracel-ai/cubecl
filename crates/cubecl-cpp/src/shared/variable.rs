@@ -91,11 +91,9 @@ pub enum Variable<D: Dialect> {
     },
     Pipeline {
         id: Id,
-        item: Item<D>,
     },
     Barrier {
         id: Id,
-        item: Item<D>,
         level: BarrierLevel,
     },
     Tmp {
@@ -180,8 +178,7 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
             Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { id: _, item } => *item,
-            Variable::Barrier { id: _, item, .. } => *item,
+            Variable::Pipeline { .. } | Variable::Barrier { .. } => Item::new(Elem::Bool, 1, false),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -227,7 +224,6 @@ impl<D: Dialect> Display for Variable<D> {
                 },
                 ConstantScalarValue::Float(val, kind) => match kind {
                     gpu::FloatKind::E2M1
-                    | gpu::FloatKind::E2M1x2
                     | gpu::FloatKind::E2M3
                     | gpu::FloatKind::E3M2
                     | gpu::FloatKind::E4M3

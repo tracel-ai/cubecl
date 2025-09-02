@@ -5,7 +5,7 @@ use ash::{
 use cubecl_core::{
     AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
     compute::Visibility,
-    ir::{Elem, FloatKind, IntKind, UIntKind},
+    ir::{ElemType, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
 };
@@ -169,12 +169,20 @@ fn register_features(
         }
     }
 
+    #[allow(
+        clippy::collapsible_if,
+        reason = "if let chain only supported in newest Rust"
+    )]
     if let Some(atomic_float2) = &extended_feat.atomic_float2 {
         if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
             props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
         }
     }
 
+    #[allow(
+        clippy::collapsible_if,
+        reason = "if let chain only supported in newest Rust"
+    )]
     if let Some(float_controls2) = &extended_feat.float_controls2 {
         if float_controls2.shader_float_controls2 == TRUE {
             comp_options.supports_fp_fast_math = true;
@@ -187,49 +195,64 @@ fn register_features(
 }
 
 fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeatures<'_>) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+    use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
-    let mut register = |elem| {
+    let mut register = |elem: StorageType| {
         props.register_feature(Feature::Type(elem));
     };
 
     let default_types = [
-        Elem::UInt(UIntKind::U16),
-        Elem::UInt(UIntKind::U32),
-        Elem::UInt(UIntKind::U64),
-        Elem::Int(IntKind::I16),
-        Elem::Int(IntKind::I32),
-        Elem::Int(IntKind::I64),
-        Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicInt(IntKind::I64),
-        Elem::AtomicUInt(UIntKind::U32),
-        Elem::AtomicUInt(UIntKind::U64),
-        Elem::Float(FloatKind::F32),
+        ElemType::UInt(UIntKind::U16),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
+        ElemType::Int(IntKind::I16),
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::Float(FloatKind::F32),
         // Elem::Float(FloatKind::F64),
-        Elem::Bool,
+        ElemType::Bool,
+    ];
+
+    let default_atomic_types = [
+        ElemType::Int(IntKind::I32),
+        ElemType::Int(IntKind::I64),
+        ElemType::UInt(UIntKind::U32),
+        ElemType::UInt(UIntKind::U64),
     ];
 
     for ty in default_types {
-        register(ty);
+        register(ty.into());
+    }
+
+    for ty in default_atomic_types {
+        register(StorageType::Atomic(ty))
     }
 
     if ext_feat.float16_int8.shader_float16 == TRUE {
-        register(Elem::Float(FloatKind::F16));
+        register(ElemType::Float(FloatKind::F16).into());
     }
     if ext_feat.float16_int8.shader_int8 == TRUE {
-        register(Elem::Int(IntKind::I8));
-        register(Elem::UInt(UIntKind::U8));
+        register(ElemType::Int(IntKind::I8).into());
+        register(ElemType::UInt(UIntKind::U8).into());
     }
 
+    #[allow(
+        clippy::collapsible_if,
+        reason = "if let chain only supported in newest Rust"
+    )]
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
-            register(Elem::AtomicFloat(FloatKind::F32));
+            register(StorageType::Atomic(ElemType::Float(FloatKind::F32)));
         }
     }
 
+    #[allow(
+        clippy::collapsible_if,
+        reason = "if let chain only supported in newest Rust"
+    )]
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
-            register(Elem::AtomicFloat(FloatKind::F16));
+            register(StorageType::Atomic(ElemType::Float(FloatKind::F16)));
         }
     }
 }
@@ -259,9 +282,9 @@ fn register_cmma(
             props.hardware.min_tensor_cores_dim = Some(min_current);
 
             Some(Feature::Cmma {
-                a: convert_type(it.a_type)?,
-                b: convert_type(it.b_type)?,
-                c: convert_type(it.c_type)?,
+                a: convert_type(it.a_type)?.into(),
+                b: convert_type(it.b_type)?.into(),
+                c: convert_type(it.c_type)?.into(),
                 m: it.m_size as u8,
                 k: it.k_size as u8,
                 n: it.n_size as u8,
@@ -275,19 +298,19 @@ fn register_cmma(
     }
 }
 
-fn convert_type(vk_ty: ComponentTypeKHR) -> Option<Elem> {
+fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
     let ty = match vk_ty {
-        ComponentTypeKHR::FLOAT16 => Elem::Float(FloatKind::F16),
-        ComponentTypeKHR::FLOAT32 => Elem::Float(FloatKind::F32),
-        ComponentTypeKHR::FLOAT64 => Elem::Float(FloatKind::F64),
-        ComponentTypeKHR::SINT8 => Elem::Int(IntKind::I8),
-        ComponentTypeKHR::SINT16 => Elem::Int(IntKind::I16),
-        ComponentTypeKHR::SINT32 => Elem::Int(IntKind::I32),
-        ComponentTypeKHR::SINT64 => Elem::Int(IntKind::I64),
-        ComponentTypeKHR::UINT8 => Elem::UInt(UIntKind::U8),
-        ComponentTypeKHR::UINT16 => Elem::UInt(UIntKind::U16),
-        ComponentTypeKHR::UINT32 => Elem::UInt(UIntKind::U32),
-        ComponentTypeKHR::UINT64 => Elem::UInt(UIntKind::U64),
+        ComponentTypeKHR::FLOAT16 => ElemType::Float(FloatKind::F16),
+        ComponentTypeKHR::FLOAT32 => ElemType::Float(FloatKind::F32),
+        ComponentTypeKHR::FLOAT64 => ElemType::Float(FloatKind::F64),
+        ComponentTypeKHR::SINT8 => ElemType::Int(IntKind::I8),
+        ComponentTypeKHR::SINT16 => ElemType::Int(IntKind::I16),
+        ComponentTypeKHR::SINT32 => ElemType::Int(IntKind::I32),
+        ComponentTypeKHR::SINT64 => ElemType::Int(IntKind::I64),
+        ComponentTypeKHR::UINT8 => ElemType::UInt(UIntKind::U8),
+        ComponentTypeKHR::UINT16 => ElemType::UInt(UIntKind::U16),
+        ComponentTypeKHR::UINT32 => ElemType::UInt(UIntKind::U32),
+        ComponentTypeKHR::UINT64 => ElemType::UInt(UIntKind::U64),
         _ => None?,
     };
     Some(ty)

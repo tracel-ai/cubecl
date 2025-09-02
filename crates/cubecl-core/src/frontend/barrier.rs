@@ -1,12 +1,10 @@
 //! This module exposes barrier for asynchronous data transfer
 
-use std::marker::PhantomData;
-
 use cubecl_ir::{ExpandElement, Instruction};
 use paste::paste;
 
 use crate::{
-    ir::{BarrierOps, Item, Scope},
+    ir::{BarrierOps, Scope},
     unexpanded,
 };
 
@@ -18,21 +16,19 @@ use super::{
 /// A mechanism for awaiting on asynchronous data transfers
 /// Behaviour is defined by its [BarrierLevel](BarrierLevel).
 #[derive(Clone, Copy)]
-pub struct Barrier<C: CubePrimitive> {
-    _c: PhantomData<C>,
+pub struct Barrier;
+
+impl CubeType for Barrier {
+    type ExpandType = BarrierExpand;
 }
 
-impl<C: CubePrimitive> CubeType for Barrier<C> {
-    type ExpandType = BarrierExpand<C>;
-}
-
-impl<C: CubePrimitive> IntoMut for BarrierExpand<C> {
+impl IntoMut for BarrierExpand {
     fn into_mut(self, _scope: &mut Scope) -> Self {
         self
     }
 }
 
-impl<C: CubePrimitive> CubeDebug for BarrierExpand<C> {
+impl CubeDebug for BarrierExpand {
     fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
         scope.update_variable_name(*self.elem, name);
     }
@@ -40,9 +36,8 @@ impl<C: CubePrimitive> CubeDebug for BarrierExpand<C> {
 
 #[derive(Clone)]
 /// Expand type of [Barrier]
-pub struct BarrierExpand<C: CubePrimitive> {
+pub struct BarrierExpand {
     elem: ExpandElement,
-    _c: PhantomData<C>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -134,11 +129,11 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
 macro_rules! tensor_map_load {
     ($dim: literal, $($arg: expr),*) => {
         paste! {
-            impl<C: CubePrimitive> Barrier<C> {
+            impl Barrier {
                 /// Copy a tile from a global memory `source` to a shared memory `destination`, with
                 /// the provided offsets.
                 #[allow(unused, clippy::too_many_arguments)]
-                pub fn [<tma_load_ $dim d>](
+                pub fn [<tma_load_ $dim d>]<C: CubePrimitive>(
                     &self,
                     source: &TensorMap<C>,
                     destination: &mut SliceMut<Line<C>>,
@@ -148,9 +143,9 @@ macro_rules! tensor_map_load {
                 }
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_ $dim d>](
+                pub fn [<__expand_tma_load_ $dim d>]<C: CubePrimitive>(
                     scope: &mut Scope,
-                    expand: BarrierExpand<C>,
+                    expand: BarrierExpand,
                     source: ExpandElementTyped<TensorMap<C>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>),*
@@ -159,9 +154,9 @@ macro_rules! tensor_map_load {
                 }
             }
 
-            impl<C: CubePrimitive> BarrierExpand<C> {
+            impl BarrierExpand {
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_ $dim d_method>](
+                pub fn [<__expand_tma_load_ $dim d_method>]<C: CubePrimitive>(
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
@@ -189,11 +184,11 @@ macro_rules! tensor_map_load {
 macro_rules! tensor_map_load_im2col {
     ($dim: literal, $($arg: expr),*; $($offset: expr),*) => {
         paste! {
-            impl<C: CubePrimitive> Barrier<C> {
+            impl Barrier {
                 /// Copy a tile from a global memory `source` to a shared memory `destination`, with
                 /// the provided offsets.
                 #[allow(unused, clippy::too_many_arguments)]
-                pub fn [<tma_load_im2col_ $dim d>](
+                pub fn [<tma_load_im2col_ $dim d>]<C: CubePrimitive>(
                     &self,
                     source: &TensorMap<C>,
                     destination: &mut SliceMut<Line<C>>,
@@ -204,9 +199,9 @@ macro_rules! tensor_map_load_im2col {
                 }
 
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_im2col_ $dim d>](
+                pub fn [<__expand_tma_load_im2col_ $dim d>]<C: CubePrimitive>(
                     scope: &mut Scope,
-                    expand: BarrierExpand<C>,
+                    expand: BarrierExpand,
                     source: ExpandElementTyped<TensorMap<C>>,
                     destination: SliceExpand<Line<C>, ReadWrite>,
                     $($arg: ExpandElementTyped<i32>,)*
@@ -216,9 +211,9 @@ macro_rules! tensor_map_load_im2col {
                 }
             }
 
-            impl<C: CubePrimitive> BarrierExpand<C> {
+            impl BarrierExpand {
                 #[allow(clippy::too_many_arguments)]
-                pub fn [<__expand_tma_load_im2col_ $dim d_method>](
+                pub fn [<__expand_tma_load_im2col_ $dim d_method>]<C: CubePrimitive>(
                     &self,
                     scope: &mut Scope,
                     source: ExpandElementTyped<TensorMap<C>>,
@@ -254,16 +249,16 @@ tensor_map_load_im2col!(3, n, w, c; w_offset);
 tensor_map_load_im2col!(4, n, h, w, c; h_offset, w_offset);
 tensor_map_load_im2col!(5, n, d, h, w, c; d_offset, h_offset, w_offset);
 
-impl<C: CubePrimitive> Barrier<C> {
+impl Barrier {
     /// Creates a barrier using a user defined comptime barrier level
     pub fn new(_level: BarrierLevel) -> Self {
-        Self { _c: PhantomData }
+        Self
     }
 
     /// Creates a new barrier for use with TMA instructions. Adds a shared memory proxy barrier to
     /// the initialization.
     pub fn new_with_tma_proxy(_level: BarrierLevel) -> Self {
-        Self { _c: PhantomData }
+        Self
     }
 
     /// Copy the source slice to destination
@@ -272,7 +267,11 @@ impl<C: CubePrimitive> Barrier<C> {
     ///
     /// This will try to copy the whole source slice, so
     /// make sure source length <= destination length
-    pub fn memcpy_async(&self, _source: &Slice<Line<C>>, _destination: &mut SliceMut<Line<C>>) {
+    pub fn memcpy_async<C: CubePrimitive>(
+        &self,
+        _source: &Slice<Line<C>>,
+        _destination: &mut SliceMut<Line<C>>,
+    ) {
         unexpanded!()
     }
 
@@ -301,50 +300,40 @@ impl<C: CubePrimitive> Barrier<C> {
         unexpanded!()
     }
 
-    pub fn __expand_new(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
-        let elem = C::as_elem(scope);
-
-        let variable = scope.create_barrier(Item::new(elem), level.0.into());
+    pub fn __expand_new(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand {
+        let variable = scope.create_barrier(level.0.into());
         scope.register(BarrierOps::Init {
             barrier: *variable,
             with_cta_fence: false,
         });
-        BarrierExpand {
-            elem: variable,
-            _c: PhantomData,
-        }
+        BarrierExpand { elem: variable }
     }
 
-    pub fn __expand_new_with_tma_proxy(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand<C> {
-        let elem = C::as_elem(scope);
-
-        let variable = scope.create_barrier(Item::new(elem), level.0.into());
+    pub fn __expand_new_with_tma_proxy(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand {
+        let variable = scope.create_barrier(level.0.into());
         scope.register(BarrierOps::Init {
             barrier: *variable,
             with_cta_fence: true,
         });
-        BarrierExpand {
-            elem: variable,
-            _c: PhantomData,
-        }
+        BarrierExpand { elem: variable }
     }
 
-    pub fn __expand_memcpy_async(
+    pub fn __expand_memcpy_async<C: CubePrimitive>(
         scope: &mut Scope,
-        expand: BarrierExpand<C>,
+        expand: BarrierExpand,
         source: SliceExpand<Line<C>, ReadOnly>,
         destination: SliceExpand<Line<C>, ReadWrite>,
     ) {
         expand.__expand_memcpy_async_method(scope, source, destination);
     }
 
-    pub fn __expand_arrive(scope: &mut Scope, expand: BarrierExpand<C>) {
+    pub fn __expand_arrive(scope: &mut Scope, expand: BarrierExpand) {
         expand.__expand_arrive_method(scope);
     }
 
     pub fn __expand_arrive_tx(
         scope: &mut Scope,
-        expand: BarrierExpand<C>,
+        expand: BarrierExpand,
         arrival_count: ExpandElementTyped<u32>,
         transaction_count: ExpandElementTyped<u32>,
     ) {
@@ -353,23 +342,23 @@ impl<C: CubePrimitive> Barrier<C> {
 
     pub fn __expand_expect_tx(
         scope: &mut Scope,
-        expand: BarrierExpand<C>,
+        expand: BarrierExpand,
         expected_count: ExpandElementTyped<u32>,
     ) {
         expand.__expand_expect_tx_method(scope, expected_count);
     }
 
-    pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+    pub fn __expand_wait(scope: &mut Scope, expand: BarrierExpand) {
         expand.__expand_wait_method(scope);
     }
 
-    pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand<C>) {
+    pub fn __expand_arrive_and_wait(scope: &mut Scope, expand: BarrierExpand) {
         expand.__expand_arrive_and_wait_method(scope);
     }
 }
 
-impl<C: CubePrimitive> BarrierExpand<C> {
-    pub fn __expand_memcpy_async_method(
+impl BarrierExpand {
+    pub fn __expand_memcpy_async_method<C: CubePrimitive>(
         &self,
         scope: &mut Scope,
         source: SliceExpand<Line<C>, ReadOnly>,

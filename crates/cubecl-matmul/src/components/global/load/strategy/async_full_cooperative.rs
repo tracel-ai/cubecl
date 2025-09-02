@@ -59,7 +59,7 @@ pub struct AsyncFullCooperativeJob {
 
 #[cube]
 impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
-    fn execute_task<CM: CopyMechanism<IP::Stage>, G: GlobalConfig>(
+    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
         tensor_reader: &TensorReader<IP::Global>,
