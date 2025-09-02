@@ -1,8 +1,8 @@
+use crate::compute::CudaStorage;
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::IoError,
 };
- use crate::compute::CudaStorage;
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
@@ -52,9 +52,9 @@ use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
+use crate::compute::CudaStorageType;
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
-use crate::compute::CudaStorageType;
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,

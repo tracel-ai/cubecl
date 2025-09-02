@@ -9,8 +9,6 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
-
-
 #[cfg(feature = "ptx-wmma")]
 pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
 
@@ -21,10 +19,9 @@ pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
-    use crate::compute::{CudaStorage, ExpandableStorage};
+   
 
     pub use half::{bf16, f16};
-
 
     cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
 
@@ -45,8 +42,8 @@ mod tests {
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
 
     // NOTE THIS TESTS ARE MEMORY INTENSIVE. I ADDED THEM TO THE CRATE BUT NOT SURE TO ADD THEM HERE SINCE ON MY LOCAL GPU OTHER TESTS ARE FAILING WITH OOM (maybe due to that).
-//    crate::testgen_storage!(CudaStorage, create_cuda_storage);
- //   crate::testgen_storage!(ExpandableStorage, create_expandable_storage);
-  //  crate::testgen_storage_advanced!(CudaStorage, create_cuda_storage);
-  //  crate::testgen_storage_advanced!(ExpandableStorage, create_expandable_storage);
+    //    crate::testgen_storage!(CudaStorage, create_cuda_storage);
+    //   crate::testgen_storage!(VirtualStorage, create_expandable_storage);
+    //  crate::testgen_storage_advanced!(CudaStorage, create_cuda_storage);
+    //  crate::testgen_storage_advanced!(VirtualStorage, create_expandable_storage);
 }

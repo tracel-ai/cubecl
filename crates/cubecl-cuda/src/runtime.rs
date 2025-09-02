@@ -1,4 +1,5 @@
-
+use crate::compute::CudaStorageType;
+use crate::compute::VirtualStorage;
 use crate::{
     WmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
@@ -28,24 +29,20 @@ use cubecl_runtime::{
     id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
-use cudarc::driver::sys::cuMemGetAllocationGranularity;
-use cudarc::driver::sys::CUmemLocationType_enum::CU_MEM_LOCATION_TYPE_DEVICE;
-use cudarc::driver::sys::CUmemLocation;
-use cudarc::driver::sys::CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED;
 use cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
 use cudarc::driver::sys::CUmemAllocationProp;
+use cudarc::driver::sys::CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED;
+use cudarc::driver::sys::CUmemLocation;
+use cudarc::driver::sys::CUmemLocationType_enum::CU_MEM_LOCATION_TYPE_DEVICE;
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::cuMemGetAllocationGranularity;
 use std::mem::MaybeUninit;
-use crate::compute::CudaStorageType;
-use crate::compute::ExpandableStorage;
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
     expandable_storage_enabled: bool, // ¿Does the runtime want to use expandable storage?
     pub memory_config: MemoryConfiguration,
-
-
 }
 
 #[derive(Debug)]
@@ -94,7 +91,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // TODO: Find the correct value from the driver.
     let mem_alignment = 32;
 
-
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
         version: arch_version,
@@ -120,30 +116,30 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         bytes.assume_init() as u64
     };
 
-
-  let (mem_properties, storage) = if !vmm_supported && !options.expandable_storage_enabled {
-        
+    let (mem_properties, storage) = if !vmm_supported && !options.expandable_storage_enabled {
         let storage = CudaStorage::new(mem_alignment, stream);
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
             alignment: mem_alignment as u64,
         };
-       (mem_properties, CudaStorageType::Regular(storage))
-
-   } else {
-
+        (mem_properties, CudaStorageType::Regular(storage))
+    } else {
         let mut granularity: usize = 0;
+
+        // Handle type will differ by platform
         let handle_type = {
-        #[cfg(unix)]
-        {
-            CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
-        }
-        #[cfg(target_os = "windows")]
-        {
-            CU_MEM_HANDLE_TYPE_WIN32
-        }
+            #[cfg(unix)]
+            {
+                CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+            }
+            #[cfg(target_os = "windows")]
+            {
+                CU_MEM_HANDLE_TYPE_WIN32
+            }
         };
 
+        // Define CUDA allocation properties for pinned, device-local memory.
+        // Sharing mappings accross devices is still not implemented on [`VirtualStorage`].
         let prop = CUmemAllocationProp {
             type_: CU_MEM_ALLOCATION_TYPE_PINNED,
             requestedHandleTypes: handle_type,
@@ -154,6 +150,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             win32HandleMetaData: std::ptr::null_mut(),
             allocFlags: Default::default(),
         };
+
+        // Query allocation granularity (GPU page size)
         unsafe {
             cuMemGetAllocationGranularity(
                 &mut granularity,
@@ -161,23 +159,24 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
                 cudarc::driver::sys::CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
             )
         };
-        // For expandable storage, the memory should be aligned to the granularity. Therefore here there is a straightforward way to configure the mem_alignment.
+        // For virtual storage, the memory should be aligned to the minumim allocation granularity.
+        // Therefore here there is a straightforward way to configure the memory alignment.
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
             alignment: granularity as u64,
         };
-        let virtual_size =  3 * (max_memory / 4); // Avoid reserving all the mmeory in the gpu
-        let storage = ExpandableStorage::new(
-            device.index.try_into().unwrap(), // Note that this storage type needs an associated device  to perform allocations. If you do not desire that, the storage API should change, as the [`alloc`] method does not accept a device_id.
+        // For safety, reserve only 3/4 of the GPU memory
+        let virtual_size = 3 * (max_memory / 4); // Avoid reserving all the mmeory in the gpu
+        let storage = VirtualStorage::new(
+            device.index.try_into().unwrap(), // Note that this storage type needs an associated device  to perform allocations in order to properly set device permissions.
             stream,
-            virtual_size, // Reserve only a percentage of the gpu memory for safety
+            virtual_size,       // Reserve only a percentage of the gpu memory for safety
             granularity as u64, // Alignment is set to the granularity value.
-            granularity as u64, // For now handle size will default to alignment. Can be set configurable in the future.
+            granularity as u64, // Handle size is best set to 1 * GPU PAGE SIZE, as it allows for finer-grained allocations. The main advantage of this type of storage allows to allocate variable-sized blocks of multiples of granularity, allowing to reuse fragments of each block, and ensuring memory is always contiguous thanks to block map/unmap.
         );
 
         (mem_properties, CudaStorageType::Expandable(storage))
     };
-
 
     let mut comp_opts = CompilationOptions::default();
 
@@ -228,12 +227,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
-    let memory_management = MemoryManagement::from_configuration(
-        storage,
-            &mem_properties,
-            options.memory_config,
-        );
-
+    let memory_management =
+        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
     let mut device_props = DeviceProperties::new(
         &[Feature::Plane],
