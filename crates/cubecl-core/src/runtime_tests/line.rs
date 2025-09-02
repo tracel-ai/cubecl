@@ -129,7 +129,7 @@ pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(
                 &client,
                 CubeCount::new_single(),
                 CubeDim::new_single(),
-                ArrayArg::from_raw_parts::<F>(&output, 1, line_size),
+                ArrayArg::from_raw_parts::<F>(&output, line_size as usize, line_size),
             );
         }
 

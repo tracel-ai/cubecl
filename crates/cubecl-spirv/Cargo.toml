@@ -30,7 +30,7 @@ half = { workspace = true }
 
 hashbrown = { workspace = true }
 rspirv = "0.12"
-rspirv-ext = "0.1"
+rspirv-ext = "0.1.1"
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.7.0" }

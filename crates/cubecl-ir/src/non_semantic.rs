@@ -47,7 +47,7 @@ impl Display for NonSemantic {
                 format_string,
                 args,
             } => {
-                write!(f, "print({format_string}, {})", fmt_vararg(args))
+                write!(f, "print({format_string:?}, {})", fmt_vararg(args))
             }
             NonSemantic::Comment { content } => write!(f, "//{content}"),
             // Scopes don't have meaning to the user

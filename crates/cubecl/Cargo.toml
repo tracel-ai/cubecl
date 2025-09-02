@@ -12,6 +12,7 @@ version.workspace = true
 
 [features]
 autotune-checks = ["cubecl-runtime/autotune-checks"]
+convolution = ["dep:cubecl-convolution"]
 default = [
     "std",
     "stdlib",
@@ -25,9 +26,8 @@ default = [
 ]
 exclusive-memory-only = ["cubecl-wgpu?/exclusive-memory-only"]
 matmul = ["dep:cubecl-matmul"]
-convolution = ["dep:cubecl-convolution"]
-reduce = ["dep:cubecl-reduce"]
 random = ["dep:cubecl-random"]
+reduce = ["dep:cubecl-reduce"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
@@ -36,26 +36,28 @@ profile-tracy = ["cubecl-runtime/profile-tracy", "cubecl-wgpu?/profile-tracy"]
 
 
 # Runtimes
+cpu = ["cubecl-cpu"]
 cuda = ["cubecl-cuda"]
 cuda-ptx-wmma = ["cubecl-cuda?/ptx-wmma"]
-cpu = ["cubecl-cpu"]
 hip = ["cubecl-hip"]
 hip-rocwmma = ["cubecl-hip?/rocwmma"]
 wgpu = ["cubecl-wgpu"]
-wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
+wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
 
 compilation-cache = [
     "cubecl-cuda?/compilation-cache",
     "cubecl-hip?/compilation-cache",
 ]
 
+spirv-dump = ["cubecl-wgpu/spirv-dump"]
+
 [dependencies]
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", default-features = false, optional = true }
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
 cubecl-cpu = { path = "../cubecl-cpu", version = "0.7.0", default-features = false, optional = true }
 cubecl-cuda = { path = "../cubecl-cuda", version = "0.7.0", default-features = false, optional = true }
 cubecl-hip = { path = "../cubecl-hip", version = "0.7.0", default-features = false, optional = true }
-cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", default-features = false, optional = true }
 cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", default-features = false, optional = true }
 cubecl-random = { path = "../cubecl-random", version = "0.7.0", default-features = false, optional = true }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", default-features = false, optional = true }

@@ -757,16 +757,12 @@ impl DialectInstructions<Self> for MslDialect {
         format_string: &str,
         args: &[Variable<Self>],
     ) -> std::fmt::Result {
-        let format_string = format_string
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r");
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
             true => "".to_string(),
             false => format!(", {}", args.join(",")),
         };
-        writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
+        writeln!(f, "os_log_default.log({format_string:?}{args});")
     }
 
     // logs
