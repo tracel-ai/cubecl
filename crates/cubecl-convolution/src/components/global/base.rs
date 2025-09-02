@@ -6,10 +6,7 @@ use cubecl_matmul::components::{
     global::{AccumulatorLoader, GlobalWriter},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
-use cubecl_std::{
-    CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
-};
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::{
     components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},

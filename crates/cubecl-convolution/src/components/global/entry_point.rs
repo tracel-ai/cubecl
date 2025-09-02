@@ -9,8 +9,7 @@ use cubecl_matmul::components::{
     },
 };
 use cubecl_std::{
-    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs, tensor::r#virtual::VirtualTensor,
 };
 
 use crate::{

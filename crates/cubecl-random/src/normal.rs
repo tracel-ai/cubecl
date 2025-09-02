@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, r#virtual::ReadWrite};
+use cubecl_std::tensor::View;
 use std::f32::consts::PI;
 
 use super::{PrngArgs, PrngRuntime, random};

@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, r#virtual::ReadWrite};
+use cubecl_std::tensor::View;
 
 use crate::{
     RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_unit_interval_closed_open,

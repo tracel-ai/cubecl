@@ -2,8 +2,8 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
+use cubecl_std::tensor::layout::linear::LinearView;
 use cubecl_std::tensor::{View, into_contiguous, layout::linear::linear_view};
-use cubecl_std::tensor::{layout::linear::LinearView, r#virtual::ReadWrite};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
 use crate::utils::check_block_size_compat;

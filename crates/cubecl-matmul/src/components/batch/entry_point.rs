@@ -7,7 +7,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
 type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
