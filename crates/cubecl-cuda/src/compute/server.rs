@@ -483,7 +483,7 @@ impl ComputeServer for CudaServer {
                     } => unsafe {
                         cuTensorMapEncodeIm2colWide(
                             map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.elem),
+                            elem_to_tensor_map_type(map.storage_ty),
                             map.rank as u32,
                             device_ptr,
                             shape.as_ptr(),
