@@ -571,9 +571,11 @@ impl Display for Instruction {
             Instruction::Powf { lhs, rhs, out } => {
                 if rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1 {
                     let out = out.fmt_left();
+                    let rhs = rhs.fmt_cast_to(lhs.item());
                     writeln!(f, "{out} = powf_scalar({lhs}, {rhs});")
                 } else {
                     let out = out.fmt_left();
+                    let rhs = rhs.fmt_cast_to(lhs.item());
                     writeln!(f, "{out} = powf({lhs}, {rhs});")
                 }
             }
