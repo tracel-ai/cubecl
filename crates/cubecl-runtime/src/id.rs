@@ -43,7 +43,7 @@ macro_rules! storage_id_type {
 }
 
 /// Reference to a buffer handle.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandleRef<Id> {
     id: Arc<Id>,
     all: Arc<()>,
@@ -108,7 +108,7 @@ where
 macro_rules! memory_id_type {
     ($id:ident, $handle:ident) => {
         /// Memory Handle.
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct $handle {
             value: $crate::id::HandleRef<$id>,
         }

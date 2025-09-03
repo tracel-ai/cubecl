@@ -296,6 +296,10 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Mul(op) => const_eval!(*op.lhs, op.rhs),
         Arithmetic::Div(op) => const_eval!(/ op.lhs, op.rhs),
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
+        // powf is fast enough for const eval
+        Arithmetic::Powi(op) => {
+            const_eval_float!(op.lhs, op.rhs; num::Float::powf)
+        }
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {

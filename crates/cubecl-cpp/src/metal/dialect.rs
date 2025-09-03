@@ -872,8 +872,13 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "min")
     }
 
-    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "pow")
+    fn compile_instruction_powf(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "pow({lhs}, {elem}({rhs}))")
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {
