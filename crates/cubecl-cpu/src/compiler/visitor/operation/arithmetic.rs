@@ -326,6 +326,16 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Powi(powi) => {
+                let (base, exp) = self.get_binary_op_variable(powi.lhs, powi.rhs);
+                let result = self.append_operation_with_result(llvm_ods::intr_powi(
+                    self.context,
+                    base,
+                    exp,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
                 let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
