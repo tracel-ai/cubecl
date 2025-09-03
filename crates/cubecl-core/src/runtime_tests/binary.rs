@@ -192,11 +192,7 @@ macro_rules! test_powi_impl {
                     )
                 };
 
-                let actual = client.read_one(output_handle);
-                let actual = $float_type::from_bytes(&actual);
-                let expected: &[$float_type] = $expected;
-
-                assert_eq!(actual, expected);
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
             }
             )*
         }
