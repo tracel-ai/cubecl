@@ -192,10 +192,11 @@ impl_unary_func!(
 // Open Questions:
 // - When to use metal safe / atomic stuff and when not
 // - When do I need to check for Bfloats and stuff?
+// - How to add support for LLVM MIR (in cube-cpu)
 impl_unary_func!(
     ArcCos,
     acos,
-    __exapnd_acos,
+    __expand_acos,
     Arithmetic::ArcCos,
     f16,
     bf16,
@@ -207,7 +208,7 @@ impl_unary_func!(
 impl_unary_func!(
     ArcSin,
     asin,
-    __exapnd_asin,
+    __expand_asin,
     Arithmetic::ArcSin,
     f16,
     bf16,
@@ -219,7 +220,7 @@ impl_unary_func!(
 impl_unary_func!(
     ArcTan,
     atan,
-    __exapnd_atan,
+    __expand_atan,
     Arithmetic::ArcTan,
     f16,
     bf16,

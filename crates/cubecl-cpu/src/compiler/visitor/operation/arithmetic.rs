@@ -28,6 +28,47 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
+            Arithmetic::ArcCos(_acos) => {
+                todo!("intr_acos does not exist")
+                /*let value = self.get_variable(acos.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_acos(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcSin(_asin) => {
+                todo!("intr_asin does not exist")
+                /*let value = self.get_variable(asin.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_asin(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcTan(_atan) => {
+                todo!("intr_atan does not exist")
+                /*let value = self.get_variable(acos.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_atan(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcTan2(_atan2) => {
+                todo!("intr_atan2 does not exist")
+                /*let (y, x) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
+                let result = self.append_operation_with_result(llvm_ods::intr_atan2(
+                    self.context,
+                    y,
+                    x,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
             Arithmetic::Ceil(ceil) => {
                 let value = self.get_variable(ceil.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_ceil(

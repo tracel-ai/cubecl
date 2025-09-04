@@ -26,6 +26,10 @@ pub trait Float:
     + Cos
     + Sin
     + Tanh
+    + ArcCos
+    + ArcSin
+    + ArcTan
+    + ArcTan2
     + Powf
     + Sqrt
     + Round

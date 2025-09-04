@@ -244,6 +244,10 @@ impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
 impl<const POS: u8> Sin for ElemExpand<POS> {}
 impl<const POS: u8> Tanh for ElemExpand<POS> {}
+impl<const POS: u8> ArcCos for ElemExpand<POS> {}
+impl<const POS: u8> ArcSin for ElemExpand<POS> {}
+impl<const POS: u8> ArcTan for ElemExpand<POS> {}
+impl<const POS: u8> ArcTan2 for ElemExpand<POS> {}
 impl<const POS: u8> Powf for ElemExpand<POS> {}
 impl<const POS: u8> Sqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}
