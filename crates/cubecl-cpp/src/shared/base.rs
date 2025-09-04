@@ -932,6 +932,26 @@ impl<D: Dialect> CppCompiler<D> {
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
+            gpu::Arithmetic::ArcCos(op) => {
+                let instruction = Instruction::ArcCos(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSin(op) => {
+                let instruction = Instruction::ArcSin(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan(op) => {
+                let instruction = Instruction::ArcTan(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan2(op) => {
+                let instruction = Instruction::ArcTan2(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
             gpu::Arithmetic::Powf(op) => {
                 instructions.push(Instruction::Powf(self.compile_binary(op, out)))
             }

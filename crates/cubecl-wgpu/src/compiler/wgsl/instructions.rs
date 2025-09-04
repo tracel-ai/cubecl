@@ -121,6 +121,23 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    ArcCos {
+        input: Variable,
+        out: Variable,
+    },
+    ArcSin {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan2 {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
     Powf {
         lhs: Variable,
         rhs: Variable,
@@ -601,6 +618,22 @@ impl Display for Instruction {
                 let result = writeln!(f, "{out} = tanh({input});");
 
                 result
+            }
+            Instruction::ArcCos { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = acos({input});")
+            }
+            Instruction::ArcSin { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = asin({input});")
+            }
+            Instruction::ArcTan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan({input});")
+            }
+            Instruction::ArcTan2 { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan2({lhs}, {rhs});")
             }
             Instruction::Recip { input, out } => {
                 let out = out.fmt_left();

@@ -369,6 +369,23 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Cos(op) => const_eval_float!(op.input; num::Float::cos),
         Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),
         Arithmetic::Tanh(op) => const_eval_float!(op.input; num::Float::tanh),
+        Arithmetic::ArcCos(op) => const_eval_float!(op.input; num::Float::acos),
+        Arithmetic::ArcSin(op) => const_eval_float!(op.input; num::Float::asin),
+        Arithmetic::ArcTan(op) => const_eval_float!(op.input; num::Float::atan),
+        Arithmetic::ArcTan2(op) => {
+            use ConstantScalarValue::*;
+            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
+                let rhs = rhs.cast_to(lhs.storage_type());
+                Some(match (lhs, rhs) {
+                    (Float(lhs, kind), Float(rhs, _)) => {
+                        ConstantScalarValue::Float(lhs.atan2(rhs), kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
         Arithmetic::Sqrt(op) => const_eval_float!(op.input; num::Float::sqrt),
         Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),

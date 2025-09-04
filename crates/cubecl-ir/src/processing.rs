@@ -104,6 +104,19 @@ impl ScopeProcessing {
                     Arithmetic::Tanh(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Arithmetic::ArcCos(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcSin(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcTan(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::ArcTan2(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
                     Arithmetic::Powf(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());

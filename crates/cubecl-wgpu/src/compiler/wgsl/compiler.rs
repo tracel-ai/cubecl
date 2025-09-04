@@ -752,6 +752,23 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::ArcCos(op) => instructions.push(wgsl::Instruction::ArcCos {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSin(op) => instructions.push(wgsl::Instruction::ArcSin {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan(op) => instructions.push(wgsl::Instruction::ArcTan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan2(op) => instructions.push(wgsl::Instruction::ArcTan2 {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Powf(op) => instructions.push(wgsl::Instruction::Powf {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),

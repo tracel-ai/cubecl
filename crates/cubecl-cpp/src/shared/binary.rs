@@ -221,6 +221,54 @@ impl<D: Dialect> Binary<D> for Powf {
     }
 }
 
+pub struct ArcTan2;
+
+impl<D: Dialect> Binary<D> for ArcTan2 {
+    // ArcTan2 doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let elem = item.elem;
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                write!(f, "{elem}(")?;
+                D::compile_instruction_atan2(f)?;
+                write!(f, "(float({lhs}), float({rhs})))")
+            }
+            _ => {
+                D::compile_instruction_atan2(f)?;
+                write!(f, "({lhs}, {rhs})")
+            }
+        }
+    }
+
+    // ArcTan2 doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
+
 pub struct Max;
 
 impl<D: Dialect> Binary<D> for Max {

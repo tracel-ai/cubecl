@@ -151,6 +151,9 @@ macro_rules! function {
 function!(Log, "log");
 function!(Cos, "cos");
 function!(Sin, "sin");
+function!(ArcCos, "acos");
+function!(ArcSin, "asin");
+function!(ArcTan, "atan");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");

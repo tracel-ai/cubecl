@@ -13,6 +13,10 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn asin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn acos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn atan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -69,6 +73,22 @@ pub mod glcompute {
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.tanh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn asin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.asin_id(ty, Some(out), input).unwrap();
+        }
+
+        fn acos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.acos_id(ty, Some(out), input).unwrap();
+        }
+
+        fn atan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.atan_id(ty, Some(out), input).unwrap();
+        }
+
+        fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
+            b.atan2_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
