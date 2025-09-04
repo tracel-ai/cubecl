@@ -784,6 +784,14 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Degrees(op) => instructions.push(wgsl::Instruction::Degrees {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Radians(op) => instructions.push(wgsl::Instruction::Radians {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::ArcTan2(op) => instructions.push(wgsl::Instruction::ArcTan2 {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),

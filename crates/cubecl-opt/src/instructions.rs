@@ -98,6 +98,8 @@ impl Optimizer {
             | Arithmetic::ArcSinh(unary_operator)
             | Arithmetic::ArcCosh(unary_operator)
             | Arithmetic::ArcTanh(unary_operator)
+            | Arithmetic::Degrees(unary_operator)
+            | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)

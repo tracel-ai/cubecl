@@ -972,6 +972,16 @@ impl<D: Dialect> CppCompiler<D> {
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
+            gpu::Arithmetic::Degrees(op) => {
+                let instruction = Instruction::Degrees(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Radians(op) => {
+                let instruction = Instruction::Radians(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
             gpu::Arithmetic::ArcTan2(op) => {
                 let instruction = Instruction::ArcTan2(self.compile_binary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);

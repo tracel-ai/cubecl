@@ -78,6 +78,26 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);*/
             }
+            Arithmetic::Degrees(_degrees) => {
+                todo!("intr_degrees does not exist")
+                /*let value = self.get_variable(degrees.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_degrees(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::Radians(_radians) => {
+                todo!("intr_radians does not exist")
+                /*let value = self.get_variable(radians.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_radians(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
             Arithmetic::ArcSinh(_asinh) => {
                 todo!("intr_asinh does not exist")
                 /*let value = self.get_variable(asinh.input);

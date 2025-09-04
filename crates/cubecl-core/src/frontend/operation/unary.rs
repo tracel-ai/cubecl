@@ -288,6 +288,30 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Degrees,
+    degrees,
+    __expand_degrees,
+    Arithmetic::Degrees,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Radians,
+    radians,
+    __expand_radians,
+    Arithmetic::Radians,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Sqrt,
     sqrt,
     __expand_sqrt,

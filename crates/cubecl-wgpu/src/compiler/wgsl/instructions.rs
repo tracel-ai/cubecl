@@ -153,6 +153,14 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Degrees {
+        input: Variable,
+        out: Variable,
+    },
+    Radians {
+        input: Variable,
+        out: Variable,
+    },
     ArcTan2 {
         lhs: Variable,
         rhs: Variable,
@@ -670,6 +678,14 @@ impl Display for Instruction {
             Instruction::ArcTanh { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = atanh({input});")
+            }
+            Instruction::Degrees { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = degrees({input});")
+            }
+            Instruction::Radians { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = radians({input});")
             }
             Instruction::ArcTan2 { lhs, rhs, out } => {
                 let out = out.fmt_left();

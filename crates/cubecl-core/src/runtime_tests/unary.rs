@@ -378,6 +378,48 @@ test_unary_impl!(test_atanh, F, F::atanh, [
     }
 ]);
 
+test_unary_impl!(test_degrees, F, F::degrees, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268, -3.1415926536],
+        expected: as_type![F: 0., 90., 180., -90., -180.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268],
+        expected: as_type![F: 0., 90., 180., -90.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268],
+        expected: as_type![F: 0., 90., 180., -90.]
+    }
+]);
+
+test_unary_impl!(test_radians, F, F::radians, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 90., 180., -90., -180.],
+        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268, -3.1415926536]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 90., 180., -90.],
+        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 90., 180., -90.],
+        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268]
+    }
+]);
+
 test_unary_impl!(
     test_magnitude,
     F,
@@ -596,6 +638,8 @@ macro_rules! testgen_unary {
             add_test!(test_asinh);
             add_test!(test_acosh);
             add_test!(test_atanh);
+            add_test!(test_degrees);
+            add_test!(test_radians);
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_abs);

@@ -159,6 +159,8 @@ function!(ArcTan, "atan");
 function!(ArcSinh, "asinh");
 function!(ArcCosh, "acosh");
 function!(ArcTanh, "atanh");
+function!(Degrees, "degrees");
+function!(Radians, "radians");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");

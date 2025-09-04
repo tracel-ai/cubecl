@@ -377,6 +377,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::ArcSinh(op) => const_eval_float!(op.input; num::Float::asinh),
         Arithmetic::ArcCosh(op) => const_eval_float!(op.input; num::Float::acosh),
         Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num::Float::atanh),
+        Arithmetic::Degrees(op) => const_eval_float!(op.input; num::Float::to_degrees),
+        Arithmetic::Radians(op) => const_eval_float!(op.input; num::Float::to_radians),
         Arithmetic::ArcTan2(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {

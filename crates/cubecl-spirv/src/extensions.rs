@@ -21,6 +21,8 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn asinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn acosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn atanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn degrees(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn radians(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -110,6 +112,14 @@ pub mod glcompute {
 
         fn atanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.atanh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn degrees(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.degrees_id(ty, Some(out), input).unwrap();
+        }
+
+        fn radians(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.radians_id(ty, Some(out), input).unwrap();
         }
 
         fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {

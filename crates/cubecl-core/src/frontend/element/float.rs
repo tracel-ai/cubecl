@@ -34,6 +34,8 @@ pub trait Float:
     + ArcSinh
     + ArcCosh
     + ArcTanh
+    + Degrees
+    + Radians
     + ArcTan2
     + Powf
     + Sqrt
