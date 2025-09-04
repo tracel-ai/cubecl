@@ -151,9 +151,14 @@ macro_rules! function {
 function!(Log, "log");
 function!(Cos, "cos");
 function!(Sin, "sin");
+function!(Sinh, "sinh");
+function!(Cosh, "cosh");
 function!(ArcCos, "acos");
 function!(ArcSin, "asin");
 function!(ArcTan, "atan");
+function!(ArcSinh, "asinh");
+function!(ArcCosh, "acosh");
+function!(ArcTanh, "atanh");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");

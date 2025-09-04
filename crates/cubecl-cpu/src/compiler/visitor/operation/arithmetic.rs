@@ -28,6 +28,26 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
+            Arithmetic::Sinh(_sinh) => {
+                todo!("intr_sinh does not exist")
+                /*let value = self.get_variable(sinh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_sinh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::Cosh(_cosh) => {
+                todo!("intr_cosh does not exist")
+                /*let value = self.get_variable(cosh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_cosh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
             Arithmetic::ArcCos(_acos) => {
                 todo!("intr_acos does not exist")
                 /*let value = self.get_variable(acos.input);
@@ -52,6 +72,36 @@ impl<'a> Visitor<'a> {
                 todo!("intr_atan does not exist")
                 /*let value = self.get_variable(acos.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_atan(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcSinh(_asinh) => {
+                todo!("intr_asinh does not exist")
+                /*let value = self.get_variable(asinh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_asinh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcCosh(_acosh) => {
+                todo!("intr_acosh does not exist")
+                /*let value = self.get_variable(acosh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_acosh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
+            Arithmetic::ArcTanh(_atanh) => {
+                todo!("intr_atanh does not exist")
+                /*let value = self.get_variable(atanh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_atanh(
                     self.context,
                     value,
                     self.location,

@@ -187,8 +187,30 @@ impl_unary_func!(
     f32,
     f64
 );
-// TODO: Missing: SinH, ArcSinH, CosH, ArcCosH, ArcTanH, Tan
-// TODO: Add function for converting between degree and radiants
+impl_unary_func!(
+    Sinh,
+    sinh,
+    __expand_sinh,
+    Arithmetic::Sinh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    Cosh,
+    cosh,
+    __expand_cosh,
+    Arithmetic::Cosh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
 // Open Questions:
 // - When to use metal safe / atomic stuff and when not
 // - When do I need to check for Bfloats and stuff?
@@ -222,6 +244,42 @@ impl_unary_func!(
     atan,
     __expand_atan,
     Arithmetic::ArcTan,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcSinh,
+    asinh,
+    __expand_asinh,
+    Arithmetic::ArcSinh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcCosh,
+    acosh,
+    __expand_acosh,
+    Arithmetic::ArcCosh,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
+    ArcTanh,
+    atanh,
+    __expand_atanh,
+    Arithmetic::ArcTanh,
     f16,
     bf16,
     flex32,

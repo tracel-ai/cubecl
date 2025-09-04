@@ -301,6 +301,22 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
+            Arithmetic::Sinh(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::sinh(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Arithmetic::Cosh(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::cosh(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Arithmetic::ArcCos(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     T::acos(b, ty, input, out);
@@ -320,6 +336,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Arithmetic::ArcTan(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     T::atan(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Arithmetic::ArcSinh(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::asinh(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Arithmetic::ArcCosh(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::acosh(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
+            Arithmetic::ArcTanh(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::atanh(b, ty, input, out);
                     if matches!(out_ty.elem(), Elem::Relaxed) {
                         b.decorate(out, Decoration::RelaxedPrecision, []);
                     }

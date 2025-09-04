@@ -932,6 +932,16 @@ impl<D: Dialect> CppCompiler<D> {
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }
+            gpu::Arithmetic::Sinh(op) => {
+                let instruction = Instruction::Sinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Cosh(op) => {
+                let instruction = Instruction::Cosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
             gpu::Arithmetic::ArcCos(op) => {
                 let instruction = Instruction::ArcCos(self.compile_unary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);
@@ -944,6 +954,21 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::ArcTan(op) => {
                 let instruction = Instruction::ArcTan(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSinh(op) => {
+                let instruction = Instruction::ArcSinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcCosh(op) => {
+                let instruction = Instruction::ArcCosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTanh(op) => {
+                let instruction = Instruction::ArcTanh(self.compile_unary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(instruction)
             }

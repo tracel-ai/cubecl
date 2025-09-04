@@ -369,9 +369,14 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Cos(op) => const_eval_float!(op.input; num::Float::cos),
         Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),
         Arithmetic::Tanh(op) => const_eval_float!(op.input; num::Float::tanh),
+        Arithmetic::Sinh(op) => const_eval_float!(op.input; num::Float::sinh),
+        Arithmetic::Cosh(op) => const_eval_float!(op.input; num::Float::cosh),
         Arithmetic::ArcCos(op) => const_eval_float!(op.input; num::Float::acos),
         Arithmetic::ArcSin(op) => const_eval_float!(op.input; num::Float::asin),
         Arithmetic::ArcTan(op) => const_eval_float!(op.input; num::Float::atan),
+        Arithmetic::ArcSinh(op) => const_eval_float!(op.input; num::Float::asinh),
+        Arithmetic::ArcCosh(op) => const_eval_float!(op.input; num::Float::acosh),
+        Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num::Float::atanh),
         Arithmetic::ArcTan2(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
