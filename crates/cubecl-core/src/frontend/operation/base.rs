@@ -142,11 +142,15 @@ pub(crate) fn cmp_expand<F>(
 where
     F: Fn(BinaryOperator) -> Comparison,
 {
-    let lhs: Variable = *lhs;
-    let rhs: Variable = *rhs;
-    let item = lhs.ty;
+    let lhs = lhs.consume();
+    let rhs = rhs.consume();
 
-    let out_item = Type::scalar(ElemType::Bool).line(item.line_size());
+    let item_lhs = lhs.ty;
+    let item_rhs = rhs.ty;
+
+    let line_size = find_vectorization(item_lhs, item_rhs);
+
+    let out_item = Type::scalar(ElemType::Bool).line(line_size);
 
     let out = scope.create_local(out_item);
     let out_var = *out;
