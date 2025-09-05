@@ -20,6 +20,7 @@ default = [
     "cudarc/cuda-12050",
     "cudarc/dynamic-loading",
 ]
+benchmark = []
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 

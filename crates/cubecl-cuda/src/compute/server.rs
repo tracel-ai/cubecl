@@ -1,3 +1,4 @@
+use crate::compute::CudaStorage;
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::IoError,
@@ -21,7 +22,6 @@ use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
 use super::fence::{Fence, SyncStream};
-use super::storage::CudaStorage;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
@@ -52,9 +52,9 @@ use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
+use crate::compute::CudaStorageType;
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
-
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -65,7 +65,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorage>,
+    memory_management: MemoryManagement<CudaStorageType>, // Set this to allow dispatching on the storage at runtime based on device properties and configuration.
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -584,7 +584,7 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResourc
 
 impl CudaContext {
     pub fn new(
-        memory_management: MemoryManagement<CudaStorage>,
+        memory_management: MemoryManagement<CudaStorageType>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
