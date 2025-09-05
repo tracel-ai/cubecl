@@ -3,7 +3,7 @@ use tracel_llvm::melior::{
     dialect::{
         arith::{self},
         llvm,
-        ods::{llvm as llvm_ods, vector},
+        ods::{llvm as llvm_ods, math as math_ods, vector},
     },
     ir::Attribute,
 };
@@ -28,116 +28,104 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
-            Arithmetic::Sinh(_sinh) => {
-                todo!("intr_sinh does not exist")
-                /*let value = self.get_variable(sinh.input);
+            Arithmetic::Sinh(sinh) => {
+                let value = self.get_variable(sinh.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_sinh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::Cosh(_cosh) => {
-                todo!("intr_cosh does not exist")
-                /*let value = self.get_variable(cosh.input);
+            Arithmetic::Cosh(cosh) => {
+                let value = self.get_variable(cosh.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_cosh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::ArcCos(_acos) => {
-                todo!("intr_acos does not exist")
-                /*let value = self.get_variable(acos.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_acos(
+            Arithmetic::ArcCos(acos) => {
+                let value = self.get_variable(acos.input);
+                let result = self.append_operation_with_result(math_ods::acos(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::ArcSin(_asin) => {
-                todo!("intr_asin does not exist")
-                /*let value = self.get_variable(asin.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_asin(
+            Arithmetic::ArcSin(asin) => {
+                let value = self.get_variable(asin.input);
+                let result = self.append_operation_with_result(math_ods::asin(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::ArcTan(_atan) => {
-                todo!("intr_atan does not exist")
-                /*let value = self.get_variable(acos.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_atan(
+            Arithmetic::ArcTan(atan) => {
+                let value = self.get_variable(atan.input);
+                let result = self.append_operation_with_result(math_ods::atan(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::Degrees(_degrees) => {
-                todo!("intr_degrees does not exist")
-                /*let value = self.get_variable(degrees.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_degrees(
+            Arithmetic::Degrees(degrees) => {
+                let value = self.get_variable(degrees.input);
+                // 180 / pi
+                let f = self.create_float_constant_from_item(degrees.input.ty, 57.29577951308232);
+                let result =
+                    self.append_operation_with_result(arith::mulf(value, f, self.location));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Radians(radians) => {
+                let value = self.get_variable(radians.input);
+                // pi / 180
+                let f =
+                    self.create_float_constant_from_item(radians.input.ty, 0.017453292519943295);
+                let result =
+                    self.append_operation_with_result(arith::mulf(value, f, self.location));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::ArcSinh(asinh) => {
+                let value = self.get_variable(asinh.input);
+                let result = self.append_operation_with_result(math_ods::asinh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::Radians(_radians) => {
-                todo!("intr_radians does not exist")
-                /*let value = self.get_variable(radians.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_radians(
+            Arithmetic::ArcCosh(acosh) => {
+                let value = self.get_variable(acosh.input);
+                let result = self.append_operation_with_result(math_ods::acosh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::ArcSinh(_asinh) => {
-                todo!("intr_asinh does not exist")
-                /*let value = self.get_variable(asinh.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_asinh(
+            Arithmetic::ArcTanh(atanh) => {
+                let value = self.get_variable(atanh.input);
+                let result = self.append_operation_with_result(math_ods::atanh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
-            Arithmetic::ArcCosh(_acosh) => {
-                todo!("intr_acosh does not exist")
-                /*let value = self.get_variable(acosh.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_acosh(
+            Arithmetic::ArcTan2(atan2) => {
+                let (lhs, rhs) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
+                let result = self.append_operation_with_result(math_ods::atan_2(
                     self.context,
-                    value,
+                    lhs,
+                    rhs,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
-            }
-            Arithmetic::ArcTanh(_atanh) => {
-                todo!("intr_atanh does not exist")
-                /*let value = self.get_variable(atanh.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_atanh(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);*/
-            }
-            Arithmetic::ArcTan2(_atan2) => {
-                todo!("intr_atan2 does not exist")
-                /*let (y, x) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
-                let result = self.append_operation_with_result(llvm_ods::intr_atan2(
-                    self.context,
-                    y,
-                    x,
-                    self.location,
-                ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::Ceil(ceil) => {
                 let value = self.get_variable(ceil.input);

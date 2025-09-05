@@ -211,10 +211,6 @@ impl_unary_func!(
     f32,
     f64
 );
-// Open Questions:
-// - When to use metal safe / atomic stuff and when not
-// - When do I need to check for Bfloats and stuff?
-// - How to add support for LLVM MIR (in cube-cpu)
 impl_unary_func!(
     ArcCos,
     acos,
