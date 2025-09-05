@@ -18,7 +18,7 @@ pub struct DummyWriter<EO: Numeric> {
 #[cube]
 impl<EO: Numeric> DummyWriter<EO> {
     pub fn new(
-        tensor: View<EO, Coords3d, ReadWrite>,
+        tensor: View<Line<EO>, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

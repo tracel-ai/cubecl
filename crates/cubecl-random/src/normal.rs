@@ -32,7 +32,7 @@ impl<E: Numeric> PrngRuntime<E> for Normal<E> {
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut View<E, u32, ReadWrite>,
+        output: &mut View<Line<E>, u32, ReadWrite>,
     ) {
         let mean = f32::cast_from(args.mean);
         let std = f32::cast_from(args.std);

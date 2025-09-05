@@ -9,4 +9,5 @@ pub struct RuntimeArgs {
     pub shape_k: u32,
     pub padded_channels: FastDivmod,
     pub shape_out: Sequence<FastDivmod>,
+    pub shape_channel: FastDivmod,
 }

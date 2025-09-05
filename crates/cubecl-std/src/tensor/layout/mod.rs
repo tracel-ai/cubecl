@@ -8,4 +8,5 @@ pub use r#virtual::*;
 
 pub mod linear;
 pub mod permuted;
+pub mod plain;
 pub mod strided;

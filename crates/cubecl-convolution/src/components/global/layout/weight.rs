@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
 use cubecl_std::{
     FastDivmod,
     tensor::{
-        layout::{Coords3d, Layout},
+        layout::{Coords3d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand},
         r#virtual::VirtualTensor,
     },
 };
@@ -15,7 +15,7 @@ use cubecl_std::{
 use crate::{
     components::{
         ConvGemmConfig, ConvolutionConfig,
-        global::layout::{unwrap, virtual_layout},
+        global::layout::{NhwcCoords, unwrap, virtual_layout},
     },
     kernels::layered::selector::RuntimeArgs,
 };
@@ -23,7 +23,7 @@ use crate::{
 /// Maps a 4D weight tensor of shape `(out_c, (k_h, k_w, in_c))` to a col-major 2D matmul tile with
 /// shape `(n, k)`
 #[derive(CubeType, Clone)]
-pub struct WeightGlobalLayout {
+pub struct WeightLayout {
     /// Stride of `out_c`
     pub stride_out_c: u32,
     /// Stride of `k_h`, `k_w`
@@ -48,12 +48,12 @@ pub struct WeightGlobalLayout {
 }
 
 #[cube]
-impl WeightGlobalLayout {
+impl WeightLayout {
     pub fn new<E: Numeric, G: GlobalConfig>(
         tensor: &VirtualTensor<E>,
         args: &RuntimeArgs,
         #[comptime] config: ConvolutionConfig<G>,
-    ) -> WeightGlobalLayout {
+    ) -> WeightLayout {
         let spatial_dims = comptime![config.dimensionality().num_dims()];
         let mut strides_spatial = Sequence::new();
 
@@ -65,7 +65,7 @@ impl WeightGlobalLayout {
         let stride_out_c = tensor.stride(0);
         let stride_in_c = tensor.stride(spatial_dims + 1);
 
-        WeightGlobalLayout {
+        WeightLayout {
             stride_out_c,
             strides_spatial,
             stride_in_c,
@@ -79,16 +79,17 @@ impl WeightGlobalLayout {
 }
 
 #[cube]
-impl Layout for WeightGlobalLayout {
+impl Layout for WeightLayout {
     type Coordinates = Coords3d;
+    type SourceCoordinates = NhwcCoords;
 
-    fn to_linear_pos(this: &Self, coords: Self::Coordinates) -> u32 {
+    fn to_source_pos(this: &Self, coords: Self::Coordinates) -> NhwcCoords {
         let (_, k, n) = coords;
 
         let (mut rem, in_c) = this.channels.div_mod(k);
 
         let spatial_dims = comptime![this.strides_spatial.len()];
-        let mut kernel_pos = Sequence::<u32>::new();
+        let mut kernel_pos = Sequence::<i32>::new();
 
         #[unroll]
         for i in 0..spatial_dims {
@@ -98,37 +99,32 @@ impl Layout for WeightGlobalLayout {
             let k_pos = rem % ksize;
             rem /= ksize;
 
-            kernel_pos.push(k_pos);
+            kernel_pos.push(k_pos as i32);
         }
 
         let kernel_pos = kernel_pos.rev();
 
-        let mut read_pos = n * this.stride_out_c + in_c * this.stride_in_c;
-
-        #[unroll]
-        for i in 0..spatial_dims {
-            let i = unwrap(i);
-            read_pos += *kernel_pos.index(i) * *this.strides_spatial.index(i);
+        NhwcCoords {
+            batch: n,
+            spatial: kernel_pos,
+            channel: in_c,
         }
-
-        let line_size = comptime![this.config.global_line_size];
-        read_pos / line_size
     }
 
-    fn to_linear_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        let linear_pos = Self::to_linear_pos(this, coords);
-
-        let (_, k, n) = coords;
-        let check_k = comptime![this.config.check_row_bounds];
-        let check_n = comptime![this.config.check_col_bounds];
-        let in_bounds = (!check_k || k < this.shape_k) && (!check_n || n < this.shape_n);
-
-        (linear_pos, in_bounds)
+    fn to_source_pos_checked(this: &Self, coords: Self::Coordinates) -> (NhwcCoords, bool) {
+        (this.to_source_pos(coords), this.is_in_bounds(coords))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         (1, this.shape_k, this.shape_n)
     }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        let (_, k, n) = pos;
+        let check_k = comptime![this.config.check_row_bounds];
+        let check_n = comptime![this.config.check_col_bounds];
+        (!check_k || k < this.shape_k) && (!check_n || n < this.shape_n)
+    }
 }
 
-virtual_layout!(WeightGlobalLayout, WeightGlobalLayoutExpand);
+virtual_layout!(WeightLayout, WeightLayoutExpand);

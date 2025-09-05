@@ -66,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        view: View<IP::Global, Coords3d>,
+        view: View<Line<IP::Global>, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

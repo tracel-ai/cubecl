@@ -60,8 +60,9 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
 #[cube]
 impl Layout for PermutedLayout {
     type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
         index_offset_contiguous_fastdivmod(
             pos,
             &this.shape,
@@ -70,14 +71,16 @@ impl Layout for PermutedLayout {
         )
     }
 
-    fn to_linear_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        let idx = this.to_linear_pos(pos);
-        let in_bounds = pos < this.len;
-        (idx, in_bounds)
+    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
+        (this.to_source_pos(pos), this.is_in_bounds(pos))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
         this.len
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        pos < this.len
     }
 }
 

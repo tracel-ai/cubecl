@@ -58,7 +58,7 @@ pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadin
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: View<IP::Global, Coords3d>,
+        tensor: View<Line<IP::Global>, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

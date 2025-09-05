@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::{self as cubecl, prelude::expand_length_native};
-use cubecl_ir::ExpandElement;
+use crate::{self as cubecl, unexpanded};
+use cubecl_ir::VariableKind;
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -34,6 +34,15 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
 
     pub fn new_lined<S: Index>(_size: S, _vectorization_factor: u32) -> SharedMemory<Line<T>> {
         SharedMemory { _val: PhantomData }
+    }
+
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> u32 {
+        unexpanded!()
+    }
+
+    pub fn buffer_len(&self) -> u32 {
+        unexpanded!()
     }
 
     pub fn __expand_new_lined(
@@ -77,6 +86,30 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
         let var = scope.create_shared(Type::new(T::as_type(scope)), size, None);
         ExpandElementTyped::new(var)
     }
+
+    pub fn __expand_len(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Self>,
+    ) -> ExpandElementTyped<u32> {
+        this.__expand_len_method(scope)
+    }
+
+    pub fn __expand_buffer_len(
+        scope: &mut Scope,
+        this: ExpandElementTyped<Self>,
+    ) -> ExpandElementTyped<u32> {
+        this.__expand_buffer_len_method(scope)
+    }
+}
+
+impl<T: CubePrimitive> ExpandElementTyped<SharedMemory<T>> {
+    pub fn __expand_len_method(self, _scope: &mut Scope) -> ExpandElementTyped<u32> {
+        len_static(&self)
+    }
+
+    pub fn __expand_buffer_len_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
+        self.__expand_len_method(scope)
+    }
 }
 
 #[cube]
@@ -96,6 +129,15 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             ExpandElementTyped::new(var)
         })
     }
+}
+
+fn len_static<T: CubePrimitive>(
+    shared: &ExpandElementTyped<SharedMemory<T>>,
+) -> ExpandElementTyped<u32> {
+    let VariableKind::SharedMemory { length, .. } = shared.expand.kind else {
+        unreachable!("Kind of shared memory is always shared memory")
+    };
+    length.into()
 }
 
 /// Module that contains the implementation details of the index functions.
@@ -181,7 +223,7 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     }
 
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-        ExpandElement::Plain(expand_length_native(scope, *self.expand)).into()
+        Self::__expand_len_method(self.clone(), scope)
     }
 
     fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {

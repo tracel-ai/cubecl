@@ -16,7 +16,7 @@ pub struct UnitWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> UnitWriter<EG> {
     pub fn new(
-        view: View<EG, Coords3d, ReadWrite>,
+        view: View<Line<EG>, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
