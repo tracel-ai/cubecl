@@ -599,8 +599,17 @@ pub trait DialectInstructions<D: Dialect> {
         item: Item<D>,
     ) -> std::fmt::Result;
 
-    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "powf")
+    fn compile_instruction_powf(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        match elem {
+            Elem::F32 => write!(f, "powf({lhs}, {rhs})"),
+            Elem::F64 => write!(f, "pow({lhs}, {rhs})"),
+            _ => panic!("Unsupported type for powf"),
+        }
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {

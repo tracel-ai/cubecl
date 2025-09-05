@@ -133,7 +133,7 @@ pub struct ProfilingToken {
 }
 
 /// Server handle containing the [memory handle](crate::server::Handle).
-#[derive(new, Debug)]
+#[derive(new, Debug, PartialEq, Eq)]
 pub struct Handle {
     /// Memory handle.
     pub memory: SliceHandle,

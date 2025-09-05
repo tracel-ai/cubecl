@@ -752,11 +752,14 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
-            cube::Arithmetic::Powf(op) => instructions.push(wgsl::Instruction::Powf {
-                lhs: self.compile_variable(op.lhs),
-                rhs: self.compile_variable(op.rhs),
-                out: self.compile_variable(out),
-            }),
+            // No powi in WGSL
+            cube::Arithmetic::Powf(op) | cube::Arithmetic::Powi(op) => {
+                instructions.push(wgsl::Instruction::Powf {
+                    lhs: self.compile_variable(op.lhs),
+                    rhs: self.compile_variable(op.rhs),
+                    out: self.compile_variable(out),
+                })
+            }
             cube::Arithmetic::Sqrt(op) => instructions.push(wgsl::Instruction::Sqrt {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

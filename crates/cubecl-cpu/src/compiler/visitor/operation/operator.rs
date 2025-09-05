@@ -252,7 +252,7 @@ impl<'a> Visitor<'a> {
         self.insert_variable(out, value);
     }
 
-    fn get_cast_different_type_category(
+    pub(crate) fn get_cast_different_type_category(
         &self,
         to_cast: StorageType,
         out: StorageType,

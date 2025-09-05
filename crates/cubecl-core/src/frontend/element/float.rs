@@ -27,6 +27,7 @@ pub trait Float:
     + Sin
     + Tanh
     + Powf
+    + Powi<i32>
     + Sqrt
     + Round
     + Floor

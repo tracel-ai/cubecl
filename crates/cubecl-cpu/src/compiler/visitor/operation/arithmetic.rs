@@ -326,6 +326,24 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            // Powi intrinsic doesn't accept negative ints for some reason
+            Arithmetic::Powi(powi) => {
+                let target = powi.lhs.ty.to_type(self.context);
+                let (base, exp) = self.get_binary_op_variable(powi.lhs, powi.rhs);
+                let exp = self.get_cast_different_type_category(
+                    powi.rhs.storage_type(),
+                    powi.lhs.storage_type(),
+                    target,
+                    exp,
+                );
+                let result = self.append_operation_with_result(llvm_ods::intr_pow(
+                    self.context,
+                    base,
+                    exp,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
                 let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
