@@ -28,6 +28,7 @@ matmul = ["dep:cubecl-matmul"]
 convolution = ["dep:cubecl-convolution"]
 reduce = ["dep:cubecl-reduce"]
 random = ["dep:cubecl-random"]
+scan = ["dep:cubecl-scan"]
 std = ["cubecl-core/std", "cubecl-wgpu?/std", "cubecl-cuda?/std"]
 stdlib = ["cubecl-std"] # CubeCL standard library
 template = ["cubecl-core/template"]
@@ -58,6 +59,7 @@ cubecl-hip = { path = "../cubecl-hip", version = "0.7.0", default-features = fal
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", default-features = false, optional = true }
 cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", default-features = false, optional = true }
 cubecl-random = { path = "../cubecl-random", version = "0.7.0", default-features = false, optional = true }
+cubecl-scan = { path = "../cubecl-scan", version = "0.7.0", default-features = false, optional = true }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", default-features = false, optional = true }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false }
 cubecl-std = { path = "../cubecl-std", version = "0.7.0", optional = true }

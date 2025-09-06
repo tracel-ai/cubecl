@@ -113,5 +113,8 @@ cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
 cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
     "export_tests",
 ] }
+cubecl-scan = { path = "../cubecl-scan", version = "0.7.0", features = [
+    "export_tests",
+] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
