@@ -752,6 +752,51 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Sinh(op) => instructions.push(wgsl::Instruction::Sinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Cosh(op) => instructions.push(wgsl::Instruction::Cosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCos(op) => instructions.push(wgsl::Instruction::ArcCos {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSin(op) => instructions.push(wgsl::Instruction::ArcSin {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan(op) => instructions.push(wgsl::Instruction::ArcTan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSinh(op) => instructions.push(wgsl::Instruction::ArcSinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCosh(op) => instructions.push(wgsl::Instruction::ArcCosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTanh(op) => instructions.push(wgsl::Instruction::ArcTanh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Degrees(op) => instructions.push(wgsl::Instruction::Degrees {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Radians(op) => instructions.push(wgsl::Instruction::Radians {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan2(op) => instructions.push(wgsl::Instruction::ArcTan2 {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Powf(op) => instructions.push(wgsl::Instruction::Powf {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),

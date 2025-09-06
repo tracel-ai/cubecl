@@ -151,6 +151,14 @@ macro_rules! function {
 function!(Log, "log");
 function!(Cos, "cos");
 function!(Sin, "sin");
+function!(Sinh, "sinh", false);
+function!(Cosh, "cosh", false);
+function!(ArcCos, "acos", false);
+function!(ArcSin, "asin", false);
+function!(ArcTan, "atan", false);
+function!(ArcSinh, "asinh", false);
+function!(ArcCosh, "acosh", false);
+function!(ArcTanh, "atanh", false);
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");
@@ -185,6 +193,38 @@ impl<D: Dialect> Unary<D> for Tanh {
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
         D::compile_instruction_tanh_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Degrees;
+
+impl<D: Dialect> Unary<D> for Degrees {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        write!(f, "{input}*57.29577951308232f")
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Radians;
+
+impl<D: Dialect> Unary<D> for Radians {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _out_elem: Elem<D>,
+    ) -> std::fmt::Result {
+        write!(f, "{input}*0.017453292519943295f")
     }
 
     fn can_optimize() -> bool {
