@@ -539,20 +539,6 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
-    fn compile_instruction_degrees_scalar<T: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-    ) -> std::fmt::Result {
-        write!(f, "{input}*57.29577951308232")
-    }
-
-    fn compile_instruction_radians_scalar<T: Component<D>>(
-        f: &mut std::fmt::Formatter<'_>,
-        input: T,
-    ) -> std::fmt::Result {
-        write!(f, "{input}*0.017453292519943295")
-    }
-
     // unary
     fn compile_instruction_find_first_set<T: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,

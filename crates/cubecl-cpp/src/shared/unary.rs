@@ -208,7 +208,7 @@ impl<D: Dialect> Unary<D> for Degrees {
         input: Input,
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        D::compile_instruction_degrees_scalar(f, input)
+        write!(f, "{input}*57.29577951308232f")
     }
 
     fn can_optimize() -> bool {
@@ -224,7 +224,7 @@ impl<D: Dialect> Unary<D> for Radians {
         input: Input,
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
-        D::compile_instruction_radians_scalar(f, input)
+        write!(f, "{input}*0.017453292519943295f")
     }
 
     fn can_optimize() -> bool {
