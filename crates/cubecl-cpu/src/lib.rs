@@ -18,6 +18,7 @@ mod tests {
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, f32: f32]);
     cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
+    cubecl_scan::testgen_scan!();
 
     // Deactivated for now as it makes the CI hang
     // cubecl_reduce::testgen_reduce!([f16, f32, f64]);

@@ -27,5 +27,8 @@ pub use cubecl_reduce as reduce;
 #[cfg(feature = "random")]
 pub use cubecl_random as random;
 
+#[cfg(feature = "scan")]
+pub use cubecl_scan as scan;
+
 #[cfg(feature = "cpu")]
 pub use cubecl_cpu as cpu;

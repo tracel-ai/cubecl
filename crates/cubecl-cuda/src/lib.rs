@@ -39,4 +39,5 @@ mod tests {
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
+    cubecl_scan::testgen_scan!();
 }
