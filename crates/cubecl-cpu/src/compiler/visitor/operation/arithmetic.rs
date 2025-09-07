@@ -3,7 +3,7 @@ use tracel_llvm::melior::{
     dialect::{
         arith::{self},
         llvm,
-        ods::{llvm as llvm_ods, math as math_ods, vector},
+        ods::{llvm as llvm_ods, vector},
     },
     ir::Attribute,
 };
@@ -28,104 +28,90 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
-            Arithmetic::Sinh(sinh) => {
-                let value = self.get_variable(sinh.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_sinh(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Cosh(cosh) => {
-                let value = self.get_variable(cosh.input);
-                let result = self.append_operation_with_result(llvm_ods::intr_cosh(
-                    self.context,
-                    value,
-                    self.location,
-                ));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::ArcCos(acos) => {
-                let value = self.get_variable(acos.input);
+            Arithmetic::ArcCos(_acos) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(acos.input);
                 let result = self.append_operation_with_result(math_ods::acos(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::ArcSin(asin) => {
-                let value = self.get_variable(asin.input);
+            Arithmetic::ArcSin(_asin) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(asin.input);
                 let result = self.append_operation_with_result(math_ods::asin(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::ArcTan(atan) => {
-                let value = self.get_variable(atan.input);
+            Arithmetic::ArcTan(_atan) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(atan.input);
                 let result = self.append_operation_with_result(math_ods::atan(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::Degrees(degrees) => {
-                let value = self.get_variable(degrees.input);
-                // 180 / pi
-                let f = self.create_float_constant_from_item(degrees.input.ty, 57.29577951308232);
-                let result =
-                    self.append_operation_with_result(arith::mulf(value, f, self.location));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::Radians(radians) => {
-                let value = self.get_variable(radians.input);
-                // pi / 180
-                let f =
-                    self.create_float_constant_from_item(radians.input.ty, 0.017453292519943295);
-                let result =
-                    self.append_operation_with_result(arith::mulf(value, f, self.location));
-                self.insert_variable(out, result);
-            }
-            Arithmetic::ArcSinh(asinh) => {
-                let value = self.get_variable(asinh.input);
+            Arithmetic::ArcSinh(_asinh) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(asinh.input);
                 let result = self.append_operation_with_result(math_ods::asinh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::ArcCosh(acosh) => {
-                let value = self.get_variable(acosh.input);
+            Arithmetic::ArcCosh(_acosh) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(acosh.input);
                 let result = self.append_operation_with_result(math_ods::acosh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::ArcTanh(atanh) => {
-                let value = self.get_variable(atanh.input);
+            Arithmetic::ArcTanh(_atanh) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let value = self.get_variable(atanh.input);
                 let result = self.append_operation_with_result(math_ods::atanh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
-            Arithmetic::ArcTan2(atan2) => {
-                let (lhs, rhs) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
+            Arithmetic::ArcTan2(_atan2) => {
+                todo!(
+                    "Arc operations are only available through the ods::math module, which can not be properly loaded at the moment."
+                );
+                /*let (lhs, rhs) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
                 let result = self.append_operation_with_result(math_ods::atan_2(
                     self.context,
                     lhs,
                     rhs,
                     self.location,
                 ));
-                self.insert_variable(out, result);
+                self.insert_variable(out, result);*/
             }
             Arithmetic::Ceil(ceil) => {
                 let value = self.get_variable(ceil.input);
@@ -191,6 +177,23 @@ impl<'a> Visitor<'a> {
                     value,
                     self.location,
                 ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Cosh(cosh) => {
+                let value = self.get_variable(cosh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_cosh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Degrees(degrees) => {
+                let value = self.get_variable(degrees.input);
+                // 180 / pi
+                let f = self.create_float_constant_from_item(degrees.input.ty, 57.29577951308232);
+                let result =
+                    self.append_operation_with_result(arith::mulf(value, f, self.location));
                 self.insert_variable(out, result);
             }
             Arithmetic::Div(div) => {
@@ -425,6 +428,15 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Radians(radians) => {
+                let value = self.get_variable(radians.input);
+                // pi / 180
+                let f =
+                    self.create_float_constant_from_item(radians.input.ty, 0.017453292519943295);
+                let result =
+                    self.append_operation_with_result(arith::mulf(value, f, self.location));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
                 let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
@@ -475,6 +487,15 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
                 self.insert_variable(out, output);
+            }
+            Arithmetic::Sinh(sinh) => {
+                let value = self.get_variable(sinh.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_sinh(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
             }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);
