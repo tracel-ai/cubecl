@@ -9,8 +9,7 @@ use cubecl_matmul::components::{
     },
 };
 use cubecl_std::{
-    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs, tensor::r#virtual::VirtualTensor,
 };
 
 use crate::{
@@ -84,7 +83,7 @@ pub(crate) fn implicit_conv<
 
     let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
     let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
-    let k_range = (0, runtime_args.size_k);
+    let k_range = (0, runtime_args.shape_k);
 
     GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::execute(
         GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_lhs_loader(
@@ -104,7 +103,13 @@ pub(crate) fn implicit_conv<
         GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_bias_loader(
             bias, y_offset, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(out, x_offset, y_offset),
+        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(
+            out,
+            x_offset,
+            y_offset,
+            &runtime_args,
+            config,
+        ),
         &mut GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_accumulator(config),
         k_range,
         config,

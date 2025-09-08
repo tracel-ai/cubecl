@@ -1,7 +1,7 @@
 mod base;
-mod fence;
 mod cross;
+mod fence;
 
 pub use base::*;
-pub use fence::*;
 pub use cross::*;
+pub use fence::*;

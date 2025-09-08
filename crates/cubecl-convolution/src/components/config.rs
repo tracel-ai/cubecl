@@ -26,15 +26,16 @@ pub trait ConvGemmConfig: GlobalConfig {
     fn dimensionality(&self) -> Dimensionality;
 
     fn line_sizes(&self) -> MatmulLineSizes;
+    fn check_spatial_bounds(&self) -> bool;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionConfig<M: GlobalConfig> {
     matmul: M,
-    kernel_size: [u32; 3],
-    stride: [u32; 3],
-    dilation: [u32; 3],
-    padding: [i32; 3],
+    pub kernel_size: [u32; 3],
+    pub stride: [u32; 3],
+    pub dilation: [u32; 3],
+    pub padding: [i32; 3],
     dimensionality: Dimensionality,
     num_stages: u32,
 }
@@ -147,6 +148,15 @@ impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
             rhs: self.global_line_size(MatmulIdent::Rhs) as u8,
             out: self.global_line_size(MatmulIdent::Out) as u8,
         }
+    }
+
+    fn check_spatial_bounds(&self) -> bool {
+        let spatial_dims = self.dimensionality.num_dims();
+        let mut has_padding = false;
+        for i in 0..spatial_dims {
+            has_padding |= self.padding[i as usize] != 0;
+        }
+        has_padding
     }
 }
 

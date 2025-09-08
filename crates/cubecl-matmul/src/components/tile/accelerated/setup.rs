@@ -26,7 +26,7 @@ impl TileMatmulFamily for AcceleratedMatmul {
     ) -> Result<Self::Config, MatmulSetupError> {
         AcceleratedConfig::new::<Lhs, Rhs, Acc, R>(
             client,
-            selection.tiling_scheme,
+            selection.tiling_scheme.tile_size,
             selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,

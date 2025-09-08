@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
     global::GlobalConfig as _,
     stage::{FullReaderFamily, StageMatmulFamily},
 };
-use cubecl_std::FastDivmodArgs;
+use cubecl_std::{FastDivmodArgs, tensor::layout::Coords3d};
 
 use crate::{
     components::{
@@ -18,8 +18,13 @@ use crate::{
     kernels::layered::selector::RuntimeArgsLaunch,
 };
 
-impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
-    ConvolutionLaunch<GlobalConfig<Self>> for MultiStageTmaConvolutionFamily<SMM>
+impl<
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
+> ConvolutionLaunch<GlobalConfig<Self>> for MultiStageTmaConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -41,6 +46,7 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
             ScalarArg::new(size_k),
             FastDivmodArgs::new(client, padded_channels),
             shape_divmod(client, &problem.out_shape),
+            FastDivmodArgs::new(client, problem.channels as u32),
         );
 
         unsafe {

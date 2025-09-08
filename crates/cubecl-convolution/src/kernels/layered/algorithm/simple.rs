@@ -41,22 +41,10 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
     ) -> TensorHandle<R, E> {
-        let rank = handle.shape.len();
-        let dim_c = rank - 1;
-        let mut handle = if has_valid_layout(handle, ident) {
+        if has_valid_layout(handle, ident) {
             TensorHandle::from_ref(handle)
         } else {
             into_contiguous(client, handle)
-        };
-        match ident {
-            MatmulIdent::Lhs => handle,
-            MatmulIdent::Rhs => {
-                // Reshape to (K, N) so the loader knows how to handle it
-                handle.shape = vec![handle.shape[1..].iter().product(), handle.shape[0]];
-                handle.strides = vec![handle.strides[dim_c], handle.strides[0]];
-                handle
-            }
-            MatmulIdent::Out => unreachable!(),
         }
     }
 
@@ -85,16 +73,7 @@ fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: MatmulId
     let dim_c = rank - 1;
     match ident {
         MatmulIdent::Lhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Rhs => {
-            let mut strides = handle.strides.to_vec();
-            strides.sort();
-            let ordered = handle.strides == strides;
-            let mut contiguous_k = true;
-            for i in 1..dim_c {
-                contiguous_k &= strides[i] == strides[i + 1] * handle.shape[i + 1];
-            }
-            ordered && contiguous_k
-        }
+        MatmulIdent::Rhs => handle.strides[dim_c] == 1,
         MatmulIdent::Out => unreachable!(),
     }
 }

@@ -1,4 +1,3 @@
-use cubecl_core::server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken};
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::IoError,
@@ -6,6 +5,10 @@ use cubecl_core::{
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
+};
+use cubecl_core::{
+    ir::StorageType,
+    server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
 };
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
@@ -16,14 +19,14 @@ use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::Time
 use serde::{Deserialize, Serialize};
 
 use crate::compute::sync::CrossFence;
-use crate::compute::{CudaDataHandle, CudaDataService};
+use crate::compute::{CudaDataService, CudaDataTransferCall};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
 use super::storage::CudaStorage;
 use super::sync::{Fence, SyncStream};
 use cubecl_common::profile::ProfileDuration;
-use cubecl_core::ir::{Elem, IntKind, UIntKind};
+use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Feature,
@@ -205,7 +208,7 @@ impl CudaServer {
 
         let client = CudaDataService::get_client();
 
-        let handle = CudaDataHandle {
+        let handle = CudaDataTransferCall {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: src_resource,
@@ -238,7 +241,7 @@ impl CudaServer {
 
         let client = CudaDataService::get_client();
 
-        let handle = CudaDataHandle {
+        let handle = CudaDataTransferCall {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: dst_resource,
@@ -406,18 +409,14 @@ impl ComputeServer for CudaServer {
             // pointers are 64-bit aligned, which I believe is true on all cards that support grid
             // constants regardless. Metadata is inserted after the 8-aligned scalars to ensure proper
             // packing
-            for binding in bindings.scalars.values().filter(|it| it.elem.size() == 8) {
+            for binding in bindings.scalars.values().filter(|it| it.ty.size() == 8) {
                 scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
             }
             if bindings.metadata.static_len > 0 {
                 scalars.push(bindings.metadata.data.as_ptr() as *const _ as *mut c_void);
             }
             for size in [4, 2, 1] {
-                for binding in bindings
-                    .scalars
-                    .values()
-                    .filter(|it| it.elem.size() == size)
-                {
+                for binding in bindings.scalars.values().filter(|it| it.ty.size() == size) {
                     scalars.push(binding.data.as_ptr() as *const _ as *mut c_void);
                 }
             }
@@ -480,7 +479,7 @@ impl ComputeServer for CudaServer {
                     .iter()
                     .rev()
                     .skip(1)
-                    .map(|s| *s as u64 * map.elem.size() as u64)
+                    .map(|s| *s as u64 * map.storage_ty.size() as u64)
                     .collect();
                 let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
@@ -496,7 +495,7 @@ impl ComputeServer for CudaServer {
 
                         cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.elem),
+                            elem_to_tensor_map_type(map.storage_ty),
                             map.rank as u32,
                             device_ptr,
                             shape.as_ptr(),
@@ -527,7 +526,7 @@ impl ComputeServer for CudaServer {
 
                         cuTensorMapEncodeIm2col(
                             map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.elem),
+                            elem_to_tensor_map_type(map.storage_ty),
                             map.rank as u32,
                             device_ptr,
                             shape.as_ptr(),
@@ -554,7 +553,7 @@ impl ComputeServer for CudaServer {
                     } => unsafe {
                         cuTensorMapEncodeIm2colWide(
                             map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.elem),
+                            elem_to_tensor_map_type(map.storage_ty),
                             map.rank as u32,
                             device_ptr,
                             shape.as_ptr(),
@@ -646,11 +645,19 @@ impl ComputeServer for CudaServer {
         self.ctx.memory_management.mode(mode);
     }
 
-    fn send_to_peer(&mut self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>> {
+    fn send_to_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>> {
         Box::pin(self.send_to_peer_async(id, src))
     }
 
-    fn recv_from_peer(&mut self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>> {
+    fn recv_from_peer(
+        &mut self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>> {
         Box::pin(self.recv_from_peer_async(id, dst))
     }
 }
@@ -767,9 +774,14 @@ impl CudaContext {
 
         let include_path = include_path();
         let include_option = format!("--include-path={}", include_path.to_str().unwrap());
+        let cccl_include_path = cccl_include_path();
+        let cccl_include_option = format!("--include-path={}", cccl_include_path.to_str().unwrap());
         let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
         if fast_math {
             options.push("--use_fast_math");
+        }
+        if cccl_include_path.exists() {
+            options.push(&cccl_include_option);
         }
 
         #[cfg(feature = "compilation-cache")]
@@ -918,6 +930,12 @@ fn include_path() -> PathBuf {
     path
 }
 
+fn cccl_include_path() -> PathBuf {
+    let mut path = include_path();
+    path.push("cccl");
+    path
+}
+
 fn cuda_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("CUDA_PATH") {
         return Some(PathBuf::from(path));
@@ -949,16 +967,14 @@ fn cuda_path() -> Option<PathBuf> {
     None
 }
 
-fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
+fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
     use cudarc::driver::sys::CUtensorMapDataType::*;
-    match elem {
-        Elem::Float(kind) => match kind {
-            // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
-            // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
-            #[cfg(feature = "cuda-12080")]
-            FloatKind::E2M1x2 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
-            #[cfg(not(feature = "cuda-12080"))]
-            FloatKind::E2M1x2 => panic!("CUDA version 12.8 required for float kind E2M1x2"),
+    match ty {
+        // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
+        // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
+        #[cfg(feature = "cuda-12080")]
+        StorageType::Packed(ty, 2) if ty.size_bits() == 4 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
+        StorageType::Scalar(ElemType::Float(kind)) => match kind {
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
             FloatKind::E2M1 // single fp4s are padded to a full byte
             | FloatKind::E4M3
@@ -972,23 +988,20 @@ fn elem_to_tensor_map_type(elem: Elem) -> CUtensorMapDataType {
             FloatKind::TF32 => CU_TENSOR_MAP_DATA_TYPE_TFLOAT32,
             FloatKind::F64 => CU_TENSOR_MAP_DATA_TYPE_FLOAT64,
         },
-        Elem::Int(kind) => match kind {
+        StorageType::Scalar(ElemType::Int(kind)) => match kind {
             // UInt is fine because zero bits and size is the same between both
             IntKind::I8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             IntKind::I16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
             IntKind::I32 => CU_TENSOR_MAP_DATA_TYPE_INT32,
             IntKind::I64 => CU_TENSOR_MAP_DATA_TYPE_INT64,
         },
-        Elem::UInt(kind) => match kind {
+        StorageType::Scalar(ElemType::UInt(kind)) => match kind {
             UIntKind::U8 => CU_TENSOR_MAP_DATA_TYPE_UINT8,
             UIntKind::U16 => CU_TENSOR_MAP_DATA_TYPE_UINT16,
             UIntKind::U32 => CU_TENSOR_MAP_DATA_TYPE_UINT32,
             UIntKind::U64 => CU_TENSOR_MAP_DATA_TYPE_UINT64,
         },
-        Elem::AtomicFloat(_) | Elem::AtomicInt(_) | Elem::AtomicUInt(_) => {
-            unimplemented!("Not supported for tensor map type")
-        }
-        _ => unimplemented!(),
+        _ => unimplemented!("Not supported for tensor map type"),
     }
 }
 

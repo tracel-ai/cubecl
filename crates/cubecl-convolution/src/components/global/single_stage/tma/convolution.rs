@@ -6,7 +6,7 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
+    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
         AccumulatorLoader, GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig,
     },
@@ -14,14 +14,15 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
 };
 
 use crate::{
     components::{
-        ConvolutionConfig,
+        ConvGemmConfig, ConvolutionConfig,
         global::{
             GlobalConvolution,
+            layout::{NhwcLayout, OutLayout},
             load::{
                 bias::BiasLoader,
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
@@ -47,6 +48,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
+            WriteCoords = Coords3d,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
@@ -72,11 +74,17 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        let stage_elems_lhs = config.tiling_scheme().elements_in_stage_mk();
-        let stage_elems_rhs = config.tiling_scheme().elements_in_stage_nk();
+        let lhs_elem_size = LhsS::<MP>::elem_size();
+        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let stage_bytes_lhs =
+            comptime!(config.tiling_scheme().elements_in_stage_mk() * lhs_elem_size);
+        let stage_bytes_rhs =
+            comptime!(config.tiling_scheme().elements_in_stage_nk() * rhs_elem_size);
+        let stages_bytes = stage_bytes_lhs + stage_bytes_rhs;
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         sync_cube();
 
@@ -86,20 +94,17 @@ where
             config.stage_config(),
         );
 
-        let lhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
-        let rhs_barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, 0u32, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, 0u32, config.stage_config());
+            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, 0u32, config);
+            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, 0u32, config.stage_config());
 
-            arrive_tma::<LhsS<MP>>(&lhs_barrier, stage_elems_lhs);
-            arrive_tma::<RhsS<MP>>(&rhs_barrier, stage_elems_rhs);
+            arrive_tma(&barrier, stages_bytes);
 
-            lhs_barrier.wait();
-            rhs_barrier.wait();
+            barrier.wait();
 
             let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, 0u32);
             let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, 0u32);
@@ -111,6 +116,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
@@ -119,7 +125,13 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
@@ -161,8 +173,18 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_out =
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+        SMM::init_writer(
+            out.view_mut(layout_global).view_mut(layout_out),
+            x_offset,
+            y_offset,
+            0,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

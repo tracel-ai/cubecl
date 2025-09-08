@@ -34,8 +34,18 @@ pub struct CudaDataServiceClient {
 }
 
 enum CudaDataTransferMsg {
-    Send(ComputeDataTransferId, CudaDataTransferCall, usize, SyncSender<()>),
-    Recv(ComputeDataTransferId, CudaDataTransferCall, usize, SyncSender<()>),
+    Send(
+        ComputeDataTransferId,
+        CudaDataTransferCall,
+        usize,
+        SyncSender<()>,
+    ),
+    Recv(
+        ComputeDataTransferId,
+        CudaDataTransferCall,
+        usize,
+        SyncSender<()>,
+    ),
 }
 
 impl CudaDataServiceClient {
@@ -97,7 +107,13 @@ impl CudaDataService {
         }
     }
 
-    fn send(&mut self, id: ComputeDataTransferId, handle: CudaDataTransferCall, num_bytes: usize, sender: SyncSender<()>) {
+    fn send(
+        &mut self,
+        id: ComputeDataTransferId,
+        handle: CudaDataTransferCall,
+        num_bytes: usize,
+        sender: SyncSender<()>,
+    ) {
         let transfer = self.transfers.remove(&id);
         match transfer {
             Some(mut transfer) => {
@@ -127,7 +143,13 @@ impl CudaDataService {
         }
     }
 
-    fn recv(&mut self, id: ComputeDataTransferId, handle: CudaDataTransferCall, num_bytes: usize, sender: SyncSender<()>) {
+    fn recv(
+        &mut self,
+        id: ComputeDataTransferId,
+        handle: CudaDataTransferCall,
+        num_bytes: usize,
+        sender: SyncSender<()>,
+    ) {
         let transfer = self.transfers.remove(&id);
         match transfer {
             Some(mut transfer) => {
@@ -209,13 +231,12 @@ impl CudaDataTransfer {
             cudarc::driver::result::ctx::set_current(dst_context).unwrap();
 
             // Try to enable (idempotent). If not supported, fall back.
-            let peer_enabled =
-                match enable_one_way_peer_access(dst_dev, src_context, src_dev) {
-                    Ok(true) => true,
-                    Ok(false) => false,
-                    Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
-                    Err(_) => false, // conservative fallback if enable failed
-                };
+            let peer_enabled = match enable_one_way_peer_access(dst_dev, src_context, src_dev) {
+                Ok(true) => true,
+                Ok(false) => false,
+                Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
+                Err(_) => false, // conservative fallback if enable failed
+            };
 
             if !peer_enabled {
                 panic!("P2P not enabled");
@@ -229,7 +250,9 @@ impl CudaDataTransfer {
                 src_context,
                 num_bytes,
                 dst_stream,
-            ).result().unwrap();
+            )
+            .result()
+            .unwrap();
 
             // Signal the transfer finished for the sending thread
             CrossFence::new(dst_stream, src_stream)

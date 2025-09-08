@@ -70,14 +70,14 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_elems(&self) -> TokenStream {
+    pub fn register_types(&self) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
             output.extend(quote! {
                 builder
                     .scope
-                    .register_elem::<#ty>(#name::as_elem_native_unchecked());
+                    .register_type::<#ty>(#name::as_type_native_unchecked());
             });
         }
 

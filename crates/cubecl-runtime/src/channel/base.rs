@@ -1,13 +1,14 @@
 use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 
 use crate::{
+    data_service::ComputeDataTransferId,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
         CubeCount, IoError, ProfileError, ProfilingToken,
     },
-    storage::{BindingResource, ComputeStorage}, data_service::ComputeDataTransferId,
+    storage::{BindingResource, ComputeStorage},
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -28,10 +29,18 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
 
     /// Send data to another server. Returns when recv_from_peer has been called and the transfer has been registered.
-    fn send_to_peer(&self, id: ComputeDataTransferId, src: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>>;
+    fn send_to_peer(
+        &self,
+        id: ComputeDataTransferId,
+        src: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>>;
 
     /// Receive data from another server. Returns when send_to_peer has been called and the transfer has been registered.
-    fn recv_from_peer(&self, id: ComputeDataTransferId, dst: CopyDescriptor<'_>) -> DynFut<Result<(), IoError>>;
+    fn recv_from_peer(
+        &self,
+        id: ComputeDataTransferId,
+        dst: CopyDescriptor<'_>,
+    ) -> DynFut<Result<(), IoError>>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;

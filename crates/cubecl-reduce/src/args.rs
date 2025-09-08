@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 use cubecl_std::tensor::r#virtual::{
-    ReadWrite, VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
+    VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
 };
 
 pub trait ReduceDType {
@@ -49,6 +49,9 @@ pub trait ReduceArgs: Send + Sync + 'static + Clone {
 
     fn stride_input<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
     fn stride_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32;
+
+    fn line_size_input<P: ReduceDType>(state: &Self::State<P>) -> comptime_type!(u32);
+    fn line_size_output<P: ReduceDType>(state: &Self::State<P>) -> comptime_type!(u32);
 }
 
 #[cube]
@@ -133,6 +136,14 @@ impl ReduceArgs for TensorArgs {
 
     fn stride_output<P: ReduceDType>(state: &Self::State<P>, dim: u32) -> u32 {
         unsafe { (*state.1).stride(dim) }
+    }
+
+    fn line_size_input<P: ReduceDType>(state: &Self::State<P>) -> comptime_type!(u32) {
+        unsafe { (*state.0).line_size() }
+    }
+
+    fn line_size_output<P: ReduceDType>(state: &Self::State<P>) -> comptime_type!(u32) {
+        unsafe { (*state.1).line_size() }
     }
 }
 
@@ -243,6 +254,14 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     ) -> ExpandElementTyped<TensorMap<P::In>> {
         todo!()
     }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        RA::__expand_line_size_input(scope, self.state.clone())
+    }
+
+    fn line_size(&self) -> u32 {
+        todo!()
+    }
 }
 
 impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
@@ -305,6 +324,14 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
         &self,
         _scope: &mut Scope,
     ) -> ExpandElementTyped<TensorMap<P::Out>> {
+        todo!()
+    }
+
+    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
+        RA::__expand_line_size_output(scope, self.state.clone())
+    }
+
+    fn line_size(&self) -> u32 {
         todo!()
     }
 }

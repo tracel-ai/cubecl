@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{LhsG, MatmulPrecision, RhsG, global};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
@@ -176,7 +176,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     GMM::execute(
         GMM::init_lhs_loader(lhs, m_offset, k_range.0, nth_batch, batch_lhs, config),
         GMM::init_rhs_loader(rhs, k_range.0, n_offset, nth_batch, batch_rhs, config),
-        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out),
+        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
         acc,
         k_range,
         config,

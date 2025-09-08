@@ -342,12 +342,20 @@ impl ComputeServer for HipServer {
         let ctx = self.get_context();
         ctx.memory_management.mode(mode);
     }
-    
-    fn send_to_peer(&mut self, _id: ComputeDataTransferId, _src: CopyDescriptor<'_>) -> Result<(), IoError> {
+
+    fn send_to_peer(
+        &mut self,
+        _id: ComputeDataTransferId,
+        _src: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for HIP backend")
     }
-    
-    fn recv_from_peer(&mut self, _id: ComputeDataTransferId, _dst: CopyDescriptor<'_>) -> Result<(), IoError> {
+
+    fn recv_from_peer(
+        &mut self,
+        _id: ComputeDataTransferId,
+        _dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
         todo!("Peer-to-peer data service unimplemented for HIP backend")
     }
 }

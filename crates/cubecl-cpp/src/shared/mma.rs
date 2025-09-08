@@ -6,13 +6,25 @@ use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
 
-pub type SupportedWmmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, Vec<(u8, u8, u8)>)>;
-pub type SupportedMmaCombinations = Vec<(gpu::Elem, gpu::Elem, gpu::Elem, u32, u32, u32)>;
+pub type SupportedWmmaCombinations = Vec<(
+    gpu::StorageType,
+    gpu::StorageType,
+    gpu::StorageType,
+    Vec<(u8, u8, u8)>,
+)>;
+pub type SupportedMmaCombinations = Vec<(
+    gpu::StorageType,
+    gpu::StorageType,
+    gpu::StorageType,
+    u32,
+    u32,
+    u32,
+)>;
 pub type SupportedScaledMmaCombinations = Vec<(
-    gpu::Elem,
-    gpu::Elem,
-    gpu::Elem,
-    gpu::Elem,
+    gpu::StorageType,
+    gpu::StorageType,
+    gpu::StorageType,
+    gpu::StorageType,
     (u32, u32, u32),
     u32,
 )>;
@@ -50,9 +62,9 @@ pub fn register_mma_features(
 ) {
     for (a, b, o, m, n, k) in supported_combinations {
         properties.register_feature(Feature::ManualMma {
-            a_elem: a,
-            b_elem: b,
-            cd_elem: o,
+            a_type: a,
+            b_type: b,
+            cd_type: o,
             m,
             n,
             k,
@@ -66,13 +78,13 @@ pub fn register_scaled_mma_features(
 ) {
     for (a, b, o, s, (m, n, k), factor) in supported_combinations {
         properties.register_feature(Feature::ScaledMma {
-            a_elem: a,
-            b_elem: b,
-            cd_elem: o,
+            a_type: a,
+            b_type: b,
+            cd_type: o,
             m,
             n,
             k,
-            scales_elem: s,
+            scales_type: s,
             scales_factor: factor,
         });
     }

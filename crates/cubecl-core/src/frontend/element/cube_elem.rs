@@ -1,7 +1,7 @@
-use cubecl_ir::ExpandElement;
+use cubecl_ir::{ExpandElement, StorageType};
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
-use crate::ir::{Elem, Scope};
+use crate::ir::Scope;
 use crate::{Feature, frontend::CubeType};
 
 use super::{ExpandElementIntoMut, ExpandElementTyped};
@@ -20,35 +20,29 @@ pub trait CubePrimitive:
     + Copy
 {
     /// Return the element type to use on GPU.
-    fn as_elem(_scope: &Scope) -> Elem {
-        Self::as_elem_native().expect("To be overridden if not native")
+    fn as_type(_scope: &Scope) -> StorageType {
+        Self::as_type_native().expect("To be overridden if not native")
     }
 
     /// Native or static element type.
-    fn as_elem_native() -> Option<Elem> {
+    fn as_type_native() -> Option<StorageType> {
         None
     }
 
     /// Native or static element type.
-    fn as_elem_native_unchecked() -> Elem {
-        Self::as_elem_native().expect("To be a native type")
+    fn as_type_native_unchecked() -> StorageType {
+        Self::as_type_native().expect("To be a native type")
     }
 
     /// Only native element types have a size.
     fn size() -> Option<usize> {
-        Self::as_elem_native().map(|t| t.size())
+        Self::as_type_native().map(|t| t.size())
     }
 
     /// Only native element types have a size.
     fn size_bits() -> Option<usize> {
-        Self::as_elem_native().map(|t| t.size_bits())
+        Self::as_type_native().map(|t| t.size_bits())
     }
-
-    /// Minimum line size of this type
-    fn min_line_size(&self) -> Option<u8> {
-        Self::as_elem_native().map(|t| t.min_line_size())
-    }
-
 
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
@@ -57,31 +51,31 @@ pub trait CubePrimitive:
     fn is_supported<S: ComputeServer<Feature = Feature>, C: ComputeChannel<S>>(
         client: &ComputeClient<S, C>,
     ) -> bool {
-        let elem = Self::as_elem_native_unchecked();
+        let elem = Self::as_type_native_unchecked();
         client.properties().feature_enabled(Feature::Type(elem))
     }
 
     fn elem_size() -> u32 {
-        Self::as_elem_native_unchecked().size() as u32
+        Self::as_type_native_unchecked().size() as u32
     }
 
     fn elem_size_bits() -> u32 {
-        Self::as_elem_native_unchecked().size_bits() as u32
+        Self::as_type_native_unchecked().size_bits() as u32
     }
 
     fn packing_factor() -> u32 {
-        Self::as_elem_native_unchecked().packing_factor() as u32
+        Self::as_type_native_unchecked().packing_factor()
     }
 
     fn __expand_elem_size(scope: &Scope) -> u32 {
-        Self::as_elem(scope).size() as u32
+        Self::as_type(scope).size() as u32
     }
 
     fn __expand_elem_size_bits(scope: &Scope) -> u32 {
-        Self::as_elem(scope).size_bits() as u32
+        Self::as_type(scope).size_bits() as u32
     }
 
     fn __expand_packing_factor(scope: &Scope) -> u32 {
-        Self::as_elem(scope).packing_factor() as u32
+        Self::as_type(scope).packing_factor()
     }
 }

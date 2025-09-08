@@ -6,6 +6,7 @@ use cubecl_matmul::components::{
     global::{load::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
     stage::{FullReaderFamily, StageConfig as _, StageMatmulFamily},
 };
+use cubecl_std::tensor::layout::Coords3d;
 
 use crate::{
     components::{
@@ -25,7 +26,11 @@ pub struct SimpleTmaConvolutionFamily<SMM: StageMatmulFamily> {
 
 impl<SMM> GlobalConvolutionFamily for SimpleTmaConvolutionFamily<SMM>
 where
-    SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>,
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
 {
     type Convolution<MP: MatmulPrecision> =
         SimpleTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;

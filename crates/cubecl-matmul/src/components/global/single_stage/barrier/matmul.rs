@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::InputPrecision;
 use crate::components::LhsG;
 use crate::components::LhsS;
 use crate::components::MatmulIdent;
@@ -12,13 +11,14 @@ use crate::components::global::GlobalMatmul;
 use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
+use crate::components::global::memory::SimpleGlobalLayout;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 /// Performs matrix multiplication at the global level
@@ -42,25 +42,14 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            WriteCoords = Coords3d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
-    type LhsLoader = AsyncFullLoader<
-        MP::Lhs,
-        Barrier<<MP::Lhs as InputPrecision>::Stage>,
-        SMM::Config,
-        LL,
-        Self::Config,
-    >;
-    type RhsLoader = AsyncFullLoader<
-        MP::Rhs,
-        Barrier<<MP::Rhs as InputPrecision>::Stage>,
-        SMM::Config,
-        RL,
-        Self::Config,
-    >;
+    type LhsLoader = AsyncFullLoader<MP::Lhs, Barrier, SMM::Config, LL, Self::Config>;
+    type RhsLoader = AsyncFullLoader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
     type AccumulatorLoader = ZeroAccumulatorLoader;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -78,11 +67,12 @@ where
         let num_loops = (range + k_step - 1) / k_step;
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
         SMM::zero_accumulator(acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
-        let lhs_barrier = Barrier::<<MP::Lhs as InputPrecision>::Stage>::new(barrier_level);
-        let rhs_barrier = Barrier::<<MP::Rhs as InputPrecision>::Stage>::new(barrier_level);
+        let lhs_barrier = Barrier::new(barrier_level);
+        let rhs_barrier = Barrier::new(barrier_level);
 
         for loop_iter in 0..num_loops {
             sync_cube();
@@ -113,13 +103,20 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
             Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
         }
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
@@ -130,8 +127,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         Self::LhsLoader::new(
-            lhs,
+            lhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -148,8 +146,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         Self::RhsLoader::new(
-            rhs,
+            rhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -164,8 +163,15 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        SMM::init_writer(
+            out.view_mut(layout.virt()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

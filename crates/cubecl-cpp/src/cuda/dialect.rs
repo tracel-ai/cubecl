@@ -11,9 +11,9 @@ use crate::{
     },
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
-        DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler, Elem, FP4Kind,
-        FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma, SharedMemory, Variable,
-        WarpInstruction, unary,
+        DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
+        DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma,
+        SharedMemory, Variable, WarpInstruction, unary,
     },
 };
 
@@ -362,6 +362,8 @@ extern \"C\" __global__ void __launch_bounds__({})",
         Ok(())
     }
 }
+
+impl<M: DialectWmmaCompiler<Self>> DialectWarpReduceCompiler<Self> for CudaDialect<M> {}
 
 // Cube builtins dialect
 

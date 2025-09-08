@@ -13,16 +13,16 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::r#virtual::{ReadWrite, VirtualTensor},
+    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
 };
 
 use crate::{
     components::{
-        ConvolutionConfig,
+        ConvGemmConfig, ConvolutionConfig,
         global::{
-            GlobalConvolution,
-            load::{bias::BiasLoader, im2col::SimpleIm2colLoader},
-            memory::ConvTilingLayout,
+            ConvTilingLayout, GlobalConvolution,
+            layout::{Im2colGlobalLayout, NhwcLayout, OutLayout, WeightLayout},
+            load::bias::BiasLoader,
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -43,9 +43,14 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, ConvTilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
+            WriteCoords = Coords3d,
         >,
 {
-    type LhsLoader = SimpleIm2colLoader<MP::Lhs, Self::Config>;
+    type LhsLoader = SyncFullLoader<
+        MP::Lhs,
+        Self::Config,
+        sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
+    >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsLoader = SyncFullLoader<
         MP::Rhs,
@@ -74,6 +79,7 @@ where
 
         Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         sync_cube();
 
@@ -101,6 +107,7 @@ where
                 &mut rhs_tile,
                 acc,
                 config.stage_config(),
+                &partition_scheduler,
             );
 
             Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
@@ -109,7 +116,13 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(acc, &mut out_writer, config.stage_config(), config);
+        SMM::write_results::<Self::Config>(
+            acc,
+            &mut out_writer,
+            &partition_scheduler,
+            config.stage_config(),
+            config,
+        );
     }
 
     fn init_lhs_loader(
@@ -119,17 +132,37 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        Self::LhsLoader::new(lhs, x_offset, y_offset, runtime_args, config)
+        let check_spatial = comptime![config.check_spatial_bounds()];
+        let layout_global =
+            NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial).virt();
+        let layout_im2col = Im2colGlobalLayout::new(runtime_args, config).virt();
+        Self::LhsLoader::new(
+            lhs.view(layout_global).view(layout_im2col),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
-        _runtime_args: &RuntimeArgs,
+        runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        Self::RhsLoader::new(rhs, x_offset, y_offset, 0, MatmulIdent::Rhs, config)
+        let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false).virt();
+        let layout_weight = WeightLayout::new(&rhs, runtime_args, config).virt();
+        Self::RhsLoader::new(
+            rhs.view(layout_global).view(layout_weight),
+            x_offset,
+            y_offset,
+            0,
+            MatmulIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(
@@ -144,8 +177,18 @@ where
         out: VirtualTensor<MP::EO, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
+        runtime_args: &RuntimeArgs,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, 0)
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_out =
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+        SMM::init_writer(
+            out.view_mut(layout_global).view_mut(layout_out),
+            x_offset,
+            y_offset,
+            0,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

@@ -1,17 +1,17 @@
-use crate::components::global::Specializer;
 use crate::components::global::load::{StageBuffer, SyncPartialLoader, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_load_next, execute_last_and_write_results, load_first,
 };
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::{GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{GlobalConfig, GlobalWriter, ZeroAccumulatorLoader};
+use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageToTileReader;
 use crate::components::{LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::div_ceil;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 use std::marker::PhantomData;
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
@@ -22,7 +22,9 @@ pub struct DoubleBufferingMatmul<
     SMM: stage::StageMatmul<MP>,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
-> {
+> where
+    SMM::Writer: GlobalWriter<MP::EO, Coordinates = Coords3d>,
+{
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
@@ -37,6 +39,7 @@ where
             MP,
             LhsReader = PartialStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            WriteCoords = Coords3d,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
@@ -67,6 +70,7 @@ where
 
         SMM::zero_accumulator(acc, config.stage_config());
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+        let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let lhs_reader_a = Self::LhsLoader::reader(&lhs_loader, StageBuffer::A);
         let lhs_reader_b = Self::LhsLoader::reader(&lhs_loader, StageBuffer::B);
@@ -95,6 +99,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &partition_scheduler,
                 StageBuffer::B,
                 config,
             );
@@ -115,6 +120,7 @@ where
                 &mut lhs_loader,
                 &mut rhs_loader,
                 &specializer,
+                &partition_scheduler,
                 StageBuffer::A,
                 config,
             );
@@ -131,6 +137,7 @@ where
             &mut lhs_loader,
             &mut rhs_loader,
             &specializer,
+            &partition_scheduler,
             StageBuffer::B,
             config,
         );
@@ -145,6 +152,7 @@ where
             acc,
             &mut out_writer,
             &specializer,
+            &partition_scheduler,
             config,
         );
     }
@@ -157,8 +165,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
+        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         SyncPartialLoader::<MP::Lhs, Self::Config, LL>::new(
-            lhs,
+            lhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -175,8 +184,9 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
+        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         SyncPartialLoader::<MP::Rhs, Self::Config, RL>::new(
-            rhs,
+            rhs.view(layout.virt()),
             x_offset,
             y_offset,
             batch_offset,
@@ -191,8 +201,15 @@ where
         y_offset: u32,
         _nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        SMM::init_writer(out, x_offset, y_offset, batch_offset)
+        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        SMM::init_writer(
+            out.view_mut(layout.virt()),
+            x_offset,
+            y_offset,
+            batch_offset,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

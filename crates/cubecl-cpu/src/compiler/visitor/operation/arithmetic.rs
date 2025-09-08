@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Arithmetic, Item};
+use cubecl_core::ir::{self, Arithmetic};
 use tracel_llvm::melior::{
     dialect::{
         arith::{self},
@@ -15,12 +15,12 @@ impl<'a> Visitor<'a> {
         match arithmetic {
             Arithmetic::Abs(abs) => {
                 let value = self.get_variable(abs.input);
-                let abs = self.get_absolute_val(abs.input.item, value);
+                let abs = self.get_absolute_val(abs.input.ty, value);
                 self.insert_variable(out, abs);
             }
             Arithmetic::Add(add) => {
                 let (lhs, rhs) = self.get_binary_op_variable(add.lhs, add.rhs);
-                let operation = if add.lhs.elem().is_int() {
+                let operation = if add.lhs.storage_type().is_int() {
                     arith::addi(lhs, rhs, self.location)
                 } else {
                     arith::addf(lhs, rhs, self.location)
@@ -42,10 +42,10 @@ impl<'a> Visitor<'a> {
                 let mut min = self.get_variable(clamp.min_value);
                 let mut max = self.get_variable(clamp.max_value);
                 let vector_type = Type::vector(
-                    &[clamp.input.vectorization_factor() as u64],
-                    clamp.input.elem().to_type(self.context),
+                    &[clamp.input.line_size() as u64],
+                    clamp.input.storage_type().to_type(self.context),
                 );
-                if clamp.input.item.is_vectorized() && !clamp.min_value.item.is_vectorized() {
+                if clamp.input.ty.is_vectorized() && !clamp.min_value.ty.is_vectorized() {
                     min = self.append_operation_with_result(vector::splat(
                         self.context,
                         vector_type,
@@ -54,7 +54,7 @@ impl<'a> Visitor<'a> {
                     ));
                 }
 
-                if clamp.input.item.is_vectorized() && !clamp.max_value.item.is_vectorized() {
+                if clamp.input.ty.is_vectorized() && !clamp.max_value.ty.is_vectorized() {
                     max = self.append_operation_with_result(vector::splat(
                         self.context,
                         vector_type,
@@ -63,11 +63,11 @@ impl<'a> Visitor<'a> {
                     ));
                 }
 
-                let value = if clamp.input.elem().is_signed_int() {
+                let value = if clamp.input.storage_type().is_signed_int() {
                     let clamp_down =
                         self.append_operation_with_result(arith::maxsi(value, min, self.location));
                     self.append_operation_with_result(arith::minsi(clamp_down, max, self.location))
-                } else if clamp.input.elem().is_unsigned_int() {
+                } else if clamp.input.storage_type().is_unsigned_int() {
                     let clamp_down =
                         self.append_operation_with_result(arith::maxui(value, min, self.location));
                     self.append_operation_with_result(arith::minui(clamp_down, max, self.location))
@@ -96,9 +96,9 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Div(div) => {
                 let (lhs, rhs) = self.get_binary_op_variable(div.lhs, div.rhs);
-                let operation = if div.lhs.elem().is_signed_int() {
+                let operation = if div.lhs.storage_type().is_signed_int() {
                     arith::divsi(lhs, rhs, self.location)
-                } else if div.lhs.elem().is_unsigned_int() {
+                } else if div.lhs.storage_type().is_unsigned_int() {
                     arith::divui(lhs, rhs, self.location)
                 } else {
                     arith::divf(lhs, rhs, self.location)
@@ -110,14 +110,14 @@ impl<'a> Visitor<'a> {
                 let lhs = self.get_variable(dot.lhs);
                 let rhs = self.get_variable(dot.rhs);
                 // This could be used if it wasn't broken and the documentation was usable https://mlir.llvm.org/docs/Dialects/Vector/#vectorcontract-vectorcontractionop
-                let result = dot.lhs.elem().to_type(self.context);
-                let mul = if dot.lhs.elem().is_int() {
+                let result = dot.lhs.storage_type().to_type(self.context);
+                let mul = if dot.lhs.storage_type().is_int() {
                     arith::muli(lhs, rhs, self.location)
                 } else {
                     arith::mulf(lhs, rhs, self.location)
                 };
                 let mut operation = self.append_operation_with_result(mul);
-                if dot.lhs.item.is_vectorized() {
+                if dot.lhs.ty.is_vectorized() {
                     let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
                     operation = self.append_operation_with_result(vector::reduction(
                         self.context,
@@ -155,7 +155,7 @@ impl<'a> Visitor<'a> {
                 let b = self.get_variable(fma.b);
                 let c = self.get_variable(fma.c);
 
-                let result_type = fma.a.item.to_type(self.context);
+                let result_type = fma.a.ty.to_type(self.context);
                 let result = self.append_operation_with_result(vector::fma(
                     self.context,
                     result_type,
@@ -177,7 +177,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Log1p(log) => {
                 let value = self.get_variable(log.input);
-                let one = self.create_float_constant_from_item(log.input.item, 1.0);
+                let one = self.create_float_constant_from_item(log.input.ty, 1.0);
                 let plus_one =
                     self.append_operation_with_result(arith::addf(value, one, self.location));
                 let result = self.append_operation_with_result(llvm_ods::intr_log(
@@ -191,9 +191,9 @@ impl<'a> Visitor<'a> {
                 let value = self.get_variable(magnitude.input);
                 let mut squared =
                     self.append_operation_with_result(arith::mulf(value, value, self.location));
-                if magnitude.input.item.is_vectorized() {
+                if magnitude.input.ty.is_vectorized() {
                     let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                    let result = magnitude.input.elem().to_type(self.context);
+                    let result = magnitude.input.storage_type().to_type(self.context);
                     squared = self.append_operation_with_result(vector::reduction(
                         self.context,
                         result,
@@ -212,9 +212,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Max(max) => {
                 let lhs = self.get_variable(max.lhs);
                 let rhs = self.get_variable(max.rhs);
-                let value = if max.lhs.elem().is_signed_int() {
+                let value = if max.lhs.storage_type().is_signed_int() {
                     self.append_operation_with_result(arith::maxsi(lhs, rhs, self.location))
-                } else if max.lhs.elem().is_unsigned_int() {
+                } else if max.lhs.storage_type().is_unsigned_int() {
                     self.append_operation_with_result(arith::maxui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::maxnumf(lhs, rhs, self.location))
@@ -224,9 +224,9 @@ impl<'a> Visitor<'a> {
             Arithmetic::Min(min) => {
                 let lhs = self.get_variable(min.lhs);
                 let rhs = self.get_variable(min.rhs);
-                let value = if min.lhs.elem().is_signed_int() {
+                let value = if min.lhs.storage_type().is_signed_int() {
                     self.append_operation_with_result(arith::minsi(lhs, rhs, self.location))
-                } else if min.lhs.elem().is_unsigned_int() {
+                } else if min.lhs.storage_type().is_unsigned_int() {
                     self.append_operation_with_result(arith::minui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::minimumf(lhs, rhs, self.location))
@@ -235,9 +235,9 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Modulo(modulo) => {
                 let (lhs, rhs) = self.get_binary_op_variable(modulo.lhs, modulo.rhs);
-                let value = if modulo.lhs.elem().is_signed_int() {
+                let value = if modulo.lhs.storage_type().is_signed_int() {
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
-                } else if modulo.lhs.elem().is_unsigned_int() {
+                } else if modulo.lhs.storage_type().is_unsigned_int() {
                     self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
                 } else {
                     self.append_operation_with_result(arith::remf(lhs, rhs, self.location))
@@ -247,7 +247,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Mul(mul) => {
                 let (lhs, rhs) = self.get_binary_op_variable(mul.lhs, mul.rhs);
-                let operation = if mul.lhs.elem().is_int() {
+                let operation = if mul.lhs.storage_type().is_int() {
                     arith::muli(lhs, rhs, self.location)
                 } else {
                     arith::mulf(lhs, rhs, self.location)
@@ -257,7 +257,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::MulHi(mul_hi) => {
                 let (lhs, rhs) = self.get_binary_op_variable(mul_hi.lhs, mul_hi.rhs);
-                let operation = if mul_hi.lhs.elem().is_signed_int() {
+                let operation = if mul_hi.lhs.storage_type().is_signed_int() {
                     arith::mulsi_extended(lhs, rhs, self.location)
                 } else {
                     arith::mului_extended(lhs, rhs, self.location)
@@ -275,7 +275,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Normalize(normalize) => {
                 let value = self.get_variable(normalize.input);
-                let result = match normalize.input.item.is_vectorized() {
+                let result = match normalize.input.ty.is_vectorized() {
                     true => {
                         let squared = self.append_operation_with_result(arith::mulf(
                             value,
@@ -283,7 +283,7 @@ impl<'a> Visitor<'a> {
                             self.location,
                         ));
                         let kind = Attribute::parse(self.context, "#vector.kind<add>").unwrap();
-                        let result = normalize.input.elem().to_type(self.context);
+                        let result = normalize.input.storage_type().to_type(self.context);
                         let reduced = self.append_operation_with_result(vector::reduction(
                             self.context,
                             result,
@@ -296,7 +296,7 @@ impl<'a> Visitor<'a> {
                             reduced,
                             self.location,
                         ));
-                        let vector_type = normalize.input.item.to_type(self.context);
+                        let vector_type = normalize.input.ty.to_type(self.context);
                         let square_root = self.append_operation_with_result(vector::splat(
                             self.context,
                             vector_type,
@@ -310,7 +310,7 @@ impl<'a> Visitor<'a> {
                         ))
                     }
                     false => {
-                        let abs = self.get_absolute_val(normalize.input.item, value);
+                        let abs = self.get_absolute_val(normalize.input.ty, value);
                         self.append_operation_with_result(arith::divf(value, abs, self.location))
                     }
                 };
@@ -326,19 +326,37 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            // Powi intrinsic doesn't accept negative ints for some reason
+            Arithmetic::Powi(powi) => {
+                let target = powi.lhs.ty.to_type(self.context);
+                let (base, exp) = self.get_binary_op_variable(powi.lhs, powi.rhs);
+                let exp = self.get_cast_different_type_category(
+                    powi.rhs.storage_type(),
+                    powi.lhs.storage_type(),
+                    target,
+                    exp,
+                );
+                let result = self.append_operation_with_result(llvm_ods::intr_pow(
+                    self.context,
+                    base,
+                    exp,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
-                let one = self.create_float_constant_from_item(recip.input.item, 1.0);
+                let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
                 let recip =
                     self.append_operation_with_result(arith::divf(one, value, self.location));
                 self.insert_variable(out, recip);
             }
             Arithmetic::Remainder(remainder) => {
                 let (lhs, rhs) = self.get_binary_op_variable(remainder.lhs, remainder.rhs);
-                let value = if remainder.lhs.elem().is_signed_int() {
+                let value = if remainder.lhs.storage_type().is_signed_int() {
                     // TODO: check what is PyTorch behaviour with signed integer
                     self.append_operation_with_result(arith::remsi(lhs, rhs, self.location))
-                } else if remainder.lhs.elem().is_unsigned_int() {
+                } else if remainder.lhs.storage_type().is_unsigned_int() {
                     self.append_operation_with_result(arith::remui(lhs, rhs, self.location))
                 } else {
                     // To emulate PyTorch behaviour torch.remainder(a, b) == a - a.div(b, rounding_mode="floor") * b
@@ -388,7 +406,7 @@ impl<'a> Visitor<'a> {
             }
             Arithmetic::Sub(sub) => {
                 let (lhs, rhs) = self.get_binary_op_variable(sub.lhs, sub.rhs);
-                let operation = if sub.lhs.elem().is_int() {
+                let operation = if sub.lhs.storage_type().is_int() {
                     arith::subi(lhs, rhs, self.location)
                 } else {
                     arith::subf(lhs, rhs, self.location)
@@ -410,17 +428,17 @@ impl<'a> Visitor<'a> {
 
     pub fn get_neg_val(&self, variable: Variable) -> Value<'a, 'a> {
         let value = self.get_variable(variable);
-        if variable.elem().is_int() {
-            let zero = self.create_int_constant_from_item(variable.item, 0);
+        if variable.storage_type().is_int() {
+            let zero = self.create_int_constant_from_item(variable.ty, 0);
             self.append_operation_with_result(arith::subi(zero, value, self.location))
         } else {
             self.append_operation_with_result(arith::negf(value, self.location))
         }
     }
 
-    fn get_absolute_val(&self, item: Item, value: Value<'a, 'a>) -> Value<'a, 'a> {
+    fn get_absolute_val(&self, item: ir::Type, value: Value<'a, 'a>) -> Value<'a, 'a> {
         let result_type = item.to_type(self.context);
-        if item.elem.is_int() {
+        if item.is_int() {
             self.append_operation_with_result(llvm::intr_abs(
                 self.context,
                 value,

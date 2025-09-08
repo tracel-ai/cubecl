@@ -10,30 +10,33 @@ use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::StageToTileReader;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
+use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::{View, layout::Coordinates};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO>;
+    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
+    /// Coordinates used by the writer
+    type WriteCoords: Coordinates;
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
-        tensor: VirtualTensor<EO, ReadWrite>,
+        tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Writer<EO>;
 
-    /// Returns the position index of the current compute primitive within the stage.
-    fn position<S: StageConfig>(#[comptime] config: S) -> u32;
+    /// Returns the (row, col) of the current compute primitive within the stage.
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32);
 
     /// Returns the total number of compute primitives in the stage.
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
@@ -79,6 +82,7 @@ where
     type LhsTile = Sequence<TM::Lhs>;
     type RhsTile = RhsTile<TM::Rhs>;
     type Writer = SP::Writer<MP::EO>;
+    type WriteCoords = SP::WriteCoords;
 
     fn execute(
         lhs_reader: &RL,
@@ -87,6 +91,7 @@ where
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
+        partition_scheduler: &PartitionScheduler,
     ) {
         Self::execute_with_listener::<NoEvent>(
             lhs_reader,
@@ -96,6 +101,7 @@ where
             acc,
             config,
             NoEvent::new(),
+            partition_scheduler,
         )
     }
 
@@ -107,17 +113,9 @@ where
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
         listener: SEL,
+        partition_scheduler: &PartitionScheduler,
     ) {
-        let m_acc_count = config.tiling_scheme().tiles_in_stage_partition_m();
-        let n_acc_count = config.tiling_scheme().tiles_in_stage_partition_n();
-        let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
-        let partition_position = SP::position::<Self::Config>(config);
-        let start_m = m_acc_count * (partition_position / num_partitions_n);
-        let start_n = n_acc_count * (partition_position % num_partitions_n);
-
         PartitionMatmul::<MP, TM, RL, RR, S>::execute_with_listener::<SEL>(
-            start_m,
-            start_n,
             lhs_reader,
             rhs_reader,
             lhs_fragment,
@@ -125,6 +123,7 @@ where
             acc,
             config,
             listener,
+            partition_scheduler,
         );
     }
 
@@ -151,45 +150,59 @@ where
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
         out: &mut Self::Writer,
+        partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
     ) {
         let out_smem_line_size = stage_config.stage_line_size(StageIdent::Acc);
+
+        // The out shared memory is one tile wide per partition.
         let num_tile_lines =
             stage_config.tiling_scheme().elements_in_tile_mn() / out_smem_line_size;
         let out_smem_num_lines = num_tile_lines * comptime!(SP::num_primitives(stage_config));
 
         let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
-        let partition_position = SP::position::<Self::Config>(stage_config);
+        let (partition_row, partition_col) = SP::coordinates::<Self::Config>(stage_config);
+        let num_partitions_n = stage_config.tiling_scheme().stage_partitions_in_stage_n();
 
         let mut out_smem =
             SharedMemory::<MP::EO>::new_lined(out_smem_num_lines, out_smem_line_size);
-        let slice_start = num_tile_lines * partition_position;
+        let absolute_partition_position = partition_row * num_partitions_n + partition_col;
+        let slice_start = num_tile_lines * absolute_partition_position;
         let mut smem_slice = out_smem.slice_mut(slice_start, slice_start + num_tile_lines);
-
-        let num_partitions_n = stage_config.tiling_scheme().stage_partitions_in_stage_n();
-        let m_offset = m_iterations * (partition_position / num_partitions_n);
-        let n_offset = n_iterations * (partition_position % num_partitions_n);
 
         let mut m_iter = comptime![0u32];
 
+        // Iterate over each tile in the partition
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime![m_iterations] {
+            let m_load_iter = partition_scheduler.map_m(m_iter);
             let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime![n_iterations] {
-                let accumulator =
+                let n_load_iter = partition_scheduler.map_n(n_iter);
+
+                let tile_accumulator =
                     Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
-                TM::write_results(accumulator, &mut smem_slice, stage_config.tile_config());
+
+                // Write the results for one tile. To save shared memory space, it reuses the same spot for
+                // all tile in the partition
+                TM::write_results(
+                    tile_accumulator,
+                    &mut smem_slice,
+                    stage_config.tile_config(),
+                );
+
+                // Write the current tile result to global memory
                 Self::Writer::write::<G>(
                     out,
                     smem_slice.to_slice(),
-                    m_offset + m_iter,
-                    n_offset + n_iter,
+                    m_load_iter,
+                    n_load_iter,
                     global_config,
                 );
 
@@ -200,11 +213,22 @@ where
     }
 
     fn init_writer(
-        tensor: VirtualTensor<MP::EO, ReadWrite>,
+        tensor: View<Line<MP::EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
     ) -> Self::Writer {
         SP::init_writer(tensor, x_offset, y_offset, batch_offset)
+    }
+
+    fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {
+        let (partition_row, partition_col) = SP::coordinates::<Self::Config>(config);
+
+        PartitionScheduler::new(
+            partition_row,
+            partition_col,
+            config.tiling_scheme().partition_size,
+            config.partition_schedule_scheme(),
+        )
     }
 }

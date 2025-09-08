@@ -3,7 +3,7 @@ use cubecl_matmul::components::{
     EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     stage::{FullReaderFamily, StageMatmulFamily},
 };
-use cubecl_std::FastDivmodArgs;
+use cubecl_std::{FastDivmodArgs, tensor::layout::Coords3d};
 
 use crate::{
     components::{
@@ -17,8 +17,13 @@ use crate::{
     kernels::layered::selector::RuntimeArgsLaunch,
 };
 
-impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReaderFamily>>
-    ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
+impl<
+    SMM: StageMatmulFamily<
+            LhsReader = FullReaderFamily,
+            RhsReader = FullReaderFamily,
+            WriteCoords = Coords3d,
+        >,
+> ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
@@ -29,12 +34,15 @@ impl<SMM: StageMatmulFamily<LhsReader = FullReaderFamily, RhsReader = FullReader
         problem: &ConvolutionProblem,
         config: GlobalConfig<Self>,
     ) {
+        let shape_channels = FastDivmodArgs::new(client, problem.channels as u32);
+
         let runtime_args = RuntimeArgsLaunch::new(
             ScalarArg::new(problem.m as u32),
             ScalarArg::new(problem.n as u32),
             ScalarArg::new(problem.k as u32),
-            FastDivmodArgs::new(client, problem.channels as u32),
+            shape_channels,
             shape_divmod(client, &problem.out_shape),
+            shape_channels,
         );
 
         unsafe {

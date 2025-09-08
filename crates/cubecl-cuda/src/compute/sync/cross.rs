@@ -29,12 +29,15 @@ impl CrossFence {
                 cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
             cudarc::driver::result::event::record(event, producer_stream).unwrap();
 
-            Self { consumer_stream, event }
+            Self {
+                consumer_stream,
+                event,
+            }
         }
     }
 
-    /// Wait for the [CrossFence] to be reached on the [consumer stream](CUstream_st), 
-    /// ensuring that all previous tasks enqueued to the [producer stream](CUstream_st) 
+    /// Wait for the [CrossFence] to be reached on the [consumer stream](CUstream_st),
+    /// ensuring that all previous tasks enqueued to the [producer stream](CUstream_st)
     /// are completed.
     ///
     /// # Notes

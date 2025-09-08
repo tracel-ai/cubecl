@@ -7,7 +7,8 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CUBECL_DEBUG");
 
     let debug_feature_enabled = env::var("CARGO_FEATURE_DEBUG_SYMBOLS").is_ok();
-    let debug_override_enabled = env::var("CUBECL_DEBUG").is_ok();
+    let debug_override_env = env::var("CUBECL_DEBUG").unwrap_or_default();
+    let debug_override_enabled = matches!(debug_override_env.to_lowercase().as_str(), "1" | "true");
     let debug_enabled = debug_feature_enabled || debug_override_enabled;
 
     if debug_enabled {

@@ -4,7 +4,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    ir::{Elem, IntKind, UIntKind},
+    ir::{ElemType, IntKind, UIntKind},
 };
 
 use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, into_contiguous, matrix_batch_layout};
@@ -164,12 +164,12 @@ pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
         false => 1,
     };
 
-    let launch = match EI::as_elem_native_unchecked() {
-        Elem::Int(IntKind::I8) => matmul_kernel::launch_unchecked::<EI, i16, EO, R>,
-        Elem::Int(IntKind::I16) | Elem::UInt(UIntKind::U16) => {
+    let launch = match EI::as_type_native_unchecked().elem_type() {
+        ElemType::Int(IntKind::I8) => matmul_kernel::launch_unchecked::<EI, i16, EO, R>,
+        ElemType::Int(IntKind::I16) | ElemType::UInt(UIntKind::U16) => {
             matmul_kernel::launch_unchecked::<EI, i32, EO, R>
         }
-        Elem::UInt(UIntKind::U8) => matmul_kernel::launch_unchecked::<EI, u16, EO, R>,
+        ElemType::UInt(UIntKind::U8) => matmul_kernel::launch_unchecked::<EI, u16, EO, R>,
         _ => matmul_kernel::launch_unchecked::<EI, EI, EO, R>,
     };
 

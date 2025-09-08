@@ -5,10 +5,11 @@ use crate::{
     Dialect,
     shared::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
-        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes, DialectWmmaCompiler,
-        Elem, Flags, FmtLeft, Fragment, FragmentIdent, FragmentLayout, Instruction, Item,
-        ManualMma, SharedMemory, SupportedMmaCombinations, SupportedWmmaCombinations, Variable,
-        WarpInstruction, WmmaInstruction, wmma_api_base,
+        DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
+        DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WarpInstruction,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -30,6 +31,97 @@ pub struct MslDialect {}
 
 impl Dialect for MslDialect {
     type Architecture = MetalArchitecture;
+}
+
+impl DialectWarpReduceCompiler<Self> for MslDialect {
+    fn warp_reduce_sum(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
+    }
+    fn warp_reduce_prod(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_product({input});\n"))
+    }
+    fn warp_reduce_max(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_max({input});\n"))
+    }
+    fn warp_reduce_min(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_min({input});\n"))
+    }
+    fn warp_reduce_all(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_and({input});\n"))
+    }
+    fn warp_reduce_any(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!("{out} = simd_or({input});\n"))
+    }
+    fn warp_reduce_sum_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_inclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_inclusive_product({input});\n"
+        ))
+    }
+    fn warp_reduce_sum_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_sum({input});\n"
+        ))
+    }
+    fn warp_reduce_prod_exclusive(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        f.write_fmt(format_args!(
+            "{out} = simd_prefix_exclusive_product({input});\n"
+        ))
+    }
 }
 
 // Includes
@@ -665,16 +757,12 @@ impl DialectInstructions<Self> for MslDialect {
         format_string: &str,
         args: &[Variable<Self>],
     ) -> std::fmt::Result {
-        let format_string = format_string
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r");
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
             true => "".to_string(),
             false => format!(", {}", args.join(",")),
         };
-        writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
+        writeln!(f, "os_log_default.log({format_string:?}{args});")
     }
 
     // logs
@@ -780,8 +868,13 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "min")
     }
 
-    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "pow")
+    fn compile_instruction_powf(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "pow({lhs}, {elem}({rhs}))")
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {
@@ -1059,27 +1152,27 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
         vec![
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
         ]

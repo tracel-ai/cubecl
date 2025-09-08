@@ -1,6 +1,6 @@
 use cubecl_core::{
     self as cubecl,
-    ir::{Elem, Operator},
+    ir::{ElemType, Operator},
 };
 use cubecl_core::{comptime, ir as core, prelude::*};
 use cubecl_core::{cube, ir::Bitwise};
@@ -58,7 +58,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 });
             }
             Bitwise::LeadingZeros(op) => {
-                let width = op.input.item.elem.size() as u32 * 8;
+                let width = op.input.ty.storage_type().size() as u32 * 8;
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     // Indices are zero based, so subtract 1
                     let width = out_ty.const_u32(b, width - 1);
@@ -94,13 +94,19 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 /// Rust maps this to logical and/or internally, but the macro only sees the bitwise op.
 fn bool_op(bitwise: &Bitwise) -> Option<Operator> {
     match bitwise {
-        Bitwise::BitwiseAnd(op) if op.lhs.elem() == Elem::Bool || op.rhs.elem() == Elem::Bool => {
+        Bitwise::BitwiseAnd(op)
+            if op.lhs.elem_type() == ElemType::Bool || op.rhs.elem_type() == ElemType::Bool =>
+        {
             Some(Operator::And(op.clone()))
         }
-        Bitwise::BitwiseOr(op) if op.lhs.elem() == Elem::Bool || op.rhs.elem() == Elem::Bool => {
+        Bitwise::BitwiseOr(op)
+            if op.lhs.elem_type() == ElemType::Bool || op.rhs.elem_type() == ElemType::Bool =>
+        {
             Some(Operator::Or(op.clone()))
         }
-        Bitwise::BitwiseNot(op) if op.input.elem() == Elem::Bool => Some(Operator::Not(op.clone())),
+        Bitwise::BitwiseNot(op) if op.input.elem_type() == ElemType::Bool => {
+            Some(Operator::Not(op.clone()))
+        }
         _ => None,
     }
 }

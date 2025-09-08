@@ -1,4 +1,10 @@
-use crate::{FastDivmod, FastDivmodArgs};
+use crate::{
+    FastDivmod,
+    tensor::layout::{
+        VirtualLayoutOperations, VirtualLayoutOperationsExpand,
+        linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
+    },
+};
 
 use super::TensorHandle;
 use cubecl::prelude::*;
@@ -56,15 +62,15 @@ pub fn index_offset_contiguous<N: CubePrimitive>(
 
 /// Returns the offset of the tensor corresponding to a contiguous layout.
 #[cube]
-pub fn index_offset_contiguous_fastdivmod<N: CubePrimitive>(
-    tensor: &Tensor<Line<N>>,
-    offset_layout: u32,
+pub fn index_offset_contiguous_fastdivmod(
+    offset: u32,
     shape: &Sequence<FastDivmod>,
     stride: &Sequence<u32>,
+    #[comptime] line_size: u32,
 ) -> u32 {
     let rank = comptime![shape.len()];
 
-    let offset_ref = offset_layout * tensor.line_size();
+    let offset_ref = offset * line_size;
     let mut offset = 0;
     let mut remainder = offset_ref;
 
@@ -80,52 +86,14 @@ pub fn index_offset_contiguous_fastdivmod<N: CubePrimitive>(
         comptime![dim = dim.saturating_sub(1);]
     }
 
-    offset / tensor.line_size()
-}
-
-/// Layout for tensor that may or may not be strided on the last dimension. Efficiently translates
-/// the absolute index to strided index.
-#[derive(CubeType, CubeLaunch)]
-pub enum StridedLayout {
-    Pitched(FastDivmod),
-    None,
-}
-
-impl<R: Runtime> StridedLayoutArgs<'_, R> {
-    /// Last dimension is contiguous in second last dimension
-    pub fn none() -> Self {
-        Self::None
-    }
-
-    /// Last dimension is strided with the last dimension having the shape `shape`
-    pub fn strided(client: &ComputeClient<R::Server, R::Channel>, shape: u32) -> Self {
-        Self::Pitched(FastDivmodArgs::new(client, shape))
-    }
-}
-
-#[cube]
-impl StridedLayout {
-    /// Translates absolute index to strided index if applicable
-    pub fn index<T: CubePrimitive>(&self, tensor: &Tensor<Line<T>>, index: u32) -> u32 {
-        match self {
-            StridedLayout::Pitched(divmod) => {
-                let offset_abs = index * tensor.line_size();
-                let (y, x) = divmod.div_mod(offset_abs);
-                let offset = y * tensor.stride(tensor.rank() - 2) + x;
-                offset / tensor.line_size()
-            }
-            StridedLayout::None => index,
-        }
-    }
+    offset / line_size
 }
 
 #[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
-    input: &Tensor<Line<N>>,
+    input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    out_layout: StridedLayout,
-    shape: Sequence<FastDivmod>,
-    stride: Sequence<u32>,
+    out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
 ) {
     let offset_output = ABSOLUTE_POS * elems_per_thread;
@@ -135,12 +103,10 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
     #[unroll]
     for i in 0..elems_per_thread {
-        let offset_input =
-            index_offset_contiguous_fastdivmod::<N>(input, offset_output + i, &shape, &stride);
-        registers[i] = input[offset_input];
+        registers[i] = input[offset_output + i];
     }
 
-    let offset_output = out_layout.index(output, offset_output);
+    let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -150,11 +116,9 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
 #[cube(launch)]
 fn into_contiguous_kernel_pack<N: CubePrimitive>(
-    input: &Tensor<Line<N>>,
+    input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
-    out_layout: StridedLayout,
-    shape: Sequence<FastDivmod>,
-    stride: Sequence<u32>,
+    out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
 ) {
     let line_size = output.line_size();
@@ -172,14 +136,12 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
         #[unroll]
         for k in 0..line_size {
             let offset_input = offset_input + offset + k;
-            let offset_input =
-                index_offset_contiguous_fastdivmod::<N>(input, offset_input, &shape, &stride);
             reg[k] = input[offset_input][0];
         }
         registers[i] = reg;
     }
 
-    let offset_output = out_layout.index(output, offset_output);
+    let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
     for i in 0..lines_per_thread {
@@ -260,11 +222,6 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
         num_elems_per_unit /= 2;
     }
 
-    let out_layout = match is_padded {
-        true => StridedLayoutArgs::strided(client, last_dim as u32),
-        false => StridedLayoutArgs::none(),
-    };
-
     let out_vec = if vectorization_factor > 1 {
         vectorization_factor
     } else {
@@ -275,25 +232,12 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
             .unwrap_or(&1)
     };
 
+    let input = linear_view(client, input, &vectorization_factor);
+    let out_layout = LinearLayoutArgs::from_handle(client, output, &out_vec);
+
     let cube_dim = CubeDim::default();
     let cube_count =
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
-
-    let shape = SequenceArg {
-        values: input
-            .shape
-            .iter()
-            .map(|dim| FastDivmodArgs::new(client, *dim as u32))
-            .collect(),
-    };
-
-    let stride = SequenceArg {
-        values: input
-            .strides
-            .iter()
-            .map(|s| ScalarArg::new(*s as u32))
-            .collect(),
-    };
 
     let launch = if vectorization_factor != out_vec && out_vec > 1 {
         into_contiguous_kernel_pack::launch::<E, R>
@@ -305,11 +249,9 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
         client,
         cube_count,
         cube_dim,
-        input.as_tensor_arg(vectorization_factor),
+        input,
         output.as_tensor_arg(out_vec),
         out_layout,
-        shape,
-        stride,
         elems_per_unit,
     );
 }
@@ -326,6 +268,34 @@ pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
         }
     }
 
+    true
+}
+
+/// Checks if a tensor is only strided on the last dimension, and could be safely reinterpreted as
+/// a 2D tensor with unit stride on the last dimension. This will always hold for non-permuted
+/// tensors allocated on a runtime.
+pub fn is_contiguous_pitched(shape: &[usize], strides: &[usize]) -> bool {
+    let rank = shape.len();
+    if strides[rank - 1] != 1 {
+        return false;
+    }
+    if rank <= 1 {
+        return true;
+    }
+
+    let mut sorted = strides.to_vec();
+    sorted.sort();
+    sorted.reverse();
+
+    if sorted != strides {
+        return false;
+    }
+
+    for i in 0..rank - 2 {
+        if strides[i] != shape[i + 1] * strides[i + 1] {
+            return false;
+        }
+    }
     true
 }
 

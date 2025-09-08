@@ -17,7 +17,7 @@ impl<'a> Visitor<'a> {
         let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
         let (lhs, rhs) = self.visit_correct_index(lhs, rhs);
 
-        let value = if bin_op.lhs.item.elem.is_float() {
+        let value = if bin_op.lhs.ty.is_float() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpfPredicate::Olt,
                 Comparison::LowerEqual(_) => CmpfPredicate::Ole,
@@ -33,7 +33,7 @@ impl<'a> Visitor<'a> {
                 rhs,
                 self.location,
             ))
-        } else if bin_op.lhs.item.elem.is_signed_int() {
+        } else if bin_op.lhs.ty.is_signed_int() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpiPredicate::Slt,
                 Comparison::LowerEqual(_) => CmpiPredicate::Sle,
@@ -49,7 +49,7 @@ impl<'a> Visitor<'a> {
                 rhs,
                 self.location,
             ))
-        } else if bin_op.lhs.item.elem.is_unsigned_int() {
+        } else if bin_op.lhs.ty.is_unsigned_int() {
             let predicate = match comparison {
                 Comparison::Lower(_) => CmpiPredicate::Ult,
                 Comparison::LowerEqual(_) => CmpiPredicate::Ule,
@@ -68,7 +68,7 @@ impl<'a> Visitor<'a> {
         } else {
             panic!("Impossible comparison");
         };
-        let value = self.cast_to_u8(value, out.item);
+        let value = self.cast_to_u8(value, out.ty);
         self.insert_variable(out, value);
     }
 }

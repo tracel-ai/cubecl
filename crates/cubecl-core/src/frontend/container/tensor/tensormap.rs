@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::Elem;
+use cubecl_ir::StorageType;
 use cubecl_runtime::server::TensorMapMeta;
 use paste::paste;
 use serde::{Deserialize, Serialize};
@@ -20,7 +20,7 @@ pub struct TensorMapArg<'a, R: Runtime> {
 }
 
 impl<'a, R: Runtime> TensorMapArg<'a, R> {
-    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, elem: Elem) -> Self {
+    pub fn new(format: TensorMapFormat, tensor: TensorArg<'a, R>, ty: StorageType) -> Self {
         let TensorArg::Handle { handle, .. } = &tensor else {
             panic!("Can't use alias for TensorMap")
         };
@@ -36,7 +36,7 @@ impl<'a, R: Runtime> TensorMapArg<'a, R> {
                 swizzle: TensorMapSwizzle::None,
                 prefetch: TensorMapPrefetch::None,
                 oob_fill: OobFill::Zero,
-                elem,
+                storage_ty: ty,
             },
             tensor,
         }
@@ -260,7 +260,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{ExpandElement, Item, Metadata};
+    use cubecl_ir::{ExpandElement, Metadata, Type};
 
     use super::*;
     use crate::{
@@ -383,7 +383,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Item::new(u32::as_elem(scope)));
+            let out = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Stride {
                     dim: *dim,
@@ -401,7 +401,7 @@ mod metadata {
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             let dim: ExpandElement = dim.into();
-            let out = scope.create_local(Item::new(u32::as_elem(scope)));
+            let out = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(
                 Metadata::Shape {
                     dim: *dim,
@@ -424,7 +424,7 @@ mod metadata {
             let shape = self.clone().__expand_shape_method(scope, dim.clone());
 
             // Compute `num_strides = index / stride`.
-            let num_strides = scope.create_local(Item::new(u32::as_elem(scope)));
+            let num_strides = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Div(BinaryOperator {
                     lhs: *index,
@@ -434,7 +434,7 @@ mod metadata {
             ));
 
             // Compute `coordinate = num_strides % shape `.
-            let coordinate = scope.create_local(Item::new(u32::as_elem(scope)));
+            let coordinate = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(
                 Arithmetic::Modulo(BinaryOperator {
                     lhs: *num_strides,
@@ -460,7 +460,7 @@ mod metadata {
 
         // Expand method of [rank](Tensor::rank).
         pub fn __expand_rank_method(self, scope: &mut Scope) -> ExpandElementTyped<u32> {
-            let out = scope.create_local(Item::new(u32::as_elem(scope)));
+            let out = scope.create_local(Type::new(u32::as_type(scope)));
             scope.register(Instruction::new(Metadata::Rank { var: *self.expand }, *out));
             out.into()
         }
@@ -470,7 +470,7 @@ mod metadata {
             self,
             scope: &mut Scope,
         ) -> ExpandElementTyped<TensorMap<E>> {
-            if T::as_elem(scope) != E::as_elem(scope) && !is_tf32::<E, T>(scope) {
+            if T::as_type(scope) != E::as_type(scope) && !is_tf32::<E, T>(scope) {
                 panic!("Try cast unchecked should only be used to satisfy the rust type system.")
             }
 

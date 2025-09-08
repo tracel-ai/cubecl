@@ -53,7 +53,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
-        out: R::line_size_elem(&P::EG::as_elem_native_unchecked()).collect(),
+        out: R::line_size_type(&P::EG::as_type_native_unchecked()).collect(),
     }
     .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
@@ -78,6 +78,14 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             }
         }
     };
+
+    let props = &client.properties().hardware;
+    if !props.max_cube_dim.can_contain(config.cube_dim())
+        || config.cube_dim().num_elems() > props.max_units_per_cube
+    {
+        println!("Skipping test, too many resources requested");
+        return;
+    }
 
     let elem_size = size_of::<P::EG>();
     let lhs_handle = unsafe {
@@ -222,7 +230,9 @@ pub(crate) fn shape(problem: &ConvolutionProblem, ident: MatmulIdent) -> Vec<usi
             problem.channels,
         ],
         MatmulIdent::Out => vec![
-            problem.batches * problem.out_shape.iter().product::<usize>(),
+            problem.batches,
+            problem.out_shape[0],
+            problem.out_shape[1],
             problem.n,
         ],
     }

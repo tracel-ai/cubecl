@@ -10,8 +10,10 @@ use crate::components::{InputPrecision, MatmulIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::{View, layout::Coords3d},
+};
 
 #[cube]
 /// A strategy for fully and asynchronously loading a stage.
@@ -39,7 +41,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncFullLoader<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
@@ -56,7 +58,7 @@ pub struct AsyncFullLoader<
 #[cube]
 impl<
     IP: InputPrecision,
-    CM: CopyMechanism<IP::Stage>,
+    CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
@@ -64,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        tensor: VirtualTensor<IP::Global>,
+        view: View<Line<IP::Global>, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -76,7 +78,8 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, x_offset, y_offset, batch_offset);
+        let (_, shape_x, shape_y) = view.shape();
+        let tensor_reader = TensorReader::new(view, (batch_offset, x_offset, y_offset));
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
@@ -88,8 +91,8 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
-                    if tensor_reader.x_offset.read()
-                        > tensor_reader.shape_x - config.tiling_scheme().elements_in_stage_m()
+                    if tensor_reader.row_offset.read()
+                        > shape_x - config.tiling_scheme().elements_in_stage_m()
                     {
                         stage_memory.clear_all::<G>(ident, config);
                     }
@@ -99,8 +102,8 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
-                    if tensor_reader.y_offset.read()
-                        > tensor_reader.shape_y - config.tiling_scheme().elements_in_stage_n()
+                    if tensor_reader.col_offset.read()
+                        > shape_y - config.tiling_scheme().elements_in_stage_n()
                     {
                         stage_memory.clear_all::<G>(ident, config);
                     }

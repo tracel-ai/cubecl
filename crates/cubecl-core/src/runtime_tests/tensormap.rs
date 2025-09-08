@@ -13,7 +13,7 @@ use cubecl_runtime::{
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::<F>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     if UNIT_POS == 0 {
@@ -59,7 +59,7 @@ fn tensormap_im2col_load<F: Float>(
     let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
-    let barrier = Barrier::<F>::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
     if UNIT_POS == 0 {
@@ -134,7 +134,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 32],
             },
             input,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
     );
@@ -180,7 +180,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
     );
 
@@ -256,7 +256,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
                 pixels_per_column: tile_m as u32,
             },
             input,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
         tile_m as u32,
@@ -324,14 +324,14 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 16],
             },
             output_1,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
             TensorMapFormat::Tiled {
                 tile_size: vec![16, 32],
             },
             input_2,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         output_2,
     );

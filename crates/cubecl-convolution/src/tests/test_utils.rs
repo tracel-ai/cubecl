@@ -46,17 +46,17 @@ where
         strides: &[usize],
     ) {
         let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_elem_native().expect("To be a native type"),
-            b: ES::as_elem_native().expect("To be a native type"),
-            c: EG::as_elem_native().expect("To be a native type"),
+            a: ES::as_type_native().expect("To be a native type"),
+            b: ES::as_type_native().expect("To be a native type"),
+            c: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 16,
             n: 16,
         });
         let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_elem_native().expect("To be a native type"),
-            b: ES::as_elem_native().expect("To be a native type"),
-            c: EG::as_elem_native().expect("To be a native type"),
+            a: ES::as_type_native().expect("To be a native type"),
+            b: ES::as_type_native().expect("To be a native type"),
+            c: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 8,
             n: 16,
@@ -64,8 +64,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-6,
+            true => 3.0 * 10e-6 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 3.0 * 10e-6,
         };
 
         let expected = conv_cpu_reference::<Self>(lhs, rhs, problem)

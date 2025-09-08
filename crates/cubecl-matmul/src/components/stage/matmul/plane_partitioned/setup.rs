@@ -21,6 +21,7 @@ use crate::components::tile::TileMatmulFamily;
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::tensor::layout::Coords3d;
 
 /// Plane Matmul family for any precision
 pub struct PlaneMatmulFamily<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
@@ -43,6 +44,7 @@ impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFami
         RRF::Reader<RhsS<MP>, TR>,
     >;
     type Config = PlanePartitionedStageConfig<TM::Config>;
+    type WriteCoords = Coords3d;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

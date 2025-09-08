@@ -6,9 +6,11 @@ use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_siz
 use crate::{
     qparams::QParams,
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
-    utils::strided_layout,
 };
-use cubecl_std::tensor::{StridedLayout, index_offset_contiguous};
+use cubecl_std::tensor::{
+    View,
+    layout::linear::{LinearView, linear_view},
+};
 use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
@@ -23,13 +25,13 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
-    values: &Tensor<Line<QI>>,
-    scales: &Tensor<FS>,
+    values: &View<Line<QI>, u32>,
+    scales: &View<Line<FS>, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
-    dequantize_packed_value_at::<F, FS, QI>(position, values[position], scales.to_slice(), scheme)
+    dequantize_symmetric_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
 }
 
 /// Dequantize a single value using the scale at the specified position.
@@ -37,14 +39,14 @@ pub fn dequantize_packed_values<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
-    scales: Slice<FS>,
+    scales: &View<Line<FS>, u32>,
     #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let qparams = QParams::new(scheme);
-    dequantize_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
+    dequantize_symmetric_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
 }
 
 /// Dequantize a single packed value using the scale provided.
@@ -52,9 +54,9 @@ pub fn dequantize_packed_value_at<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
+pub fn dequantize_symmetric_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scales: Slice<FS>,
+    scales: &View<Line<FS>, u32>,
     qparams: QParams,
     position: u32,
     #[comptime] scheme: QuantScheme,
@@ -66,7 +68,7 @@ pub fn dequantize_packed_value<F: Float, FS: Float, QS: Int>(
     #[unroll]
     for i in 0..line_size_values {
         let floats = unpack_q::<F, QS>(values[i], scheme.value, scheme.store);
-        let scale = qparams.scale(&scales, (position * line_size_values) + i);
+        let scale = qparams.scale(scales, (position * line_size_values) + i);
         let values = dequantize_symmetric::<F, FS>(floats, scale);
         tmp[i] = values;
     }
@@ -115,12 +117,12 @@ fn unpack_q<F: Float, QS: Int>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
-    input: &Tensor<Line<u32>>,
-    scales: &Tensor<FS>,
-    output: &mut Tensor<Line<F>>,
+    input: &LinearView<Line<u32>>,
+    scales: &LinearView<Line<FS>>,
+    output: &mut LinearView<Line<F>, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
-    if ABSOLUTE_POS >= input.len() {
+    if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
@@ -134,14 +136,15 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
     let values = input[ABSOLUTE_POS];
 
-    let out = dequantize_packed_value::<F, FS, u32>(
+    let out = dequantize_symmetric_packed_value::<F, FS, u32>(
         values,
-        scales.to_slice(),
+        scales,
         qparams,
         ABSOLUTE_POS,
         scheme,
     );
 
+    #[unroll]
     for i in 0..line_size_in {
         output[ABSOLUTE_POS * line_size_in + i] = out[i];
     }
@@ -149,25 +152,21 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &Tensor<Line<i8>>,
-    scale: &Tensor<FS>,
-    output: &mut Tensor<Line<F>>,
-    out_layout: StridedLayout,
+    input: &LinearView<Line<i8>>,
+    scale: &LinearView<Line<FS>>,
+    output: &mut LinearView<Line<F>, ReadWrite>,
     #[comptime] scheme: QuantScheme,
-    #[comptime] rank: Option<u32>,
 ) {
-    if ABSOLUTE_POS >= input.len() {
+    if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
-    let in_pos = index_offset_contiguous(input, ABSOLUTE_POS, rank);
-    let out_pos = out_layout.index(output, ABSOLUTE_POS);
-
     let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(&scale.to_slice(), ABSOLUTE_POS * input.line_size());
+    let scale = qparams.scale(scale, ABSOLUTE_POS * input.line_size());
 
-    output[out_pos] = dequantize_symmetric::<F, FS>(Line::cast_from(input[in_pos]), scale);
+    output[ABSOLUTE_POS] =
+        dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
 }
 
 #[allow(clippy::result_large_err)]
@@ -181,7 +180,6 @@ pub fn launch_ref<R: Runtime, F: Float>(
 ) {
     match scheme {
         QuantScheme {
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
             ..
         } => match scheme.param {
@@ -196,12 +194,15 @@ pub fn launch_ref<R: Runtime, F: Float>(
             }
         },
         QuantScheme {
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
             if !i8::is_supported(client) {
-                panic!("QInt8 is not supported for native quantization");
+                panic!(
+                    "{:?} is not supported for native quantization",
+                    scheme.value
+                );
             }
 
             match scheme.param {
@@ -216,6 +217,13 @@ pub fn launch_ref<R: Runtime, F: Float>(
                 }
             }
         }
+        QuantScheme {
+            store: QuantStore::Native,
+            value,
+            ..
+        } => {
+            panic!("{value:?} is not supported for native quantization");
+        }
     }
 }
 
@@ -229,7 +237,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     let num_elems_input: usize = input.shape.iter().product();
 
     let mut line_size_in = tensor_line_size_parallel(
-        R::line_size_elem(&F::as_elem_native_unchecked()),
+        R::line_size_type(&F::as_type_native_unchecked()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -249,9 +257,8 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     match scheme {
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
-            mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
             store: QuantStore::U32,
+            mode: QuantMode::Symmetric,
             ..
         } => {
             unsafe {
@@ -259,17 +266,14 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input.as_tensor_arg(line_size_in),
-                    scale.as_tensor_arg(1),
-                    output.as_tensor_arg(line_size_out),
+                    linear_view(client, input, &line_size_in),
+                    linear_view(client, scale, &1),
+                    linear_view(client, output, &line_size_out),
                     *scheme,
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::Native,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }
 
@@ -282,12 +286,11 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
 ) {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::line_size_elem(&F::as_elem_native_unchecked()),
+        R::line_size_type(&F::as_type_native_unchecked()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
     );
-    let out_layout = strided_layout(client, output);
     let cube_dim = CubeDim::default();
     let cube_count = calculate_cube_count_elemwise(num_elems / line_size as usize, cube_dim);
 
@@ -295,7 +298,7 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::QInt8,
+            value: QuantValue::Q8F | QuantValue::Q8S,
             store: QuantStore::Native,
             ..
         } => {
@@ -304,18 +307,13 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                     client,
                     cube_count,
                     cube_dim,
-                    input.as_tensor_arg(line_size),
-                    scale.as_tensor_arg(1),
-                    output.as_tensor_arg(line_size),
-                    out_layout,
+                    linear_view(client, input, &line_size),
+                    linear_view(client, scale, &1),
+                    linear_view(client, output, &line_size),
                     *scheme,
-                    Some(input.shape.len() as u32),
                 )
             };
         }
-        QuantScheme {
-            store: QuantStore::U32,
-            ..
-        } => panic!("Invalid quantization storage type for scheme {scheme:?}"),
+        QuantScheme { .. } => panic!("Unsupported quantization scheme {scheme:?}"),
     }
 }

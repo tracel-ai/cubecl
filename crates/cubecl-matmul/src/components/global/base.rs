@@ -11,7 +11,7 @@ use crate::components::{
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::{fmt::Debug, hash::Hash};
 
 use super::{GlobalWriter, load::LoaderMode};
@@ -114,6 +114,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::Writer;
 }
 

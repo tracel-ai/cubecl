@@ -1,10 +1,10 @@
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_runtime::data_service::ComputeDataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
-use cubecl_runtime::data_service::ComputeDataTransferId;
 use cubecl_runtime::{id::KernelId, server::IoError};
 use cubecl_runtime::{
     kernel::KernelMetadata,
