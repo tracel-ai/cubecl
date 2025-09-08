@@ -10,10 +10,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{
-    layout::Coords3d,
-    r#virtual::{ReadWrite, VirtualTensor},
-};
+use cubecl_std::tensor::{layout::Coords3d, r#virtual::VirtualTensor};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;

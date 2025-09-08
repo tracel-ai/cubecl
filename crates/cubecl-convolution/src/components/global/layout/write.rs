@@ -5,7 +5,7 @@ use cubecl_std::{
     FastDivmod,
     tensor::{
         layout::{Coords3d, Layout},
-        r#virtual::{ReadWrite, VirtualTensor},
+        r#virtual::VirtualTensor,
     },
 };
 

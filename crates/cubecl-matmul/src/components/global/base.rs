@@ -11,7 +11,7 @@ use crate::components::{
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::{fmt::Debug, hash::Hash};
 
 use super::{GlobalWriter, load::LoaderMode};

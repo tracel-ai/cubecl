@@ -494,16 +494,12 @@ pub trait DialectInstructions<D: Dialect> {
         format_string: &str,
         args: &[Variable<D>],
     ) -> std::fmt::Result {
-        let format_string = format_string
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r");
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
             true => "".to_string(),
             false => format!(", {}", args.join(",")),
         };
-        writeln!(f, "printf(\"{format_string}\"{args});")
+        writeln!(f, "printf({format_string:?}{args});")
     }
 
     // logs
