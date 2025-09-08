@@ -7,14 +7,13 @@ use crate::tensor::{
     ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
     VirtualViewMut,
     layout::{Coordinates, VirtualLayout, VirtualLayoutExpand},
-    r#virtual::{Read, ReadWrite},
 };
 
 /// A conceptual view of an underlying linear storage.
 /// Allows abstract indexing in multiple dimensions, without having to know the data layout or
 /// location.
 #[derive(Clone)]
-pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     _layout: PhantomData<C>,
     _ty: PhantomData<(E, IO)>,
 }
@@ -47,7 +46,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewType<E, C> {
 
 /// Expand type of [TensorView]
 #[derive(Clone)]
-pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     pub(super) inner: ViewType<E, C>,
     pub(super) _io: PhantomData<IO>,
 }
@@ -64,7 +63,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, I
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for ViewExpand<E, C, IO> {}
 
-impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, Read> {
+impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
     #[allow(unused_variables)]
@@ -85,14 +84,14 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, Read> {
         scope: &mut Scope,
         view: V::ExpandType,
         layout: VirtualLayoutExpand<C, S>,
-    ) -> ViewExpand<E, C, Read>
+    ) -> ViewExpand<E, C, ReadOnly>
     where
         V: ViewOperations<E, S> + CubeType + 'static,
         V::ExpandType: ViewOperationsExpand<E, S> + 'static,
         S: Coordinates + 'static,
     {
         let virt = VirtualView::<E, C, S, V>::__expand_new(scope, view, layout);
-        ViewExpand::<E, C, Read> {
+        ViewExpand::<E, C, ReadOnly> {
             inner: ViewType::Read(Arc::new(virt)),
             _io: PhantomData,
         }
@@ -100,7 +99,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, Read> {
 }
 
 impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {
-    pub fn view<T: Coordinates>(&self, _layout: VirtualLayout<T, C>) -> View<E, T, Read> {
+    pub fn view<T: Coordinates>(&self, _layout: VirtualLayout<T, C>) -> View<E, T, ReadOnly> {
         unexpanded!()
     }
 
@@ -108,7 +107,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C,
         scope: &mut Scope,
         this: ViewExpand<E, C, IO>,
         layout: VirtualLayoutExpand<T, C>,
-    ) -> ViewExpand<E, T, Read> {
+    ) -> ViewExpand<E, T, ReadOnly> {
         this.__expand_view_method(scope, layout)
     }
 }
@@ -118,7 +117,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<T, C>,
-    ) -> ViewExpand<E, T, Read> {
+    ) -> ViewExpand<E, T, ReadOnly> {
         View::__expand_new::<View<E, C, IO>, C>(scope, self, layout)
     }
 }

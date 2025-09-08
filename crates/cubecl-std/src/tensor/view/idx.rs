@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 
-use crate::tensor::{View, ViewExpand, layout::Coordinates, r#virtual::ReadWrite};
+use crate::tensor::{View, ViewExpand, layout::Coordinates};
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeIndex for View<E, C, IO> {
     type Output = E;

@@ -435,7 +435,7 @@ mod slice {
 }
 
 mod virtual_tensor {
-    use crate::tensor::r#virtual::{ReadWrite, VirtualTensor, VirtualTensorExpand};
+    use crate::tensor::r#virtual::{VirtualTensor, VirtualTensorExpand};
 
     use super::*;
 
@@ -756,7 +756,7 @@ where
 }
 
 mod view {
-    use crate::tensor::{View, ViewExpand, r#virtual::ReadWrite};
+    use crate::tensor::{View, ViewExpand};
 
     use super::*;
 

@@ -12,12 +12,11 @@ use crate::tensor::{
         VirtualLayoutOperationsExpand,
     },
     view::ViewType,
-    r#virtual::{Read, ReadWrite},
 };
 
 /// Launchable tensor view for ease of use.
 #[derive(Clone)]
-pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = Read> {
+pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = ReadOnly> {
     _ty: PhantomData<(E, L, IO)>,
 }
 

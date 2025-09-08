@@ -13,10 +13,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{
-        layout::Coords3d,
-        r#virtual::{ReadWrite, VirtualTensor},
-    },
+    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
 };
 
 use crate::{

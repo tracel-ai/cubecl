@@ -6,7 +6,6 @@ use cubecl_core::{
 use crate::tensor::{
     View, ViewExpand,
     layout::{Coordinates, Coords1d, VirtualLayout, VirtualLayoutExpand},
-    r#virtual::{Read, ReadWrite},
 };
 
 pub trait AsView<E: CubePrimitive> {
@@ -14,7 +13,7 @@ pub trait AsView<E: CubePrimitive> {
     fn view<C: Coordinates, S: Coordinates>(
         &self,
         layout: VirtualLayout<C, S>,
-    ) -> View<E, C, Read> {
+    ) -> View<E, C, ReadOnly> {
         unexpanded!()
     }
 }
@@ -24,7 +23,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
-    ) -> ViewExpand<E, C, Read>;
+    ) -> ViewExpand<E, C, ReadOnly>;
 }
 
 pub trait AsViewMut<E: CubePrimitive> {
@@ -53,7 +52,7 @@ macro_rules! impl_as_view {
                 self,
                 scope: &mut Scope,
                 layout: VirtualLayoutExpand<C, Coords1d>,
-            ) -> super::ViewExpand<E, C, Read> {
+            ) -> super::ViewExpand<E, C, ReadOnly> {
                 View::__expand_new::<$ty<E>, Coords1d>(scope, self, layout)
             }
         }
@@ -81,7 +80,7 @@ impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsViewExpand<E> for SliceE
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C, Coords1d>,
-    ) -> super::ViewExpand<E, C, Read> {
+    ) -> super::ViewExpand<E, C, ReadOnly> {
         View::__expand_new::<Slice<E, IO>, Coords1d>(scope, self, layout)
     }
 }

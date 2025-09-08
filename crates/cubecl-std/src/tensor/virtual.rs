@@ -8,17 +8,9 @@ use crate::tensor::{
     view::View,
 };
 
-/// The read tag for [virtual tensor](VirtualTensor).
-#[derive(Clone)]
-pub struct Read;
-
-/// The read write tag for [virtual tensor](VirtualTensor).
-#[derive(Clone)]
-pub struct ReadWrite;
-
 /// Tensor representation that is decoupled from how the tensor is stored.
 #[derive(Clone)]
-pub struct VirtualTensor<E: Numeric, IO = Read> {
+pub struct VirtualTensor<E: Numeric, IO = ReadOnly> {
     // state: Arc<dyn VirtualTensorOperations<E>>,
     _e: PhantomData<E>,
     _p: PhantomData<IO>,
@@ -247,7 +239,7 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     pub fn view<C: Coordinates + 'static>(
         &self,
         layout: VirtualLayout<C, Coords1d>,
-    ) -> View<Line<E>, C, Read> {
+    ) -> View<Line<E>, C, ReadOnly> {
         View::new::<VirtualTensor<E, IO>, Coords1d>(*self, layout)
     }
 }
@@ -317,14 +309,14 @@ impl<E: Numeric> SliceMutOperatorExpand<Line<E>> for VirtualTensorExpand<E, Read
     }
 }
 
-impl<E: Numeric> VirtualTensor<E, Read> {
+impl<E: Numeric> VirtualTensor<E, ReadOnly> {
     /// Create a new [read only](Read) [virtual tensor](VirtualTensor).
     pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {
         unexpanded!()
     }
 
     /// Expand function of [Self::new].
-    pub fn __expand_new<V>(_scope: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, Read>
+    pub fn __expand_new<V>(_scope: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, ReadOnly>
     where
         V::ExpandType: VirtualTensorOperationsExpand<E>,
         V: VirtualTensorOperations<E> + CubeType + 'static,

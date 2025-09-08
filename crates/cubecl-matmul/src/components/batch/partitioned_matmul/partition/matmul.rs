@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{LhsG, MatmulPrecision, RhsG, global};
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul

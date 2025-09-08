@@ -10,7 +10,6 @@ use crate::{
 use cubecl_std::tensor::{
     View,
     layout::linear::{LinearView, linear_view},
-    r#virtual::ReadWrite,
 };
 use half::{bf16, f16};
 
