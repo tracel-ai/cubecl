@@ -4,7 +4,8 @@ use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
-    layout::{Coordinates, Coords1d, VirtualLayout},
+    ViewExpand,
+    layout::{Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand},
     view::View,
 };
 
@@ -231,28 +232,54 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     }
 }
 
-#[cube]
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
     /// layouts
     pub fn view<C: Coordinates + 'static>(
         &self,
-        layout: VirtualLayout<C, Coords1d>,
+        layout: impl Into<VirtualLayout<C, Coords1d>>,
     ) -> View<Line<E>, C, ReadOnly> {
         View::new::<VirtualTensor<E, IO>, Coords1d>(self, layout)
     }
 }
 
-#[cube]
+impl<E: Numeric, IO: Clone + 'static> VirtualTensorExpand<E, IO> {
+    /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
+    /// layouts
+    pub fn __expand_view_method<C: Coordinates + 'static>(
+        &self,
+        scope: &mut Scope,
+        layout: VirtualLayoutExpand<C, Coords1d>,
+    ) -> ViewExpand<Line<E>, C, ReadOnly> {
+        View::__expand_new::<VirtualTensor<E, IO>, Coords1d>(scope, self.clone(), layout)
+    }
+}
+
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
-    /// Create a mutable conceptual view over this tensor, allowing for multi-dimensional indexing
-    /// with custom layouts
+    #[doc = " Create a mutable conceptual view over this tensor, allowing for multi-dimensional indexing"]
+    #[doc = " with custom layouts"]
     pub fn view_mut<C: Coordinates + 'static>(
         &self,
-        layout: VirtualLayout<C, Coords1d>,
+        layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d>,
     ) -> View<Line<E>, C, ReadWrite> {
         let mut this: VirtualTensor<E, ReadWrite> = *self;
         View::new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(&mut this, layout)
+    }
+    pub fn __expand_view_mut<C: Coordinates + 'static>(
+        scope: &mut Scope,
+        this: VirtualTensorExpand<E, ReadWrite>,
+        layout: VirtualLayoutExpand<C, Coords1d>,
+    ) -> ViewExpand<Line<E>, C, ReadWrite> {
+        this.__expand_view_mut_method::<C>(scope, layout)
+    }
+}
+impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
+    pub fn __expand_view_mut_method<C: Coordinates + 'static>(
+        self,
+        scope: &mut Scope,
+        layout: VirtualLayoutExpand<C, Coords1d>,
+    ) -> ViewExpand<Line<E>, C, ReadWrite> {
+        View::__expand_new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(scope, self, layout)
     }
 }
 

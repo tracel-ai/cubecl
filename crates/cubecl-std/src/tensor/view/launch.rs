@@ -7,7 +7,7 @@ use std::{
 
 use crate::tensor::{
     View, ViewExpand, VirtualViewExpand, VirtualViewMutExpand,
-    layout::{Coords1d, Layout, VirtualLayoutExpand},
+    layout::{Coords1d, Layout, LayoutExpand, VirtualLayoutExpand},
     view::ViewType,
 };
 
@@ -124,6 +124,9 @@ impl<
     L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
     IO: Clone + Send + Sync + 'static,
 > LaunchArgExpand for TypedView<E, L, IO>
+where
+    L::ExpandType:
+        LayoutExpand<Coordinates = L::Coordinates, SourceCoordinates = L::SourceCoordinates>,
 {
     type CompilationArg = TypedViewCompilationArg<L>;
     fn expand(
@@ -131,7 +134,7 @@ impl<
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let buffer = <Array<E> as LaunchArgExpand>::expand(&arg.buffer, builder);
-        let layout = VirtualLayoutExpand::new::<L>(L::expand(&arg.layout, builder));
+        let layout = VirtualLayoutExpand::new::<L::ExpandType>(L::expand(&arg.layout, builder));
         let view = VirtualViewExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
         ViewExpand::<E, L::Coordinates, IO> {
             inner: ViewType::Read(Arc::new(view)),
@@ -143,7 +146,8 @@ impl<
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let buffer = <Array<E> as LaunchArgExpand>::expand_output(&arg.buffer, builder);
-        let layout = VirtualLayoutExpand::new::<L>(L::expand_output(&arg.layout, builder));
+        let layout =
+            VirtualLayoutExpand::new::<L::ExpandType>(L::expand_output(&arg.layout, builder));
         let view =
             VirtualViewMutExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
         ViewExpand::<E, L::Coordinates, IO> {

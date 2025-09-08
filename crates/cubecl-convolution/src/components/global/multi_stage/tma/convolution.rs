@@ -243,9 +243,9 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
-            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(
             out.view_mut(layout_global).view_mut(layout_out),
             x_offset,

@@ -1,7 +1,7 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, intrinsic, unexpanded};
+use cubecl_core::{self as cubecl, intrinsic, ir::Scope, unexpanded};
 
 use crate::tensor::layout::{Coordinates, Layout, LayoutExpand};
 
@@ -13,6 +13,8 @@ pub struct VirtualLayout<C: Coordinates, S: Coordinates> {
 }
 
 impl<C: Coordinates, S: Coordinates> Copy for VirtualLayout<C, S> {}
+unsafe impl<C: Coordinates, S: Coordinates> Send for VirtualLayout<C, S> {}
+unsafe impl<C: Coordinates, S: Coordinates> Sync for VirtualLayout<C, S> {}
 
 #[derive(Clone)]
 pub struct VirtualLayoutExpand<C: Coordinates, S: Coordinates> {
@@ -61,17 +63,15 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
         L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
         L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S> + 'static,
     {
-        VirtualLayoutExpand::new::<L>(layout)
+        VirtualLayoutExpand::new::<L::ExpandType>(layout)
     }
 }
 
 impl<C: Coordinates, S: Coordinates> VirtualLayoutExpand<C, S> {
     /// Create a new virtual layout from a concrete one
-    pub fn new<L>(layout: L::ExpandType) -> VirtualLayoutExpand<C, S>
-    where
-        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
-        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S> + 'static,
-    {
+    pub fn new<L: VirtualLayoutOperationsExpand<C, S> + 'static>(
+        layout: L,
+    ) -> VirtualLayoutExpand<C, S> {
         VirtualLayoutExpand::<C, S> {
             state: Arc::new(layout),
         }
@@ -90,7 +90,11 @@ impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
 
 impl<C: Coordinates, S: Coordinates> CubeDebug for VirtualLayoutExpand<C, S> {}
 
-pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType> {
+// We need to seal the trait to allow us to blanket implement `From<L>` below
+mod private {
+    pub trait Sealed {}
+}
+pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Sealed {
     fn __expand_to_source_pos_method(
         &self,
         scope: &mut Scope,
@@ -109,6 +113,7 @@ pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType> {
     ) -> ExpandElementTyped<bool>;
 }
 
+impl<L: LayoutExpand> private::Sealed for L {}
 impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates> for L {
     fn __expand_to_source_pos_method(
         &self,
@@ -136,5 +141,21 @@ impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoo
         pos: <L::Coordinates as CubeType>::ExpandType,
     ) -> ExpandElementTyped<bool> {
         <L as LayoutExpand>::__expand_is_in_bounds_method(self.clone(), scope, pos)
+    }
+}
+
+impl<C: Coordinates, S: Coordinates, L: VirtualLayoutOperationsExpand<C, S> + 'static> From<L>
+    for VirtualLayoutExpand<C, S>
+{
+    fn from(value: L) -> Self {
+        VirtualLayoutExpand::new(value)
+    }
+}
+
+impl<L: Layout + 'static> From<L> for VirtualLayout<L::Coordinates, L::SourceCoordinates> {
+    fn from(_value: L) -> Self {
+        VirtualLayout {
+            _coords: PhantomData,
+        }
     }
 }
