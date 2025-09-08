@@ -5,9 +5,9 @@ use cubecl::prelude::*;
 use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, RangeLoop, Type, Variable};
 use cubecl_macros::intrinsic;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ReadOnly;
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ReadWrite;
 
 /// A read-only contiguous list of elements
@@ -48,7 +48,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     }
 }
 
-pub trait SliceVisibility {}
+pub trait SliceVisibility: Clone + Copy {}
 
 impl SliceVisibility for ReadOnly {}
 
@@ -215,6 +215,14 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
 }
 
 impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
+    type ExpandType = SliceExpand<E, IO>;
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> CubeType for &Slice<E, IO> {
+    type ExpandType = SliceExpand<E, IO>;
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> CubeType for &mut Slice<E, IO> {
     type ExpandType = SliceExpand<E, IO>;
 }
 

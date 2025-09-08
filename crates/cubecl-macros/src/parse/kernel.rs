@@ -26,6 +26,7 @@ pub(crate) struct KernelArgs {
     pub create_dummy_kernel: Flag,
     pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
+    pub expand_base_traits: Option<String>,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {

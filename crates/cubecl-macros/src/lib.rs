@@ -67,11 +67,11 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             }));
         }
         Item::Trait(kernel_trait) => {
-            let expand_trait = CubeTrait::from_item_trait(kernel_trait)?;
+            let expand_trait = CubeTrait::from_item_trait(kernel_trait, args)?;
 
-            Ok(TokenStream::from(quote! {
+            return Ok(TokenStream::from(quote! {
                 #expand_trait
-            }))
+            }));
         }
         Item::Impl(item_impl) => {
             if item_impl.trait_.is_some() {

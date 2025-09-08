@@ -240,7 +240,7 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
         &self,
         layout: VirtualLayout<C, Coords1d>,
     ) -> View<Line<E>, C, ReadOnly> {
-        View::new::<VirtualTensor<E, IO>, Coords1d>(*self, layout)
+        View::new::<VirtualTensor<E, IO>, Coords1d>(self, layout)
     }
 }
 
@@ -252,7 +252,8 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
         &self,
         layout: VirtualLayout<C, Coords1d>,
     ) -> View<Line<E>, C, ReadWrite> {
-        View::new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(*self, layout)
+        let mut this: VirtualTensor<E, ReadWrite> = *self;
+        View::new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(&mut this, layout)
     }
 }
 

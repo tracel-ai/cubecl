@@ -67,7 +67,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
     #[allow(unused_variables)]
-    pub fn new<V, S>(view: V, layout: VirtualLayout<C, S>) -> Self
+    pub fn new<V, S>(view: &V, layout: VirtualLayout<C, S>) -> Self
     where
         V: ViewOperations<E, S> + CubeType + 'static,
         V::ExpandType: ViewOperationsExpand<E, S> + 'static,
@@ -149,7 +149,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
 impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
     /// Create a new mutable tensor view from an underlying concrete storage and a layout to map it
     /// into the target coordinate space
-    pub fn new_mut<V, S>(_view: V, _layout: VirtualLayout<C, S>) -> View<E, C, ReadWrite>
+    pub fn new_mut<V, S>(_view: &mut V, _layout: VirtualLayout<C, S>) -> View<E, C, ReadWrite>
     where
         V: ViewOperationsMut<E, S> + CubeType + 'static,
         V::ExpandType: ViewOperationsMutExpand<E, S> + 'static,
