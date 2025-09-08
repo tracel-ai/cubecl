@@ -151,6 +151,76 @@ test_binary_impl!(
 );
 
 #[cube(launch_unchecked)]
+fn test_powi_kernel<F: Float>(
+    lhs: &Array<Line<F>>,
+    rhs: &Array<Line<i32>>,
+    output: &mut Array<Line<F>>,
+) {
+    if ABSOLUTE_POS < rhs.len() {
+        output[ABSOLUTE_POS] = Powi::powi(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
+    }
+}
+
+macro_rules! test_powi_impl {
+    (
+        $test_name:ident,
+        $float_type:ident,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            lhs: $lhs:expr,
+            rhs: $rhs:expr,
+            expected: $expected:expr
+        }),*]) => {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+            $(
+            {
+                let lhs = $lhs;
+                let rhs = $rhs;
+                let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
+                let lhs_handle = client.create($float_type::as_bytes(lhs));
+                let rhs_handle = client.create(i32::as_bytes(rhs));
+
+                unsafe {
+                    test_powi_kernel::launch_unchecked::<F, R>(
+                        &client,
+                        CubeCount::Static(1, 1, 1),
+                        CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),
+                        ArrayArg::from_raw_parts::<$float_type>(&lhs_handle, lhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<i32>(&rhs_handle, rhs.len(), $input_vectorization),
+                        ArrayArg::from_raw_parts::<$float_type>(&output_handle, $expected.len(), $out_vectorization),
+                    )
+                };
+
+                assert_equals_approx::<R, F>(&client, output_handle, $expected, 0.001);
+            }
+            )*
+        }
+    };
+}
+
+test_powi_impl!(
+    test_powi,
+    F,
+    [
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![i32: 3, 2, -1, 1],
+            expected: as_type![F: 8., 9., 0.5, 81.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 2., -3., 2., 81.],
+            rhs: as_type![i32: 3, 2, -1, 1],
+            expected: as_type![F: 8., 9., 0.5, 81.]
+        }
+    ]
+);
+
+#[cube(launch_unchecked)]
 fn test_mulhi_kernel(
     lhs: &Array<Line<u32>>,
     rhs: &Array<Line<u32>>,
@@ -250,6 +320,7 @@ macro_rules! testgen_binary {
 
             add_test!(test_dot);
             add_test!(test_powf);
+            add_test!(test_powi);
         }
     };
 }

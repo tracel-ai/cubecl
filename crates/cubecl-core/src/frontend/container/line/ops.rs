@@ -2,7 +2,7 @@ use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
-use crate as cubecl;
+use crate::{self as cubecl, prelude::Powi};
 use crate::{
     frontend::{
         Abs, Ceil, Clamp, Cos, CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max,
@@ -242,6 +242,7 @@ impl<P: CubePrimitive + Log1p> Log1p for Line<P> {}
 impl<P: CubePrimitive + Erf> Erf for Line<P> {}
 impl<P: CubePrimitive + Exp> Exp for Line<P> {}
 impl<P: CubePrimitive + Powf> Powf for Line<P> {}
+impl<P: CubePrimitive + Powi<I>, I: CubePrimitive> Powi<Line<I>> for Line<P> {}
 impl<P: CubePrimitive + Sqrt> Sqrt for Line<P> {}
 impl<P: CubePrimitive + Cos> Cos for Line<P> {}
 impl<P: CubePrimitive + Sin> Sin for Line<P> {}
