@@ -1,7 +1,9 @@
 use crate::components::error::MatmulSetupError;
 use crate::components::resource::ComputeResources;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
+use crate::components::tile::plane_vec_mat_inner_product::config::{
+    PlaneVecMatInnerProductConfig, SumPrecision,
+};
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
 use cubecl_core::prelude::*;
@@ -35,6 +37,7 @@ impl TileMatmulFamily for PlaneVecMatInnerProduct {
             matmul_line_sizes.out as u32,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
+            SumPrecision::F16,
         )
     }
 }
