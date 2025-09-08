@@ -1,15 +1,12 @@
 use super::{CubeType, ExpandElementTyped};
-use crate::{
-    prelude::{
-        CubePrimitive, SliceMutOperator, SliceMutOperatorExpand, SliceOperator, SliceOperatorExpand,
-    },
-    unexpanded,
-};
+use crate as cubecl;
+use crate::{prelude::*, unexpanded};
 use cubecl_ir::Scope;
 
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
+#[cube(receiver_type = "ref")]
 pub trait List<T: CubePrimitive>:
     CubeType<ExpandType: ListExpand<T> + SliceOperatorExpand<T>> + SliceOperator<T> + Lined
 {
@@ -27,45 +24,11 @@ pub trait List<T: CubePrimitive>:
     fn len(&self) -> u32 {
         unexpanded!();
     }
-
-    fn __expand_read(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        this.__expand_read_method(scope, index)
-    }
-
-    fn __expand_read_unchecked(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        this.__expand_read_unchecked_method(scope, index)
-    }
-
-    fn __expand_len(scope: &mut Scope, this: Self::ExpandType) -> ExpandElementTyped<u32> {
-        this.__expand_len_method(scope)
-    }
-}
-
-/// Expand version of [CubeRead].
-pub trait ListExpand<T: CubePrimitive>: SliceOperatorExpand<T> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
 }
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
+#[cube(receiver_type = "ref")]
 pub trait ListMut<T: CubePrimitive>:
     CubeType<ExpandType: ListMutExpand<T> + SliceMutOperatorExpand<T>> + List<T> + SliceMutOperator<T>
 {
@@ -73,25 +36,6 @@ pub trait ListMut<T: CubePrimitive>:
     fn write(&self, index: u32, value: T) {
         unexpanded!()
     }
-
-    fn __expand_write(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-        value: T::ExpandType,
-    ) {
-        this.__expand_write_method(scope, index, value)
-    }
-}
-
-/// Expand version of [CubeWrite].
-pub trait ListMutExpand<T: CubePrimitive>: ListExpand<T> + SliceMutOperatorExpand<T> {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-        value: T::ExpandType,
-    );
 }
 
 // Automatic implementation for references to List.

@@ -386,9 +386,18 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 ///
 /// This trait is kind of unsafe, [VirtualTensorOperations::write] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
-pub trait VirtualTensorOperations<E: Numeric> {
+#[cube(receiver_type = "ref", expand_base_traits = "LinedExpand")]
+pub trait VirtualTensorOperations<E: Numeric>:
+    CubeType<ExpandType: VirtualTensorOperationsExpand<E>> + Lined
+{
+    fn as_tensor_map(&self) -> TensorMap<E> {
+        unexpanded!()
+    }
     /// Read the tensor at the given index.
     fn read(&self, _index: u32) -> Line<E> {
+        unexpanded!()
+    }
+    fn read_window(&self, _start: u32, _end: u32) -> Slice<Line<E>, ReadOnly> {
         unexpanded!()
     }
     /// Write the tensor at the given index.
@@ -407,48 +416,12 @@ pub trait VirtualTensorOperations<E: Numeric> {
     fn rank(&self) -> u32 {
         unexpanded!()
     }
-}
-
-/// Expand trait for [VirtualTensorOperations].
-///
-/// For now this needs to be manually implemented for any type that needs to become a virtual
-/// tensor.
-pub trait VirtualTensorOperationsExpand<E: Numeric> {
-    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> ExpandElementTyped<TensorMap<E>>;
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<Line<E>>;
-    fn __expand_read_window_method(
-        &self,
-        context: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<Line<E>, ReadOnly>;
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-        value: ExpandElementTyped<Line<E>>,
-    );
-    fn __expand_shape_method(
-        &self,
-        scope: &mut Scope,
-        axis: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<u32>;
-    fn __expand_stride_method(
-        &self,
-        scope: &mut Scope,
-        axis: ExpandElementTyped<u32>,
-    ) -> ExpandElementTyped<u32>;
-    fn __expand_rank_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
-    fn __expand_buffer_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
+    fn len(&self) -> u32 {
+        unexpanded!()
     }
-    fn line_size(&self) -> u32;
+    fn buffer_len(&self) -> u32 {
+        unexpanded!()
+    }
 }
 
 /// Making [virtual tensors](VirtualTensor) a proper [cube type](CubeType).
@@ -532,10 +505,6 @@ mod __tensor {
         ) -> ExpandElementTyped<TensorMap<E>> {
             unimplemented!("Can't turn normal tensor into `TensorMap`");
         }
-
-        fn line_size(&self) -> u32 {
-            self.clone().line_size()
-        }
     }
 }
 
@@ -601,10 +570,6 @@ mod __tensor_map {
             _scope: &mut Scope,
         ) -> ExpandElementTyped<TensorMap<E>> {
             self.clone()
-        }
-
-        fn line_size(&self) -> u32 {
-            1
         }
     }
 }
