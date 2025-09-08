@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
     is_contiguous, is_contiguous_pitched,
@@ -7,6 +7,7 @@ use crate::tensor::{
     layout::{
         Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutLaunch},
+        plain::{PlainLayout, PlainLayoutLaunch},
         strided::{StridedLayout, StridedLayoutLaunch},
         virtual_layout,
     },
@@ -16,15 +17,36 @@ use crate::tensor::{
 /// necessary level of striding, either none, only the last dim (for freshly allocated strided
 /// tensors), or all dimensions.
 ///
+/// Treats indices as the line index, with the shape being adjusted for line size.
+///
 /// `Layout` version of [index_offset_contiguous]
 #[derive(CubeType, CubeLaunch, Clone)]
 pub enum LinearLayout {
     /// Input is contiguous, no mapping
-    Plain { len: u32 },
+    Plain(PlainLayout),
     /// Strided tensor, i.e. freshly allocated but not permuted
     Strided(StridedLayout),
     /// Permuted layout, tracks the entire shape/strides and not just the last dim
     Permuted(PermutedLayout),
+}
+
+impl LinearLayout {
+    fn inner(&self) -> &dyn VirtualLayoutOperations<Coords1d, Coords1d> {
+        unexpanded!()
+    }
+}
+
+impl LinearLayoutExpand {
+    fn __expand_inner_method(
+        &self,
+        _scope: &mut Scope,
+    ) -> &dyn VirtualLayoutOperationsExpand<Coords1d, Coords1d> {
+        match self {
+            LinearLayoutExpand::Plain(layout) => layout,
+            LinearLayoutExpand::Strided(layout) => layout,
+            LinearLayoutExpand::Permuted(layout) => layout,
+        }
+    }
 }
 
 impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
@@ -36,11 +58,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     ) -> Self {
         let rank = shape.len();
         if rank == 1 || is_contiguous(shape, strides) {
-            let len = shape.iter().product::<usize>();
-            let len = len / *line_size as usize;
-            Self::Plain {
-                len: ScalarArg::new(len as u32),
-            }
+            Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
         } else if is_contiguous_pitched(shape, strides) {
             Self::Strided(StridedLayoutLaunch::from_shape_strides(
                 client, shape, strides, line_size,
@@ -64,33 +82,22 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
 #[cube]
 impl Layout for LinearLayout {
     type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
 
-    fn to_linear_pos(this: &Self, pos: Self::Coordinates) -> u32 {
-        match this {
-            LinearLayout::Plain { .. } => pos,
-            LinearLayout::Strided(strided_layout) => strided_layout.to_linear_pos(pos),
-            LinearLayout::Permuted(permuted_layout) => permuted_layout.to_linear_pos(pos),
-        }
+    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
+        this.inner().to_source_pos(pos)
     }
 
-    fn to_linear_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        match this {
-            LinearLayout::Plain { len } => {
-                let idx = this.to_linear_pos(pos);
-                let in_bounds = pos < *len;
-                (idx, in_bounds)
-            }
-            LinearLayout::Strided(strided_layout) => strided_layout.to_linear_pos_checked(pos),
-            LinearLayout::Permuted(permuted_layout) => permuted_layout.to_linear_pos_checked(pos),
-        }
+    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
+        (this.to_source_pos(pos), this.is_in_bounds(pos))
     }
 
     fn shape(this: &Self) -> Self::Coordinates {
-        match this {
-            LinearLayout::Plain { len } => *len,
-            LinearLayout::Strided(strided_layout) => strided_layout.shape(),
-            LinearLayout::Permuted(permuted_layout) => permuted_layout.shape(),
-        }
+        this.inner().shape()
+    }
+
+    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+        this.inner().is_in_bounds(pos)
     }
 }
 

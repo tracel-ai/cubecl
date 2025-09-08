@@ -18,10 +18,10 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvolutionConfig,
+        ConvGemmConfig, ConvolutionConfig,
         global::{
             ConvTilingLayout, GlobalConvolution,
-            layout::{Im2colGlobalLayout, NhwcOutGlobalLayout, WeightGlobalLayout},
+            layout::{Im2colGlobalLayout, NhwcLayout, OutLayout, WeightLayout},
             load::bias::BiasLoader,
         },
     },
@@ -132,9 +132,12 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
-        let layout = Im2colGlobalLayout::new(&lhs, runtime_args, config);
+        let check_spatial = comptime![config.check_spatial_bounds()];
+        let layout_global =
+            NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial).virt();
+        let layout_im2col = Im2colGlobalLayout::new(runtime_args, config).virt();
         Self::LhsLoader::new(
-            lhs.view(layout.virt()),
+            lhs.view(layout_global).view(layout_im2col),
             x_offset,
             y_offset,
             0,
@@ -150,9 +153,10 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let layout = WeightGlobalLayout::new(&rhs, runtime_args, config);
+        let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false).virt();
+        let layout_weight = WeightLayout::new(&rhs, runtime_args, config).virt();
         Self::RhsLoader::new(
-            rhs.view(layout.virt()),
+            rhs.view(layout_global).view(layout_weight),
             x_offset,
             y_offset,
             0,
@@ -176,14 +180,15 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout = NhwcOutGlobalLayout::new(
-            &out,
-            runtime_args.shape_m,
-            runtime_args.shape_n,
-            runtime_args.shape_out.clone(),
-            config.global_memory_config(MatmulIdent::Out),
-        );
-        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_out =
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+        SMM::init_writer(
+            out.view_mut(layout_global).view_mut(layout_out),
+            x_offset,
+            y_offset,
+            0,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

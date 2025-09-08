@@ -8,7 +8,7 @@ use cubecl_std::tensor::{View, layout::Coords3d};
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorWriter<EO: Numeric> {
-    pub view: View<EO, Coords3d, ReadWrite>,
+    pub view: View<Line<EO>, Coords3d, ReadWrite>,
     pub x_offset: u32,
     pub y_offset: u32,
     pub batch_offset: u32,
@@ -21,7 +21,7 @@ unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 impl<EG: Numeric> TensorWriter<EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
     pub fn new(
-        view: View<EG, Coords3d, ReadWrite>,
+        view: View<Line<EG>, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

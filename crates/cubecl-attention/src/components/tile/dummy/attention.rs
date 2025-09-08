@@ -124,7 +124,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         )
     }
 
-    fn init_writer(out: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer {
+    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
         DummyWriter::new(out, 0, 0, 0)
     }
 

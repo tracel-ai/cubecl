@@ -93,7 +93,7 @@ pub trait ScalarArgSettings: Send + Sync {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
 }
 
-#[derive(new)]
+#[derive(new, Clone, Copy)]
 pub struct ScalarArg<T: Numeric> {
     pub elem: T,
 }

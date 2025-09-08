@@ -20,7 +20,7 @@ pub struct PlaneWriter<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
     pub fn new(
-        view: View<EG, Coords3d, ReadWrite>,
+        view: View<Line<EG>, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -19,10 +19,10 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvolutionConfig,
+        ConvGemmConfig, ConvolutionConfig,
         global::{
             GlobalConvolution,
-            layout::NhwcOutGlobalLayout,
+            layout::{NhwcLayout, OutLayout},
             load::{
                 bias::BiasLoader,
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
@@ -243,14 +243,15 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout = NhwcOutGlobalLayout::new(
-            &out,
-            runtime_args.shape_m,
-            runtime_args.shape_n,
-            runtime_args.shape_out.clone(),
-            config.global_memory_config(MatmulIdent::Out),
-        );
-        SMM::init_writer(out.view_mut(layout.virt()), x_offset, y_offset, 0)
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_out =
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+        SMM::init_writer(
+            out.view_mut(layout_global).view_mut(layout_out),
+            x_offset,
+            y_offset,
+            0,
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
