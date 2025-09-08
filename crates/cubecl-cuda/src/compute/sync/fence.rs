@@ -42,12 +42,13 @@ impl Fence {
     /// The [stream](CUevent_st) must be initialized.
     pub fn wait(self) {
         unsafe {
-            cudarc::driver::result::stream::wait_event(
-                self.stream,
-                self.event,
-                CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
-            )
-            .unwrap();
+            cudarc::driver::result::event::synchronize(self.event).unwrap();
+            // cudarc::driver::result::stream::wait_event(
+            //     self.stream,
+            //     self.event,
+            //     CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
+            // )
+            // .unwrap();
             cudarc::driver::result::event::destroy(self.event).unwrap();
         }
     }

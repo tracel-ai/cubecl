@@ -9,7 +9,7 @@ macro_rules! testgen_to_client {
         #[test]
         fn test_to_client() {
             let client_0 = TestRuntime::client(&CudaDevice { index: 0 });
-            let client_1 = TestRuntime::client(&CudaDevice { index: 0 });
+            let client_1 = TestRuntime::client(&CudaDevice { index: 1 });
 
             let expected = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
             let input = client_0.create(f32::as_bytes(&expected));
