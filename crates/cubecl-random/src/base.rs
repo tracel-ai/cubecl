@@ -8,7 +8,6 @@ use cubecl_std::tensor::{
         Coords1d,
         linear::{LinearView, linear_view},
     },
-    r#virtual::ReadWrite,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 

@@ -31,21 +31,21 @@ pub enum Plane {
 impl Display for Plane {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Plane::Elect => writeln!(f, "plane_elect()"),
-            Plane::All(op) => writeln!(f, "plane_all({})", op.input),
-            Plane::Any(op) => writeln!(f, "plane_any({})", op.input),
-            Plane::Ballot(op) => writeln!(f, "plane_ballot({})", op.input),
+            Plane::Elect => write!(f, "plane_elect()"),
+            Plane::All(op) => write!(f, "plane_all({})", op.input),
+            Plane::Any(op) => write!(f, "plane_any({})", op.input),
+            Plane::Ballot(op) => write!(f, "plane_ballot({})", op.input),
             Plane::Broadcast(op) => {
-                writeln!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
+                write!(f, "plane_broadcast({}, {})", op.lhs, op.rhs)
             }
-            Plane::Sum(op) => writeln!(f, "plane_sum({})", op.input),
-            Plane::InclusiveSum(op) => writeln!(f, "plane_inclusive_sum({})", op.input),
-            Plane::ExclusiveSum(op) => writeln!(f, "plane_exclusive_sum({})", op.input),
-            Plane::Prod(op) => writeln!(f, "plane_product({})", op.input),
-            Plane::InclusiveProd(op) => writeln!(f, "plane_inclusive_product({})", op.input),
-            Plane::ExclusiveProd(op) => writeln!(f, "plane_exclusive_product({})", op.input),
-            Plane::Min(op) => writeln!(f, "plane_min({})", op.input),
-            Plane::Max(op) => writeln!(f, "plane_max({})", op.input),
+            Plane::Sum(op) => write!(f, "plane_sum({})", op.input),
+            Plane::InclusiveSum(op) => write!(f, "plane_inclusive_sum({})", op.input),
+            Plane::ExclusiveSum(op) => write!(f, "plane_exclusive_sum({})", op.input),
+            Plane::Prod(op) => write!(f, "plane_product({})", op.input),
+            Plane::InclusiveProd(op) => write!(f, "plane_inclusive_product({})", op.input),
+            Plane::ExclusiveProd(op) => write!(f, "plane_exclusive_product({})", op.input),
+            Plane::Min(op) => write!(f, "plane_min({})", op.input),
+            Plane::Max(op) => write!(f, "plane_max({})", op.input),
         }
     }
 }

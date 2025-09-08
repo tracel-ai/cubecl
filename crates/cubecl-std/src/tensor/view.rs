@@ -3,16 +3,13 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, io::read_masked, unexpanded};
 
-use crate::tensor::{
-    layout::{Coordinates, VirtualLayout, VirtualLayoutExpand},
-    r#virtual::{Read, ReadWrite},
-};
+use crate::tensor::layout::{Coordinates, VirtualLayout, VirtualLayoutExpand};
 
 /// A conceptual view of an underlying linear storage.
 /// Allows abstract indexing in multiple dimensions, without having to know the data layout or
 /// location.
 #[derive(Clone)]
-pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     pub layout: VirtualLayout<C>,
     _list: PhantomData<(E, IO)>,
 }
@@ -45,7 +42,7 @@ impl<E: CubePrimitive> ListType<E> {
 
 /// Expand type of [TensorView]
 #[derive(Clone)]
-pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = Read> {
+pub struct ViewExpand<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     tensor: ListType<E>,
     layout: VirtualLayoutExpand<C>,
     _io: PhantomData<IO>,
@@ -63,7 +60,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> IntoMut for ViewExpand<E, C, I
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> CubeDebug for ViewExpand<E, C, IO> {}
 
-impl<E: CubePrimitive, C: Coordinates> View<E, C, Read> {
+impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadOnly> {
     /// Create a new tensor view from an underlying concrete storage and a layout to map it into
     /// the target coordinate space
     #[allow(unused_variables)]
@@ -83,12 +80,12 @@ impl<E: CubePrimitive, C: Coordinates> View<E, C, Read> {
         _scope: &mut Scope,
         tensor: T::ExpandType,
         layout: VirtualLayoutExpand<C>,
-    ) -> ViewExpand<E, C, Read>
+    ) -> ViewExpand<E, C, ReadOnly>
     where
         T: List<Line<E>> + CubeType,
         T::ExpandType: ListExpand<Line<E>> + 'static,
     {
-        ViewExpand::<E, C, Read> {
+        ViewExpand::<E, C, ReadOnly> {
             tensor: ListType::Read(Arc::new(tensor)),
             layout,
             _io: PhantomData,
@@ -290,7 +287,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
 
 pub trait AsView<E: CubePrimitive> {
     #[allow(unused)]
-    fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, Read> {
+    fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, ReadOnly> {
         unexpanded!()
     }
 }
@@ -300,7 +297,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
         self,
         scope: &mut Scope,
         layout: VirtualLayoutExpand<C>,
-    ) -> ViewExpand<E, C, Read>;
+    ) -> ViewExpand<E, C, ReadOnly>;
 }
 
 pub trait AsViewMut<E: CubePrimitive> {
@@ -336,7 +333,7 @@ mod as_view {
             self,
             scope: &mut Scope,
             layout: VirtualLayoutExpand<C>,
-        ) -> super::ViewExpand<E, C, Read> {
+        ) -> super::ViewExpand<E, C, ReadOnly> {
             View::__expand_new::<L>(scope, self, layout)
         }
     }
@@ -392,10 +389,7 @@ mod idx {
 }
 
 pub mod launch {
-    use crate::tensor::{
-        layout::{Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand},
-        r#virtual::ReadWrite,
-    };
+    use crate::tensor::layout::{Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand};
 
     use super::*;
     use std::{
@@ -405,7 +399,7 @@ pub mod launch {
 
     /// Launchable tensor view for ease of use.
     #[derive(Clone)]
-    pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = Read> {
+    pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = ReadOnly> {
         _ty: PhantomData<(E, L, IO)>,
     }
 
