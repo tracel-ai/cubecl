@@ -7,7 +7,9 @@ use crate::tensor::{
 };
 
 #[cube]
-pub trait AsView<E: CubePrimitive>: CubeType<ExpandType: AsViewExpand<E>> {
+pub trait AsView<E: CubePrimitive>:
+    CubeType<ExpandType: AsViewExpand<E, SourceCoords = Self::SourceCoords>>
+{
     type SourceCoords: Coordinates;
 
     #[allow(unused)]

@@ -2,7 +2,7 @@ use crate::parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, Cube
 use proc_macro2::TokenStream;
 use quote::quote;
 use quote::{ToTokens, format_ident};
-use syn::{Type, parse_quote, spanned::Spanned};
+use syn::{Type, TypePath, spanned::Spanned};
 
 impl ToTokens for CubeTrait {
     fn to_tokens(&self, tokens: &mut TokenStream) {
@@ -15,6 +15,10 @@ impl ToTokens for CubeTrait {
         let name = &self.name;
         let generics = &self.generics;
         let assoc_fns = self.items.iter().filter_map(CubeTraitItem::func);
+        let assoc_methods = self
+            .items
+            .iter()
+            .filter_map(|it| CubeTraitItem::associated_method(it, &self.args));
 
         let has_expand = self
             .items
@@ -30,6 +34,11 @@ impl ToTokens for CubeTrait {
                 #(
                     #[allow(clippy::too_many_arguments)]
                     #assoc_fns;
+                )*
+
+                #(
+                    #[allow(clippy::too_many_arguments)]
+                    #assoc_methods
                 )*
             }
         };
@@ -50,13 +59,13 @@ impl CubeTrait {
         let generics = &self.generics;
         let others = self.items.iter().filter_map(CubeTraitItem::other);
         let methods = self.items.iter().filter_map(CubeTraitItem::method);
-        let mut supertraits = self.expand_supertraits.clone();
-        supertraits.push(parse_quote!(Clone));
+        let supertraits = &self.expand_supertraits;
+        let colon = (!supertraits.is_empty()).then(|| quote![:]);
 
         quote! {
             #(#attrs)*
             #[allow(clippy::too_many_arguments)]
-            #vis #unsafety trait #name #generics: #supertraits {
+            #vis #unsafety trait #name #generics #colon #supertraits {
                 #(#others)*
 
                 #(
@@ -122,12 +131,10 @@ impl CubeTraitImpl {
             .collect::<Vec<_>>();
         let unsafety = &self.unsafety;
 
-        let mut struct_name = match &self.struct_name {
-            Type::Path(path) => path.clone(),
-            other => {
-                return syn::Error::new(other.span(), "Struct name must be a path")
-                    .to_compile_error();
-            }
+        let struct_name = path_of_type(&self.struct_name);
+        let mut struct_name = match struct_name {
+            Ok(name) => name,
+            Err(err) => return err.into_compile_error(),
         };
         let struct_ident = struct_name.path.segments.last_mut().unwrap();
         struct_ident.ident = format_ident!("{}Expand", struct_ident.ident);
@@ -147,5 +154,21 @@ impl CubeTraitImpl {
                 )*
             }
         }
+    }
+}
+
+fn path_of_type(ty: &Type) -> Result<TypePath, syn::Error> {
+    match ty {
+        Type::Array(type_array) => path_of_type(&type_array.elem),
+        Type::Group(type_group) => path_of_type(&type_group.elem),
+        Type::Paren(type_paren) => path_of_type(&type_paren.elem),
+        Type::Path(type_path) => Ok(type_path.clone()),
+        Type::Ptr(type_ptr) => path_of_type(&type_ptr.elem),
+        Type::Reference(type_reference) => path_of_type(&type_reference.elem),
+        Type::Slice(type_slice) => path_of_type(&type_slice.elem),
+        other => Err(syn::Error::new(
+            ty.span(),
+            format!("Tried to get path of unsupported type: {other:?}"),
+        )),
     }
 }

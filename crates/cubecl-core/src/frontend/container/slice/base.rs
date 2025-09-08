@@ -347,11 +347,10 @@ impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO>
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+}
 
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
-    }
-
+impl<E: CubePrimitive, IO: SliceVisibility> Lined for Slice<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> LinedExpand for SliceExpand<E, IO> {
     fn line_size(&self) -> u32 {
         self.line_size.unwrap_or_else(|| self.origin.line_size())
     }

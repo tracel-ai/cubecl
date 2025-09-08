@@ -286,8 +286,8 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
     }
 
     /// Expand method for [TensorView::line_size]
-    pub fn __expand_line_size_method(self, scope: &mut Scope) -> u32 {
-        self.inner.read().__expand_line_size_method(scope)
+    pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
+        self.inner.read().line_size()
     }
 
     pub fn line_size(&self) -> u32 {

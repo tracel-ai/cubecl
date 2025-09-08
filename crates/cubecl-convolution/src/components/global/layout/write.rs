@@ -3,12 +3,12 @@ use cubecl_core::{self as cubecl};
 use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::{
     FastDivmod,
-    tensor::layout::{Coords3d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand},
+    tensor::layout::{Coords3d, Layout, LayoutExpand, VirtualLayout},
 };
 
 use crate::{
     components::global::{
-        layout::{NhwcCoords, cast_seq, virtual_layout},
+        layout::{NhwcCoords, cast_seq},
         load::im2col_tma::div_mod_seq,
     },
     kernels::layered::selector::RuntimeArgs,
@@ -48,9 +48,9 @@ impl Layout for OutLayout {
     type Coordinates = Coords3d;
     type SourceCoordinates = NhwcCoords;
 
-    fn to_source_pos(this: &Self, coords: Self::Coordinates) -> NhwcCoords {
+    fn to_source_pos(&self, coords: Self::Coordinates) -> NhwcCoords {
         let (_, view_m, view_n) = coords;
-        let (batch, spatial) = div_mod_seq(view_m, &this.shape_out);
+        let (batch, spatial) = div_mod_seq(view_m, &self.shape_out);
 
         NhwcCoords {
             batch,
@@ -59,20 +59,25 @@ impl Layout for OutLayout {
         }
     }
 
-    fn to_source_pos_checked(this: &Self, coords: Self::Coordinates) -> (NhwcCoords, bool) {
-        (this.to_source_pos(coords), this.is_in_bounds(coords))
+    fn to_source_pos_checked(&self, coords: Self::Coordinates) -> (NhwcCoords, bool) {
+        (self.to_source_pos(coords), self.is_in_bounds(coords))
     }
 
-    fn shape(this: &Self) -> Self::Coordinates {
-        (1, this.shape_m, this.shape_n)
+    fn shape(&self) -> Self::Coordinates {
+        (1, self.shape_m, self.shape_n)
     }
 
-    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, m, n) = pos;
-        let check_m = comptime![this.config.check_row_bounds];
-        let check_n = comptime![this.config.check_col_bounds];
-        (!check_m || m < this.shape_m) && (!check_n || n < this.shape_n)
+        let check_m = comptime![self.config.check_row_bounds];
+        let check_n = comptime![self.config.check_col_bounds];
+        (!check_m || m < self.shape_m) && (!check_n || n < self.shape_n)
     }
 }
 
-virtual_layout!(OutLayout, OutLayoutExpand);
+#[cube]
+impl OutLayout {
+    pub fn virt(self) -> VirtualLayout<Coords3d, NhwcCoords> {
+        VirtualLayout::new::<OutLayout>(self)
+    }
+}

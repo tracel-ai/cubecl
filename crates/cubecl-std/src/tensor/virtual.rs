@@ -55,11 +55,10 @@ impl<E: Numeric, IO: Clone> ListExpand<Line<E>> for VirtualTensorExpand<E, IO> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         self.state.clone().__expand_len_method(scope)
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        self.state.clone().__expand_line_size_method(scope)
-    }
-
+impl<E: Numeric, IO: Clone> Lined for VirtualTensor<E, IO> {}
+impl<E: Numeric, IO: Clone> LinedExpand for VirtualTensorExpand<E, IO> {
     fn line_size(&self) -> u32 {
         self.state.clone().line_size()
     }

@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{
-    layout::{Coords1d, Coords3d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand},
+    layout::{Coords1d, Coords3d, Layout, LayoutExpand, VirtualLayout},
     r#virtual::VirtualTensor,
 };
 
@@ -42,71 +42,35 @@ impl Layout for SimpleGlobalLayout {
     type Coordinates = Coords3d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(this: &Self, coords: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
         let (b, row, col) = coords;
-        let idx = b + row * this.stride_row + col * this.stride_col;
-        idx / comptime![this.config.global_line_size]
+        let idx = b + row * self.stride_row + col * self.stride_col;
+        idx / comptime![self.config.global_line_size]
     }
 
-    fn to_source_pos_checked(this: &Self, coords: Self::Coordinates) -> (u32, bool) {
-        (this.to_source_pos(coords), this.is_in_bounds(coords))
+    fn to_source_pos_checked(&self, coords: Self::Coordinates) -> (u32, bool) {
+        (self.to_source_pos(coords), self.is_in_bounds(coords))
     }
 
-    fn shape(this: &Self) -> Self::Coordinates {
-        (1, this.rows, this.columns)
+    fn shape(&self) -> Self::Coordinates {
+        (1, self.rows, self.columns)
     }
 
-    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, row, col) = pos;
 
-        match comptime!((this.config.check_row_bounds, this.config.check_col_bounds)) {
-            (true, true) => row < this.rows && col < this.columns,
-            (true, false) => row < this.rows,
-            (false, true) => col < this.columns,
+        match comptime!((self.config.check_row_bounds, self.config.check_col_bounds)) {
+            (true, true) => row < self.rows && col < self.columns,
+            (true, false) => row < self.rows,
+            (false, true) => col < self.columns,
             (false, false) => true,
         }
     }
 }
 
-mod r#virtual {
-    use cubecl_std::tensor::layout::*;
-
-    use super::*;
-
-    impl VirtualLayoutOperationsExpand<Coords3d, Coords1d> for SimpleGlobalLayoutExpand {
-        fn __expand_to_source_pos_method(
-            &self,
-            scope: &mut Scope,
-            pos: <Coords3d as CubeType>::ExpandType,
-        ) -> <u32 as CubeType>::ExpandType {
-            SimpleGlobalLayout::__expand_to_source_pos(scope, self.clone(), pos)
-        }
-
-        fn __expand_to_source_pos_checked_method(
-            &self,
-            scope: &mut Scope,
-            pos: <Coords3d as CubeType>::ExpandType,
-        ) -> <(u32, bool) as CubeType>::ExpandType {
-            SimpleGlobalLayout::__expand_to_source_pos_checked(scope, self.clone(), pos)
-        }
-
-        fn __expand_shape_method(&self, scope: &mut Scope) -> <Coords3d as CubeType>::ExpandType {
-            SimpleGlobalLayout::__expand_shape(scope, self.clone())
-        }
-
-        fn __expand_is_in_bounds_method(
-            &self,
-            scope: &mut Scope,
-            pos: <Coords3d as CubeType>::ExpandType,
-        ) -> ExpandElementTyped<bool> {
-            SimpleGlobalLayout::__expand_is_in_bounds(scope, self.clone(), pos)
-        }
-    }
-
-    #[cube]
-    impl SimpleGlobalLayout {
-        pub fn virt(self) -> VirtualLayout<Coords3d, Coords1d> {
-            VirtualLayout::new::<SimpleGlobalLayout>(self)
-        }
+#[cube]
+impl SimpleGlobalLayout {
+    pub fn virt(self) -> VirtualLayout<Coords3d, Coords1d> {
+        VirtualLayout::new::<SimpleGlobalLayout>(self)
     }
 }

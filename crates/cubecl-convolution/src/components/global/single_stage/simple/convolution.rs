@@ -21,7 +21,7 @@ use crate::{
         ConvGemmConfig, ConvolutionConfig,
         global::{
             ConvTilingLayout, GlobalConvolution,
-            layout::{Im2colGlobalLayout, NhwcLayout, OutLayout, WeightLayout},
+            layout::{Im2colLayout, NhwcLayout, OutLayout, WeightLayout},
             load::bias::BiasLoader,
         },
     },
@@ -135,7 +135,7 @@ where
         let check_spatial = comptime![config.check_spatial_bounds()];
         let layout_global =
             NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial).virt();
-        let layout_im2col = Im2colGlobalLayout::new(runtime_args, config).virt();
+        let layout_im2col = Im2colLayout::new(runtime_args, config).virt();
         Self::LhsLoader::new(
             lhs.view(layout_global).view(layout_im2col),
             x_offset,

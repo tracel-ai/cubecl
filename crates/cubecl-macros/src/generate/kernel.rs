@@ -83,17 +83,12 @@ impl ToTokens for KernelSignature {
             }
             KernelReturns::Plain(ty) => quote![#ty],
         };
-        let out = if self
-            .parameters
-            .first()
-            .filter(|param| param.name == "self")
-            .is_some()
-        {
+        let out = if let Some(receiver) = &self.receiver_arg {
             let args = self.parameters.iter().skip(1);
 
             quote! {
                 fn #name #generics(
-                    self, // Always owned during expand.
+                    #receiver,
                     scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type

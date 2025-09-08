@@ -1,10 +1,13 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, LitStr, PathArguments, Token,
-    Type, TypePath, spanned::Spanned, visit_mut::VisitMut,
+    FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
+    TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
-use crate::{parse::kernel::KernelBody, scope::Context};
+use crate::{
+    parse::kernel::{KernelArgs, KernelBody},
+    scope::Context,
+};
 
 use super::{
     helpers::{RemoveHelpers, ReplaceIndices},
@@ -30,8 +33,7 @@ impl CubeImplItem {
     pub fn from_impl_item(
         struct_ty_name: &Type,
         item: ImplItem,
-        src_file: Option<LitStr>,
-        debug_symbols: bool,
+        args: &KernelArgs,
     ) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
@@ -44,14 +46,8 @@ impl CubeImplItem {
                     .iter()
                     .any(|param| matches!(param, FnArg::Receiver(_)));
                 let func_name_expand = format_ident!("__expand_{}", func.sig.ident);
-                let mut func = KernelFn::from_sig_and_block(
-                    func.vis,
-                    func.sig,
-                    func.block,
-                    full_name,
-                    src_file,
-                    debug_symbols,
-                )?;
+                let mut func =
+                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
@@ -116,7 +112,7 @@ impl CubeImplItem {
         }
 
         func.sig.name = func_name_expand;
-
+        func.sig.receiver_arg = None;
         let param = func.sig.parameters.first_mut().expect("Should be a method");
         param.name = Ident::new("this", param.span());
 
@@ -173,6 +169,7 @@ impl CubeImplItem {
             };
             param.name = Ident::new("this", param.span());
             param.normalized_ty = ty;
+            func_sig.receiver_arg = None;
         }
         func_sig.plain_returns_self();
 
@@ -203,20 +200,14 @@ impl CubeImplItem {
 }
 
 impl CubeImpl {
-    pub fn from_item_impl(
-        mut item_impl: ItemImpl,
-        src_file: Option<LitStr>,
-        debug_symbols: bool,
-    ) -> syn::Result<Self> {
+    pub fn from_item_impl(mut item_impl: ItemImpl, args: &KernelArgs) -> syn::Result<Self> {
         let struct_name = *item_impl.self_ty.clone();
 
         let items = item_impl
             .items
             .iter()
             .cloned()
-            .map(|item| {
-                CubeImplItem::from_impl_item(&struct_name, item, src_file.clone(), debug_symbols)
-            })
+            .map(|item| CubeImplItem::from_impl_item(&struct_name, item, args))
             .flat_map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
                     Ok(items) => items.into_iter().map(Ok).collect(),

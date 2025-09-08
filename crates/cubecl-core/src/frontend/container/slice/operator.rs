@@ -1,10 +1,6 @@
 use super::{ReadOnly, ReadWrite, Slice, SliceExpand, SliceOriginExpand, SliceVisibility};
-use crate::{
-    frontend::{Array, CubePrimitive, CubeType, ExpandElementTyped, indexation::Index},
-    ir::Scope,
-    prelude::{SharedMemory, Tensor, expand_length_native},
-    unexpanded,
-};
+use crate as cubecl;
+use crate::{ir::Scope, prelude::*, unexpanded};
 use cubecl_common::tf32;
 use cubecl_ir::ExpandElement;
 
@@ -223,22 +219,14 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     }
 }
 
+#[cube(receiver_type = "ref")]
 pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExpand<E>> {
     /// Return a read-only view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice<Start: Index, End: Index>(&self, start: Start, end: End) -> Slice<E, ReadOnly> {
+    fn slice(&self, start: u32, end: u32) -> Slice<E, ReadOnly> {
         unexpanded!()
-    }
-    /// Expand function of [SliceOperator::slice].
-    fn __expand_slice(
-        scope: &mut Scope,
-        expand: Self::ExpandType,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadOnly> {
-        expand.__expand_slice_method(scope, start, end)
     }
 
     /// Reinterprete the current type as a read-only slice.
@@ -246,13 +234,9 @@ pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExp
     fn to_slice(&self) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
-
-    /// Expand function of [SliceOperator::to_slice].
-    fn __expand_to_slice(scope: &mut Scope, expand: Self::ExpandType) -> SliceExpand<E, ReadOnly> {
-        expand.__expand_to_slice_method(scope)
-    }
 }
 
+#[cube(receiver_type = "ref")]
 pub trait SliceMutOperator<E: CubePrimitive>:
     CubeType<ExpandType: SliceMutOperatorExpand<E>>
 {
@@ -260,22 +244,8 @@ pub trait SliceMutOperator<E: CubePrimitive>:
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
     /// the length of `self`.
     #[allow(unused_variables)]
-    fn slice_mut<Start: Index, End: Index>(
-        &mut self,
-        start: Start,
-        end: End,
-    ) -> Slice<E, ReadWrite> {
+    fn slice_mut(&mut self, start: u32, end: u32) -> Slice<E, ReadWrite> {
         unexpanded!()
-    }
-
-    /// Expand function of [SliceMutOperator::slice_mut].
-    fn __expand_slice_mut(
-        scope: &mut Scope,
-        expand: Self::ExpandType,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadWrite> {
-        expand.__expand_slice_mut_method(scope, start, end)
     }
 
     /// Reinterprete the current type as a read-write slice.
@@ -283,36 +253,6 @@ pub trait SliceMutOperator<E: CubePrimitive>:
     fn to_slice_mut(&mut self) -> Slice<E, ReadWrite> {
         unexpanded!()
     }
-
-    /// Expand function of [SliceMutOperator::to_slice_mut].
-    fn __expand_to_slice_mut(
-        scope: &mut Scope,
-        expand: Self::ExpandType,
-    ) -> SliceExpand<E, ReadWrite> {
-        expand.__expand_to_slice_mut_method(scope)
-    }
-}
-
-pub trait SliceOperatorExpand<E: CubePrimitive> {
-    fn __expand_slice_method(
-        &self,
-        scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadOnly>;
-
-    fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<E, ReadOnly>;
-}
-
-pub trait SliceMutOperatorExpand<E: CubePrimitive> {
-    fn __expand_slice_mut_method(
-        &self,
-        scope: &mut Scope,
-        start: ExpandElementTyped<u32>,
-        end: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadWrite>;
-
-    fn __expand_to_slice_mut_method(&self, _scope: &mut Scope) -> SliceExpand<E, ReadWrite>;
 }
 
 // Automatic implementation for references to SliceOperator.

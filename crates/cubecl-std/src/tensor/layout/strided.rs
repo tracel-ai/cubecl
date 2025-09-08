@@ -3,9 +3,7 @@ use cubecl_core as cubecl;
 
 use crate::{
     FastDivmod, FastDivmodArgs,
-    tensor::layout::{
-        Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand, virtual_layout,
-    },
+    tensor::layout::{Coords1d, Layout, LayoutExpand},
 };
 
 /// Layout for tensors strided only on the last dimension, i.e. freshly allocated ones. Treats the
@@ -51,24 +49,22 @@ impl Layout for StridedLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
-        let offset_abs = pos * comptime![this.line_size as u32];
-        let (y, x) = this.shape.div_mod(offset_abs);
-        let offset = y * this.stride + x;
-        offset / comptime![this.line_size as u32]
+    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
+        let offset_abs = pos * comptime![self.line_size as u32];
+        let (y, x) = self.shape.div_mod(offset_abs);
+        let offset = y * self.stride + x;
+        offset / comptime![self.line_size as u32]
     }
 
-    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        (this.to_source_pos(pos), this.is_in_bounds(pos))
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+        (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 
-    fn shape(this: &Self) -> Self::Coordinates {
-        this.len
+    fn shape(&self) -> Self::Coordinates {
+        self.len
     }
 
-    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
-        pos < this.len
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        pos < self.len
     }
 }
-
-virtual_layout!(StridedLayout, StridedLayoutExpand);

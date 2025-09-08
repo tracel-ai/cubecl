@@ -3,7 +3,7 @@ use std::{marker::PhantomData, sync::Arc};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic, unexpanded};
 
-use crate::tensor::layout::{Coordinates, Layout};
+use crate::tensor::layout::{Coordinates, Layout, LayoutExpand};
 
 /// A virtual layout, to carry a layout without the need for generic parameters everywhere.
 /// `C` represents the coordinate space of the underlying layout.
@@ -49,8 +49,8 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
     /// Create a new virtual layout from a concrete one
     pub fn new<L>(_layout: L) -> VirtualLayout<C, S>
     where
-        L: VirtualLayoutOperations<C, S> + CubeType,
-        L::ExpandType: VirtualLayoutOperationsExpand<C, S>,
+        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
+        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S>,
     {
         unexpanded!()
     }
@@ -58,8 +58,8 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
     /// Expand function of [VirtualLayout::__expand_new]
     pub fn __expand_new<L>(_scope: &mut Scope, layout: L::ExpandType) -> VirtualLayoutExpand<C, S>
     where
-        L: VirtualLayoutOperations<C, S> + CubeType,
-        L::ExpandType: VirtualLayoutOperationsExpand<C, S> + 'static,
+        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
+        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S> + 'static,
     {
         VirtualLayoutExpand::new::<L>(layout)
     }
@@ -69,8 +69,8 @@ impl<C: Coordinates, S: Coordinates> VirtualLayoutExpand<C, S> {
     /// Create a new virtual layout from a concrete one
     pub fn new<L>(layout: L::ExpandType) -> VirtualLayoutExpand<C, S>
     where
-        L: VirtualLayoutOperations<C, S> + CubeType,
-        L::ExpandType: VirtualLayoutOperationsExpand<C, S> + 'static,
+        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
+        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S> + 'static,
     {
         VirtualLayoutExpand::<C, S> {
             state: Arc::new(layout),
@@ -90,46 +90,51 @@ impl<C: Coordinates, S: Coordinates> IntoMut for VirtualLayoutExpand<C, S> {
 
 impl<C: Coordinates, S: Coordinates> CubeDebug for VirtualLayoutExpand<C, S> {}
 
-/// Virtualized layout
-pub trait VirtualLayoutOperations<C: Coordinates, S: Coordinates> {
-    fn to_source_pos(&self, pos: C) -> S;
-    fn to_source_pos_checked(&self, pos: C) -> (S, bool);
-    fn shape(&self) -> C;
-    fn is_in_bounds(&self, pos: C) -> bool;
-}
-
-/// Expand for virtualized layouts. Should be implemented for layouts to make them compatible with
-/// [VirtualLayout] and [TensorView].
-pub trait VirtualLayoutOperationsExpand<C: Coordinates, S: Coordinates> {
-    fn __expand_to_source_pos_method(&self, scope: &mut Scope, pos: C::ExpandType)
-    -> S::ExpandType;
+pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType> {
+    fn __expand_to_source_pos_method(
+        &self,
+        scope: &mut Scope,
+        pos: <C as CubeType>::ExpandType,
+    ) -> <S as CubeType>::ExpandType;
     fn __expand_to_source_pos_checked_method(
         &self,
         scope: &mut Scope,
-        pos: C::ExpandType,
+        pos: <C as CubeType>::ExpandType,
     ) -> <(S, bool) as CubeType>::ExpandType;
-    fn __expand_shape_method(&self, scope: &mut Scope) -> C::ExpandType;
+    fn __expand_shape_method(&self, scope: &mut Scope) -> <C as CubeType>::ExpandType;
     fn __expand_is_in_bounds_method(
         &self,
         scope: &mut Scope,
-        pos: C::ExpandType,
+        pos: <C as CubeType>::ExpandType,
     ) -> ExpandElementTyped<bool>;
 }
 
-impl<L: Layout> VirtualLayoutOperations<L::Coordinates, L::SourceCoordinates> for L {
-    fn to_source_pos(&self, pos: L::Coordinates) -> L::SourceCoordinates {
-        L::to_source_pos(self, pos)
+impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates> for L {
+    fn __expand_to_source_pos_method(
+        &self,
+        scope: &mut Scope,
+        pos: <L::Coordinates as CubeType>::ExpandType,
+    ) -> <L::SourceCoordinates as CubeType>::ExpandType {
+        <L as LayoutExpand>::__expand_to_source_pos_method(self.clone(), scope, pos)
     }
 
-    fn to_source_pos_checked(&self, pos: L::Coordinates) -> (L::SourceCoordinates, bool) {
-        L::to_source_pos_checked(self, pos)
+    fn __expand_to_source_pos_checked_method(
+        &self,
+        scope: &mut Scope,
+        pos: <L::Coordinates as CubeType>::ExpandType,
+    ) -> <(L::SourceCoordinates, bool) as CubeType>::ExpandType {
+        <L as LayoutExpand>::__expand_to_source_pos_checked_method(self.clone(), scope, pos)
     }
 
-    fn shape(&self) -> L::Coordinates {
-        L::shape(self)
+    fn __expand_shape_method(&self, scope: &mut Scope) -> <L::Coordinates as CubeType>::ExpandType {
+        <L as LayoutExpand>::__expand_shape_method(self.clone(), scope)
     }
 
-    fn is_in_bounds(&self, pos: L::Coordinates) -> bool {
-        L::is_in_bounds(self, pos)
+    fn __expand_is_in_bounds_method(
+        &self,
+        scope: &mut Scope,
+        pos: <L::Coordinates as CubeType>::ExpandType,
+    ) -> ExpandElementTyped<bool> {
+        <L as LayoutExpand>::__expand_is_in_bounds_method(self.clone(), scope, pos)
     }
 }

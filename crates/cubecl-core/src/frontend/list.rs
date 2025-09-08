@@ -11,7 +11,7 @@ use cubecl_ir::Scope;
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
 pub trait List<T: CubePrimitive>:
-    CubeType<ExpandType: ListExpand<T> + SliceOperatorExpand<T>> + SliceOperator<T>
+    CubeType<ExpandType: ListExpand<T> + SliceOperatorExpand<T>> + SliceOperator<T> + Lined
 {
     #[allow(unused)]
     fn read(&self, index: u32) -> T {
@@ -25,10 +25,6 @@ pub trait List<T: CubePrimitive>:
 
     #[allow(unused)]
     fn len(&self) -> u32 {
-        unexpanded!();
-    }
-
-    fn line_size(&self) -> u32 {
         unexpanded!();
     }
 
@@ -51,10 +47,6 @@ pub trait List<T: CubePrimitive>:
     fn __expand_len(scope: &mut Scope, this: Self::ExpandType) -> ExpandElementTyped<u32> {
         this.__expand_len_method(scope)
     }
-
-    fn __expand_line_size(scope: &mut Scope, this: Self::ExpandType) -> u32 {
-        this.__expand_line_size_method(scope)
-    }
 }
 
 /// Expand version of [CubeRead].
@@ -70,8 +62,6 @@ pub trait ListExpand<T: CubePrimitive>: SliceOperatorExpand<T> {
         index: ExpandElementTyped<u32>,
     ) -> T::ExpandType;
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
-    fn line_size(&self) -> u32;
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32;
 }
 
 /// Type for which we can read and write values in cube functions.
@@ -177,3 +167,22 @@ where
         L::__expand_write(scope, this, index, value);
     }
 }
+
+pub trait Lined: CubeType<ExpandType: LinedExpand> {
+    fn line_size(&self) -> u32 {
+        unexpanded!()
+    }
+    fn __expand_line_size(_scope: &mut Scope, this: Self::ExpandType) -> u32 {
+        this.line_size()
+    }
+}
+
+pub trait LinedExpand {
+    fn line_size(&self) -> u32;
+    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
+        self.line_size()
+    }
+}
+
+impl<'a, L: Lined> Lined for &'a L where &'a L: CubeType<ExpandType: LinedExpand> {}
+impl<'a, L: Lined> Lined for &'a mut L where &'a mut L: CubeType<ExpandType: LinedExpand> {}

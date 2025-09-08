@@ -1,6 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::{self as cubecl, unexpanded};
+use crate::{
+    self as cubecl,
+    prelude::{Lined, LinedExpand},
+    unexpanded,
+};
 use cubecl_ir::VariableKind;
 use cubecl_macros::{cube, intrinsic};
 
@@ -225,11 +229,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<SharedMemory<T>> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len_method(self.clone(), scope)
     }
+}
 
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
-    }
-
+impl<T: CubePrimitive> Lined for SharedMemory<T> {}
+impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<SharedMemory<T>> {
     fn line_size(&self) -> u32 {
         self.expand.ty.line_size()
     }
