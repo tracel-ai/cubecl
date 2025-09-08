@@ -9,7 +9,7 @@ use crate::components::global::{self, GlobalMatmul};
 use crate::components::{LhsG, MatmulPrecision, RhsG};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.
