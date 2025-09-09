@@ -157,9 +157,12 @@ impl CudaServer {
                     ..Default::default()
                 };
 
+                let before_0 = std::time::Instant::now();
                 unsafe {
                     cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
                 };
+                let after_sync_0 = before_0.elapsed();
+                println!("Time 0 {after_sync_0:?}");
                 result.push(data);
             }
 
