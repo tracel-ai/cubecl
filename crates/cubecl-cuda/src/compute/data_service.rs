@@ -185,6 +185,7 @@ impl CudaDataTransfer {
             )
             .result();
 
+            // TODO: We should have a fallback when peer access isn't supported.
             if let Err(_err) = result {
                 // Try to enable (idempotent). If not supported, fall back.
                 enable_one_way_peer_access(info_send.call.context)
