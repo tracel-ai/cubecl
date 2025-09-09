@@ -1,5 +1,5 @@
 use crate::{
-    data_service::ComputeDataTransferId,
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -84,25 +84,27 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
 
-    /// Send data to another server. Should be called with [recv_from_peer](Self::recv_from_peer)
+    /// Send data to another server. Should be called with [data_transfer_recv](Self::data_transfer_recv)
     ///
-    /// * `id` - A unique id for the transaction
-    /// * `src` - The source for the read operation.
-    fn send_to_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>>;
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `src`: The source for the read operation.
+    #[allow(unused_variables)]
+    fn data_transfer_send(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
 
-    /// Receive data from another server. Should be called with [send_to_peer](Self::send_to_peer)
+    /// Receive data from another server. Should be called with [data_transfer_send](Self::data_transfer_send)
     ///
-    /// * `id` - A unique id for the transaction
-    /// * `dst` - The destination for the write operation.
-    fn recv_from_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>>;
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `dst`: The destination for the write operation.
+    #[allow(unused_variables)]
+    fn data_transfer_recv(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(

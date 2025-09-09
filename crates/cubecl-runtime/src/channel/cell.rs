@@ -1,5 +1,5 @@
 use super::ComputeChannel;
-use crate::data_service::ComputeDataTransferId;
+use crate::data_service::DataTransferId;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
@@ -70,22 +70,14 @@ where
         server.write(descriptors)
     }
 
-    fn send_to_peer(
-        &self,
-        id: ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
         let mut server = self.server.borrow_mut();
-        server.send_to_peer(id, src)
+        server.data_transfer_send(id, src);
     }
 
-    fn recv_from_peer(
-        &self,
-        id: ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
         let mut server = self.server.borrow_mut();
-        server.recv_from_peer(id, dst)
+        server.data_transfer_recv(id, dst);
     }
 
     fn sync(&self) -> DynFut<()> {

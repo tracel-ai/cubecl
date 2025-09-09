@@ -2,7 +2,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
-    data_service::ComputeDataTransferId,
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -312,7 +312,7 @@ where
     }
 
     /// Transfer data from one client to another
-    fn do_to_client(
+    fn data_transfer_execute(
         &self,
         src_descriptor: CopyDescriptor<'_>,
         alloc_descriptor: AllocationDescriptor<'_>,
@@ -330,18 +330,14 @@ where
             .remove(0);
 
         // Unique id for this transaction
-        let id = ComputeDataTransferId::new();
+        let id = DataTransferId::new();
 
         // Send with source server
-        let send_fut = self.channel.send_to_peer(id, src_descriptor);
+        self.channel.data_transfer_send(id, src_descriptor);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(&shape, &strides, elem_size);
-        let recv_fut: core::pin::Pin<Box<dyn Future<Output = Result<(), IoError>> + Send>> =
-            dst_server.channel.recv_from_peer(id, desc);
-
-        // wait for send and recv to both be registered
-        cubecl_common::reader::read_sync(async { futures::try_join!(send_fut, recv_fut).unwrap() });
+        dst_server.channel.data_transfer_recv(id, desc);
 
         alloc
     }
@@ -352,7 +348,7 @@ where
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
         let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
 
-        self.do_to_client(src_descriptor, alloc_desc, dst_server)
+        self.data_transfer_execute(src_descriptor, alloc_desc, dst_server)
     }
 
     /// Transfer data from one client to another
@@ -364,7 +360,7 @@ where
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
         let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
-        self.do_to_client(src_descriptor, alloc_desc, dst_server)
+        self.data_transfer_execute(src_descriptor, alloc_desc, dst_server)
     }
 
     #[track_caller]

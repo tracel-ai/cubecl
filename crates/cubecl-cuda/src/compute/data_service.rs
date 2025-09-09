@@ -5,18 +5,18 @@ use std::{
 
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
-use cubecl_runtime::data_service::ComputeDataTransferId;
-use cudarc::driver::sys;
+use cubecl_runtime::data_service::DataTransferId;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
+use cudarc::driver::sys::{self};
 
-use crate::compute::{CudaResource, sync::CrossFence};
+use crate::compute::{CudaResource, sync::Fence};
 
 static SERVICE: Mutex<Option<CudaDataServiceClient>> = Mutex::new(None);
 
 pub(crate) struct CudaDataService {
     recv: Receiver<CudaDataTransferMsg>,
-    transfers: HashMap<ComputeDataTransferId, CudaDataTransfer>,
+    transfers: HashMap<DataTransferId, CudaDataTransfer>,
 }
 
 /// A handle to a cuda resource with the context and stream for manupulating it
@@ -24,6 +24,7 @@ pub struct CudaDataTransferCall {
     pub context: sys::CUcontext,
     pub stream: sys::CUstream,
     pub resource: CudaResource,
+    pub device: i32,
 }
 
 unsafe impl Send for CudaDataTransferCall {}
@@ -34,33 +35,27 @@ pub struct CudaDataServiceClient {
 }
 
 enum CudaDataTransferMsg {
-    Send(
-        ComputeDataTransferId,
-        CudaDataTransferCall,
-        usize,
-        SyncSender<()>,
-    ),
-    Recv(
-        ComputeDataTransferId,
-        CudaDataTransferCall,
-        usize,
-        SyncSender<()>,
-    ),
+    Send(DataTransferId, CudaDataTransferCall, u64, Fence),
+    Recv(DataTransferId, CudaDataTransferCall, SyncSender<()>),
 }
 
 impl CudaDataServiceClient {
-    pub fn send(&self, id: ComputeDataTransferId, handle: CudaDataTransferCall, num_bytes: usize) {
-        let (send, recv) = std::sync::mpsc::sync_channel(1);
+    pub fn send(
+        &self,
+        id: DataTransferId,
+        handle: CudaDataTransferCall,
+        num_bytes: u64,
+        fence: Fence,
+    ) {
         self.sender
-            .send(CudaDataTransferMsg::Send(id, handle, num_bytes, send))
+            .send(CudaDataTransferMsg::Send(id, handle, num_bytes, fence))
             .unwrap();
-        recv.recv().unwrap();
     }
 
-    pub fn recv(&self, id: ComputeDataTransferId, handle: CudaDataTransferCall, num_bytes: usize) {
+    pub fn recv(&self, id: DataTransferId, handle: CudaDataTransferCall) {
         let (send, recv) = std::sync::mpsc::sync_channel(1);
         self.sender
-            .send(CudaDataTransferMsg::Recv(id, handle, num_bytes, send))
+            .send(CudaDataTransferMsg::Recv(id, handle, send))
             .unwrap();
         recv.recv().unwrap();
     }
@@ -97,11 +92,11 @@ impl CudaDataService {
     fn run(mut self) {
         while let Ok(msg) = self.recv.recv() {
             match msg {
-                CudaDataTransferMsg::Send(id, handle, num_bytes, sender) => {
-                    self.send(id, handle, num_bytes, sender);
+                CudaDataTransferMsg::Send(id, handle, num_bytes, fence) => {
+                    self.send(id, handle, num_bytes, fence);
                 }
-                CudaDataTransferMsg::Recv(id, handle, num_bytes, sender) => {
-                    self.recv(id, handle, num_bytes, sender);
+                CudaDataTransferMsg::Recv(id, handle, sender) => {
+                    self.recv(id, handle, sender);
                 }
             }
         }
@@ -109,129 +104,83 @@ impl CudaDataService {
 
     fn send(
         &mut self,
-        id: ComputeDataTransferId,
-        handle: CudaDataTransferCall,
-        num_bytes: usize,
-        sender: SyncSender<()>,
+        id: DataTransferId,
+        call: CudaDataTransferCall,
+        num_bytes: u64,
+        fence: Fence,
     ) {
         let transfer = self.transfers.remove(&id);
+        let info = DataTransferSendInfo {
+            fence,
+            call,
+            num_bytes,
+        };
         match transfer {
             Some(mut transfer) => {
-                if transfer.src_call.is_some() {
-                    panic!("Can't send twice")
-                }
-                transfer.src_call = Some(handle);
-                transfer.src_callback = Some(sender);
-                transfer.num_bytes = num_bytes;
-                if transfer.dst_call.is_some() {
-                    // operation is ready
-                    transfer.execute().unwrap();
-                } else {
-                    self.transfers.insert(id, transfer);
-                }
+                assert!(transfer.info_send.is_none(), "Can't send twice");
+
+                transfer.info_send = Some(info);
+                transfer.execute().unwrap();
             }
             None => {
-                let transfer = CudaDataTransfer {
-                    src_call: Some(handle),
-                    src_callback: Some(sender),
-                    dst_call: None,
-                    dst_callback: None,
-                    num_bytes: num_bytes,
-                };
+                let mut transfer = CudaDataTransfer::default();
+                transfer.info_send = Some(info);
                 self.transfers.insert(id, transfer);
             }
         }
     }
 
-    fn recv(
-        &mut self,
-        id: ComputeDataTransferId,
-        handle: CudaDataTransferCall,
-        num_bytes: usize,
-        sender: SyncSender<()>,
-    ) {
+    fn recv(&mut self, id: DataTransferId, call: CudaDataTransferCall, callback: SyncSender<()>) {
         let transfer = self.transfers.remove(&id);
+        let info = DataTransferRecvInfo { call, callback };
         match transfer {
             Some(mut transfer) => {
-                if transfer.dst_call.is_some() {
-                    panic!("Can't receive twice")
-                }
-                transfer.dst_call = Some(handle);
-                transfer.dst_callback = Some(sender);
-                transfer.num_bytes = num_bytes;
-                if transfer.src_call.is_some() {
-                    // operation is ready
-                    transfer.execute().unwrap();
-                }
+                assert!(transfer.info_recv.is_none(), "Can't receive twice");
+                transfer.info_recv = Some(info);
+
+                transfer.execute().unwrap();
             }
             None => {
-                let transfer = CudaDataTransfer {
-                    src_call: None,
-                    src_callback: None,
-                    dst_call: Some(handle),
-                    dst_callback: Some(sender),
-                    num_bytes: num_bytes,
-                };
+                let mut transfer = CudaDataTransfer::default();
+                transfer.info_recv = Some(info);
                 self.transfers.insert(id, transfer);
             }
         }
     }
 }
 
+#[derive(Default)]
 struct CudaDataTransfer {
-    pub(crate) src_call: Option<CudaDataTransferCall>,
-    pub(crate) src_callback: Option<SyncSender<()>>,
-    pub(crate) dst_call: Option<CudaDataTransferCall>,
-    pub(crate) dst_callback: Option<SyncSender<()>>,
-    pub(crate) num_bytes: usize,
+    info_send: Option<DataTransferSendInfo>,
+    info_recv: Option<DataTransferRecvInfo>,
+}
+
+struct DataTransferSendInfo {
+    fence: Fence,
+    num_bytes: u64,
+    call: CudaDataTransferCall,
+}
+
+struct DataTransferRecvInfo {
+    call: CudaDataTransferCall,
+    callback: SyncSender<()>,
 }
 
 impl CudaDataTransfer {
     fn execute(self) -> Result<(), IoError> {
-        let CudaDataTransfer {
-            src_call,
-            src_callback,
-            dst_call,
-            dst_callback,
-            num_bytes,
-        } = self;
+        let info_send = self.info_send.expect("To be filled");
+        let info_recv = self.info_recv.expect("To be filled");
 
-        let Some(CudaDataTransferCall {
-            context: src_context,
-            stream: src_stream,
-            resource: src_resource,
-        }) = src_call
-        else {
-            panic!("No source");
-        };
-
-        let Some(CudaDataTransferCall {
-            context: dst_context,
-            stream: dst_stream,
-            resource: dst_resource,
-        }) = dst_call
-        else {
-            panic!("No source");
-        };
-
-        // TODO could be cached
-        let (dst_dev, src_dev) = unsafe {
-            cudarc::driver::result::ctx::set_current(dst_context).unwrap();
-            let mut dst_dev = 0;
-            sys::cuCtxGetDevice(&mut dst_dev as *mut i32);
-            cudarc::driver::result::ctx::set_current(src_context).unwrap();
-            let mut src_dev = 0;
-            sys::cuCtxGetDevice(&mut src_dev as *mut i32);
-
-            (dst_dev, src_dev)
-        };
-
-        // Copy from receiving device, then create an event
-        let transfer_fence = unsafe {
-            cudarc::driver::result::ctx::set_current(dst_context).unwrap();
+        // Copy from receiving device
+        unsafe {
+            cudarc::driver::result::ctx::set_current(info_recv.call.context).unwrap();
 
             // Try to enable (idempotent). If not supported, fall back.
-            let peer_enabled = match enable_one_way_peer_access(dst_dev, src_context, src_dev) {
+            let peer_enabled = match enable_one_way_peer_access(
+                info_recv.call.device,
+                info_send.call.context,
+                info_send.call.device,
+            ) {
                 Ok(true) => true,
                 Ok(false) => false,
                 Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
@@ -242,31 +191,20 @@ impl CudaDataTransfer {
                 panic!("P2P not enabled");
             }
 
-            eprintln!("dst: {:?}, src: {:?}", dst_resource.ptr, src_resource.ptr);
             sys::cuMemcpyPeerAsync(
-                dst_resource.ptr,
-                dst_context,
-                src_resource.ptr,
-                src_context,
-                num_bytes,
-                dst_stream,
+                info_recv.call.resource.ptr,
+                info_recv.call.context,
+                info_send.call.resource.ptr,
+                info_send.call.context,
+                info_send.num_bytes as usize,
+                info_recv.call.stream,
             )
             .result()
             .unwrap();
-
-            // Signal the transfer finished for the sending thread
-            CrossFence::new(dst_stream, src_stream)
         };
 
-        unsafe {
-            cudarc::driver::result::ctx::set_current(src_context).unwrap();
-
-            transfer_fence.wait();
-        }
-
-        // Operation done
-        src_callback.unwrap().send(()).unwrap();
-        dst_callback.unwrap().send(()).unwrap();
+        info_send.fence.wait_async(info_recv.call.stream);
+        info_recv.callback.send(()).unwrap();
 
         Ok(())
     }

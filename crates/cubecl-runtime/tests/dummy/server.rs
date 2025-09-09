@@ -1,7 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
-use cubecl_runtime::data_service::ComputeDataTransferId;
+use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
@@ -108,17 +108,17 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn send_to_peer(
+    fn data_transfer_send(
         &mut self,
-        _id: ComputeDataTransferId,
+        _id: DataTransferId,
         _src: CopyDescriptor<'_>,
     ) -> DynFut<Result<(), IoError>> {
         unimplemented!()
     }
 
-    fn recv_from_peer(
+    fn data_transfer_recv(
         &mut self,
-        _id: ComputeDataTransferId,
+        _id: DataTransferId,
         _dst: CopyDescriptor<'_>,
     ) -> DynFut<Result<(), IoError>> {
         unimplemented!()

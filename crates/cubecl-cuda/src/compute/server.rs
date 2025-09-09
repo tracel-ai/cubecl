@@ -13,12 +13,11 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use cubecl_runtime::data_service::ComputeDataTransferId;
+use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
-use crate::compute::sync::CrossFence;
 use crate::compute::{CudaDataService, CudaDataTransferCall};
 use crate::{CudaCompiler, WmmaCompiler};
 
@@ -68,6 +67,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
+    device_id: i32,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
@@ -170,7 +170,7 @@ impl CudaServer {
         let fence = ctx.fence();
 
         async move {
-            fence.wait();
+            fence.wait_sync();
             result
         }
     }
@@ -184,73 +184,6 @@ impl CudaServer {
         let sync = ctx.lazy_sync_stream();
         async move {
             sync.wait();
-        }
-    }
-
-    fn send_to_peer_async(
-        &mut self,
-        id: ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
-    ) -> impl Future<Output = Result<(), IoError>> + Send + use<> {
-        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
-
-        let src_ctx = self.get_context();
-
-        let src_resource = src_ctx
-            .memory_management
-            .get_resource(
-                src.binding.memory,
-                src.binding.offset_start,
-                src.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)
-            .unwrap();
-
-        let client = CudaDataService::get_client();
-
-        let handle = CudaDataTransferCall {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: src_resource,
-        };
-
-        async move {
-            client.send(id, handle, num_bytes);
-
-            Ok(())
-        }
-    }
-
-    fn recv_from_peer_async(
-        &mut self,
-        id: ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
-    ) -> impl Future<Output = Result<(), IoError>> + Send + use<> {
-        let num_bytes = dst.shape.iter().product::<usize>() * dst.elem_size;
-
-        let dst_ctx = self.get_context();
-        let dst_resource = dst_ctx
-            .memory_management
-            .get_resource(
-                dst.binding.memory,
-                dst.binding.offset_start,
-                dst.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)
-            .unwrap();
-
-        let client = CudaDataService::get_client();
-
-        let handle = CudaDataTransferCall {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: dst_resource,
-        };
-
-        async move {
-            client.recv(id, handle, num_bytes);
-
-            Ok(())
         }
     }
 }
@@ -645,20 +578,56 @@ impl ComputeServer for CudaServer {
         self.ctx.memory_management.mode(mode);
     }
 
-    fn send_to_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        src: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
-        Box::pin(self.send_to_peer_async(id, src))
+    fn data_transfer_send(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
+
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = CudaDataService::get_client();
+
+        let handle = CudaDataTransferCall {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: src_resource,
+            device: self.ctx.device_id,
+        };
+        let fence = Fence::new(self.ctx.stream);
+
+        client.send(id, handle, num_bytes as u64, fence);
     }
 
-    fn recv_from_peer(
-        &mut self,
-        id: ComputeDataTransferId,
-        dst: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
-        Box::pin(self.recv_from_peer_async(id, dst))
+    fn data_transfer_recv(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let dst_ctx = self.get_context();
+        let dst_resource = dst_ctx
+            .memory_management
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = CudaDataService::get_client();
+
+        let call = CudaDataTransferCall {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: dst_resource,
+            device: self.ctx.device_id,
+        };
+
+        client.recv(id, call);
     }
 }
 
@@ -674,12 +643,14 @@ impl CudaContext {
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
+        device_id: i32,
         arch: CudaArchitecture,
     ) -> Self {
         Self {
             context,
             memory_management,
             module_names: HashMap::new(),
+            device_id,
             #[cfg(feature = "compilation-cache")]
             ptx_cache: {
                 let config = cubecl_runtime::config::GlobalConfig::get();
@@ -702,11 +673,6 @@ impl CudaContext {
 
     fn fence(&mut self) -> Fence {
         Fence::new(self.stream)
-    }
-
-    #[allow(unused)]
-    fn cross_fence(&mut self, consumer: Self) -> CrossFence {
-        CrossFence::new(self.stream, consumer.stream)
     }
 
     fn lazy_sync_stream(&mut self) -> SyncStream {

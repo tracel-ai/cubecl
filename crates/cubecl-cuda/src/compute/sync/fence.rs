@@ -6,7 +6,6 @@ use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstrea
 /// This is useful for doing synchronization outside of the compute server, which is normally
 /// locked by a mutex or a channel. This allows the server to continue accepting other tasks.
 pub struct Fence {
-    stream: *mut CUstream_st,
     event: *mut CUevent_st,
 }
 
@@ -18,6 +17,7 @@ pub struct Fence {
 // [Fence], it is safe.
 unsafe impl Send for Fence {}
 
+#[allow(unused)]
 impl Fence {
     /// Create a new [Fence] on the given stream.
     ///
@@ -30,25 +30,34 @@ impl Fence {
                 cudarc::driver::result::event::create(CUevent_flags::CU_EVENT_DEFAULT).unwrap();
             cudarc::driver::result::event::record(event, stream).unwrap();
 
-            Self { stream, event }
+            Self { event }
         }
     }
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
+    pub fn wait_sync(self) {
+        unsafe {
+            cudarc::driver::result::event::synchronize(self.event).unwrap();
+            cudarc::driver::result::event::destroy(self.event).unwrap();
+        }
+    }
+
+    /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
+    /// [stream](CUstream_st) are completed on the [original stream](CUstream_st) before new tasks
+    /// are registered on the [provided stream](CUstream_st).
     ///
     /// # Notes
     ///
     /// The [stream](CUevent_st) must be initialized.
-    pub fn wait(self) {
+    pub fn wait_async(self, stream: *mut CUstream_st) {
         unsafe {
-            cudarc::driver::result::event::synchronize(self.event).unwrap();
-            // cudarc::driver::result::stream::wait_event(
-            //     self.stream,
-            //     self.event,
-            //     CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
-            // )
-            // .unwrap();
+            cudarc::driver::result::stream::wait_event(
+                stream,
+                self.event,
+                CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
+            )
+            .unwrap();
             cudarc::driver::result::event::destroy(self.event).unwrap();
         }
     }

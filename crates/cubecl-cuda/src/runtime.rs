@@ -53,7 +53,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let device_id = device.index as i32;
+    let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -235,7 +236,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     register_mma_features(supported_mma_combinations, &mut device_props);
     register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
+    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, device_id, arch);
     let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }

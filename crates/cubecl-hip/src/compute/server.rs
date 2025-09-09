@@ -1,10 +1,3 @@
-use cubecl_core::server::{
-    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
-};
-use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::shared::CompilationOptions;
-use cubecl_runtime::data_service::ComputeDataTransferId;
-
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
@@ -14,7 +7,12 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
+use cubecl_core::server::{
+    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+};
 use cubecl_core::{Feature, server::Bindings};
+use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{
     HIP_SUCCESS, get_hip_include_path, hipMemcpyKind_hipMemcpyDeviceToHost,
     hipMemcpyKind_hipMemcpyHostToDevice, hiprtcResult_HIPRTC_SUCCESS,
@@ -341,22 +339,6 @@ impl ComputeServer for HipServer {
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         let ctx = self.get_context();
         ctx.memory_management.mode(mode);
-    }
-
-    fn send_to_peer(
-        &mut self,
-        _id: ComputeDataTransferId,
-        _src: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        todo!("Peer-to-peer data service unimplemented for HIP backend")
-    }
-
-    fn recv_from_peer(
-        &mut self,
-        _id: ComputeDataTransferId,
-        _dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        todo!("Peer-to-peer data service unimplemented for HIP backend")
     }
 }
 
