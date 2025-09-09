@@ -191,6 +191,8 @@ impl CudaDataTransfer {
             //     panic!("P2P not enabled");
             // }
 
+            info_send.fence.wait_async(info_recv.call.stream);
+
             sys::cuMemcpyPeerAsync(
                 info_recv.call.resource.ptr,
                 info_recv.call.context,
@@ -203,7 +205,6 @@ impl CudaDataTransfer {
             .unwrap();
         };
 
-        info_send.fence.wait_async(info_recv.call.stream);
         info_recv.callback.send(()).unwrap();
 
         Ok(())
