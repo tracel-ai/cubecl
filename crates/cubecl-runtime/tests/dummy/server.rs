@@ -1,9 +1,10 @@
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
-use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
+use cubecl_runtime::server::{
+    Bindings, CopyDescriptor, DataTransferService, ProfileError, ProfilingToken,
+};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{id::KernelId, server::IoError};
 use cubecl_runtime::{
@@ -57,6 +58,8 @@ impl KernelTask {
     }
 }
 
+impl DataTransferService for DummyServer {}
+
 impl ComputeServer for DummyServer {
     type Kernel = KernelTask;
     type Storage = BytesStorage;
@@ -106,22 +109,6 @@ impl ComputeServer for DummyServer {
             bytes[..data.len()].copy_from_slice(data);
         }
         Ok(())
-    }
-
-    fn register_data_transfer_src(
-        &mut self,
-        _id: DataTransferId,
-        _src: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
-        unimplemented!()
-    }
-
-    fn register_data_transfer_dest(
-        &mut self,
-        _id: DataTransferId,
-        _dst: CopyDescriptor<'_>,
-    ) -> DynFut<Result<(), IoError>> {
-        unimplemented!()
     }
 
     fn sync(&mut self) -> DynFut<()> {
