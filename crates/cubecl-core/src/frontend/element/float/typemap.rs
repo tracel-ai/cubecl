@@ -256,6 +256,7 @@ impl<const POS: u8> Degrees for ElemExpand<POS> {}
 impl<const POS: u8> Radians for ElemExpand<POS> {}
 impl<const POS: u8> ArcTan2 for ElemExpand<POS> {}
 impl<const POS: u8> Powf for ElemExpand<POS> {}
+impl<const POS: u8, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
 impl<const POS: u8> Sqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}
 impl<const POS: u8> Floor for ElemExpand<POS> {}

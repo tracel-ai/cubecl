@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
-use cubecl_std::tensor::{View, layout::Coords3d, r#virtual::ReadWrite};
+use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
@@ -91,7 +91,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer;
+    fn init_writer(tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
         query_reader: QueryRegisterReader<AP::EI>,

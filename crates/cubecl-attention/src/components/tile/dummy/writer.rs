@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{global::memory::TensorWriter, stage::StageMemoryConfig as _};
 use cubecl_std::{
     div_ceil,
-    tensor::{View, layout::Coords3d, r#virtual::ReadWrite},
+    tensor::{View, layout::Coords3d},
 };
 
 use crate::components::{FlashIdent, global::GlobalAttentionConfig};
@@ -18,7 +18,7 @@ pub struct DummyWriter<EO: Numeric> {
 #[cube]
 impl<EO: Numeric> DummyWriter<EO> {
     pub fn new(
-        tensor: View<EO, Coords3d, ReadWrite>,
+        tensor: View<Line<EO>, Coords3d, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

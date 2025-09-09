@@ -8,7 +8,6 @@ use cubecl_std::tensor::{
         Coords1d,
         linear::{LinearView, linear_view},
     },
-    r#virtual::ReadWrite,
 };
 use rand::{Rng, SeedableRng, rngs::StdRng};
 
@@ -108,7 +107,7 @@ pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
         state_1: &mut u32,
         state_2: &mut u32,
         state_3: &mut u32,
-        output: &mut View<E, Coords1d, ReadWrite>,
+        output: &mut View<Line<E>, Coords1d, ReadWrite>,
     );
 }
 
@@ -116,7 +115,7 @@ type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
 
 #[cube(launch)]
 fn prng_kernel<F: RandomFamily, E: Numeric>(
-    output: &mut LinearView<E, ReadWrite>,
+    output: &mut LinearView<Line<E>, ReadWrite>,
     seed_0: u32,
     seed_1: u32,
     seed_2: u32,

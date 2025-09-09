@@ -43,7 +43,7 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
 
     /// Create an empty GpuTensor with a shape
     pub fn empty(shape: Vec<usize>, client: &ComputeClient<R::Server, R::Channel>) -> Self {
-        let size = shape.iter().product();
+        let size = shape.iter().product::<usize>() * core::mem::size_of::<F>();
         let data = client.empty(size);
 
         let strides = compact_strides(&shape);

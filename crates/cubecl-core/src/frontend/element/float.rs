@@ -38,6 +38,7 @@ pub trait Float:
     + Radians
     + ArcTan2
     + Powf
+    + Powi<i32>
     + Sqrt
     + Round
     + Floor

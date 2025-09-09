@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -125,7 +124,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         )
     }
 
-    fn init_writer(out: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer {
+    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
         DummyWriter::new(out, 0, 0, 0)
     }
 

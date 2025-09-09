@@ -10,7 +10,7 @@ use cubecl_std::tensor::{View, layout::Coords3d};
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
-    pub view: View<EI, Coords3d>,
+    pub view: View<Line<EI>, Coords3d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
     pub batch_offset: u32,
@@ -31,7 +31,7 @@ pub struct Window<EG: Numeric> {
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: View<EG, Coords3d>, offset_global: Coords3d) -> Self {
+    pub fn new(view: View<Line<EG>, Coords3d>, offset_global: Coords3d) -> Self {
         let (b, row, col) = offset_global;
         TensorReader::<EG> {
             view,

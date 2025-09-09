@@ -210,6 +210,31 @@ macro_rules! impl_binary_func_fixed_output_vectorization {
     }
 }
 
+macro_rules! impl_binary_func_mixed_types {
+    ($trait_name:ident, $method_name:ident, $func_name_expand:ident, $method_name_expand:ident, $rhs_ty: ident, $operator:expr, $($type:ty),*) => {
+        pub trait $trait_name<Rhs: CubeType + Sized>: CubeType + Sized {
+            fn $method_name(self, _rhs: Rhs) -> Self {
+                unexpanded!()
+            }
+
+            fn $func_name_expand(
+                scope: &mut Scope,
+                lhs: ExpandElementTyped<Self>,
+                rhs: ExpandElementTyped<Rhs>,
+            ) -> ExpandElementTyped<Self> {
+                binary_expand(scope, lhs.into(), rhs.into(), $operator).into()
+            }
+        }
+
+        $(impl $trait_name<$rhs_ty> for $type {})*
+        $(impl ExpandElementTyped<$type> {
+            pub fn $method_name_expand(self, scope: &mut Scope, rhs: ExpandElementTyped<$rhs_ty>) -> ExpandElementTyped<$type> {
+                binary_expand(scope, self.into(), rhs.into(), $operator).into()
+            }
+        })*
+    }
+}
+
 impl_binary_func!(
     Powf,
     powf,
@@ -327,6 +352,29 @@ impl_binary_func_fixed_output_vectorization!(
     __expand_dot_method,
     Arithmetic::Dot,
     0,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64,
+    i8,
+    i16,
+    i32,
+    i64,
+    u8,
+    u16,
+    u32,
+    u64
+);
+
+impl_binary_func_mixed_types!(
+    Powi,
+    powi,
+    __expand_powi,
+    __expand_powi_method,
+    i32,
+    Arithmetic::Powi,
     f16,
     bf16,
     flex32,

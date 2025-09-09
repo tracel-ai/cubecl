@@ -208,21 +208,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn compile_debug(&mut self, debug: core::NonSemantic) {
+        if let core::NonSemantic::Print {
+            format_string,
+            args,
+        } = &debug
+        {
+            let args = args
+                .iter()
+                .map(|arg| {
+                    let var = self.compile_variable(*arg);
+                    self.read(&var)
+                })
+                .collect::<Vec<_>>();
+            self.debug_printf(format_string, args).unwrap();
+            return;
+        }
         if self.debug_enabled() {
             match debug {
-                core::NonSemantic::Print {
-                    format_string,
-                    args,
-                } => {
-                    let args = args
-                        .into_iter()
-                        .map(|arg| {
-                            let var = self.compile_variable(arg);
-                            self.read(&var)
-                        })
-                        .collect::<Vec<_>>();
-                    self.debug_printf(format_string, args).unwrap();
-                }
+                core::NonSemantic::Print { .. } => panic!("Should already be handled"),
                 core::NonSemantic::Comment { .. } => {
                     // Comments not supported for SPIR-V
                 }

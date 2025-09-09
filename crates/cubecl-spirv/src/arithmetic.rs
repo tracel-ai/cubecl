@@ -389,7 +389,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
-            Arithmetic::Powf(op) => {
+            // No powi for Vulkan, just auto-cast to float
+            Arithmetic::Powf(op) | Arithmetic::Powi(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     let bool = match out_ty {
                         Item::Scalar(_) => Elem::Bool.id(b),
