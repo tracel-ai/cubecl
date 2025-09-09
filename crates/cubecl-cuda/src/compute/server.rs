@@ -166,11 +166,18 @@ impl CudaServer {
             Ok(result)
         }
 
+        let before_1 = std::time::Instant::now();
         let result = inner(ctx, descriptors);
         let fence = ctx.fence();
 
+        let before_2 = std::time::Instant::now();
         async move {
             fence.wait_sync();
+            let after_sync_1 = before_1.elapsed();
+            let after_sync_2 = before_2.elapsed();
+            println!("Time 1 {after_sync_1:?}");
+            println!("Time 2 {after_sync_2:?}");
+
             result
         }
     }
