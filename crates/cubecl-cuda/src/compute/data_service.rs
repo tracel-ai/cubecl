@@ -175,21 +175,21 @@ impl CudaDataTransfer {
         unsafe {
             cudarc::driver::result::ctx::set_current(info_recv.call.context).unwrap();
 
-            // Try to enable (idempotent). If not supported, fall back.
-            let peer_enabled = match enable_one_way_peer_access(
-                info_recv.call.device,
-                info_send.call.context,
-                info_send.call.device,
-            ) {
-                Ok(true) => true,
-                Ok(false) => false,
-                Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
-                Err(_) => false, // conservative fallback if enable failed
-            };
+            // // Try to enable (idempotent). If not supported, fall back.
+            // let peer_enabled = match enable_one_way_peer_access(
+            //     info_recv.call.device,
+            //     info_send.call.context,
+            //     info_send.call.device,
+            // ) {
+            //     Ok(true) => true,
+            //     Ok(false) => false,
+            //     Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
+            //     Err(_) => false, // conservative fallback if enable failed
+            // };
 
-            if !peer_enabled {
-                panic!("P2P not enabled");
-            }
+            // if !peer_enabled {
+            //     panic!("P2P not enabled");
+            // }
 
             sys::cuMemcpyPeerAsync(
                 info_recv.call.resource.ptr,
