@@ -108,7 +108,7 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn data_transfer_send(
+    fn register_data_transfer_src(
         &mut self,
         _id: DataTransferId,
         _src: CopyDescriptor<'_>,
@@ -116,7 +116,7 @@ impl ComputeServer for DummyServer {
         unimplemented!()
     }
 
-    fn data_transfer_recv(
+    fn register_data_transfer_dest(
         &mut self,
         _id: DataTransferId,
         _dst: CopyDescriptor<'_>,

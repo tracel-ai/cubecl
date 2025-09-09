@@ -8,7 +8,8 @@ use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
 use cubecl_core::server::{
-    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
+    Allocation, AllocationKind, CopyDescriptor, DataTransferService, IoError, ProfileError,
+    ProfilingToken,
 };
 use cubecl_core::{Feature, server::Bindings};
 use cubecl_cpp::formatter::format_cpp;
@@ -68,6 +69,7 @@ struct HipCompiledKernel {
 }
 
 unsafe impl Send for HipServer {}
+impl DataTransferService for HipServer {}
 
 impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {

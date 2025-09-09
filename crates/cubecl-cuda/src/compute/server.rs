@@ -1,6 +1,6 @@
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
-    server::IoError,
+    server::{DataTransferService, IoError},
 };
 use cubecl_core::{
     future::{self, DynFut},
@@ -18,7 +18,7 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
-use crate::compute::{CudaDataService, CudaDataTransferCall};
+use crate::compute::{DataTransferItem, DataTransferRuntime};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
@@ -576,10 +576,10 @@ impl ComputeServer for CudaServer {
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         self.ctx.memory_management.mode(mode);
     }
+}
 
-    fn data_transfer_send(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let num_bytes = src.shape.iter().product::<usize>() * src.elem_size;
-
+impl DataTransferService for CudaServer {
+    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
         let src_ctx = self.get_context();
 
         let src_resource = src_ctx
@@ -592,19 +592,19 @@ impl ComputeServer for CudaServer {
             .ok_or(IoError::InvalidHandle)
             .unwrap();
 
-        let client = CudaDataService::get_client();
+        let client = DataTransferRuntime::client();
 
-        let handle = CudaDataTransferCall {
+        let handle = DataTransferItem {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: src_resource,
         };
         let fence = Fence::new(self.ctx.stream);
 
-        client.send(id, handle, num_bytes as u64, fence);
+        client.register_src(id, handle, fence);
     }
 
-    fn data_transfer_recv(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
         let dst_ctx = self.get_context();
         let dst_resource = dst_ctx
             .memory_management
@@ -616,15 +616,15 @@ impl ComputeServer for CudaServer {
             .ok_or(IoError::InvalidHandle)
             .unwrap();
 
-        let client = CudaDataService::get_client();
+        let client = DataTransferRuntime::client();
 
-        let call = CudaDataTransferCall {
+        let call = DataTransferItem {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: dst_resource,
         };
 
-        client.recv(id, call);
+        client.register_dest(id, call);
     }
 }
 

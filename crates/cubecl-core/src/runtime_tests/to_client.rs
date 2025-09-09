@@ -8,6 +8,7 @@ macro_rules! testgen_to_client {
 
         #[test]
         fn test_to_client() {
+            // TODO: Hardcoded for CUDA, we should have a way to select device from an id.
             let client_0 = TestRuntime::client(&CudaDevice { index: 0 });
             let client_1 = TestRuntime::client(&CudaDevice { index: 1 });
 

@@ -188,10 +188,10 @@ where
                         server.allocation_mode(mode);
                     }
                     Message::DataTransferSend(id, src) => {
-                        server.data_transfer_send(id, src.as_ref());
+                        server.register_src(id, src.as_ref());
                     }
                     Message::DataTransferRecv(id, dst) => {
-                        server.data_transfer_recv(id, dst.as_ref());
+                        server.register_dest(id, dst.as_ref());
                     }
                 };
             }
