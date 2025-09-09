@@ -285,8 +285,8 @@ impl_unary_func!(
 );
 impl_unary_func!(
     Degrees,
-    degrees,
-    __expand_degrees,
+    to_degrees,
+    __expand_to_degrees,
     Arithmetic::Degrees,
     f16,
     bf16,
@@ -297,8 +297,8 @@ impl_unary_func!(
 );
 impl_unary_func!(
     Radians,
-    radians,
-    __expand_radians,
+    to_radians,
+    __expand_to_radians,
     Arithmetic::Radians,
     f16,
     bf16,

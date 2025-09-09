@@ -378,7 +378,7 @@ test_unary_impl!(test_atanh, F, F::atanh, [
     }
 ]);
 
-test_unary_impl!(test_degrees, F, F::degrees, [
+test_unary_impl!(test_degrees, F, F::to_degrees, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
@@ -399,7 +399,7 @@ test_unary_impl!(test_degrees, F, F::degrees, [
     }
 ]);
 
-test_unary_impl!(test_radians, F, F::radians, [
+test_unary_impl!(test_radians, F, F::to_radians, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
