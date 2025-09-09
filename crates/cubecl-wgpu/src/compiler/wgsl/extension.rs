@@ -97,6 +97,7 @@ pub fn call_powf(
     let function_name = construct_vectorized_name(base_name, out.item());
 
     let out = out.fmt_left();
+    let rhs = rhs.fmt_cast_to(Item::Scalar(lhs.elem()));
     write!(f, "{out} = {function_name}({lhs}, {rhs});")
 }
 

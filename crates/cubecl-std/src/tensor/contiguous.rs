@@ -91,7 +91,7 @@ pub fn index_offset_contiguous_fastdivmod(
 
 #[cube(launch)]
 fn into_contiguous_kernel<N: CubePrimitive>(
-    input: &LinearView<N>,
+    input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
@@ -106,7 +106,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
         registers[i] = input[offset_output + i];
     }
 
-    let offset_output = out_layout.to_linear_pos(offset_output);
+    let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
     for i in 0..elems_per_thread {
@@ -116,7 +116,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 
 #[cube(launch)]
 fn into_contiguous_kernel_pack<N: CubePrimitive>(
-    input: &LinearView<N>,
+    input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
     #[comptime] elems_per_thread: u32,
@@ -141,7 +141,7 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
         registers[i] = reg;
     }
 
-    let offset_output = out_layout.to_linear_pos(offset_output);
+    let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
     for i in 0..lines_per_thread {

@@ -4,21 +4,13 @@ use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
-    layout::{Coordinates, VirtualLayout},
+    layout::{Coordinates, Coords1d, VirtualLayout},
     view::View,
 };
 
-/// The read tag for [virtual tensor](VirtualTensor).
-#[derive(Clone)]
-pub struct Read;
-
-/// The read write tag for [virtual tensor](VirtualTensor).
-#[derive(Clone)]
-pub struct ReadWrite;
-
 /// Tensor representation that is decoupled from how the tensor is stored.
 #[derive(Clone)]
-pub struct VirtualTensor<E: Numeric, IO = Read> {
+pub struct VirtualTensor<E: Numeric, IO = ReadOnly> {
     // state: Arc<dyn VirtualTensorOperations<E>>,
     _e: PhantomData<E>,
     _p: PhantomData<IO>,
@@ -87,7 +79,7 @@ impl<E: Numeric, IO: Clone> SliceOperatorExpand<Line<E>> for VirtualTensorExpand
     }
 
     fn __expand_to_slice_method(&self, scope: &mut Scope) -> SliceExpand<Line<E>, ReadOnly> {
-        let end = self.__expand_len_method(scope);
+        let end = self.clone().__expand_buffer_len_method(scope);
         self.state
             .clone()
             .__expand_read_window_method(scope, 0.into(), end)
@@ -244,8 +236,11 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
 impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
     /// layouts
-    pub fn view<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, Read> {
-        View::new::<VirtualTensor<E, IO>>(*self, layout)
+    pub fn view<C: Coordinates + 'static>(
+        &self,
+        layout: VirtualLayout<C, Coords1d>,
+    ) -> View<Line<E>, C, ReadOnly> {
+        View::new::<VirtualTensor<E, IO>, Coords1d>(*self, layout)
     }
 }
 
@@ -253,8 +248,11 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
 impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     /// Create a mutable conceptual view over this tensor, allowing for multi-dimensional indexing
     /// with custom layouts
-    pub fn view_mut<C: Coordinates>(&self, layout: VirtualLayout<C>) -> View<E, C, ReadWrite> {
-        View::new_mut::<VirtualTensor<E, ReadWrite>>(*self, layout)
+    pub fn view_mut<C: Coordinates + 'static>(
+        &self,
+        layout: VirtualLayout<C, Coords1d>,
+    ) -> View<Line<E>, C, ReadWrite> {
+        View::new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(*self, layout)
     }
 }
 
@@ -311,14 +309,14 @@ impl<E: Numeric> SliceMutOperatorExpand<Line<E>> for VirtualTensorExpand<E, Read
     }
 }
 
-impl<E: Numeric> VirtualTensor<E, Read> {
+impl<E: Numeric> VirtualTensor<E, ReadOnly> {
     /// Create a new [read only](Read) [virtual tensor](VirtualTensor).
     pub fn new<V: VirtualTensorOperations<E> + 'static>(_v: &V) -> Self {
         unexpanded!()
     }
 
     /// Expand function of [Self::new].
-    pub fn __expand_new<V>(_scope: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, Read>
+    pub fn __expand_new<V>(_scope: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, ReadOnly>
     where
         V::ExpandType: VirtualTensorOperationsExpand<E>,
         V: VirtualTensorOperations<E> + CubeType + 'static,

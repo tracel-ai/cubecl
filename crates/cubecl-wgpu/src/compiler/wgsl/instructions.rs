@@ -446,7 +446,9 @@ impl Display for Instruction {
                     assert_eq!(lhs, out, "Can't use regular and on atomic");
                     writeln!(f, "atomicAnd({out}, {rhs});")
                 } else if line_size > 1 {
-                    writeln!(f, "{out} = {}(", out.item())?;
+                    let item = out.item();
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {item}(")?;
                     for i in 0..line_size {
                         let lhs_i = lhs.index(i);
                         let rhs_i = rhs.index(i);
@@ -464,7 +466,9 @@ impl Display for Instruction {
                     assert_eq!(lhs, out, "Can't use regular or on atomic");
                     writeln!(f, "atomicOr({out}, {rhs});")
                 } else if line_size > 1 {
-                    writeln!(f, "{out} = {}(", out.item())?;
+                    let item = out.item();
+                    let out = out.fmt_left();
+                    writeln!(f, "{out} = {item}(")?;
                     for i in 0..line_size {
                         let lhs_i = lhs.index(i);
                         let rhs_i = rhs.index(i);
