@@ -258,7 +258,10 @@ pub(crate) fn create_client_on_setup(
         plane_size_max: 32,
         #[cfg(not(apple_silicon))]
         plane_size_max: adapter_limits.max_subgroup_size,
-        max_bindings: limits.max_storage_buffers_per_shader_stage,
+        // wgpu uses an additional buffer for variable-length buffers,
+        // so we have to use one buffer less on our side to make room for that wgpu internal buffer.
+        // See: https://github.com/gfx-rs/wgpu/blob/a9638c8e3ac09ce4f27ac171f8175671e30365fd/wgpu-hal/src/metal/device.rs#L799
+        max_bindings: limits.max_storage_buffers_per_shader_stage.saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
