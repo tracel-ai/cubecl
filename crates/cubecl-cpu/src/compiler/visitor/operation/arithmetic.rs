@@ -474,7 +474,7 @@ impl<'a> Visitor<'a> {
                     self.create_float_constant_from_item(radians.input.ty, 0.017453292519943295);
                 let result =
                     self.append_operation_with_result(arith::mulf(value, f, self.location));
-                 self.insert_variable(out, result);
+                self.insert_variable(out, result);
             }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);

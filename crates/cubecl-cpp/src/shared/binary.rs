@@ -224,7 +224,6 @@ impl<D: Dialect> Binary<D> for Powf {
 
 pub struct Powi;
 
-
 impl<D: Dialect> Binary<D> for Powi {
     // Powi doesn't support half and no half equivalent exists
     fn format_scalar<Lhs: Display, Rhs: Display>(
@@ -271,7 +270,7 @@ impl<D: Dialect> Binary<D> for Powi {
         f.write_str("};\n")
     }
 }
-      
+
 pub struct ArcTan2;
 
 impl<D: Dialect> Binary<D> for ArcTan2 {
