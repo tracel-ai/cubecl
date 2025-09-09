@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
 use cubecl_std::{
     FastDivmod,
     tensor::{
-        layout::{Coords3d, Layout, LayoutExpand, VirtualLayout},
+        layout::{Coords3d, Layout, LayoutExpand},
         r#virtual::VirtualTensor,
     },
 };
@@ -124,12 +124,5 @@ impl Layout for WeightLayout {
         let check_k = comptime![self.config.check_row_bounds];
         let check_n = comptime![self.config.check_col_bounds];
         (!check_k || k < self.shape_k) && (!check_n || n < self.shape_n)
-    }
-}
-
-#[cube]
-impl WeightLayout {
-    pub fn virt(self) -> VirtualLayout<Coords3d, NhwcCoords> {
-        VirtualLayout::new::<WeightLayout>(self)
     }
 }

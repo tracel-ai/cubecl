@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     FastDivmod,
-    tensor::layout::{Coords3d, Layout, LayoutExpand, VirtualLayout},
+    tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
 use crate::{
@@ -130,12 +130,5 @@ impl Layout for Im2colLayout {
         let m_in_bounds = comptime!(!self.config.check_row_bounds) || view_m < self.shape_m;
         let k_in_bounds = comptime!(!self.config.check_col_bounds) || view_k < self.shape_k;
         m_in_bounds && k_in_bounds
-    }
-}
-
-#[cube]
-impl Im2colLayout {
-    pub fn virt(self) -> VirtualLayout<Coords3d, NhwcCoords> {
-        VirtualLayout::new::<Im2colLayout>(self)
     }
 }

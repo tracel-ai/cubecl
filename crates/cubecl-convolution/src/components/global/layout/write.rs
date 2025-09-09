@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl};
 use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::{
     FastDivmod,
-    tensor::layout::{Coords3d, Layout, LayoutExpand, VirtualLayout},
+    tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
 use crate::{
@@ -72,12 +72,5 @@ impl Layout for OutLayout {
         let check_m = comptime![self.config.check_row_bounds];
         let check_n = comptime![self.config.check_col_bounds];
         (!check_m || m < self.shape_m) && (!check_n || n < self.shape_n)
-    }
-}
-
-#[cube]
-impl OutLayout {
-    pub fn virt(self) -> VirtualLayout<Coords3d, NhwcCoords> {
-        VirtualLayout::new::<OutLayout>(self)
     }
 }

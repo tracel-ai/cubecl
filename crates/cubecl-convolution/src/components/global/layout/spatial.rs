@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::tensor::{
-    layout::{Coordinates, Coords1d, Layout, LayoutExpand, VirtualLayout},
+    layout::{Coordinates, Coords1d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
 };
 
@@ -160,11 +160,4 @@ pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
         out_seq.push(elem);
     }
     out_seq
-}
-
-#[cube]
-impl NhwcLayout {
-    pub fn virt(self) -> VirtualLayout<NhwcCoords, Coords1d> {
-        VirtualLayout::new::<NhwcLayout>(self)
-    }
 }

@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{
-    layout::{Coords1d, Coords3d, Layout, LayoutExpand, VirtualLayout},
+    layout::{Coords1d, Coords3d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
 };
 
@@ -65,12 +65,5 @@ impl Layout for SimpleGlobalLayout {
             (false, true) => col < self.columns,
             (false, false) => true,
         }
-    }
-}
-
-#[cube]
-impl SimpleGlobalLayout {
-    pub fn virt(self) -> VirtualLayout<Coords3d, Coords1d> {
-        VirtualLayout::new::<SimpleGlobalLayout>(self)
     }
 }
