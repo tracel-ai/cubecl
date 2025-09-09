@@ -35,9 +35,6 @@ env:
   MESA_VERSION: "23.3.1"
   # Corresponds to https://github.com/gfx-rs/ci-build/releases
   MESA_CI_BINARY_BUILD: "build18"
-  # Override cudarc version since it can't be detected on CI. Should correspond to highest feature
-  # set supported by CubeCL
-  CUDARC_CUDA_VERSION: "12080"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
