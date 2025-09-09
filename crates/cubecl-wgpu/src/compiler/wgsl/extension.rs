@@ -89,15 +89,16 @@ pub fn call_powf(
     rhs: &Variable,
     out: &Variable,
 ) -> core::fmt::Result {
-    let base_name = if should_use_scalar_powf(rhs) {
-        POWF_SCALAR
+    let (rhs, base_name) = if should_use_scalar_powf(rhs) {
+        let rhs = rhs.fmt_cast_to(Item::Scalar(lhs.elem()));
+        (rhs, POWF_SCALAR)
     } else {
-        POWF
+        let rhs = rhs.fmt_cast_to(lhs.item());
+        (rhs, POWF)
     };
     let function_name = construct_vectorized_name(base_name, out.item());
 
     let out = out.fmt_left();
-    let rhs = rhs.fmt_cast_to(Item::Scalar(lhs.elem()));
     write!(f, "{out} = {function_name}({lhs}, {rhs});")
 }
 
