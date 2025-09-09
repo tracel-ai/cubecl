@@ -128,6 +128,7 @@ impl CudaServer {
 
                 let rank = shape.len();
                 if rank <= 1 {
+                    let before_0 = std::time::Instant::now();
                     unsafe {
                         cudarc::driver::result::memcpy_dtoh_async(
                             &mut data,
@@ -136,6 +137,8 @@ impl CudaServer {
                         )
                         .unwrap();
                     };
+                    let after_sync_0 = before_0.elapsed();
+                    println!("Time 0 {after_sync_0:?}");
                     result.push(data);
                     continue;
                 }
