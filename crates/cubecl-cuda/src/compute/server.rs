@@ -67,7 +67,6 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    device_id: i32,
     memory_management: MemoryManagement<CudaStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
@@ -128,7 +127,6 @@ impl CudaServer {
 
                 let rank = shape.len();
                 if rank <= 1 {
-                    let before_0 = std::time::Instant::now();
                     unsafe {
                         cudarc::driver::result::memcpy_dtoh_async(
                             &mut data,
@@ -137,8 +135,6 @@ impl CudaServer {
                         )
                         .unwrap();
                     };
-                    let after_sync_0 = before_0.elapsed();
-                    println!("Time 0 {after_sync_0:?}");
                     result.push(data);
                     continue;
                 }
@@ -160,30 +156,20 @@ impl CudaServer {
                     ..Default::default()
                 };
 
-                let before_0 = std::time::Instant::now();
                 unsafe {
                     cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
                 };
-                let after_sync_0 = before_0.elapsed();
-                println!("Time 0 {after_sync_0:?}");
                 result.push(data);
             }
 
             Ok(result)
         }
 
-        let before_1 = std::time::Instant::now();
         let result = inner(ctx, descriptors);
         let fence = ctx.fence();
 
-        let before_2 = std::time::Instant::now();
         async move {
             fence.wait_sync();
-            let after_sync_1 = before_1.elapsed();
-            let after_sync_2 = before_2.elapsed();
-            println!("Time 1 {after_sync_1:?}");
-            println!("Time 2 {after_sync_2:?}");
-
             result
         }
     }
@@ -612,7 +598,6 @@ impl ComputeServer for CudaServer {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: src_resource,
-            device: self.ctx.device_id,
         };
         let fence = Fence::new(self.ctx.stream);
 
@@ -637,7 +622,6 @@ impl ComputeServer for CudaServer {
             context: self.ctx.context,
             stream: self.ctx.stream,
             resource: dst_resource,
-            device: self.ctx.device_id,
         };
 
         client.recv(id, call);
@@ -656,14 +640,12 @@ impl CudaContext {
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
-        device_id: i32,
         arch: CudaArchitecture,
     ) -> Self {
         Self {
             context,
             memory_management,
             module_names: HashMap::new(),
-            device_id,
             #[cfg(feature = "compilation-cache")]
             ptx_cache: {
                 let config = cubecl_runtime::config::GlobalConfig::get();

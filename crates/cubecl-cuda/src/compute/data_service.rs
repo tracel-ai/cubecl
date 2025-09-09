@@ -24,7 +24,6 @@ pub struct CudaDataTransferCall {
     pub context: sys::CUcontext,
     pub stream: sys::CUstream,
     pub resource: CudaResource,
-    pub device: i32,
 }
 
 unsafe impl Send for CudaDataTransferCall {}
@@ -171,29 +170,12 @@ impl CudaDataTransfer {
         let info_send = self.info_send.expect("To be filled");
         let info_recv = self.info_recv.expect("To be filled");
 
-        // Copy from receiving device
         unsafe {
             cudarc::driver::result::ctx::set_current(info_recv.call.context).unwrap();
 
-            // // Try to enable (idempotent). If not supported, fall back.
-            // let peer_enabled = match enable_one_way_peer_access(
-            //     info_recv.call.device,
-            //     info_send.call.context,
-            //     info_send.call.device,
-            // ) {
-            //     Ok(true) => true,
-            //     Ok(false) => false,
-            //     Err(e) if e == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => true,
-            //     Err(_) => false, // conservative fallback if enable failed
-            // };
-
-            // if !peer_enabled {
-            //     panic!("P2P not enabled");
-            // }
-
             info_send.fence.wait_async(info_recv.call.stream);
 
-            sys::cuMemcpyPeerAsync(
+            let result = sys::cuMemcpyPeerAsync(
                 info_recv.call.resource.ptr,
                 info_recv.call.context,
                 info_send.call.resource.ptr,
@@ -201,8 +183,24 @@ impl CudaDataTransfer {
                 info_send.num_bytes as usize,
                 info_recv.call.stream,
             )
-            .result()
-            .unwrap();
+            .result();
+
+            if let Err(_err) = result {
+                // Try to enable (idempotent). If not supported, fall back.
+                enable_one_way_peer_access(info_send.call.context)
+                    .expect("Can't enable peer access");
+
+                sys::cuMemcpyPeerAsync(
+                    info_recv.call.resource.ptr,
+                    info_recv.call.context,
+                    info_send.call.resource.ptr,
+                    info_send.call.context,
+                    info_send.num_bytes as usize,
+                    info_recv.call.stream,
+                )
+                .result()
+                .expect("Peer communication is not activated for the provided GPUs");
+            }
         };
 
         info_recv.callback.send(()).unwrap();
@@ -211,50 +209,15 @@ impl CudaDataTransfer {
     }
 }
 
-fn cu_ok(res: sys::CUresult) -> Result<(), sys::CUresult> {
-    if res == CUDA_SUCCESS {
-        Ok(())
-    } else {
-        Err(res)
-    }
-}
-
-/// Enable **one-way** peer access so that memory allocated in `ctx_src`
-/// is accessible from `ctx_dst`. Idempotent: returns Ok(true) if enabled
-/// (either just now or previously), Ok(false) if not supported.
-unsafe fn enable_one_way_peer_access(
-    dev_dst: sys::CUdevice,
-    ctx_src: sys::CUcontext,
-    dev_src: sys::CUdevice,
-) -> Result<bool, sys::CUresult> {
+unsafe fn enable_one_way_peer_access(ctx_src: sys::CUcontext) -> Result<(), sys::CUresult> {
     unsafe {
-        if !can_access_peer(dev_dst, dev_src)? {
-            return Ok(false);
-        }
         // Enable: destination must be current; it enables access to source.
-        let res = sys::cuCtxEnablePeerAccess(ctx_src, 0);
-        match res {
-            CUDA_SUCCESS => Ok(true),
+        match sys::cuCtxEnablePeerAccess(ctx_src, 0) {
+            CUDA_SUCCESS => Ok(()),
             // Already enabled → fine.
-            r if r == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(true),
+            r if r == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
             // Any other error bubbles up.
             err => Err(err),
         }
     }
-}
-
-/// Returns true if hardware/driver supports peer access from `dev_dst` to `dev_src`.
-unsafe fn can_access_peer(
-    dev_dst: sys::CUdevice,
-    dev_src: sys::CUdevice,
-) -> Result<bool, sys::CUresult> {
-    let mut can: i32 = 0;
-    unsafe {
-        cu_ok(sys::cuDeviceCanAccessPeer(
-            &mut can as *mut i32,
-            dev_dst,
-            dev_src,
-        ))?;
-    }
-    Ok(can != 0)
 }

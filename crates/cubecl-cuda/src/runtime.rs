@@ -236,7 +236,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     register_mma_features(supported_mma_combinations, &mut device_props);
     register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, device_id, arch);
+    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
     let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
