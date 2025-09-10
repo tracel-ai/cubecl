@@ -1,5 +1,4 @@
-use cubecl_core::Device;
-use cubecl_runtime::id::DeviceId;
+use cubecl_common::device::{Device, DeviceId};
 
 // It is not clear if CUDA has a limit on the number of bindings it can hold at
 // any given time, but it's highly unlikely that it's more than this. We can

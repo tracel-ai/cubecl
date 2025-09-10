@@ -1,5 +1,4 @@
-use cubecl_core::Device;
-use cubecl_runtime::id::DeviceId;
+use cubecl_common::device::{Device, DeviceId};
 
 #[derive(new, Clone, PartialEq, Eq, Default, Hash, Debug)]
 pub struct CpuDevice;

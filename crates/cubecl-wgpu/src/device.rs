@@ -1,5 +1,4 @@
-use cubecl_core::Device;
-use cubecl_runtime::id::DeviceId;
+use cubecl_common::device::{Device, DeviceId};
 
 /// The device struct when using the `wgpu` backend.
 ///

@@ -1,7 +1,7 @@
 use crate::codegen::Compiler;
 use crate::compute::CubeTask;
+use cubecl_common::device::Device;
 use cubecl_ir::{StorageType, TargetProperties};
-use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 pub use cubecl_runtime::channel;
@@ -49,20 +49,6 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     /// Returns the properties of the target hardware architecture.
     fn target_properties() -> TargetProperties;
-}
-
-/// Device trait for all cubecl devices.
-pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync {
-    /// Create a device from its [id](DeviceId).
-    fn from_id(device_id: DeviceId) -> Self;
-    /// Retrieve the [device id](DeviceId) from the device.
-    fn to_id(&self) -> DeviceId;
-    /// Returns the number of devices available under the provided type id.
-    fn device_count(type_id: u16) -> usize;
-    /// Returns the total number of devices that can be handled by the runtime.
-    fn device_count_total() -> usize {
-        Self::device_count(0)
-    }
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

@@ -1,8 +1,6 @@
-use std::ffi::c_int;
-
-use cubecl_core::Device;
+use cubecl_common::device::{Device, DeviceId};
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
-use cubecl_runtime::id::DeviceId;
+use std::ffi::c_int;
 
 #[derive(new, Clone, PartialEq, Eq, Default, Hash)]
 pub struct AmdDevice {
