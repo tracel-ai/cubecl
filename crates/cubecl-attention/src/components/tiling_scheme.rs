@@ -6,6 +6,25 @@ use crate::components::FlashIdent;
 pub struct AttentionTilingScheme {
     pub tile_size: AttentionTileSize,
     pub partition_size: AttentionPartitionSize,
+    pub stage_size: AttentionStageSize,
+}
+
+impl AttentionTilingScheme {
+    pub fn seq_q(&self) -> u32 {
+        self.tile_size.seq_q * self.partition_size.seq_q * self.stage_size.seq_q
+    }
+
+    pub fn head_dim(&self) -> u32 {
+        self.tile_size.head_dim * self.partition_size.head_dim
+    }
+
+    pub fn seq_kv(&self) -> u32 {
+        self.tile_size.seq_kv * self.partition_size.seq_kv
+    }
+
+    pub fn val_dim(&self) -> u32 {
+        self.tile_size.val_dim * self.partition_size.val_dim
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -88,4 +107,10 @@ pub struct AttentionPartitionSize {
     pub head_dim: u32,
     pub seq_kv: u32,
     pub val_dim: u32,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AttentionStageSize {
+    // Other dims don't make sense
+    pub seq_q: u32,
 }
