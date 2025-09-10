@@ -104,10 +104,9 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     let config = DummyAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
-    let cube_count_plan = config.hypercube_config().cube_count_plan(
-        &problem,
-        client.properties().hardware.max_cube_count.clone(),
-    );
+    let cube_count_plan = config
+        .hypercube_config()
+        .cube_count_plan(&problem, &selection);
 
     unsafe {
         <DummyAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
