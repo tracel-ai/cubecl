@@ -15,4 +15,8 @@ impl Device for CpuDevice {
             index_id: 0,
         }
     }
+
+    fn device_count(_type_id: u16) -> usize {
+        1
+    }
 }

@@ -1,4 +1,7 @@
+use std::ffi::c_int;
+
 use cubecl_core::Device;
+use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
 use cubecl_runtime::id::DeviceId;
 
 #[derive(new, Clone, PartialEq, Eq, Default, Hash)]
@@ -23,6 +26,19 @@ impl Device for AmdDevice {
         DeviceId {
             type_id: 0,
             index_id: self.index as u32,
+        }
+    }
+
+    fn device_count(_type_id: u16) -> usize {
+        let mut device_count: c_int = 0;
+        let result;
+        unsafe {
+            result = hipGetDeviceCount(&mut device_count);
+        }
+        if result == HIP_SUCCESS {
+            device_count.try_into().unwrap_or(0)
+        } else {
+            0
         }
     }
 }

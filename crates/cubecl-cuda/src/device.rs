@@ -31,4 +31,8 @@ impl Device for CudaDevice {
             index_id: self.index as u32,
         }
     }
+
+    fn device_count(_type_id: u16) -> usize {
+        cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
+    }
 }

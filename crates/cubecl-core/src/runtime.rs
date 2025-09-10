@@ -47,9 +47,6 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 
-    /// Returns the number of devices that can be handled by the runtime.
-    fn device_count() -> usize;
-
     /// Returns the properties of the target hardware architecture.
     fn target_properties() -> TargetProperties;
 }
@@ -60,6 +57,12 @@ pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync {
     fn from_id(device_id: DeviceId) -> Self;
     /// Retrieve the [device id](DeviceId) from the device.
     fn to_id(&self) -> DeviceId;
+    /// Returns the number of devices available under the provided type id.
+    fn device_count(type_id: u16) -> usize;
+    /// Returns the total number of devices that can be handled by the runtime.
+    fn device_count_total() -> usize {
+        Self::device_count(0)
+    }
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

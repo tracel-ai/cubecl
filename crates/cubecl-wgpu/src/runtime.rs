@@ -94,27 +94,6 @@ impl Runtime for WgpuRuntime {
         true
     }
 
-    fn device_count() -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
-            adapters.len()
-        }
-    }
-
     fn target_properties() -> TargetProperties {
         TargetProperties {
             // Values are irrelevant, since no wgsl backends currently support manual mma

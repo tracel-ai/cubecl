@@ -283,10 +283,6 @@ impl Runtime for CudaRuntime {
         valid_strides(shape, strides)
     }
 
-    fn device_count() -> usize {
-        cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
-    }
-
     fn target_properties() -> TargetProperties {
         TargetProperties {
             mma: MmaProperties {

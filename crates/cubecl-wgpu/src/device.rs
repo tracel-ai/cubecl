@@ -80,4 +80,61 @@ impl Device for WgpuDevice {
             Self::Existing(id) => DeviceId::new(5, *id),
         }
     }
+
+    fn device_count(type_id: u16) -> usize {
+        #[cfg(target_family = "wasm")]
+        {
+            // WebGPU only supports a single device currently.
+            1
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapters: Vec<_> = instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .filter(|adapter| {
+                    let device_type = adapter.get_info().device_type;
+
+                    let adapter_type_id = match device_type {
+                        wgpu::DeviceType::Other => 4,
+                        wgpu::DeviceType::IntegratedGpu => 1,
+                        wgpu::DeviceType::DiscreteGpu => 0,
+                        wgpu::DeviceType::VirtualGpu => 2,
+                        wgpu::DeviceType::Cpu => 3,
+                    };
+
+                    // When best available we return everything.
+                    let is_default = type_id == 4;
+                    adapter_type_id == type_id || is_default
+                })
+                .collect();
+            adapters.len()
+        }
+    }
+
+    fn device_count_total() -> usize {
+        #[cfg(target_family = "wasm")]
+        {
+            // WebGPU only supports a single device currently.
+            1
+        }
+
+        #[cfg(not(target_family = "wasm"))]
+        {
+            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapters: Vec<_> = instance
+                .enumerate_adapters(wgpu::Backends::all())
+                .into_iter()
+                .collect();
+            adapters.len()
+        }
+    }
 }
