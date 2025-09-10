@@ -7,7 +7,7 @@ pub mod profiling;
 
 mod base;
 #[cfg(std_io)]
-pub(crate) mod cache;
+pub mod cache;
 mod logger;
 
 pub use base::*;
