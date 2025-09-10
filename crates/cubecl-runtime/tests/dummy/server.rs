@@ -2,7 +2,9 @@ use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::server::{Bindings, CopyDescriptor, ProfileError, ProfilingToken};
+use cubecl_runtime::server::{
+    Bindings, CopyDescriptor, DataTransferService, ProfileError, ProfilingToken,
+};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{id::KernelId, server::IoError};
 use cubecl_runtime::{
@@ -55,6 +57,8 @@ impl KernelTask {
         self.kernel.compute(resources);
     }
 }
+
+impl DataTransferService for DummyServer {}
 
 impl ComputeServer for DummyServer {
     type Kernel = KernelTask;

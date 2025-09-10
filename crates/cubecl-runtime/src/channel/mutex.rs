@@ -1,4 +1,5 @@
 use super::ComputeChannel;
+use crate::data_service::DataTransferId;
 use crate::memory_management::MemoryAllocationMode;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
@@ -61,6 +62,16 @@ where
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         let mut server = self.server.lock();
         server.write(descriptors)
+    }
+
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let mut server = self.server.lock();
+        server.register_src(id, src);
+    }
+
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let mut server = self.server.lock();
+        server.register_dest(id, dst);
     }
 
     fn sync(&self) -> DynFut<()> {

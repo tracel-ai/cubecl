@@ -18,12 +18,13 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
     "cudarc/dynamic-loading",
-    "cudarc/cuda-12050",
+    "cuda-12050",
 ]
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
-cuda-12080 = []
+cuda-12080 = ["cudarc/cuda-12080"]
+cuda-12050 = ["cudarc/cuda-12050"]
 
 conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
@@ -95,9 +96,6 @@ derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
-
-[build-dependencies]
-cudarc = { workspace = true }
 
 [dev-dependencies]
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [

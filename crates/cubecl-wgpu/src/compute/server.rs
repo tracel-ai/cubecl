@@ -4,7 +4,7 @@ use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{ProfileError, ProfilingToken};
+use cubecl_core::server::{DataTransferService, ProfileError, ProfilingToken};
 use cubecl_core::{
     Feature, MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
@@ -114,6 +114,8 @@ impl WgpuServer {
         pipeline
     }
 }
+
+impl DataTransferService for WgpuServer {}
 
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
