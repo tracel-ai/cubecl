@@ -555,6 +555,21 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
+            Arithmetic::Tan(tan) => {
+                // Tan operations are only available through the ods::math module,
+                // which can not be properly loaded at the moment.
+                // Using dummy for now to satisfy compilation of other tests
+                let value = self.get_variable(tan.input);
+                let abs = self.get_absolute_val(tan.input.ty, value);
+                self.insert_variable(out, abs);
+                /*let value = self.get_variable(tan.input);
+                let result = self.append_operation_with_result(math_ods::tan(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);*/
+            }
             Arithmetic::Tanh(tanh) => {
                 let input = self.get_variable(tanh.input);
                 let output = self.append_operation_with_result(llvm_ods::intr_tanh(

@@ -12,6 +12,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn cosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -76,6 +77,10 @@ pub mod glcompute {
 
         fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.cos_id(ty, Some(out), input).unwrap();
+        }
+
+        fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.tan_id(ty, Some(out), input).unwrap();
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {

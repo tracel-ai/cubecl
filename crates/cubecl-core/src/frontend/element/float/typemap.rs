@@ -243,6 +243,7 @@ impl<const POS: u8> Log for ElemExpand<POS> {}
 impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
 impl<const POS: u8> Sin for ElemExpand<POS> {}
+impl<const POS: u8> Tan for ElemExpand<POS> {}
 impl<const POS: u8> Tanh for ElemExpand<POS> {}
 impl<const POS: u8> Sinh for ElemExpand<POS> {}
 impl<const POS: u8> Cosh for ElemExpand<POS> {}

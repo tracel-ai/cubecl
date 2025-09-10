@@ -748,6 +748,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Tan(op) => instructions.push(wgsl::Instruction::Tan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Tanh(op) => instructions.push(wgsl::Instruction::Tanh {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

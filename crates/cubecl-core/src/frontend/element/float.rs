@@ -25,6 +25,7 @@ pub trait Float:
     + Log1p
     + Cos
     + Sin
+    + Tan
     + Tanh
     + Sinh
     + Cosh

@@ -90,6 +90,7 @@ impl Optimizer {
             | Arithmetic::Log1p(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
+            | Arithmetic::Tan(unary_operator)
             | Arithmetic::Tanh(unary_operator)
             | Arithmetic::Sinh(unary_operator)
             | Arithmetic::Cosh(unary_operator)

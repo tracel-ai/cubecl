@@ -101,6 +101,9 @@ impl ScopeProcessing {
                     Arithmetic::Sin(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Arithmetic::Tan(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Arithmetic::Tanh(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }

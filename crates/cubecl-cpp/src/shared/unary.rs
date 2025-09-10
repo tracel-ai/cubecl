@@ -151,6 +151,7 @@ macro_rules! function {
 function!(Log, "log");
 function!(Cos, "cos");
 function!(Sin, "sin");
+function!(Tan, "tan");
 function!(Sinh, "sinh", false);
 function!(Cosh, "cosh", false);
 function!(ArcCos, "acos", false);

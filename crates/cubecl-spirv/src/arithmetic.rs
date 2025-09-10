@@ -293,6 +293,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
+            Arithmetic::Tan(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::tan(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Arithmetic::Tanh(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     T::tanh(b, ty, input, out);

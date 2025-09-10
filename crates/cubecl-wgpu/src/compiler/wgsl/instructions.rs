@@ -117,6 +117,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Tan {
+        input: Variable,
+        out: Variable,
+    },
     Tanh {
         input: Variable,
         out: Variable,
@@ -633,6 +637,10 @@ impl Display for Instruction {
             Instruction::Sin { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sin({input});")
+            }
+            Instruction::Tan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = tan({input});")
             }
             Instruction::Tanh { input, out } => {
                 #[cfg(target_os = "macos")]

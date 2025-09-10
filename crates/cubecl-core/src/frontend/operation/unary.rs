@@ -176,6 +176,18 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Tan,
+    tan,
+    __expand_tan,
+    Arithmetic::Tan,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Tanh,
     tanh,
     __expand_tanh,

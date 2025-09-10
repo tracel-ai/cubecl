@@ -1,3 +1,4 @@
+use std::f32::consts::PI;
 use std::fmt::Display;
 
 use crate::{self as cubecl, as_type};
@@ -210,6 +211,27 @@ test_unary_impl!(test_cos, F, F::cos, [
     }
 ]);
 
+test_unary_impl!(test_tan, F, F::tan, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 0.78539816339, 1.04719755119, -0.78539816339],
+        expected: as_type![F: 0., 1., 1.73205080757, -1.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 0.78539816339, 1.04719755119, -0.78539816339],
+        expected: as_type![F: 0., 1., 1.73205080757, -1.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 0.78539816339, 1.04719755119, -0.78539816339],
+        expected: as_type![F: 0., 1., 1.73205080757, -1.]
+    }
+]);
+
 test_unary_impl!(test_asin, F, F::asin, [
     {
         input_vectorization: 1,
@@ -382,19 +404,19 @@ test_unary_impl!(test_degrees, F, F::to_degrees, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
-        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268, -3.1415926536],
-        expected: as_type![F: 0., 90., 180., -90., -180.]
+        input: as_type![F: 0., PI / 2., PI, PI * 2., -PI / 2., -PI, -PI * 2.],
+        expected: as_type![F: 0., 90., 180., 360., -90., -180., -360.]
     },
     {
         input_vectorization: 2,
         out_vectorization: 2,
-        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268],
+        input: as_type![F: 0., PI / 2., PI, -PI / 2.],
         expected: as_type![F: 0., 90., 180., -90.]
     },
     {
         input_vectorization: 4,
         out_vectorization: 4,
-        input: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268],
+        input: as_type![F: 0., PI / 2., PI, -PI / 2.],
         expected: as_type![F: 0., 90., 180., -90.]
     }
 ]);
@@ -403,20 +425,20 @@ test_unary_impl!(test_radians, F, F::to_radians, [
     {
         input_vectorization: 1,
         out_vectorization: 1,
-        input: as_type![F: 0., 90., 180., -90., -180.],
-        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268, -3.1415926536]
+        input: as_type![F: 0., 90., 180., 360., -90., -180., -360.],
+        expected: as_type![F: 0., PI / 2., PI, PI * 2., -PI / 2., -PI, -PI * 2.]
     },
     {
         input_vectorization: 2,
         out_vectorization: 2,
         input: as_type![F: 0., 90., 180., -90.],
-        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268]
+        expected: as_type![F: 0., PI / 2., PI, -PI / 2.]
     },
     {
         input_vectorization: 4,
         out_vectorization: 4,
         input: as_type![F: 0., 90., 180., -90.],
-        expected: as_type![F: 0., 1.5707963268, 3.1415926536, -1.5707963268]
+        expected: as_type![F: 0., PI / 2., PI, -PI / 2.]
     }
 ]);
 
