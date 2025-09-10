@@ -28,10 +28,10 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Write bytes to each binding
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
 
-    /// Send data to another server. Returns when recv_from_peer has been called and the transfer has been registered.
+    /// Send data to another server.
     fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>);
 
-    /// Receive data from another server. Returns when send_to_peer has been called and the transfer has been registered.
+    /// Receive data from another server. Returns when the transfer has been registered.
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>);
 
     /// Wait for the completion of every task in the server.

@@ -97,6 +97,11 @@ impl Device for WgpuDevice {
                 .enumerate_adapters(wgpu::Backends::all())
                 .into_iter()
                 .filter(|adapter| {
+                    // Default doesn't filter device types.
+                    if type_id == 4 {
+                        return true;
+                    }
+
                     let device_type = adapter.get_info().device_type;
 
                     let adapter_type_id = match device_type {
@@ -107,9 +112,7 @@ impl Device for WgpuDevice {
                         wgpu::DeviceType::Cpu => 3,
                     };
 
-                    // When best available we return everything.
-                    let is_default = type_id == 4;
-                    adapter_type_id == type_id || is_default
+                    adapter_type_id == type_id
                 })
                 .collect();
             adapters.len()
