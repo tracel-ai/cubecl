@@ -507,22 +507,32 @@ impl TestCase {
         output_shape[self.axis.unwrap()] = 1;
         let output_stride = self.output_stride();
 
-        let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
-                &input_handle,
-                &self.stride,
-                &self.shape,
-                size_of::<P>(),
-            )
+        let input = match TensorHandleRef::<R>::try_from_parts(
+            &input_handle,
+            &self.stride,
+            &self.shape,
+            size_of::<P>(),
+        ) {
+            Ok(h) => h,
+            // Broadcasted inputs may legally use zero strides; fall back to the
+            // unsafe constructor for those specific cases to exercise kernels.
+            Err(TensorHandleError::ZeroStride { .. }) => unsafe {
+                TensorHandleRef::<R>::from_raw_parts(
+                    &input_handle,
+                    &self.stride,
+                    &self.shape,
+                    size_of::<P>(),
+                )
+            },
+            Err(e) => panic!("valid input handle: {e}"),
         };
-        let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
-                &output_handle,
-                &output_stride,
-                &output_shape,
-                size_of::<O>(),
-            )
-        };
+        let output = TensorHandleRef::<R>::try_from_parts(
+            &output_handle,
+            &output_stride,
+            &output_shape,
+            size_of::<O>(),
+        )
+        .expect("valid output handle");
 
         let result = reduce::<R, P, O, K>(
             &client,
@@ -553,17 +563,16 @@ impl TestCase {
         let input_handle = client.create(F::as_bytes(&input_values));
         let output_handle = client.create(F::as_bytes(&[F::from_int(0)]));
 
-        let input = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(
-                &input_handle,
-                &self.stride,
-                &self.shape,
-                size_of::<F>(),
-            )
-        };
-        let output = unsafe {
-            TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
-        };
+        let input = TensorHandleRef::<R>::try_from_parts(
+            &input_handle,
+            &self.stride,
+            &self.shape,
+            size_of::<F>(),
+        )
+        .expect("valid input handle");
+        let output =
+            TensorHandleRef::<R>::try_from_parts(&output_handle, &[1], &[1], size_of::<F>())
+                .expect("valid output handle");
 
         let cube_count = 3;
         let result = shared_sum::<R, F>(&client, input, output, cube_count);

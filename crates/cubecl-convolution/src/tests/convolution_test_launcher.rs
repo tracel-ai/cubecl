@@ -88,15 +88,15 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     }
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-    };
-    let rhs_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-    };
-    let out_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
-    };
+    let lhs_handle =
+        TensorHandleRef::<R>::try_from_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+            .expect("valid lhs handle");
+    let rhs_handle =
+        TensorHandleRef::<R>::try_from_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+            .expect("valid rhs handle");
+    let out_handle =
+        TensorHandleRef::<R>::try_from_parts(&out.handle, &out.strides, &out.shape, elem_size)
+            .expect("valid out handle");
 
     let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, MatmulIdent::Lhs);
     let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, MatmulIdent::Rhs);
