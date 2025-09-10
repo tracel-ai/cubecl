@@ -1,12 +1,12 @@
 /// Autotune config module.
 pub mod autotune;
+/// Cache config module.
+#[cfg(std_io)]
+pub mod cache;
 /// Compilation config module.
 pub mod compilation;
 /// Profiling config module.
 pub mod profiling;
-/// Cache config module.
-#[cfg(std_io)]
-pub mod cache;
 
 mod base;
 mod logger;
