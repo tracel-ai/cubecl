@@ -5,8 +5,8 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryLoader,
-    stage::StageAttentionConfig,
+    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, FlashIdent,
+    global::dummy::DummyQueryLoader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -95,6 +95,7 @@ pub trait GlobalAttentionConfig:
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
-    fn num_stage_iterations(&self) -> u32;
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
 }

@@ -57,11 +57,7 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        let seq_kv_tile = config
-            .stage_config()
-            .tile_config()
-            .attention_tile_size()
-            .seq_kv;
+        let seq_kv_stage = config.tiling_scheme().seq_kv();
 
         let seq_q_tile = config
             .stage_config()
@@ -69,11 +65,11 @@ impl<
             .attention_tile_size()
             .seq_q;
 
-        let num_stage_iterations = div_ceil(seq_kv, seq_kv_tile);
+        let num_stage_iterations = div_ceil(seq_kv, seq_kv_stage);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_tile))
+                CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_stage))
             } else {
                 CubeOption::new_None()
             };
@@ -96,8 +92,8 @@ impl<
 
             sync_cube();
             comment!("Advance view");
-            key_loader.advance_view(seq_kv_tile);
-            value_loader.advance_view(seq_kv_tile);
+            key_loader.advance_view(seq_kv_stage);
+            value_loader.advance_view(seq_kv_stage);
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());

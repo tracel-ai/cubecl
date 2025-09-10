@@ -1,5 +1,5 @@
 use crate::components::{
-    AttentionSetupError,
+    AttentionSetupError, AttentionTilingScheme,
     stage::StageAttentionConfig,
     tile::dummy::{AttentionStageMemoryConfig, FlashMatmulConfig},
 };
@@ -9,6 +9,7 @@ pub struct DummyStageConfig<FC: FlashMatmulConfig> {
     tile_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig<FC::ScoreConfig>,
     value_stage_memory_config: AttentionStageMemoryConfig<FC::ValueConfig>,
+    tiling_scheme: AttentionTilingScheme,
 }
 
 impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
@@ -35,6 +36,10 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig {
         self.value_stage_memory_config
     }
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme {
+        self.tiling_scheme
+    }
 }
 
 impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
@@ -42,11 +47,13 @@ impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
         tile_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig<FC::ScoreConfig>,
         value_stage_memory_config: AttentionStageMemoryConfig<FC::ValueConfig>,
+        tiling_scheme: AttentionTilingScheme,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             tile_config,
             score_stage_memory_config,
             value_stage_memory_config,
+            tiling_scheme,
         }
         .validate()
     }

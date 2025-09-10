@@ -2,8 +2,8 @@ use cubecl_core::CubeDim;
 use cubecl_matmul::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, FlashIdent, global::GlobalAttentionConfig, stage::StageAttentionConfig,
-    tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AttentionTilingScheme, FlashIdent, global::GlobalAttentionConfig,
+    stage::StageAttentionConfig, tile::dummy::FlashMatmulConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -37,11 +37,6 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
         self.stage_config.plane_dim()
     }
 
-    fn num_stage_iterations(&self) -> u32 {
-        // TODO probably won't be comptime
-        1
-    }
-
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig {
         let attention_tile_size = self.stage_config.tile_config().attention_tile_size();
         let num_rows = attention_tile_size.num_rows(ident);
@@ -57,6 +52,10 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
             check_col_bounds: false,
             matrix_layout: MatrixLayout::RowMajor,
         }
+    }
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme {
+        self.stage_config.tiling_scheme()
     }
 }
 

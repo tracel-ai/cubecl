@@ -37,12 +37,18 @@ impl<TA: TileAttentionFamily, RF: ReaderFamily> StageAttentionFamily
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes)?;
+        let tile_config = TA::setup::<AP, R>(
+            client,
+            problem,
+            selection,
+            line_sizes,
+        )?;
 
         DummyStageConfig::new(
             tile_config,
             AttentionStageMemoryConfig::new(tile_config.score_config()),
             AttentionStageMemoryConfig::new(tile_config.value_config()),
+            selection.tiling_scheme
         )
     }
 }

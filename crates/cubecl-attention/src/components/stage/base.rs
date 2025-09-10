@@ -5,6 +5,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::AttentionTilingScheme;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -115,4 +116,7 @@ pub trait StageAttentionConfig:
     fn tile_config(&self) -> Self::FlashMatmulConfig;
     fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
     fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
+
 }
