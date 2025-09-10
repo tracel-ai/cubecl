@@ -2,8 +2,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        AttentionProblem, AttentionSelection, batch::HypercubeSelection,
-        tile::dummy::AttentionTileSize,
+        AttentionPartitionSize, AttentionProblem, AttentionSelection, AttentionTileSize,
+        AttentionTilingScheme, batch::HypercubeSelection,
     },
     kernels::dummy::DummyAlgorithm,
     tests::attention_test_launcher::test_attention_algorithm,
@@ -11,24 +11,27 @@ use crate::{
 
 pub fn attention_tile_wide<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
-    attention_tile_size: AttentionTileSize,
+    tile_size: AttentionTileSize,
 ) {
-    assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
-    let tile_seq_q = attention_tile_size.seq_q;
+    assert!(tile_size.head_dim == tile_size.val_dim);
+    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
         seq_q: tile_seq_q as usize,
-        seq_kv: attention_tile_size.seq_kv as usize,
-        head_dim: attention_tile_size.head_dim as usize,
+        seq_kv: tile_size.seq_kv as usize,
+        head_dim: tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection { tile_seq_q },
-        attention_tile_size,
         plane_dim: 32,
+        tiling_scheme: AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {},
+        },
     };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
@@ -36,25 +39,28 @@ pub fn attention_tile_wide<R: Runtime>(
 
 pub fn attention_different_seq_kv<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
-    attention_tile_size: AttentionTileSize,
+    tile_size: AttentionTileSize,
     seq_kv: usize,
 ) {
-    assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
-    let tile_seq_q = attention_tile_size.seq_q;
+    assert!(tile_size.head_dim == tile_size.val_dim);
+    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
         seq_q: tile_seq_q as usize,
         seq_kv,
-        head_dim: attention_tile_size.head_dim as usize,
+        head_dim: tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection { tile_seq_q },
-        attention_tile_size,
         plane_dim: 32,
+        tiling_scheme: AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {},
+        },
     };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
@@ -62,25 +68,28 @@ pub fn attention_different_seq_kv<R: Runtime>(
 
 pub fn attention_different_seq_q<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
-    attention_tile_size: AttentionTileSize,
+    tile_size: AttentionTileSize,
     seq_q: usize,
 ) {
-    assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
-    let tile_seq_q = attention_tile_size.seq_q;
+    assert!(tile_size.head_dim == tile_size.val_dim);
+    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
         seq_q,
-        seq_kv: attention_tile_size.seq_kv as usize,
-        head_dim: attention_tile_size.head_dim as usize,
+        seq_kv: tile_size.seq_kv as usize,
+        head_dim: tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection { tile_seq_q },
-        attention_tile_size,
         plane_dim: 32,
+        tiling_scheme: AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {},
+        },
     };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
@@ -92,7 +101,7 @@ macro_rules! testgen_attention {
         #[cfg(feature = "attention_tests")]
         mod attention {
             use super::*;
-            use cubecl_attention::components::tile::dummy::AttentionTileSize;
+            use cubecl_attention::components::AttentionTileSize;
 
             #[test]
             fn attention_8_8_8_8() {

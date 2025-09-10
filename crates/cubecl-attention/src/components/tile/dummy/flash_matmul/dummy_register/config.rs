@@ -2,9 +2,8 @@ use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileCo
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::tile::dummy::AttentionTileSize;
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, FlashIdent,
+    AttentionPrecision, AttentionSetupError, AttentionTileSize, FlashIdent,
     tile::dummy::{FlashMatmulConfig, FlashPrecision},
 };
 use cubecl_core::frontend::CubePrimitive;

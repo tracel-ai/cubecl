@@ -3,10 +3,9 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::{Tile, TileConfig};
 
-use crate::components::tile::dummy::AttentionTileSize;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, InvalidConfigError,
+    AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
 };
 use std::fmt::Debug;
 use std::hash::Hash;

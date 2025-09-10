@@ -3,6 +3,12 @@ use cubecl_matmul::components::TileSize;
 use crate::components::FlashIdent;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AttentionTilingScheme {
+    pub tile_size: AttentionTileSize,
+    pub partition_size: AttentionPartitionSize,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 // Score matmul: (seq_q, head_dim) @ (head_dim, seq_kv) → (seq_q, seq_kv)
 // Value matmul: (seq_q, seq_kv) @ (seq_kv, val_dim) → (seq_q, val_dim)
 pub struct AttentionTileSize {
@@ -75,3 +81,6 @@ impl AttentionTileSize {
         self.head_dim == self.val_dim
     }
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct AttentionPartitionSize {}

@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, FlashIdent,
-    tile::dummy::{AttentionTileSize, FlashMatmulConfig, FlashPrecision},
+    AttentionPrecision, AttentionSetupError, AttentionTileSize, FlashIdent,
+    tile::dummy::{FlashMatmulConfig, FlashPrecision},
 };
 use cubecl_core::frontend::CubePrimitive;
 

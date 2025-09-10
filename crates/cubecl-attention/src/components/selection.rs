@@ -1,9 +1,9 @@
-use crate::components::{batch::HypercubeSelection, tile::dummy::AttentionTileSize};
+use crate::components::{AttentionTilingScheme, batch::HypercubeSelection};
 
 #[derive(Debug, Clone)]
 pub struct AttentionSelection {
     pub hypercube_selection: HypercubeSelection,
 
-    pub attention_tile_size: AttentionTileSize,
+    pub tiling_scheme: AttentionTilingScheme,
     pub plane_dim: u32,
 }
