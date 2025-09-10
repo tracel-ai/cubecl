@@ -59,17 +59,13 @@ impl<
 
         let seq_kv_stage = config.tiling_scheme().seq_kv();
 
-        let seq_q_tile = config
-            .stage_config()
-            .tile_config()
-            .attention_tile_size()
-            .seq_q;
+        let seq_q_stage = config.stage_config().tiling_scheme().seq_q();
 
         let num_stage_iterations = div_ceil(seq_kv, seq_kv_stage);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_stage))
+                CubeOption::new_Some((seq_q_stage, seq_kv - i * seq_kv_stage))
             } else {
                 CubeOption::new_None()
             };
