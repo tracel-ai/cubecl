@@ -6,6 +6,12 @@ pub struct DataTransferId(u64);
 
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 
+impl Default for DataTransferId {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DataTransferId {
     /// Get a new unique transfer id.
     pub fn new() -> Self {

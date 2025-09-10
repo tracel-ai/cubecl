@@ -87,7 +87,7 @@ impl DataTransferRuntime {
     /// Get a client for the Cuda data service
     pub fn client() -> DataServiceClient {
         let mut service = SERVICE.lock().unwrap();
-        if let None = *service {
+        if service.is_none() {
             *service = Some(Self::start());
         }
 
@@ -134,8 +134,10 @@ impl DataTransferRuntime {
                 transfer.execute().unwrap();
             }
             None => {
-                let mut transfer = DataTransferInfo::default();
-                transfer.info_src = Some(info);
+                let transfer = DataTransferInfo {
+                    info_src: Some(info),
+                    ..Default::default()
+                };
                 self.transfers.insert(id, transfer);
             }
         }
@@ -156,8 +158,10 @@ impl DataTransferRuntime {
                 transfer.execute().unwrap();
             }
             None => {
-                let mut transfer = DataTransferInfo::default();
-                transfer.info_dest = Some(info);
+                let transfer = DataTransferInfo {
+                    info_dest: Some(info),
+                    ..Default::default()
+                };
                 self.transfers.insert(id, transfer);
             }
         }
@@ -225,14 +229,10 @@ impl DataTransferInfo {
     }
 }
 
-unsafe fn enable_one_way_peer_access(ctx_src: sys::CUcontext) -> Result<(), sys::CUresult> {
+fn enable_one_way_peer_access(ctx_src: sys::CUcontext) -> Result<(), sys::CUresult> {
     unsafe {
-        // Enable: destination must be current; it enables access to source.
         match sys::cuCtxEnablePeerAccess(ctx_src, 0) {
-            CUDA_SUCCESS => Ok(()),
-            // Already enabled → fine.
-            r if r == CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
-            // Any other error bubbles up.
+            CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
             err => Err(err),
         }
     }

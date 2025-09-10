@@ -596,7 +596,7 @@ where
         self.channel.data_transfer_send(id, src_descriptor);
 
         // Recv with destination server
-        let desc = alloc.handle.copy_descriptor(&shape, &strides, elem_size);
+        let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
         dst_server.channel.data_transfer_recv(id, desc);
 
         alloc
@@ -626,7 +626,7 @@ where
             binding: alloc.handle.clone().binding(),
             shape,
             strides: &alloc.strides,
-            elem_size: elem_size,
+            elem_size,
         };
 
         dst_server
