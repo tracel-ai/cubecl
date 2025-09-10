@@ -12,7 +12,6 @@ use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -81,18 +80,6 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        #[allow(deprecated)]
-        match device {
-            WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
-            WgpuDevice::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
-            WgpuDevice::VirtualGpu(index) => DeviceId::new(2, *index as u32),
-            WgpuDevice::Cpu => DeviceId::new(3, 0),
-            WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
-            WgpuDevice::Existing(id) => DeviceId::new(5, *id),
-        }
-    }
-
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         if shape.is_empty() {
             return true;
@@ -105,27 +92,6 @@ impl Runtime for WgpuRuntime {
         }
 
         true
-    }
-
-    fn device_count() -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
-            adapters.len()
-        }
     }
 
     fn target_properties() -> TargetProperties {
@@ -244,6 +210,7 @@ pub(crate) fn create_client_on_setup(
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: limits.min_storage_buffer_offset_alignment as u64,
+        data_transfer_async: false,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
@@ -258,7 +225,12 @@ pub(crate) fn create_client_on_setup(
         plane_size_max: 32,
         #[cfg(not(apple_silicon))]
         plane_size_max: adapter_limits.max_subgroup_size,
-        max_bindings: limits.max_storage_buffers_per_shader_stage,
+        // wgpu uses an additional buffer for variable-length buffers,
+        // so we have to use one buffer less on our side to make room for that wgpu internal buffer.
+        // See: https://github.com/gfx-rs/wgpu/blob/a9638c8e3ac09ce4f27ac171f8175671e30365fd/wgpu-hal/src/metal/device.rs#L799
+        max_bindings: limits
+            .max_storage_buffers_per_shader_stage
+            .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
