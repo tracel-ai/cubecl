@@ -24,6 +24,13 @@ pub enum FastDivmod {
     },
 }
 
+impl<R: Runtime> Clone for FastDivmodArgs<'_, R> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<R: Runtime> Copy for FastDivmodArgs<'_, R> {}
+
 impl<R: Runtime> FastDivmodArgs<'_, R> {
     pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: u32) -> Self {
         debug_assert!(divisor != 0);

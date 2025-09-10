@@ -1,8 +1,8 @@
-use cubecl_ir::{Bitwise, Elem, Instruction, UIntKind, UnaryOperator};
+use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
-use crate as cubecl;
+use crate::{self as cubecl, prelude::Powi};
 use crate::{
     frontend::{
         Abs, Ceil, Clamp, Cos, CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max,
@@ -242,6 +242,7 @@ impl<P: CubePrimitive + Log1p> Log1p for Line<P> {}
 impl<P: CubePrimitive + Erf> Erf for Line<P> {}
 impl<P: CubePrimitive + Exp> Exp for Line<P> {}
 impl<P: CubePrimitive + Powf> Powf for Line<P> {}
+impl<P: CubePrimitive + Powi<I>, I: CubePrimitive> Powi<Line<I>> for Line<P> {}
 impl<P: CubePrimitive + Sqrt> Sqrt for Line<P> {}
 impl<P: CubePrimitive + Cos> Cos for Line<P> {}
 impl<P: CubePrimitive + Sin> Sin for Line<P> {}
@@ -258,8 +259,8 @@ impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 impl<P: CountOnes> Line<P> {
     pub fn count_ones(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::CountOnes(UnaryOperator {
@@ -276,8 +277,8 @@ impl<P: CountOnes> Line<P> {
 impl<P: LeadingZeros> Line<P> {
     pub fn leading_zeros(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::LeadingZeros(UnaryOperator {
@@ -294,8 +295,8 @@ impl<P: LeadingZeros> Line<P> {
 impl<P: FindFirstSet> Line<P> {
     pub fn find_first_set(self) -> Line<u32> {
         intrinsic!(|scope| {
-            let mut out_item = self.expand.item;
-            out_item.elem = Elem::UInt(UIntKind::U32);
+            let out_item =
+                Type::scalar(ElemType::UInt(UIntKind::U32)).line(self.expand.ty.line_size());
             let out = scope.create_local(out_item);
             scope.register(Instruction::new(
                 Bitwise::FindFirstSet(UnaryOperator {

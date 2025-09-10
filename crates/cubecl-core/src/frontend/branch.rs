@@ -2,7 +2,7 @@ use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
 use crate::ir::Switch;
-use crate::ir::{Branch, If, IfElse, Item, Loop, RangeLoop, Scope};
+use crate::ir::{Branch, If, IfElse, Loop, RangeLoop, Scope, Type};
 
 use super::{CubePrimitive, CubeType, ExpandElementTyped, Int, Numeric, assign};
 
@@ -95,7 +95,7 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let mut child = scope.child();
-        let index_ty = Item::new(I::as_elem(scope));
+        let index_ty = Type::new(I::as_type(scope));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
@@ -125,7 +125,7 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
         mut body: impl FnMut(&mut Scope, <I as CubeType>::ExpandType),
     ) {
         let mut child = scope.child();
-        let index_ty = Item::new(I::as_elem(scope));
+        let index_ty = Type::new(I::as_type(scope));
         let i = child.create_local_restricted(index_ty);
 
         body(&mut child, i.clone().into());
@@ -393,7 +393,7 @@ pub fn if_else_expr_expand<C: CubePrimitive>(
         None => {
             let mut then_child = scope.child();
             let ret = then_block(&mut then_child);
-            let out: ExpandElementTyped<C> = scope.create_local_mut(ret.expand.item).into();
+            let out: ExpandElementTyped<C> = scope.create_local_mut(ret.expand.ty).into();
             assign::expand_no_check::<C>(&mut then_child, ret, out.clone());
 
             IfElseExprExpand::Runtime {
@@ -498,7 +498,7 @@ pub fn switch_expand_expr<I: Int, C: CubePrimitive>(
 ) -> SwitchExpandExpr<I, C> {
     let mut default_child = scope.child();
     let default = default_block(&mut default_child);
-    let out: ExpandElementTyped<C> = scope.create_local_mut(default.expand.item).into();
+    let out: ExpandElementTyped<C> = scope.create_local_mut(default.expand.ty).into();
     assign::expand_no_check::<C>(&mut default_child, default, out.clone());
 
     SwitchExpandExpr {

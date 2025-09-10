@@ -1,4 +1,4 @@
-use cubecl_ir::{Id, Item, Variable, VariableKind};
+use cubecl_ir::{Id, Type, Variable, VariableKind};
 use petgraph::graph::NodeIndex;
 
 use crate::{
@@ -43,7 +43,7 @@ impl Optimizer {
     }
 
     /// Insert a phi node for variable `id` at `block`
-    pub fn insert_phi(&mut self, block: NodeIndex, id: Id, item: Item) {
+    pub fn insert_phi(&mut self, block: NodeIndex, id: Id, item: Type) {
         let var = Variable::new(VariableKind::Versioned { id, version: 0 }, item);
         let entries = self.predecessors(block).into_iter().map(|pred| PhiEntry {
             block: pred,

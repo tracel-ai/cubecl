@@ -61,9 +61,9 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &AP::EI::as_elem_native_unchecked(),
-        &AP::EM::as_elem_native_unchecked(),
-        &AP::EO::as_elem_native_unchecked(),
+        &AP::EI::as_type_native_unchecked(),
+        &AP::EM::as_type_native_unchecked(),
+        &AP::EO::as_type_native_unchecked(),
     );
     let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
         .filter_with_tensor(FlashIdent::Query, query.strides, query.shape)

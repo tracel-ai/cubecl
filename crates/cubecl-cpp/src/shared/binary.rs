@@ -184,20 +184,70 @@ impl<D: Dialect> Binary<D> for Powf {
         item: Item<D>,
     ) -> std::fmt::Result {
         let elem = item.elem;
+        let lhs = lhs.to_string();
+        let rhs = rhs.to_string();
         match elem {
             Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                let lhs = format!("float({lhs})");
+                let rhs = format!("float({rhs})");
                 write!(f, "{elem}(")?;
-                D::compile_instruction_powf(f)?;
-                write!(f, "(float({lhs}), float({rhs})))")
+                D::compile_instruction_powf(f, &lhs, &rhs, Elem::F32)?;
+                write!(f, ")")
             }
-            _ => {
-                D::compile_instruction_powf(f)?;
-                write!(f, "({lhs}, {rhs})")
-            }
+            _ => D::compile_instruction_powf(f, &lhs, &rhs, elem),
         }
     }
 
     // Powf doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
+
+pub struct Powi;
+
+impl<D: Dialect> Binary<D> for Powi {
+    // Powi doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result {
+        let elem = item.elem;
+        let lhs = lhs.to_string();
+        let rhs = rhs.to_string();
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                let lhs = format!("float({lhs})");
+
+                write!(f, "{elem}(")?;
+                D::compile_instruction_powf(f, &lhs, &rhs, Elem::F32)?;
+                write!(f, ")")
+            }
+            _ => D::compile_instruction_powf(f, &lhs, &rhs, elem),
+        }
+    }
+
+    // Powi doesn't support half and no half equivalent exists
     fn unroll_vec(
         f: &mut Formatter<'_>,
         lhs: &Variable<D>,

@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use crate::{Allocator, AtomicOp, Bitwise, Comparison, Operator};
 
 use super::{
-    Arithmetic, Branch, CoopMma, Elem, Instruction, Metadata, Operation, UIntKind, Variable,
+    Arithmetic, Branch, CoopMma, ElemType, Instruction, Metadata, Operation, UIntKind, Variable,
     VariableKind,
 };
 
@@ -107,6 +107,9 @@ impl ScopeProcessing {
                     Arithmetic::Powf(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Arithmetic::Powi(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                     }
                     Arithmetic::Sqrt(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
@@ -221,18 +224,30 @@ impl ScopeProcessing {
                 Operation::Operator(op) => match op {
                     Operator::Index(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.index,
+                            ElemType::UInt(UIntKind::U32),
+                        );
                     }
                     Operator::UncheckedIndex(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.list, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.index,
+                            ElemType::UInt(UIntKind::U32),
+                        );
                     }
                     Operator::IndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.index,
+                            ElemType::UInt(UIntKind::U32),
+                        );
                         sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::UncheckedIndexAssign(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.index, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(
+                            &mut op.index,
+                            ElemType::UInt(UIntKind::U32),
+                        );
                         sanitize_constant_scalar_ref_var(&mut op.value, &inst.out.unwrap());
                     }
                     Operator::And(op) => {
@@ -244,7 +259,7 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
                     }
                     Operator::Not(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.input, Elem::Bool);
+                        sanitize_constant_scalar_ref_elem(&mut op.input, ElemType::Bool);
                     }
                     Operator::InitLine(_) => {
                         // TODO: Sanitize based on elem
@@ -253,26 +268,26 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(
                             &mut op.in_index,
-                            Elem::UInt(UIntKind::U32),
+                            ElemType::UInt(UIntKind::U32),
                         );
                         sanitize_constant_scalar_ref_elem(
                             &mut op.out_index,
-                            Elem::UInt(UIntKind::U32),
+                            ElemType::UInt(UIntKind::U32),
                         );
                     }
                     Operator::CopyMemoryBulk(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_elem(
                             &mut op.in_index,
-                            Elem::UInt(UIntKind::U32),
+                            ElemType::UInt(UIntKind::U32),
                         );
                         sanitize_constant_scalar_ref_elem(
                             &mut op.out_index,
-                            Elem::UInt(UIntKind::U32),
+                            ElemType::UInt(UIntKind::U32),
                         );
                     }
                     Operator::Select(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, ElemType::Bool);
                         sanitize_constant_scalar_ref_var(&mut op.then, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.or_else, &inst.out.unwrap());
                     }
@@ -313,10 +328,10 @@ impl ScopeProcessing {
                 },
                 Operation::Metadata(op) => match op {
                     Metadata::Stride { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(dim, ElemType::UInt(UIntKind::U32));
                     }
                     Metadata::Shape { dim, .. } => {
-                        sanitize_constant_scalar_ref_elem(dim, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(dim, ElemType::UInt(UIntKind::U32));
                     }
                     Metadata::Length { .. }
                     | Metadata::BufferLength { .. }
@@ -326,16 +341,16 @@ impl ScopeProcessing {
                 },
                 Operation::Branch(op) => match op {
                     Branch::If(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, ElemType::Bool);
                     }
                     Branch::IfElse(op) => {
-                        sanitize_constant_scalar_ref_elem(&mut op.cond, Elem::Bool);
+                        sanitize_constant_scalar_ref_elem(&mut op.cond, ElemType::Bool);
                     }
                     Branch::RangeLoop(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.end, &op.start);
                         sanitize_constant_scalar_ref_var(&mut op.i, &op.start);
                         if let Some(step) = &mut op.step {
-                            sanitize_constant_scalar_ref_elem(step, Elem::UInt(UIntKind::U32));
+                            sanitize_constant_scalar_ref_elem(step, ElemType::UInt(UIntKind::U32));
                         }
                     }
                     _ => {
@@ -354,7 +369,7 @@ impl ScopeProcessing {
                     }
                     CoopMma::Load { value, stride, .. } => {
                         sanitize_constant_scalar_ref_var(value, &inst.out.unwrap());
-                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(stride, ElemType::UInt(UIntKind::U32));
                     }
                     CoopMma::Execute { .. }
                     | CoopMma::ExecuteManual { .. }
@@ -362,18 +377,18 @@ impl ScopeProcessing {
                         // Nothing to do.
                     }
                     CoopMma::Store { stride, .. } => {
-                        sanitize_constant_scalar_ref_elem(stride, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(stride, ElemType::UInt(UIntKind::U32));
                     }
                     CoopMma::Cast { .. } => {
                         // Nothing to do.
                     }
                     CoopMma::RowIndex { lane_id, i, .. } => {
-                        sanitize_constant_scalar_ref_elem(lane_id, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_elem(i, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(lane_id, ElemType::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(i, ElemType::UInt(UIntKind::U32));
                     }
                     CoopMma::ColIndex { lane_id, i, .. } => {
-                        sanitize_constant_scalar_ref_elem(lane_id, Elem::UInt(UIntKind::U32));
-                        sanitize_constant_scalar_ref_elem(i, Elem::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(lane_id, ElemType::UInt(UIntKind::U32));
+                        sanitize_constant_scalar_ref_elem(i, ElemType::UInt(UIntKind::U32));
                     }
                 },
                 Operation::NonSemantic(_) => {
@@ -391,13 +406,13 @@ impl ScopeProcessing {
 }
 
 fn sanitize_constant_scalar_ref_var(var: &mut Variable, reference: &Variable) {
-    let elem = reference.item.elem();
+    let elem = reference.ty.elem_type();
     sanitize_constant_scalar_ref_elem(var, elem);
 }
 
-fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: Elem) {
+fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: ElemType) {
     if let VariableKind::ConstantScalar(scalar) = var.kind
-        && scalar.elem() != elem
+        && scalar.elem_type() != elem
     {
         *var = match scalar {
             super::ConstantScalarValue::Int(val, _) => elem.constant_from_i64(val),

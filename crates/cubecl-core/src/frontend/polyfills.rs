@@ -1,4 +1,4 @@
-use cubecl_ir::{Elem, ExpandElement, Variable};
+use cubecl_ir::{ElemType, ExpandElement, StorageType, Variable};
 
 use crate::prelude::*;
 use crate::{self as cubecl, unexpanded};
@@ -8,7 +8,7 @@ use crate::{self as cubecl, unexpanded};
 /// # Warning
 ///
 /// To be used for very custom kernels, it would likely lead to a JIT compiler error otherwise.
-pub fn set_polyfill<E: CubePrimitive>(_elem: Elem) {
+pub fn set_polyfill<E: CubePrimitive>(_elem: StorageType) {
     unexpanded!()
 }
 
@@ -17,8 +17,8 @@ pub mod set_polyfill {
     use super::*;
 
     /// Expand function of [set_polyfill()].
-    pub fn expand<E: CubePrimitive>(scope: &mut Scope, elem: Elem) {
-        scope.register_elem::<E>(elem);
+    pub fn expand<E: CubePrimitive>(scope: &mut Scope, ty: StorageType) {
+        scope.register_type::<E>(ty);
     }
 }
 
@@ -49,7 +49,7 @@ pub fn expand_checked_index_assign(
     out: Variable,
     unroll_factor: u32,
 ) {
-    scope.register_elem::<FloatExpand<0>>(rhs.item.elem);
+    scope.register_type::<FloatExpand<0>>(rhs.ty.storage_type());
     checked_index_assign::expand::<FloatExpand<0>>(
         scope,
         ExpandElement::Plain(lhs).into(),
@@ -88,7 +88,7 @@ fn erf_positive<F: Float>(x: Line<F>) -> Line<F> {
 
 #[allow(missing_docs)]
 pub fn expand_erf(scope: &mut Scope, input: Variable, out: Variable) {
-    scope.register_elem::<FloatExpand<0>>(input.item.elem);
+    scope.register_type::<FloatExpand<0>>(input.ty.storage_type());
     let res = erf::expand::<FloatExpand<0>>(scope, ExpandElement::Plain(input).into());
     assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
 }
@@ -109,8 +109,8 @@ fn himul_u64(lhs: Line<u32>, rhs: Line<u32>) -> Line<u32> {
 
 #[allow(missing_docs)]
 pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Variable) {
-    match lhs.item.elem {
-        Elem::Int(_) => {
+    match lhs.ty.elem_type() {
+        ElemType::Int(_) => {
             let res = himul_i64::expand(
                 scope,
                 ExpandElement::Plain(lhs).into(),
@@ -118,7 +118,7 @@ pub fn expand_himul_64(scope: &mut Scope, lhs: Variable, rhs: Variable, out: Var
             );
             assign::expand_no_check(scope, res, ExpandElement::Plain(out).into());
         }
-        Elem::UInt(_) => {
+        ElemType::UInt(_) => {
             let res = himul_u64::expand(
                 scope,
                 ExpandElement::Plain(lhs).into(),

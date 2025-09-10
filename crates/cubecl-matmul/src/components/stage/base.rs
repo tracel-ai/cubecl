@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coordinates, r#virtual::ReadWrite};
+use cubecl_std::tensor::{View, layout::Coordinates};
 
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
@@ -145,7 +145,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Inits the writer at the given offsets
     fn init_writer(
-        tensor: View<MP::EO, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<MP::EO>, Self::WriteCoords, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,

@@ -34,9 +34,9 @@ impl Processor for CheckedIoProcessor {
                             let list = ExpandElement::Plain(op.list);
                             let index = ExpandElement::Plain(op.index);
                             let mut scope = Scope::root(false).with_allocator(allocator.clone());
-                            scope.register_elem::<NumericExpand<0>>(op.list.elem());
+                            scope.register_type::<NumericExpand<0>>(op.list.storage_type());
 
-                            let input = if op.list.elem().is_atomic() {
+                            let input = if op.list.ty.is_atomic() {
                                 // Atomic can't really be checked, since the pointer needs to be
                                 // valid, so the kernel will probably not output the correct value if
                                 // not manually checked later, but will at least avoid out-of-bounds

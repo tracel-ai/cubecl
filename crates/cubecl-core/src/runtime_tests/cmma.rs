@@ -2,7 +2,7 @@ use crate::{self as cubecl, runtime_tests::binary::assert_equals_approx};
 
 use crate::Feature;
 use cubecl::{
-    ir::{Elem, FloatKind},
+    ir::{ElemType, FloatKind},
     prelude::*,
 };
 
@@ -306,9 +306,9 @@ pub fn test_simple_1_lined<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::F16).into(),
+        b: ElemType::Float(FloatKind::F16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 16,
         n: 16,
@@ -346,9 +346,9 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::F16).into(),
+        b: ElemType::Float(FloatKind::F16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 16,
         n: 16,
@@ -404,9 +404,9 @@ pub fn test_simple_1<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::F16).into(),
+        b: ElemType::Float(FloatKind::F16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 16,
         n: 16,
@@ -512,9 +512,9 @@ pub fn test_cmma_cast_f16<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::F16).into(),
+        b: ElemType::Float(FloatKind::F16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 16,
         n: 16,
@@ -549,9 +549,9 @@ pub fn test_cmma_cast_bf16<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::BF16),
-        b: Elem::Float(FloatKind::BF16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::BF16).into(),
+        b: ElemType::Float(FloatKind::BF16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 16,
         n: 16,
@@ -586,9 +586,9 @@ pub fn test_simple_tf32<R: Runtime>(
     cube_dimensions: CubeDim,
 ) {
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::TF32),
-        b: Elem::Float(FloatKind::TF32),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::TF32).into(),
+        b: ElemType::Float(FloatKind::TF32).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: 16,
         k: 8,
         n: 16,
@@ -695,9 +695,9 @@ pub fn test_cmma_strided<R: Runtime>(
     let (m, n, k) = (16, 16, 32);
     let (t_m, t_n, t_k) = (16, 16, 16);
     if !client.properties().feature_enabled(Feature::Cmma {
-        a: Elem::Float(FloatKind::F16),
-        b: Elem::Float(FloatKind::F16),
-        c: Elem::Float(FloatKind::F32),
+        a: ElemType::Float(FloatKind::F16).into(),
+        b: ElemType::Float(FloatKind::F16).into(),
+        c: ElemType::Float(FloatKind::F32).into(),
         m: t_m as u8,
         k: t_k as u8,
         n: t_n as u8,
@@ -865,9 +865,9 @@ pub fn test_cmma_manual<
     (m, n, k): (usize, usize, usize),
 ) {
     if !client.properties().feature_enabled(Feature::ManualMma {
-        a_elem: A::cube_elem(),
-        b_elem: B::cube_elem(),
-        cd_elem: CD::cube_elem(),
+        a_type: A::cube_type(),
+        b_type: B::cube_type(),
+        cd_type: CD::cube_type(),
         m: m as u32,
         n: n as u32,
         k: k as u32,
@@ -875,9 +875,9 @@ pub fn test_cmma_manual<
         // We can't execute the test, skip.
         println!(
             "Skipping test for a: {:?} b: {:?}, cd: {:?}, m: {m}, n: {n}, k: {k}",
-            A::cube_elem(),
-            B::cube_elem(),
-            CD::cube_elem()
+            A::cube_type(),
+            B::cube_type(),
+            CD::cube_type()
         );
         return;
     }
@@ -1064,16 +1064,16 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
 ) {
     type S = ue8m0;
 
-    let a_elem = A::cube_elem();
-    let b_elem = B::cube_elem();
+    let a_elem = A::cube_type();
+    let b_elem = B::cube_type();
     let a_line_size = 32 / a_elem.size_bits();
     let b_line_size = 32 / b_elem.size_bits();
 
     if !client.properties().feature_enabled(Feature::ScaledMma {
-        a_elem,
-        b_elem,
-        cd_elem: f32::cube_elem(),
-        scales_elem: S::cube_elem(),
+        a_type: a_elem,
+        b_type: b_elem,
+        cd_type: f32::cube_type(),
+        scales_type: S::cube_type(),
         m: m as u32,
         n: n as u32,
         k: k as u32,
@@ -1082,9 +1082,9 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
         // We can't execute the test, skip.
         println!(
             "Skipping test for a: {:?}, b: {:?}, scales: {:?} m: {m}, n: {n}, k: {k}",
-            A::cube_elem(),
-            B::cube_elem(),
-            S::cube_elem()
+            A::cube_type(),
+            B::cube_type(),
+            S::cube_type()
         );
         return;
     }
@@ -1172,14 +1172,14 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
     type AB = e2m1x2;
     type S = ue8m0;
 
-    let ab_elem = AB::cube_elem();
+    let ab_elem = AB::cube_type();
     let ab_line_size = 32 / ab_elem.size_bits();
 
     if !client.properties().feature_enabled(Feature::ScaledMma {
-        a_elem: ab_elem,
-        b_elem: ab_elem,
-        cd_elem: f32::cube_elem(),
-        scales_elem: S::cube_elem(),
+        a_type: ab_elem,
+        b_type: ab_elem,
+        cd_type: f32::cube_type(),
+        scales_type: S::cube_type(),
         m: m as u32,
         n: n as u32,
         k: k as u32,
@@ -1188,8 +1188,8 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
         // We can't execute the test, skip.
         println!(
             "Skipping test for ab: {:?}, scales: {:?} m: {m}, n: {n}, k: {k}",
-            AB::cube_elem(),
-            S::cube_elem()
+            AB::cube_type(),
+            S::cube_type()
         );
         return;
     }

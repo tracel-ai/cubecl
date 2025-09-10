@@ -757,16 +757,12 @@ impl DialectInstructions<Self> for MslDialect {
         format_string: &str,
         args: &[Variable<Self>],
     ) -> std::fmt::Result {
-        let format_string = format_string
-            .replace("\t", "\\t")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r");
         let args = args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>();
         let args = match args.is_empty() {
             true => "".to_string(),
             false => format!(", {}", args.join(",")),
         };
-        writeln!(f, "os_log_default.log(\"{format_string}\"{args});")
+        writeln!(f, "os_log_default.log({format_string:?}{args});")
     }
 
     // logs
@@ -872,8 +868,13 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "min")
     }
 
-    fn compile_instruction_powf(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "pow")
+    fn compile_instruction_powf(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: &str,
+        rhs: &str,
+        elem: Elem<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "pow({lhs}, {elem}({rhs}))")
     }
 
     fn compile_instruction_half_function_name_prefix() -> &'static str {
@@ -1151,27 +1152,27 @@ impl DialectWmmaCompiler<Self> for MslDialect {
     fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
         vec![
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
+                gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 vec![(8, 8, 8)],
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 vec![(8, 8, 8)],
             ),
         ]

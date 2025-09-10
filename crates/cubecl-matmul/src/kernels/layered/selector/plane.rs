@@ -1,5 +1,5 @@
-use cubecl_core::Feature;
-use cubecl_core::{Runtime, client::ComputeClient, ir::Elem};
+use cubecl_core::{Feature, ir::StorageType};
+use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_runtime::DeviceProperties;
 
 use crate::components::batch::{
@@ -159,7 +159,10 @@ fn select_size(
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
 pub fn find_instruction_size(
-    properties: Option<(&DeviceProperties<Feature>, (Elem, Elem, Elem))>,
+    properties: Option<(
+        &DeviceProperties<Feature>,
+        (StorageType, StorageType, StorageType),
+    )>,
     m: usize,
     n: usize,
 ) -> TileSize {

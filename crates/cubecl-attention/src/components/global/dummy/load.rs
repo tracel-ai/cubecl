@@ -41,7 +41,7 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
-    pub fn new(q_offset: u32, query: View<AP::EI, Coords3d>, #[comptime] _config: G) -> Self {
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords3d>, #[comptime] _config: G) -> Self {
         let tensor_reader = TensorReader::new(query, (0u32.runtime(), q_offset, 0u32.runtime()));
 
         DummyQueryLoader::<AP, G> {
@@ -73,7 +73,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
-    pub fn new(key: View<AP::EI, Coords3d>, #[comptime] config: G) -> Self {
+    pub fn new(key: View<Line<AP::EI>, Coords3d>, #[comptime] config: G) -> Self {
         let tensor_reader =
             TensorReader::new(key, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
         let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
@@ -140,7 +140,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
-    pub fn new(value: View<AP::EI, Coords3d>, #[comptime] config: G) -> Self {
+    pub fn new(value: View<Line<AP::EI>, Coords3d>, #[comptime] config: G) -> Self {
         let tensor_reader =
             TensorReader::new(value, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
         let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(

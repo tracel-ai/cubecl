@@ -53,7 +53,7 @@ impl Compiler for MlirCompiler {
         MlirEngine::from_cubecl_ir(kernel, &opt, shared_memories)
     }
 
-    fn elem_size(&self, elem: ir::Elem) -> usize {
+    fn elem_size(&self, elem: ir::ElemType) -> usize {
         elem.size()
     }
 

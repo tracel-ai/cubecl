@@ -1,6 +1,7 @@
-use crate::{self as cubecl, AtomicFeature, Feature, ir::Elem};
+use crate::{self as cubecl, AtomicFeature, Feature, ir::ElemType};
 
 use cubecl::prelude::*;
+use cubecl_ir::StorageType;
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
@@ -13,30 +14,30 @@ fn supports_feature<R: Runtime, F: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
     feat: AtomicFeature,
 ) -> bool {
-    match F::as_elem_native_unchecked() {
-        Elem::Float(kind) => {
+    match F::as_type_native_unchecked().elem_type() {
+        ElemType::Float(kind) => {
             client
                 .properties()
                 .feature_enabled(Feature::AtomicFloat(feat))
                 && client
                     .properties()
-                    .feature_enabled(Feature::Type(Elem::AtomicFloat(kind)))
+                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::Float(kind))))
         }
-        Elem::Int(kind) => {
+        ElemType::Int(kind) => {
             client
                 .properties()
                 .feature_enabled(Feature::AtomicInt(feat))
                 && client
                     .properties()
-                    .feature_enabled(Feature::Type(Elem::AtomicInt(kind)))
+                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::Int(kind))))
         }
-        Elem::UInt(kind) => {
+        ElemType::UInt(kind) => {
             client
                 .properties()
                 .feature_enabled(Feature::AtomicUInt(feat))
                 && client
                     .properties()
-                    .feature_enabled(Feature::Type(Elem::AtomicUInt(kind)))
+                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::UInt(kind))))
         }
         _ => unreachable!(),
     }
@@ -48,11 +49,10 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
     if !supports_feature::<R, F>(&client, AtomicFeature::Add) {
         println!(
             "{} Add not supported - skipped",
-            Atomic::<F>::as_elem_native_unchecked()
+            Atomic::<F>::as_type_native_unchecked()
         );
         return;
-    };
-
+    }
     let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_add::launch::<F, R>(
@@ -81,11 +81,10 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
     if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
         println!(
             "{} Min not supported - skipped",
-            Atomic::<F>::as_elem_native_unchecked()
+            Atomic::<F>::as_type_native_unchecked()
         );
         return;
-    };
-
+    }
     let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_min::launch::<F, R>(
@@ -114,11 +113,10 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
     if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
         println!(
             "{} Max not supported - skipped",
-            Atomic::<F>::as_elem_native_unchecked()
+            Atomic::<F>::as_type_native_unchecked()
         );
         return;
-    };
-
+    }
     let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_max::launch::<F, R>(

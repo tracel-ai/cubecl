@@ -21,7 +21,7 @@ impl<'a> Visitor<'a> {
             .borrow()
             .iter()
             .map(|phi_node| {
-                let argument_type = phi_node.out.item.to_type(self.context);
+                let argument_type = phi_node.out.ty.to_type(self.context);
                 for entry in phi_node.entries.iter() {
                     self.blocks_args
                         .entry((entry.block, block_id))
@@ -58,7 +58,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let condition = self.get_variable(*cond);
-                let condition = self.cast_to_bool(condition, cond.item);
+                let condition = self.cast_to_bool(condition, cond.ty);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, opt);
                 }
@@ -84,7 +84,7 @@ impl<'a> Visitor<'a> {
             } => {
                 let case_values: Vec<_> = branches.iter().map(|(n, _)| *n as i64).collect();
                 let operand = self.get_variable(*value);
-                let operand_type = value.item.to_type(self.context);
+                let operand_type = value.ty.to_type(self.context);
                 if let Some(merge) = merge {
                     self.visit_basic_block(*merge, opt);
                 }
@@ -137,7 +137,7 @@ impl<'a> Visitor<'a> {
                 merge,
             } => {
                 let condition = self.get_variable(*break_cond);
-                let condition = self.cast_to_bool(condition, break_cond.item);
+                let condition = self.cast_to_bool(condition, break_cond.ty);
                 let body_block = self.visit_basic_block(*body, opt);
                 self.visit_basic_block(*continue_target, opt);
                 let next_block = self.visit_basic_block(*merge, opt);

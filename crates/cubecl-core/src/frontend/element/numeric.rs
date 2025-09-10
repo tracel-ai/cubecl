@@ -46,14 +46,14 @@ pub trait Numeric:
     fn max_value() -> Self;
 
     fn __expand_min_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(scope);
+        let elem = Self::as_type(scope).elem_type();
         let var = elem.min_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
     }
 
     fn __expand_max_value(scope: &mut Scope) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(scope);
+        let elem = Self::as_type(scope).elem_type();
         let var = elem.max_variable();
         let expand = ExpandElement::Plain(var);
         expand.into()
@@ -79,7 +79,7 @@ pub trait Numeric:
         scope: &mut Scope,
         val: ExpandElementTyped<i64>,
     ) -> <Self as CubeType>::ExpandType {
-        let elem = Self::as_elem(scope);
+        let elem = Self::as_type(scope).elem_type();
         let var: Variable = elem.constant_from_i64(val.constant().unwrap().as_i64());
 
         ExpandElement::Plain(var).into()
@@ -93,7 +93,7 @@ pub trait ScalarArgSettings: Send + Sync {
     fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>);
 }
 
-#[derive(new)]
+#[derive(new, Clone, Copy)]
 pub struct ScalarArg<T: Numeric> {
     pub elem: T,
 }

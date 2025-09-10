@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use cubecl_ir::{ConstantScalarValue, Item, Operation, OperationReflect, Variable, VariableKind};
+use cubecl_ir::{ConstantScalarValue, Operation, OperationReflect, Type, Variable, VariableKind};
 use float_ord::FloatOrd;
 use smallvec::SmallVec;
 
@@ -48,7 +48,7 @@ impl Value {
             ),
             Value::Input(id, item) => Variable::new(VariableKind::GlobalInputArray(*id), *item),
             Value::Scalar(id, elem) => {
-                Variable::new(VariableKind::GlobalScalar(*id), Item::new(*elem))
+                Variable::new(VariableKind::GlobalScalar(*id), Type::new(*elem))
             }
             Value::ConstArray(id, item, len, unroll_factor) => Variable::new(
                 VariableKind::ConstantArray {
@@ -65,11 +65,11 @@ impl Value {
 }
 
 pub fn value_of_var(var: &Variable) -> Option<Value> {
-    let item = var.item;
+    let item = var.ty;
     let val = match var.kind {
         VariableKind::GlobalInputArray(id) => Value::Input(id, item),
         VariableKind::GlobalOutputArray(id) => Value::Output(id, item),
-        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.elem),
+        VariableKind::GlobalScalar(id) => Value::Scalar(id, item.storage_type()),
         VariableKind::Versioned { id, version } => Value::Local(Local { id, version, item }),
         VariableKind::LocalConst { id } => Value::Local(Local {
             id,

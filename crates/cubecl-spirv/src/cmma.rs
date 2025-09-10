@@ -240,7 +240,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn init_coop_matrix(&mut self, mat: core::Matrix, var: core::Variable) -> Matrix {
-        let elem = self.compile_item(core::Item::new(mat.elem)).elem();
+        let elem = self.compile_type(core::Type::new(mat.storage)).elem();
         let ident = match mat.ident {
             core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
             core::MatrixIdent::B => CooperativeMatrixUse::MatrixBKHR,

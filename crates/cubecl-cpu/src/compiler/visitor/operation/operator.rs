@@ -1,4 +1,4 @@
-use cubecl_core::ir::{Elem, IndexAssignOperator, IndexOperator, Operator, VariableKind};
+use cubecl_core::ir::{IndexAssignOperator, IndexOperator, Operator, StorageType, VariableKind};
 use tracel_llvm::melior::{
     dialect::{
         arith, index, memref,
@@ -23,11 +23,11 @@ impl<'a> Visitor<'a> {
             }
             Operator::CopyMemory(copy_memory) => {
                 let memref = self.get_memory(copy_memory.input);
-                let in_index = self.get_index(copy_memory.in_index, copy_memory.input.item);
+                let in_index = self.get_index(copy_memory.in_index, copy_memory.input.ty);
                 let out_memref = self.get_memory(out);
-                let out_index = self.get_index(copy_memory.out_index, out.item);
-                if out.item.is_vectorized() {
-                    let result = out.item.to_type(self.context);
+                let out_index = self.get_index(copy_memory.out_index, out.ty);
+                if out.ty.is_vectorized() {
+                    let result = out.ty.to_type(self.context);
                     let value = self.append_operation_with_result(vector::load(
                         self.context,
                         result,
@@ -72,7 +72,7 @@ impl<'a> Visitor<'a> {
                     .iter()
                     .map(|input| self.get_variable(*input))
                     .collect();
-                let result = out.item.to_type(self.context);
+                let result = out.ty.to_type(self.context);
                 let init_line = self.append_operation_with_result(vector::from_elements(
                     self.context,
                     result,
@@ -83,7 +83,7 @@ impl<'a> Visitor<'a> {
             }
             Operator::Not(not) => {
                 let lhs = self.get_variable(not.input);
-                let mask = self.create_int_constant_from_item(not.input.item, -1);
+                let mask = self.create_int_constant_from_item(not.input.ty, -1);
                 let value =
                     self.append_operation_with_result(arith::xori(lhs, mask, self.location));
                 self.insert_variable(out, value);
@@ -95,7 +95,7 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, value);
             }
             Operator::Reinterpret(reinterpret) => {
-                let target_type = out.item.to_type(self.context);
+                let target_type = out.ty.to_type(self.context);
                 let input = self.get_variable(reinterpret.input);
                 let value = self.append_operation_with_result(arith::bitcast(
                     input,
@@ -106,13 +106,13 @@ impl<'a> Visitor<'a> {
             }
             Operator::Select(select) => {
                 let condition = self.get_variable(select.cond);
-                let condition = self.cast_to_bool(condition, select.cond.item);
+                let condition = self.cast_to_bool(condition, select.cond.ty);
                 let mut then = self.get_variable(select.then);
                 let mut or_else = self.get_variable(select.or_else);
-                if out.item.is_vectorized() && !select.then.item.is_vectorized() {
+                if out.ty.is_vectorized() && !select.then.ty.is_vectorized() {
                     let vector = Type::vector(
-                        &[out.vectorization_factor() as u64],
-                        select.then.elem().to_type(self.context),
+                        &[out.line_size() as u64],
+                        select.then.storage_type().to_type(self.context),
                     );
                     then = self.append_operation_with_result(vector::splat(
                         self.context,
@@ -121,10 +121,10 @@ impl<'a> Visitor<'a> {
                         self.location,
                     ));
                 }
-                if out.item.is_vectorized() && !select.or_else.item.is_vectorized() {
+                if out.ty.is_vectorized() && !select.or_else.ty.is_vectorized() {
                     let vector = Type::vector(
-                        &[out.vectorization_factor() as u64],
-                        select.or_else.elem().to_type(self.context),
+                        &[out.line_size() as u64],
+                        select.or_else.storage_type().to_type(self.context),
                     );
                     or_else = self.append_operation_with_result(vector::splat(
                         self.context,
@@ -146,15 +146,15 @@ impl<'a> Visitor<'a> {
 
     fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
         assert!(index.line_size == 0);
-        let mut index_value = self.get_index(index.index, out.item);
-        let vector_type = index.list.item.to_type(self.context);
+        let mut index_value = self.get_index(index.index, out.ty);
+        let vector_type = index.list.ty.to_type(self.context);
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
             // Item of size 1
             if !to_extract.r#type().is_vector() {
                 return to_extract;
             }
-            let res = index.list.elem().to_type(self.context);
+            let res = index.list.storage_type().to_type(self.context);
             if index_value.r#type().is_index() {
                 let u32_int = IntegerType::new(self.context, 32).into();
                 index_value = self.append_operation_with_result(index::casts(
@@ -166,7 +166,7 @@ impl<'a> Visitor<'a> {
             let vector_extract =
                 llvm::extractelement(self.context, res, to_extract, index_value, self.location);
             self.append_operation_with_result(vector_extract)
-        } else if out.item.is_vectorized() {
+        } else if out.ty.is_vectorized() {
             let memref = self.get_memory(index.list);
             self.append_operation_with_result(vector::load(
                 self.context,
@@ -189,8 +189,8 @@ impl<'a> Visitor<'a> {
             out.kind,
             VariableKind::LocalMut { .. } | VariableKind::LocalConst { .. }
         ) {
-            let indices = self.get_index(index_assign.index, index_assign.value.item);
-            let operation = if index_assign.value.item.is_vectorized() {
+            let indices = self.get_index(index_assign.index, index_assign.value.ty);
+            let operation = if index_assign.value.ty.is_vectorized() {
                 vector::store(self.context, value, memref, &[indices], self.location).into()
             } else {
                 memref::store(value, memref, &[indices], self.location)
@@ -198,15 +198,15 @@ impl<'a> Visitor<'a> {
             self.block.append_operation(operation);
             return;
         }
-        let operation = if index_assign.value.item.is_vectorized() {
-            let indices = self.get_index(index_assign.index, index_assign.value.item);
+        let operation = if index_assign.value.ty.is_vectorized() {
+            let indices = self.get_index(index_assign.index, index_assign.value.ty);
             vector::store(self.context, value, memref, &[indices], self.location)
         } else {
             let vector_type = Type::vector(
-                &[out.vectorization_factor() as u64],
-                index_assign.value.elem().to_type(self.context),
+                &[out.line_size() as u64],
+                index_assign.value.storage_type().to_type(self.context),
             );
-            let indices = self.get_index(index_assign.index, out.item);
+            let indices = self.get_index(index_assign.index, out.ty);
             let splat = self.append_operation_with_result(vector::splat(
                 self.context,
                 vector_type,
@@ -220,11 +220,11 @@ impl<'a> Visitor<'a> {
 
     fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
         let mut value = self.get_variable(to_cast);
-        let target = out.item.to_type(self.context);
+        let target = out.ty.to_type(self.context);
 
-        if !to_cast.item.is_vectorized() && out.item.is_vectorized() {
-            let r#type = to_cast.elem().to_type(self.context);
-            let vector_type = Type::vector(&[out.vectorization_factor() as u64], r#type);
+        if !to_cast.ty.is_vectorized() && out.ty.is_vectorized() {
+            let r#type = to_cast.storage_type().to_type(self.context);
+            let vector_type = Type::vector(&[out.line_size() as u64], r#type);
             value = self.append_operation_with_result(vector::splat(
                 self.context,
                 vector_type,
@@ -233,19 +233,29 @@ impl<'a> Visitor<'a> {
             ));
         };
 
-        let value = if to_cast.elem().is_int() == out.elem().is_int() {
-            self.get_cast_same_type_category(to_cast.elem(), out.elem(), target, value)
+        let value = if to_cast.storage_type().is_int() == out.storage_type().is_int() {
+            self.get_cast_same_type_category(
+                to_cast.storage_type(),
+                out.storage_type(),
+                target,
+                value,
+            )
         } else {
-            self.get_cast_different_type_category(to_cast.elem(), out.elem(), target, value)
+            self.get_cast_different_type_category(
+                to_cast.storage_type(),
+                out.storage_type(),
+                target,
+                value,
+            )
         };
 
         self.insert_variable(out, value);
     }
 
-    fn get_cast_different_type_category(
+    pub(crate) fn get_cast_different_type_category(
         &self,
-        to_cast: Elem,
-        out: Elem,
+        to_cast: StorageType,
+        out: StorageType,
         target: Type<'a>,
         value: Value<'a, 'a>,
     ) -> Value<'a, 'a> {
@@ -258,7 +268,7 @@ impl<'a> Visitor<'a> {
 
     fn cast_float_to_int(
         &self,
-        out: Elem,
+        out: StorageType,
         target: Type<'a>,
         value: Value<'a, 'a>,
     ) -> Operation<'a> {
@@ -271,7 +281,7 @@ impl<'a> Visitor<'a> {
 
     fn cast_int_to_float(
         &self,
-        to_cast: Elem,
+        to_cast: StorageType,
         target: Type<'a>,
         value: Value<'a, 'a>,
     ) -> Operation<'a> {
@@ -284,8 +294,8 @@ impl<'a> Visitor<'a> {
 
     fn get_cast_same_type_category(
         &self,
-        to_cast: Elem,
-        out: Elem,
+        to_cast: StorageType,
+        out: StorageType,
         target: Type<'a>,
         value: Value<'a, 'a>,
     ) -> Value<'a, 'a> {
@@ -298,7 +308,12 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn get_trunc(&self, to_cast: Elem, target: Type<'a>, value: Value<'a, 'a>) -> Operation<'a> {
+    fn get_trunc(
+        &self,
+        to_cast: StorageType,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Operation<'a> {
         if to_cast.is_int() {
             arith::trunci(value, target, self.location)
         } else {
@@ -306,7 +321,12 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    fn get_ext(&self, to_cast: Elem, target: Type<'a>, value: Value<'a, 'a>) -> Operation<'a> {
+    fn get_ext(
+        &self,
+        to_cast: StorageType,
+        target: Type<'a>,
+        value: Value<'a, 'a>,
+    ) -> Operation<'a> {
         if to_cast.is_signed_int() {
             arith::extsi(value, target, self.location)
         } else if to_cast.is_unsigned_int() {

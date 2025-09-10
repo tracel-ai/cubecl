@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
 use cubecl_matmul::components::stage::FullStageToTileReader;
-use cubecl_std::tensor::r#virtual::{ReadWrite, VirtualTensor};
+use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
@@ -74,7 +74,6 @@ impl<
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
                 CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_tile))
-                // CubeOption::new_Some((100u32.runtime(), 100u32.runtime()))
             } else {
                 CubeOption::new_None()
             };

@@ -67,7 +67,7 @@ impl OptimizerPass for ConstOperandSimplify {
                             if bin_op.rhs.is_constant(1) || bin_op.lhs.is_constant(0) =>
                         {
                             let value = ConstantScalarValue::UInt(0, UIntKind::U32)
-                                .cast_to(op.item().elem());
+                                .cast_to(op.ty().storage_type());
                             op.operation = Operation::Copy(Variable::constant(value));
                             changes.inc();
                         }
@@ -162,7 +162,7 @@ macro_rules! const_eval {
         let lhs = $lhs.as_const();
         let rhs = $rhs.as_const();
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.elem());
+            let rhs = rhs.cast_to(lhs.storage_type());
             Some(match (lhs, rhs) {
                 (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs $op rhs, kind),
                 (Float(lhs, kind), Float(rhs, _)) => ConstantScalarValue::Float(lhs $op rhs, kind),
@@ -179,7 +179,7 @@ macro_rules! const_eval {
         let lhs = $lhs.as_const();
         let rhs = $rhs.as_const();
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.elem());
+            let rhs = rhs.cast_to(lhs.storage_type());
             Some(match (lhs, rhs) {
                 (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int($op(lhs, rhs), kind),
                 (Float(lhs, kind), Float(rhs, _)) => ConstantScalarValue::Float($op(lhs, rhs), kind),
@@ -199,7 +199,7 @@ macro_rules! const_eval_int {
         let lhs = $lhs.as_const();
         let rhs = $rhs.as_const();
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.elem());
+            let rhs = rhs.cast_to(lhs.storage_type());
             Some(match (lhs, rhs) {
                 (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs $op rhs, kind),
                 (UInt(lhs, kind), UInt(rhs, _)) => ConstantScalarValue::UInt(lhs $op rhs, kind),
@@ -218,7 +218,7 @@ macro_rules! const_eval_float {
         let lhs = $lhs.as_const();
         let rhs = $rhs.as_const();
         if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
-            let rhs = rhs.cast_to(lhs.elem());
+            let rhs = rhs.cast_to(lhs.storage_type());
             Some(match (lhs, rhs) {
                 (Float(lhs, kind), Float(rhs, _)) => {
                     ConstantScalarValue::Float($fn(lhs, rhs), kind)
@@ -296,12 +296,16 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Mul(op) => const_eval!(*op.lhs, op.rhs),
         Arithmetic::Div(op) => const_eval!(/ op.lhs, op.rhs),
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
+        // powf is fast enough for const eval
+        Arithmetic::Powi(op) => {
+            const_eval_float!(op.lhs, op.rhs; num::Float::powf)
+        }
         Arithmetic::Modulo(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::Remainder(op) => const_eval!(% op.lhs, op.rhs),
         Arithmetic::MulHi(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
-                let rhs = rhs.cast_to(lhs.elem());
+                let rhs = rhs.cast_to(lhs.storage_type());
                 Some(match (lhs, rhs) {
                     (Int(lhs, kind), Int(rhs, _)) => {
                         let mul = (lhs * rhs) >> 32;
@@ -320,7 +324,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Max(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
-                let rhs = rhs.cast_to(lhs.elem());
+                let rhs = rhs.cast_to(lhs.storage_type());
                 Some(match (lhs, rhs) {
                     (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs.max(rhs), kind),
                     (Float(lhs, kind), Float(rhs, _)) => {
@@ -338,7 +342,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Min(op) => {
             use ConstantScalarValue::*;
             if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
-                let rhs = rhs.cast_to(lhs.elem());
+                let rhs = rhs.cast_to(lhs.storage_type());
                 Some(match (lhs, rhs) {
                     (Int(lhs, kind), Int(rhs, _)) => ConstantScalarValue::Int(lhs.min(rhs), kind),
                     (Float(lhs, kind), Float(rhs, _)) => {
@@ -390,8 +394,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
             let c = op.c.as_const();
 
             a.zip(b).zip(c).map(|((a, b), c)| {
-                let b = b.cast_to(a.elem());
-                let c = c.cast_to(a.elem());
+                let b = b.cast_to(a.storage_type());
+                let c = c.cast_to(a.storage_type());
                 match (a, b, c) {
                     (Float(a, kind), Float(b, _), Float(c, _)) => {
                         ConstantScalarValue::Float(a * b + c, kind)
@@ -407,8 +411,8 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
             let c = op.max_value.as_const();
 
             a.zip(b).zip(c).map(|((a, b), c)| {
-                let b = b.cast_to(a.elem());
-                let c = c.cast_to(a.elem());
+                let b = b.cast_to(a.storage_type());
+                let c = c.cast_to(a.storage_type());
                 match (a, b, c) {
                     (Int(a, kind), Int(b, _), Int(c, _)) => {
                         ConstantScalarValue::Int(a.clamp(b, c), kind)

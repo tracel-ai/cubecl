@@ -134,7 +134,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 32],
             },
             input,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         unsafe { ArrayArg::from_raw_parts::<F>(&out, 32 * 16, 1) },
     );
@@ -180,7 +180,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 32],
             },
             unsafe { TensorArg::from_raw_parts::<F>(&out.handle, &out.strides, &[64, 64], 1) },
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
     );
 
@@ -256,7 +256,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
                 pixels_per_column: tile_m as u32,
             },
             input,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         unsafe { TensorArg::from_raw_parts::<F>(&out, &out_strides, &out_shape, 1) },
         tile_m as u32,
@@ -324,14 +324,14 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
                 tile_size: vec![16, 16],
             },
             output_1,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         TensorMapArg::new(
             TensorMapFormat::Tiled {
                 tile_size: vec![16, 32],
             },
             input_2,
-            F::as_elem_native_unchecked(),
+            F::as_type_native_unchecked(),
         ),
         output_2,
     );

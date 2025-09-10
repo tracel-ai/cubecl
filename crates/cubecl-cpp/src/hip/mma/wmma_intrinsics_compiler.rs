@@ -471,24 +471,24 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
             // Types fully supported.
             let types = vec![
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16), // m
-                    gpu::Elem::Float(gpu::FloatKind::F16), // n
-                    gpu::Elem::Float(gpu::FloatKind::F16), // k
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // m
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // n
+                    gpu::ElemType::Float(gpu::FloatKind::F16), // k
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
                 (
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::BF16),
-                    gpu::Elem::Float(gpu::FloatKind::F32),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::BF16),
+                    gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
             ];
             let combinations: SupportedWmmaCombinations = types
                 .into_iter()
-                .map(|(m, n, k)| (m, n, k, vec![(16, 16, 16)]))
+                .map(|(m, n, k)| (m.into(), n.into(), k.into(), vec![(16, 16, 16)]))
                 .collect();
             result.extend(combinations);
         }
@@ -583,17 +583,17 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         // Types fully supported.
         let types = vec![
             (
-                gpu::Elem::Float(gpu::FloatKind::F16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::F16),
+                gpu::ElemType::Float(gpu::FloatKind::F32),
             ),
             (
-                gpu::Elem::Float(gpu::FloatKind::BF16),
-                gpu::Elem::Float(gpu::FloatKind::F32),
+                gpu::ElemType::Float(gpu::FloatKind::BF16),
+                gpu::ElemType::Float(gpu::FloatKind::F32),
             ),
         ];
         let combinations = types
             .into_iter()
-            .map(|(ab_elem, cd_elem)| (ab_elem, ab_elem, cd_elem, 16, 16, 16));
+            .map(|(ab_elem, cd_elem)| (ab_elem.into(), ab_elem.into(), cd_elem.into(), 16, 16, 16));
         result.extend(combinations);
     }
     result

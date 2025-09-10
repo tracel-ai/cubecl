@@ -1,7 +1,7 @@
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
     AtomicFeature, Feature, WgpuCompilationOptions,
-    ir::{Elem, UIntKind},
+    ir::{ElemType, UIntKind},
 };
 use cubecl_core::{Compiler, compute::Visibility};
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
@@ -61,47 +61,51 @@ pub fn register_wgsl_features(
     comp_options: &mut WgpuCompilationOptions,
 ) {
     register_types(props, adapter);
-    if props.feature_enabled(Feature::Type(Elem::UInt(UIntKind::U64))) {
+    if props.feature_enabled(Feature::Type(ElemType::UInt(UIntKind::U64).into())) {
         comp_options.supports_u64 = true;
     }
 }
 
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_types(props: &mut DeviceProperties<Feature>, adapter: &wgpu::Adapter) {
-    use cubecl_core::ir::{Elem, FloatKind, IntKind};
+    use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
     let supported_types = [
-        Elem::UInt(UIntKind::U32),
-        Elem::Int(IntKind::I32),
-        Elem::AtomicInt(IntKind::I32),
-        Elem::AtomicUInt(UIntKind::U32),
-        Elem::Float(FloatKind::F32),
-        Elem::Float(FloatKind::Flex32),
-        Elem::Bool,
+        ElemType::UInt(UIntKind::U32),
+        ElemType::Int(IntKind::I32),
+        ElemType::Float(FloatKind::F32),
+        ElemType::Float(FloatKind::Flex32),
+        ElemType::Bool,
     ];
 
-    let mut register = |ty: Elem| {
+    let supported_atomic_types = [ElemType::Int(IntKind::I32), ElemType::UInt(UIntKind::U32)];
+
+    let mut register = |ty: StorageType| {
         props.register_feature(Feature::Type(ty));
     };
 
     for ty in supported_types {
-        register(ty)
+        register(ty.into())
+    }
+
+    for ty in supported_atomic_types {
+        register(StorageType::Atomic(ty))
     }
 
     let feats = adapter.features();
 
     if feats.contains(wgpu::Features::SHADER_INT64) {
-        register(Elem::Int(IntKind::I64));
-        register(Elem::UInt(UIntKind::U64));
+        register(ElemType::Int(IntKind::I64).into());
+        register(ElemType::UInt(UIntKind::U64).into());
     }
     if feats.contains(wgpu::Features::SHADER_F64) {
-        register(Elem::Float(FloatKind::F64));
+        register(ElemType::Float(FloatKind::F64).into());
     }
     if feats.contains(wgpu::Features::SHADER_F16) {
-        register(Elem::Float(FloatKind::F16));
+        register(ElemType::Float(FloatKind::F16).into());
     }
     if feats.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        register(Elem::AtomicFloat(FloatKind::F32));
+        register(StorageType::Atomic(ElemType::Float(FloatKind::F32)));
         props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
         props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
     }
