@@ -92,8 +92,10 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
             client,
             cube_count,
             cube_dim,
-            input.as_tensor_arg(line_size as u8),
-            output.as_tensor_arg(1),
+            input
+                .try_as_tensor_arg(line_size as u8)
+                .expect("valid vec"),
+            output.try_as_tensor_arg(1).expect("vec=1"),
             cube_dim.num_elems(),
             line_size,
             num_lines_per_unit,

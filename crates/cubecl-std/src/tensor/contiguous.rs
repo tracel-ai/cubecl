@@ -250,7 +250,9 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
         cube_count,
         cube_dim,
         input,
-        output.as_tensor_arg(out_vec),
+        output
+            .try_as_tensor_arg(out_vec)
+            .expect("valid vec for output"),
         out_layout,
         elems_per_unit,
     );

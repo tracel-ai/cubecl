@@ -43,8 +43,12 @@ pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: 
             client,
             config.cube_count,
             config.cube_dim,
-            input.as_tensor_arg(config.line_size_input as u8),
-            output.as_tensor_arg(config.line_size_output as u8),
+            input
+                .try_as_tensor_arg(config.line_size_input as u8)
+                .expect("valid reduce input vec"),
+            output
+                .try_as_tensor_arg(config.line_size_output as u8)
+                .expect("valid reduce output vec"),
             ScalarArg::new(axis),
             settings,
             inst,
