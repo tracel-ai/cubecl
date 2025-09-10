@@ -1,7 +1,3 @@
-use ash::{
-    khr::cooperative_matrix,
-    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
-};
 use cubecl_core::{
     AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
     compute::Visibility,
@@ -12,6 +8,10 @@ use cubecl_core::{
 use cubecl_runtime::DeviceProperties;
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
+use tracel_ash::{
+    khr::cooperative_matrix,
+    vk::{ComponentTypeKHR, DeviceCreateInfo, DeviceQueueCreateInfo, ScopeKHR, TRUE},
+};
 use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{
@@ -101,9 +101,9 @@ fn request_device(
     let pre_info = DeviceCreateInfo::default()
         .queue_create_infos(&family_infos)
         .enabled_extension_names(&str_pointers);
-    let mut info = phys_features.add_to_device_create(pre_info);
+    let mut info = phys_features.add_to_device_create(pre_info.into());
     info = info.enabled_features(&supported_feat);
-    info = extended_feat.add_to_device_create(info);
+    info = extended_feat.add_to_device_create(info.into()).into();
 
     let vk_device = unsafe {
         ash.raw_instance()
@@ -263,9 +263,19 @@ fn register_cmma(
     props: &mut DeviceProperties<Feature>,
 ) {
     let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
-    let properties = unsafe {
-        cmma.get_physical_device_cooperative_matrix_properties(adapter.raw_physical_device())
-            .unwrap()
+    let num_elems = unsafe {
+        cmma.get_physical_device_cooperative_matrix_properties_len(
+            adapter.raw_physical_device().into(),
+        )
+        .unwrap()
+    };
+    let mut properties = vec![Default::default(); num_elems];
+    unsafe {
+        cmma.get_physical_device_cooperative_matrix_properties(
+            adapter.raw_physical_device().into(),
+            &mut properties,
+        )
+        .unwrap()
     };
     let sizes = properties
         .into_iter()
@@ -300,7 +310,10 @@ fn register_cmma(
 
 fn convert_type(vk_ty: ComponentTypeKHR) -> Option<ElemType> {
     let ty = match vk_ty {
+        ComponentTypeKHR::FLOAT8_E4M3_EXT => ElemType::Float(FloatKind::E4M3),
+        ComponentTypeKHR::FLOAT8_E5M2_EXT => ElemType::Float(FloatKind::E5M2),
         ComponentTypeKHR::FLOAT16 => ElemType::Float(FloatKind::F16),
+        ComponentTypeKHR::BFLOAT16 => ElemType::Float(FloatKind::BF16),
         ComponentTypeKHR::FLOAT32 => ElemType::Float(FloatKind::F32),
         ComponentTypeKHR::FLOAT64 => ElemType::Float(FloatKind::F64),
         ComponentTypeKHR::SINT8 => ElemType::Int(IntKind::I8),

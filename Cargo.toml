@@ -98,6 +98,12 @@ cudarc = { version = "0.17.2", features = [
     "dynamic-loading",
 ], default-features = false }
 
+# CubeCL-SPIR-V
+rspirv = { path = "../rspirv/rspirv", package = "tracel-rspirv" }
+
+# CubeCL-WGPU
+ash = "0.38"
+tracel-ash = { path = "../ash-patch/ash-patch", package = "ash-patch" }
 
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.

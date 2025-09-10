@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self as core, FloatKind, IntKind, UIntKind};
-use rspirv::spirv::{Capability, CooperativeMatrixUse, Scope, StorageClass, Word};
+use rspirv::spirv::{Capability, CooperativeMatrixUse, FPEncoding, Scope, StorageClass, Word};
 
 use crate::{compiler::SpirvCompiler, target::SpirvTarget, variable::ConstVal};
 
@@ -187,7 +187,7 @@ impl Item {
                     let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
                 }
-                (Elem::Bool, Elem::Float(_)) | (Elem::Bool, Elem::Relaxed) => {
+                (Elem::Bool, Elem::Float(_, _)) | (Elem::Bool, Elem::Relaxed) => {
                     let one = other.const_u32(b, 1);
                     let zero = other.const_u32(b, 0);
                     b.select(ty, out_id, obj, one, zero).unwrap()
@@ -205,25 +205,25 @@ impl Item {
                         (width_other, signed_other),
                     )
                 }
-                (Elem::Int(_, false), Elem::Float(_)) | (Elem::Int(_, false), Elem::Relaxed) => {
+                (Elem::Int(_, false), Elem::Float(_, _)) | (Elem::Int(_, false), Elem::Relaxed) => {
                     b.convert_u_to_f(ty, out_id, obj).unwrap()
                 }
-                (Elem::Int(_, true), Elem::Float(_)) | (Elem::Int(_, true), Elem::Relaxed) => {
+                (Elem::Int(_, true), Elem::Float(_, _)) | (Elem::Int(_, true), Elem::Relaxed) => {
                     b.convert_s_to_f(ty, out_id, obj).unwrap()
                 }
-                (Elem::Float(_), Elem::Bool) | (Elem::Relaxed, Elem::Bool) => {
+                (Elem::Float(_, _), Elem::Bool) | (Elem::Relaxed, Elem::Bool) => {
                     let zero = self.const_u32(b, 0);
                     b.f_unord_not_equal(ty, out_id, obj, zero).unwrap()
                 }
-                (Elem::Float(_), Elem::Int(_, false)) | (Elem::Relaxed, Elem::Int(_, false)) => {
+                (Elem::Float(_, _), Elem::Int(_, false)) | (Elem::Relaxed, Elem::Int(_, false)) => {
                     b.convert_f_to_u(ty, out_id, obj).unwrap()
                 }
-                (Elem::Float(_), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
+                (Elem::Float(_, _), Elem::Int(_, true)) | (Elem::Relaxed, Elem::Int(_, true)) => {
                     b.convert_f_to_s(ty, out_id, obj).unwrap()
                 }
-                (Elem::Float(_), Elem::Float(_))
-                | (Elem::Float(_), Elem::Relaxed)
-                | (Elem::Relaxed, Elem::Float(_)) => b.f_convert(ty, out_id, obj).unwrap(),
+                (Elem::Float(_, _), Elem::Float(_, _))
+                | (Elem::Float(_, _), Elem::Relaxed)
+                | (Elem::Relaxed, Elem::Float(_, _)) => b.f_convert(ty, out_id, obj).unwrap(),
                 (Elem::Bool, Elem::Bool) => b.copy_object(ty, out_id, obj).unwrap(),
                 (Elem::Relaxed, Elem::Relaxed) => b.copy_object(ty, out_id, obj).unwrap(),
                 (from, to) => panic!("Invalid cast from {from:?} to {to:?}"),
@@ -248,7 +248,7 @@ pub enum Elem {
     Void,
     Bool,
     Int(u32, bool),
-    Float(u32),
+    Float(u32, Option<FPEncoding>),
     Relaxed,
 }
 
@@ -258,8 +258,8 @@ impl Elem {
             Elem::Void => b.type_void(),
             Elem::Bool => b.type_bool(),
             Elem::Int(width, _) => b.type_int(*width, 0),
-            Elem::Float(width) => b.type_float(*width),
-            Elem::Relaxed => b.type_float(32),
+            Elem::Float(width, encoding) => b.type_float(*width, *encoding),
+            Elem::Relaxed => b.type_float(32, None),
         };
         if b.debug_symbols && !b.state.debug_types.contains(&id) {
             b.debug_name(id, format!("{self}"));
@@ -273,7 +273,7 @@ impl Elem {
             Elem::Void => 0,
             Elem::Bool => 1,
             Elem::Int(size, _) => *size / 8,
-            Elem::Float(size) => *size / 8,
+            Elem::Float(size, _) => *size / 8,
             Elem::Relaxed => 4,
         }
     }
@@ -318,23 +318,30 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 core::FloatKind::E2M1
                 | core::FloatKind::E2M3
                 | core::FloatKind::E3M2
-                | core::FloatKind::E4M3
-                | core::FloatKind::E5M2
                 | core::FloatKind::UE8M0,
             ) => panic!("Minifloat not supported in SPIR-V"),
+            core::ElemType::Float(core::FloatKind::E4M3) => {
+                self.capabilities.insert(Capability::Float8EXT);
+                Elem::Float(8, Some(FPEncoding::Float8E4M3EXT))
+            }
+            core::ElemType::Float(core::FloatKind::E5M2) => {
+                self.capabilities.insert(Capability::Float8EXT);
+                Elem::Float(8, Some(FPEncoding::Float8E5M2EXT))
+            }
             core::ElemType::Float(core::FloatKind::BF16) => {
-                panic!("BFloat16 not supported in SPIR-V")
+                self.capabilities.insert(Capability::BFloat16TypeKHR);
+                Elem::Float(16, Some(FPEncoding::BFloat16KHR))
             }
             core::ElemType::Float(FloatKind::F16) => {
                 self.capabilities.insert(Capability::Float16);
-                Elem::Float(16)
+                Elem::Float(16, None)
             }
             core::ElemType::Float(FloatKind::TF32) => panic!("TF32 not supported in SPIR-V"),
             core::ElemType::Float(FloatKind::Flex32) => Elem::Relaxed,
-            core::ElemType::Float(FloatKind::F32) => Elem::Float(32),
+            core::ElemType::Float(FloatKind::F32) => Elem::Float(32, None),
             core::ElemType::Float(FloatKind::F64) => {
                 self.capabilities.insert(Capability::Float64);
-                Elem::Float(64)
+                Elem::Float(64, None)
             }
             core::ElemType::Int(IntKind::I8) => {
                 self.capabilities.insert(Capability::Int8);
@@ -377,11 +384,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             (core::ConstantScalarValue::Int(val, _), Elem::Int(width, true)) => {
                 ConstVal::from_int(val, width)
             }
-            (core::ConstantScalarValue::Int(val, _), Elem::Float(width)) => {
-                ConstVal::from_float(val as f64, width)
+            (core::ConstantScalarValue::Int(val, _), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val as f64, width, encoding)
             }
             (core::ConstantScalarValue::Int(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val as f64, 32)
+                ConstVal::from_float(val as f64, 32, None)
             }
             (core::ConstantScalarValue::Float(val, _), Elem::Bool) => {
                 ConstVal::from_bool(val != 0.0)
@@ -392,11 +399,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             (core::ConstantScalarValue::Float(val, _), Elem::Int(width, true)) => {
                 ConstVal::from_int(val as i64, width)
             }
-            (core::ConstantScalarValue::Float(val, _), Elem::Float(width)) => {
-                ConstVal::from_float(val, width)
+            (core::ConstantScalarValue::Float(val, _), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val, width, encoding)
             }
             (core::ConstantScalarValue::Float(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val, 32)
+                ConstVal::from_float(val, 32, None)
             }
             (core::ConstantScalarValue::UInt(val, _), Elem::Bool) => ConstVal::from_bool(val != 0),
             (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, false)) => {
@@ -405,21 +412,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             (core::ConstantScalarValue::UInt(val, _), Elem::Int(width, true)) => {
                 ConstVal::from_int(val as i64, width)
             }
-            (core::ConstantScalarValue::UInt(val, _), Elem::Float(width)) => {
-                ConstVal::from_float(val as f64, width)
+            (core::ConstantScalarValue::UInt(val, _), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val as f64, width, encoding)
             }
             (core::ConstantScalarValue::UInt(val, _), Elem::Relaxed) => {
-                ConstVal::from_float(val as f64, 32)
+                ConstVal::from_float(val as f64, 32, None)
             }
             (core::ConstantScalarValue::Bool(val), Elem::Bool) => ConstVal::from_bool(val),
             (core::ConstantScalarValue::Bool(val), Elem::Int(width, _)) => {
                 ConstVal::from_uint(val as u64, width)
             }
-            (core::ConstantScalarValue::Bool(val), Elem::Float(width)) => {
-                ConstVal::from_float(val as u32 as f64, width)
+            (core::ConstantScalarValue::Bool(val), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val as u32 as f64, width, encoding)
             }
             (core::ConstantScalarValue::Bool(val), Elem::Relaxed) => {
-                ConstVal::from_float(val as u32 as f64, 32)
+                ConstVal::from_float(val as u32 as f64, 32, None)
             }
             (_, Elem::Void) => unreachable!(),
         };
@@ -429,42 +436,52 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn static_cast(&mut self, val: ConstVal, from: &Elem, item: &Item) -> Word {
         let elem_cast = match (*from, item.elem()) {
             (Elem::Bool, Elem::Int(width, _)) => ConstVal::from_uint(val.as_u32() as u64, width),
-            (Elem::Bool, Elem::Float(width)) => ConstVal::from_float(val.as_u32() as f64, width),
-            (Elem::Bool, Elem::Relaxed) => ConstVal::from_float(val.as_u32() as f64, 32),
+            (Elem::Bool, Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val.as_u32() as f64, width, encoding)
+            }
+            (Elem::Bool, Elem::Relaxed) => ConstVal::from_float(val.as_u32() as f64, 32, None),
             (Elem::Int(_, _), Elem::Bool) => ConstVal::from_bool(val.as_u64() != 0),
             (Elem::Int(_, false), Elem::Int(width, _)) => ConstVal::from_uint(val.as_u64(), width),
             (Elem::Int(w_in, true), Elem::Int(width, _)) => {
                 ConstVal::from_uint(val.as_int(w_in) as u64, width)
             }
-            (Elem::Int(_, false), Elem::Float(width)) => {
-                ConstVal::from_float(val.as_u64() as f64, width)
+            (Elem::Int(_, false), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val.as_u64() as f64, width, encoding)
             }
-            (Elem::Int(_, false), Elem::Relaxed) => ConstVal::from_float(val.as_u64() as f64, 32),
-            (Elem::Int(in_w, true), Elem::Float(width)) => {
-                ConstVal::from_float(val.as_int(in_w) as f64, width)
+            (Elem::Int(_, false), Elem::Relaxed) => {
+                ConstVal::from_float(val.as_u64() as f64, 32, None)
+            }
+            (Elem::Int(in_w, true), Elem::Float(width, encoding)) => {
+                ConstVal::from_float(val.as_int(in_w) as f64, width, encoding)
             }
             (Elem::Int(in_w, true), Elem::Relaxed) => {
-                ConstVal::from_float(val.as_int(in_w) as f64, 32)
+                ConstVal::from_float(val.as_int(in_w) as f64, 32, None)
             }
-            (Elem::Float(in_w), Elem::Bool) => ConstVal::from_bool(val.as_float(in_w) != 0.0),
-            (Elem::Relaxed, Elem::Bool) => ConstVal::from_bool(val.as_float(32) != 0.0),
-            (Elem::Float(in_w), Elem::Int(out_w, false)) => {
-                ConstVal::from_uint(val.as_float(in_w) as u64, out_w)
+            (Elem::Float(in_w, encoding), Elem::Bool) => {
+                ConstVal::from_bool(val.as_float(in_w, encoding) != 0.0)
+            }
+            (Elem::Relaxed, Elem::Bool) => ConstVal::from_bool(val.as_float(32, None) != 0.0),
+            (Elem::Float(in_w, encoding), Elem::Int(out_w, false)) => {
+                ConstVal::from_uint(val.as_float(in_w, encoding) as u64, out_w)
             }
             (Elem::Relaxed, Elem::Int(out_w, false)) => {
-                ConstVal::from_uint(val.as_float(32) as u64, out_w)
+                ConstVal::from_uint(val.as_float(32, None) as u64, out_w)
             }
-            (Elem::Float(in_w), Elem::Int(out_w, true)) => {
-                ConstVal::from_int(val.as_float(in_w) as i64, out_w)
+            (Elem::Float(in_w, encoding), Elem::Int(out_w, true)) => {
+                ConstVal::from_int(val.as_float(in_w, encoding) as i64, out_w)
             }
             (Elem::Relaxed, Elem::Int(out_w, true)) => {
-                ConstVal::from_int(val.as_float(32) as i64, out_w)
+                ConstVal::from_int(val.as_float(32, None) as i64, out_w)
             }
-            (Elem::Float(in_w), Elem::Float(out_w)) => {
-                ConstVal::from_float(val.as_float(in_w), out_w)
+            (Elem::Float(in_w, encoding), Elem::Float(out_w, encoding_out)) => {
+                ConstVal::from_float(val.as_float(in_w, encoding), out_w, encoding_out)
             }
-            (Elem::Relaxed, Elem::Float(out_w)) => ConstVal::from_float(val.as_float(32), out_w),
-            (Elem::Float(in_w), Elem::Relaxed) => ConstVal::from_float(val.as_float(in_w), 32),
+            (Elem::Relaxed, Elem::Float(out_w, encoding)) => {
+                ConstVal::from_float(val.as_float(32, None), out_w, encoding)
+            }
+            (Elem::Float(in_w, encoding), Elem::Relaxed) => {
+                ConstVal::from_float(val.as_float(in_w, encoding), 32, None)
+            }
             (Elem::Bool, Elem::Bool) => val,
             (Elem::Relaxed, Elem::Relaxed) => val,
             (_, Elem::Void) | (Elem::Void, _) => unreachable!(),
@@ -500,7 +517,10 @@ impl std::fmt::Display for Elem {
             Elem::Bool => write!(f, "bool"),
             Elem::Int(width, false) => write!(f, "u{width}"),
             Elem::Int(width, true) => write!(f, "i{width}"),
-            Elem::Float(width) => write!(f, "f{width}"),
+            Elem::Float(width, None) => write!(f, "f{width}"),
+            Elem::Float(_, Some(FPEncoding::BFloat16KHR)) => write!(f, "bf16"),
+            Elem::Float(_, Some(FPEncoding::Float8E4M3EXT)) => write!(f, "e4m3"),
+            Elem::Float(_, Some(FPEncoding::Float8E5M2EXT)) => write!(f, "e5m2"),
             Elem::Relaxed => write!(f, "flex32"),
         }
     }
