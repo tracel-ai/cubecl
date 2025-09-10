@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::TensorReader;
+use cubecl_matmul::components::global::memory::{TensorReader, ViewDirection};
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
@@ -14,8 +14,11 @@ use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecis
 use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
-pub struct DummyQueryLoader<AP: AttentionPrecision> {
+pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
+
+    #[cube(comptime)]
+    _phantom: PhantomData<G>,
 }
 
 #[derive(CubeType)]
@@ -24,36 +27,40 @@ pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
-    _phantom: PhantomData<(AP, G)>,
+    _phantom: PhantomData<G>,
 }
+
 #[derive(CubeType)]
 pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     tensor_reader: TensorReader<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
-    _phantom: PhantomData<(AP, G)>,
+    _phantom: PhantomData<G>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision> DummyQueryLoader<AP> {
-    pub fn new(query: View<Line<AP::EI>, Coords3d>) -> Self {
-        let tensor_reader =
-            TensorReader::new(query, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords3d>, #[comptime] _config: G) -> Self {
+        let tensor_reader = TensorReader::new(query, (0u32.runtime(), q_offset, 0u32.runtime()));
 
-        DummyQueryLoader::<AP> { tensor_reader }
+        DummyQueryLoader::<AP, G> {
+            tensor_reader,
+            _phantom: PhantomData,
+        }
     }
 
-    pub fn reader<G: GlobalAttentionConfig>(
-        &self,
-        #[comptime] config: G,
-    ) -> QueryRegisterReader<AP::EI> {
+    pub fn reader(&self, #[comptime] config: G) -> QueryRegisterReader<AP::EI> {
         comment!("Loading Query");
 
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.view.slice(
-                (0u32.runtime(), 0u32.runtime(), 0u32.runtime()),
+                (
+                    self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
+                    0u32.runtime(),
+                    0u32.runtime(),
+                ),
                 attention_tile_size.query_size(),
             ),
             stride: attention_tile_size.num_cols(FlashIdent::Query),
@@ -124,6 +131,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
             }
         }
     }
+
+    pub fn advance_view(&mut self, offset: u32) {
+        self.tensor_reader
+            .update_view(offset, comptime!(ViewDirection::Row));
+    }
 }
 
 #[cube]
@@ -187,6 +199,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
                 }
             }
         }
+    }
+
+    pub fn advance_view(&mut self, offset: u32) {
+        self.tensor_reader
+            .update_view(offset, comptime!(ViewDirection::Row));
     }
 }
 

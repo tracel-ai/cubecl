@@ -18,6 +18,7 @@ pub struct AcceleratedFlashMatmulConfig {
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
     cast_query: bool,
+    check_bounds: bool,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -139,6 +140,10 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
             .num_cols(ident)
             .div_ceil(self.num_units_per_row(ident))
     }
+
+    fn check_bounds(&self) -> bool {
+        self.check_bounds
+    }
 }
 
 impl AcceleratedFlashMatmulConfig {
@@ -148,6 +153,7 @@ impl AcceleratedFlashMatmulConfig {
         num_planes: u32,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
+        check_bounds: bool,
     ) -> Result<Self, AttentionSetupError> {
         let score_config = ScoreConfig {
             plane_dim,
@@ -171,6 +177,7 @@ impl AcceleratedFlashMatmulConfig {
             key_value_stage_line_size,
             cast_query: AP::EI::as_type_native_unchecked()
                 == <AP::FlashPrecision as FlashPrecision>::Q::as_type_native_unchecked(),
+            check_bounds,
         }
         .validate()
     }

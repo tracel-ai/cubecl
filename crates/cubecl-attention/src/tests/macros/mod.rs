@@ -14,18 +14,71 @@ pub fn attention_tile_wide<R: Runtime>(
     attention_tile_size: AttentionTileSize,
 ) {
     assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
+    let tile_seq_q = attention_tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
-        seq_q: attention_tile_size.seq_q as usize,
+        seq_q: tile_seq_q as usize,
         seq_kv: attention_tile_size.seq_kv as usize,
         head_dim: attention_tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {},
+        hypercube_selection: HypercubeSelection { tile_seq_q },
+        attention_tile_size,
+        plane_dim: 32,
+    };
+
+    test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
+}
+
+pub fn attention_different_seq_kv<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    attention_tile_size: AttentionTileSize,
+    seq_kv: usize,
+) {
+    assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
+    let tile_seq_q = attention_tile_size.seq_q;
+
+    let problem = AttentionProblem {
+        batch: 1,
+        num_heads: 1,
+        seq_q: tile_seq_q as usize,
+        seq_kv,
+        head_dim: attention_tile_size.head_dim as usize,
+        masked: false,
+    };
+
+    let selection = AttentionSelection {
+        hypercube_selection: HypercubeSelection { tile_seq_q },
+        attention_tile_size,
+        plane_dim: 32,
+    };
+
+    test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
+}
+
+pub fn attention_different_seq_q<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    attention_tile_size: AttentionTileSize,
+    seq_q: usize,
+) {
+    assert!(attention_tile_size.head_dim == attention_tile_size.val_dim);
+    let tile_seq_q = attention_tile_size.seq_q;
+
+    let problem = AttentionProblem {
+        batch: 1,
+        num_heads: 1,
+        seq_q,
+        seq_kv: attention_tile_size.seq_kv as usize,
+        head_dim: attention_tile_size.head_dim as usize,
+        masked: false,
+    };
+
+    let selection = AttentionSelection {
+        hypercube_selection: HypercubeSelection { tile_seq_q },
         attention_tile_size,
         plane_dim: 32,
     };
@@ -83,6 +136,86 @@ macro_rules! testgen_attention {
                 $crate::tests::macros::attention_tile_wide::<TestRuntime>(
                     client,
                     attention_tile_size,
+                )
+            }
+
+            #[test]
+            fn attention_8_kv64() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_different_seq_kv::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    64,
+                )
+            }
+
+            #[test]
+            fn attention_8_kv58() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_different_seq_kv::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    58,
+                )
+            }
+
+            #[test]
+            fn attention_8_kv5() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_different_seq_kv::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    5,
+                )
+            }
+
+            #[test]
+            fn attention_8_q16() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_different_seq_q::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    16,
+                )
+            }
+
+            #[test]
+            fn attention_8_q4() {
+                let client = TestRuntime::client(&Default::default());
+                let attention_tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                $crate::tests::macros::attention_different_seq_q::<TestRuntime>(
+                    client,
+                    attention_tile_size,
+                    4,
                 )
             }
         }

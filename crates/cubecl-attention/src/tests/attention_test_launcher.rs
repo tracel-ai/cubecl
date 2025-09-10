@@ -79,10 +79,9 @@ pub fn test_attention_algorithm<A, P, R>(
         }
     };
 
-    let cube_count_plan = config.hypercube_config().cube_count_plan(
-        &problem,
-        client.properties().hardware.max_cube_count.clone(),
-    );
+    let cube_count_plan = config
+        .hypercube_config()
+        .cube_count_plan(&problem, &selection);
 
     unsafe {
         A::BatchAttention::launch_unchecked::<P::MP, R>(
