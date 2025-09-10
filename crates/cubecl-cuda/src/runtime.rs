@@ -24,7 +24,6 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
@@ -262,10 +261,6 @@ impl Runtime for CudaRuntime {
         RUNTIME.client(device, move || {
             create_client::<WmmaCompiler>(device, RuntimeOptions::default())
         })
-    }
-
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
     }
 
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {

@@ -18,7 +18,6 @@ use cubecl_core::{
     },
 };
 use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
-use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
@@ -230,10 +229,6 @@ impl Runtime for HipRuntime {
 
     fn max_cube_count() -> (u32, u32, u32) {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
-    }
-
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {

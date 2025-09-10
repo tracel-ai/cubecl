@@ -1,16 +1,14 @@
-use std::{
-    collections::HashMap,
-    sync::mpsc::{Receiver, SyncSender},
-};
-
+use crate::compute::{CudaResource, sync::Fence};
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
 use cubecl_runtime::data_service::DataTransferId;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 use cudarc::driver::sys::{self};
-
-use crate::compute::{CudaResource, sync::Fence};
+use std::{
+    collections::HashMap,
+    sync::mpsc::{Receiver, SyncSender},
+};
 
 static SERVICE: Mutex<Option<DataServiceClient>> = Mutex::new(None);
 
@@ -52,11 +50,11 @@ impl DataServiceClient {
     ///
     /// # Arguments
     ///
-    /// - id: The unique identifier for the current data transfer.
-    /// - item: Source data to transfer.
-    /// - fence: The fence to wait before executing the data transfer on the destination stream.
+    /// * `id` - The unique identifier for the current data transfer.
+    /// * `item` - Source data to transfer.
+    /// * `fence` - The fence to wait before executing the data transfer on the destination stream.
     ///
-    /// # Panic
+    /// # Panics
     ///
     /// If the data service channel is closed.
     pub fn register_src(&self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
@@ -69,13 +67,13 @@ impl DataServiceClient {
     ///
     /// # Arguments
     ///
-    /// - id: The unique identifier for the current data transfer.
-    /// - item: Destination to receive data.
+    /// * `id` - The unique identifier for the current data transfer.
+    /// * `item` - Destination to receive data.
     ///
-    /// # Panic
+    /// # Panics
     ///
-    /// - If the data service channel is closed.
-    /// - If the transfer fails.
+    /// * If the data service channel is closed.
+    /// * If the transfer fails.
     pub fn register_dest(&self, id: DataTransferId, item: DataTransferItem) {
         let (send, recv) = std::sync::mpsc::sync_channel(1);
         self.sender

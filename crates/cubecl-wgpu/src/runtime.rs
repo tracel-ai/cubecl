@@ -12,7 +12,6 @@ use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -79,18 +78,6 @@ impl Runtime for WgpuRuntime {
     fn max_cube_count() -> (u32, u32, u32) {
         let max_dim = u16::MAX as u32;
         (max_dim, max_dim, max_dim)
-    }
-
-    fn device_id(device: &Self::Device) -> DeviceId {
-        #[allow(deprecated)]
-        match device {
-            WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
-            WgpuDevice::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
-            WgpuDevice::VirtualGpu(index) => DeviceId::new(2, *index as u32),
-            WgpuDevice::Cpu => DeviceId::new(3, 0),
-            WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
-            WgpuDevice::Existing(id) => DeviceId::new(5, *id),
-        }
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {

@@ -7,7 +7,6 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
@@ -105,10 +104,6 @@ impl Runtime for CpuRuntime {
 
     fn max_cube_count() -> (u32, u32, u32) {
         (u32::MAX, u32::MAX, u32::MAX)
-    }
-
-    fn device_id(_device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, 0)
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {

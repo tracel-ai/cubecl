@@ -18,10 +18,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
-    type Device: Default + Clone + core::fmt::Debug + Send + Sync;
-
-    /// Fetch the id for the given device.
-    fn device_id(device: &Self::Device) -> DeviceId;
+    type Device: Device;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
@@ -50,9 +47,19 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 
+    /// Returns the number of devices that can be handled by the runtime.
     fn device_count() -> usize;
 
+    /// Returns the properties of the target hardware architecture.
     fn target_properties() -> TargetProperties;
+}
+
+/// Device trait for all cubecl devices.
+pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync {
+    /// Create a device from its [id](DeviceId).
+    fn from_id(device_id: DeviceId) -> Self;
+    /// Retrieve the [device id](DeviceId) from the device.
+    fn to_id(&self) -> DeviceId;
 }
 
 /// Every feature that can be supported by a [cube runtime](Runtime).

@@ -1,3 +1,6 @@
+use cubecl_core::Device;
+use cubecl_runtime::id::DeviceId;
+
 /// The device struct when using the `wgpu` backend.
 ///
 /// Note that you need to provide the device index when using a GPU backend.
@@ -50,5 +53,31 @@ pub enum WgpuDevice {
 impl Default for WgpuDevice {
     fn default() -> Self {
         Self::DefaultDevice
+    }
+}
+
+impl Device for WgpuDevice {
+    fn from_id(device_id: DeviceId) -> Self {
+        match device_id.type_id {
+            0 => Self::DiscreteGpu(device_id.index_id as usize),
+            1 => Self::IntegratedGpu(device_id.index_id as usize),
+            2 => Self::VirtualGpu(device_id.index_id as usize),
+            3 => Self::Cpu,
+            4 => Self::DefaultDevice,
+            5 => Self::Existing(device_id.index_id),
+            _ => Self::DefaultDevice,
+        }
+    }
+
+    fn to_id(&self) -> DeviceId {
+        #[allow(deprecated)]
+        match self {
+            Self::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
+            Self::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
+            Self::VirtualGpu(index) => DeviceId::new(2, *index as u32),
+            Self::Cpu => DeviceId::new(3, 0),
+            Self::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
+            Self::Existing(id) => DeviceId::new(5, *id),
+        }
     }
 }

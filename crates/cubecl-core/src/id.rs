@@ -1,5 +1,7 @@
 use cubecl_runtime::{client::ComputeClient, id::DeviceId};
 
+use crate::Device;
+
 /// ID used to identify a Just-in-Time environment.
 #[derive(Hash, PartialEq, Eq, Debug, Clone)]
 pub struct CubeTuneId {
@@ -14,7 +16,7 @@ impl CubeTuneId {
         device: &R::Device,
     ) -> Self {
         Self {
-            device: R::device_id(device),
+            device: device.to_id(),
             name: R::name(client),
         }
     }
