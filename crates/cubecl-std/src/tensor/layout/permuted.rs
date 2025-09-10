@@ -27,7 +27,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         strides: &[usize],
         line_size: &'a u8,
     ) -> Self {
-        let len = shape.iter().product::<usize>();
+        let len = shape.iter().product::<usize>() / *line_size as usize;
 
         let shape = SequenceArg {
             values: shape
