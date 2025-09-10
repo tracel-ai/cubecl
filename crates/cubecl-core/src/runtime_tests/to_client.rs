@@ -1,7 +1,7 @@
-use cubecl_runtime::id::DeviceId;
+use cubecl_common::device::{Device, DeviceId};
 
+use crate::Runtime;
 use crate::prelude::*;
-use crate::{Device, Runtime};
 
 pub fn test_to_client<R: Runtime>() {
     let type_id = 0;
