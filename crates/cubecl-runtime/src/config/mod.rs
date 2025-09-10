@@ -4,10 +4,11 @@ pub mod autotune;
 pub mod compilation;
 /// Profiling config module.
 pub mod profiling;
-
-mod base;
+/// Cache config module.
 #[cfg(std_io)]
 pub mod cache;
+
+mod base;
 mod logger;
 
 pub use base::*;
