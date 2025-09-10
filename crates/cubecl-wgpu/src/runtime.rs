@@ -12,7 +12,6 @@ use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -81,18 +80,6 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        #[allow(deprecated)]
-        match device {
-            WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
-            WgpuDevice::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
-            WgpuDevice::VirtualGpu(index) => DeviceId::new(2, *index as u32),
-            WgpuDevice::Cpu => DeviceId::new(3, 0),
-            WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
-            WgpuDevice::Existing(id) => DeviceId::new(5, *id),
-        }
-    }
-
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         if shape.is_empty() {
             return true;
@@ -105,27 +92,6 @@ impl Runtime for WgpuRuntime {
         }
 
         true
-    }
-
-    fn device_count() -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
-            adapters.len()
-        }
     }
 
     fn target_properties() -> TargetProperties {
@@ -244,6 +210,7 @@ pub(crate) fn create_client_on_setup(
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: limits.min_storage_buffer_offset_alignment as u64,
+        data_transfer_async: false,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
