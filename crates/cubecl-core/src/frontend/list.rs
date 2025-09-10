@@ -6,10 +6,8 @@ use cubecl_ir::Scope;
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
-#[cube(self_type = "ref")]
-pub trait List<T: CubePrimitive>:
-    CubeType<ExpandType: ListExpand<T> + SliceOperatorExpand<T>> + SliceOperator<T> + Lined
-{
+#[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
+pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined {
     #[allow(unused)]
     fn read(&self, index: u32) -> T {
         unexpanded!()
@@ -28,10 +26,8 @@ pub trait List<T: CubePrimitive>:
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-#[cube(self_type = "ref")]
-pub trait ListMut<T: CubePrimitive>:
-    CubeType<ExpandType: ListMutExpand<T> + SliceMutOperatorExpand<T>> + List<T> + SliceMutOperator<T>
-{
+#[cube(self_type = "ref", expand_base_traits = "SliceMutOperatorExpand<T>")]
+pub trait ListMut<T: CubePrimitive>: List<T> + SliceMutOperator<T> {
     #[allow(unused)]
     fn write(&self, index: u32, value: T) {
         unexpanded!()

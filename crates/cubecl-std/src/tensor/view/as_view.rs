@@ -39,9 +39,7 @@ pub trait AsViewExpand<E: CubePrimitive> {
     ) -> ViewExpand<E, C, ReadOnly>;
 }
 
-pub trait AsViewMut<E: CubePrimitive>:
-    AsView<E> + CubeType<ExpandType: AsViewExpand<E> + AsViewMutExpand<E>>
-{
+pub trait AsViewMut<E: CubePrimitive>: AsView<E> {
     #[allow(unused)]
     fn view_mut<C: Coordinates + 'static>(
         &mut self,

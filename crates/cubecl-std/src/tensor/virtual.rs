@@ -260,7 +260,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     #[doc = " with custom layouts"]
     pub fn view_mut<C: Coordinates + 'static>(
         &self,
-        layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d>,
+        layout: impl Layout<Coordinates = C, SourceCoordinates = Coords1d> + 'static,
     ) -> View<Line<E>, C, ReadWrite> {
         let mut this: VirtualTensor<E, ReadWrite> = *self;
         View::new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(&mut this, layout)
@@ -343,11 +343,10 @@ impl<E: Numeric> VirtualTensor<E, ReadOnly> {
     }
 
     /// Expand function of [Self::new].
-    pub fn __expand_new<V>(_scope: &mut Scope, v: V::ExpandType) -> VirtualTensorExpand<E, ReadOnly>
-    where
-        V::ExpandType: VirtualTensorOperationsExpand<E>,
-        V: VirtualTensorOperations<E> + CubeType + 'static,
-    {
+    pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
+        _scope: &mut Scope,
+        v: V::ExpandType,
+    ) -> VirtualTensorExpand<E, ReadOnly> {
         VirtualTensorExpand {
             state: Arc::new(v),
             _p: PhantomData,
@@ -362,14 +361,10 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
     }
 
     /// Expand function of [Self::new].
-    pub fn __expand_new<V>(
+    pub fn __expand_new<V: VirtualTensorOperations<E> + 'static>(
         _scope: &mut Scope,
         v: V::ExpandType,
-    ) -> VirtualTensorExpand<E, ReadWrite>
-    where
-        V::ExpandType: VirtualTensorOperationsExpand<E>,
-        V: VirtualTensorOperations<E> + CubeType + 'static,
-    {
+    ) -> VirtualTensorExpand<E, ReadWrite> {
         VirtualTensorExpand {
             state: Arc::new(v),
             _p: PhantomData,
@@ -387,9 +382,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 /// This trait is kind of unsafe, [VirtualTensorOperations::write] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
-pub trait VirtualTensorOperations<E: Numeric>:
-    CubeType<ExpandType: VirtualTensorOperationsExpand<E>> + Lined
-{
+pub trait VirtualTensorOperations<E: Numeric>: Lined {
     fn as_tensor_map(&self) -> TensorMap<E> {
         unexpanded!()
     }

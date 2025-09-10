@@ -7,17 +7,7 @@ use super::Coordinates;
 /// storage. Some layouts may be transformers meant to be composed with others (i.e. swizzling),
 /// others will represent the actual underlying structure of the data.
 #[cube(expand_base_traits = "Clone")]
-pub trait Layout:
-    CubeType<
-        ExpandType: LayoutExpand<
-            Coordinates = Self::Coordinates,
-            SourceCoordinates = Self::SourceCoordinates,
-        >,
-    > + Clone
-    + Send
-    + Sync
-    + 'static
-{
+pub trait Layout {
     /// The coordinate type used by the conceptual tensor represented by this layout, i.e.
     /// `(u32, u32, u32)` for a fixed-rank 3D tensor.
     /// This does not have to match the rank of the underlying storage (if applicable).

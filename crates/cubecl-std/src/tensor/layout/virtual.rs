@@ -49,20 +49,17 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
 
 impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
     /// Create a new virtual layout from a concrete one
-    pub fn new<L>(_layout: L) -> VirtualLayout<C, S>
-    where
-        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
-        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S>,
-    {
+    pub fn new<L: Layout<Coordinates = C, SourceCoordinates = S>>(
+        _layout: L,
+    ) -> VirtualLayout<C, S> {
         unexpanded!()
     }
 
     /// Expand function of [VirtualLayout::__expand_new]
-    pub fn __expand_new<L>(_scope: &mut Scope, layout: L::ExpandType) -> VirtualLayoutExpand<C, S>
-    where
-        L: Layout<Coordinates = C, SourceCoordinates = S> + CubeType,
-        L::ExpandType: LayoutExpand<Coordinates = C, SourceCoordinates = S> + 'static,
-    {
+    pub fn __expand_new<L: Layout<Coordinates = C, SourceCoordinates = S> + 'static>(
+        _scope: &mut Scope,
+        layout: L::ExpandType,
+    ) -> VirtualLayoutExpand<C, S> {
         VirtualLayoutExpand::new::<L::ExpandType>(layout)
     }
 }

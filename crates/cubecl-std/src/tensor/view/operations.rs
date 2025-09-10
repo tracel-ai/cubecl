@@ -9,9 +9,7 @@ use crate::tensor::layout::{Coordinates, Coords1d, VirtualLayout, VirtualLayoutE
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
-pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
-    CubeType<ExpandType: ViewOperationsExpand<T, C>> + Lined
-{
+pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     #[allow(unused)]
     fn read(&self, pos: C) -> T {
         unexpanded!()
@@ -48,9 +46,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
 #[cube(expand_base_traits = "ViewOperationsExpand<T, C>", self_type = "ref")]
-pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>:
-    CubeType<ExpandType: ViewOperationsMutExpand<T, C>> + ViewOperations<T, C>
-{
+pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
     #[allow(unused)]
     fn write(&self, pos: C, value: T) {
         unexpanded!()
@@ -397,12 +393,7 @@ mod virtual_tensor {
 }
 
 #[derive(CubeType)]
-pub struct VirtualView<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> {
+pub struct VirtualView<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>> {
     #[allow(unused)]
     view: V,
     #[allow(unused)]
@@ -412,12 +403,8 @@ pub struct VirtualView<
 }
 
 #[cube]
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> VirtualView<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>>
+    VirtualView<T, C, S, V>
 {
     pub fn new(view: V, layout: VirtualLayout<C, S>) -> Self {
         VirtualView::<T, C, S, V> {
@@ -428,12 +415,8 @@ impl<
     }
 }
 
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> VirtualViewExpand<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>>
+    VirtualViewExpand<T, C, S, V>
 {
     pub fn new(view: V::ExpandType, layout: VirtualLayoutExpand<C, S>) -> Self {
         VirtualViewExpand::<T, C, S, V> {
@@ -449,7 +432,7 @@ pub struct VirtualViewMut<
     T: CubePrimitive,
     C: Coordinates,
     S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
+    V: ViewOperationsMut<T, S>,
 > {
     #[allow(unused)]
     view: V,
@@ -460,12 +443,8 @@ pub struct VirtualViewMut<
 }
 
 #[cube]
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
-> VirtualViewMut<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S>>
+    VirtualViewMut<T, C, S, V>
 {
     pub fn new(view: V, layout: VirtualLayout<C, S>) -> Self {
         VirtualViewMut::<T, C, S, V> {
@@ -476,12 +455,8 @@ impl<
     }
 }
 
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
-> VirtualViewMutExpand<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S>>
+    VirtualViewMutExpand<T, C, S, V>
 {
     pub fn new(view: V::ExpandType, layout: VirtualLayoutExpand<C, S>) -> Self {
         VirtualViewMutExpand::<T, C, S, V> {
@@ -495,13 +470,13 @@ impl<
 macro_rules! impl_virtual_read {
     ($ty: ident, $expand: ident, $trait: ident) => {
         impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Lined for $ty<T, C, S, V> where
-            V: $trait<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>
+            V: $trait<T, S>
         {
         }
         impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> LinedExpand
             for $expand<T, C, S, V>
         where
-            V: $trait<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
+            V: $trait<T, S>,
         {
             fn line_size(&self) -> u32 {
                 self.view.line_size()
@@ -511,7 +486,7 @@ macro_rules! impl_virtual_read {
         impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> ViewOperations<T, C>
             for $ty<T, C, S, V>
         where
-            V: $trait<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
+            V: $trait<T, S>,
         {
         }
 
@@ -592,7 +567,7 @@ impl_virtual_read!(VirtualViewMut, VirtualViewMutExpand, ViewOperationsMut);
 impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> ViewOperationsMut<T, C>
     for VirtualViewMut<T, C, S, V>
 where
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
+    V: ViewOperationsMut<T, S>,
 {
 }
 

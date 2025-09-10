@@ -38,7 +38,7 @@ pub struct CubeTraitImpl {
 pub enum CubeTraitItem {
     Fn(KernelSignature),
     Method(KernelSignature),
-    Other(TokenStream),
+    Other(Option<Ident>, TokenStream),
 }
 
 pub enum CubeTraitImplItem {
@@ -60,7 +60,9 @@ impl CubeTraitItem {
                 func.name = format_ident!("__expand_{}", func.name);
                 CubeTraitItem::Fn(func)
             }
-            other => CubeTraitItem::Other(other.to_token_stream()),
+            TraitItem::Type(t) => CubeTraitItem::Other(Some(t.ident.clone()), t.to_token_stream()),
+            TraitItem::Const(c) => CubeTraitItem::Other(Some(c.ident.clone()), c.to_token_stream()),
+            other => CubeTraitItem::Other(None, other.to_token_stream()),
         };
         Ok(res)
     }
@@ -68,21 +70,28 @@ impl CubeTraitItem {
     pub fn func(&self) -> Option<&KernelSignature> {
         match self {
             CubeTraitItem::Fn(func) => Some(func),
-            CubeTraitItem::Method(_) | CubeTraitItem::Other(_) => None,
+            CubeTraitItem::Method(_) | CubeTraitItem::Other(..) => None,
         }
     }
 
     pub fn method(&self) -> Option<&KernelSignature> {
         match self {
             CubeTraitItem::Method(method) => Some(method),
-            CubeTraitItem::Fn(_) | CubeTraitItem::Other(_) => None,
+            CubeTraitItem::Fn(_) | CubeTraitItem::Other(..) => None,
         }
     }
 
     pub fn other(&self) -> Option<&TokenStream> {
         match self {
             CubeTraitItem::Fn(_) | CubeTraitItem::Method(_) => None,
-            CubeTraitItem::Other(tokens) => Some(tokens),
+            CubeTraitItem::Other(_, tokens) => Some(tokens),
+        }
+    }
+
+    pub fn other_ident(&self) -> Option<&Ident> {
+        match self {
+            CubeTraitItem::Fn(_) | CubeTraitItem::Method(_) => None,
+            CubeTraitItem::Other(ident, _) => ident.as_ref(),
         }
     }
 
@@ -108,7 +117,7 @@ impl CubeTraitItem {
                     }
                 })
             }
-            CubeTraitItem::Fn(_) | CubeTraitItem::Other(_) => None,
+            CubeTraitItem::Fn(_) | CubeTraitItem::Other(..) => None,
         }
     }
 }

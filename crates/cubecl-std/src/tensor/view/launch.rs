@@ -7,7 +7,7 @@ use std::{
 
 use crate::tensor::{
     View, ViewExpand, VirtualViewExpand, VirtualViewMutExpand,
-    layout::{Coords1d, Layout, LayoutExpand, VirtualLayoutExpand},
+    layout::{Coords1d, Layout, VirtualLayoutExpand},
     view::ViewType,
 };
 
@@ -124,9 +124,6 @@ impl<
     L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
     IO: Clone + Send + Sync + 'static,
 > LaunchArgExpand for TypedView<E, L, IO>
-where
-    L::ExpandType:
-        LayoutExpand<Coordinates = L::Coordinates, SourceCoordinates = L::SourceCoordinates>,
 {
     type CompilationArg = TypedViewCompilationArg<L>;
     fn expand(

@@ -1,14 +1,19 @@
-use crate::parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem};
+use crate::{
+    parse::cube_trait::{CubeTrait, CubeTraitImpl, CubeTraitImplItem, CubeTraitItem},
+    paths::prelude_type,
+};
 use proc_macro2::TokenStream;
 use quote::quote;
 use quote::{ToTokens, format_ident};
-use syn::{Type, TypePath, spanned::Spanned};
+use syn::{
+    ConstParam, GenericArgument, Token, Type, TypeParam, TypePath, parse_quote, spanned::Spanned,
+};
 
 impl ToTokens for CubeTrait {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         let original_body = &self.original_trait.items;
-        let colon = &self.original_trait.colon_token;
-        let base_traits = &self.original_trait.supertraits;
+        let mut colon = self.original_trait.colon_token;
+        let mut base_traits = self.original_trait.supertraits.clone();
         let attrs = &self.attrs;
         let vis = &self.vis;
         let unsafety = &self.unsafety;
@@ -24,6 +29,37 @@ impl ToTokens for CubeTrait {
             .items
             .iter()
             .any(|it| matches!(it, CubeTraitItem::Method(_)));
+
+        if has_expand {
+            let cube_type = prelude_type("CubeType");
+            let expand_name = format_ident!("{}Expand", self.name);
+            let associated_bounds = self
+                .items
+                .iter()
+                .filter_map(CubeTraitItem::other_ident)
+                .map(|it| parse_quote![#it = Self::#it])
+                .collect::<Vec<GenericArgument>>();
+
+            let mut generic_args = quote![];
+
+            if !generics.params.is_empty() || !associated_bounds.is_empty() {
+                let generics = generics.params.iter().map(|it| match it {
+                    syn::GenericParam::Lifetime(lifetime_param) => {
+                        GenericArgument::Lifetime(lifetime_param.lifetime.clone())
+                    }
+                    syn::GenericParam::Type(TypeParam { ident, .. })
+                    | syn::GenericParam::Const(ConstParam { ident, .. }) => {
+                        GenericArgument::Type(parse_quote!(#ident))
+                    }
+                });
+                let args = generics.chain(associated_bounds);
+                generic_args = quote![<#(#args),*>];
+            }
+
+            base_traits.push(parse_quote!(#cube_type<ExpandType: #expand_name #generic_args>));
+
+            colon = Some(Token![:](tokens.span()));
+        }
 
         let out = quote! {
             #(#attrs)*
