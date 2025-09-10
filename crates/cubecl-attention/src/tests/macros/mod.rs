@@ -14,23 +14,27 @@ pub fn attention_tile_wide<R: Runtime>(
     tile_size: AttentionTileSize,
 ) {
     assert!(tile_size.head_dim == tile_size.val_dim);
-    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
-        seq_q: tile_seq_q as usize,
+        seq_q: tile_size.seq_q as usize,
         seq_kv: tile_size.seq_kv as usize,
         head_dim: tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection { tile_seq_q },
+        hypercube_selection: HypercubeSelection {},
         plane_dim: 32,
         tiling_scheme: AttentionTilingScheme {
             tile_size,
-            partition_size: AttentionPartitionSize {},
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: 1,
+                seq_kv: 1,
+                val_dim: 1,
+            },
         },
     };
 
@@ -43,23 +47,27 @@ pub fn attention_different_seq_kv<R: Runtime>(
     seq_kv: usize,
 ) {
     assert!(tile_size.head_dim == tile_size.val_dim);
-    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
         num_heads: 1,
-        seq_q: tile_seq_q as usize,
+        seq_q: tile_size.seq_q as usize,
         seq_kv,
         head_dim: tile_size.head_dim as usize,
         masked: false,
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection { tile_seq_q },
+        hypercube_selection: HypercubeSelection {},
         plane_dim: 32,
         tiling_scheme: AttentionTilingScheme {
             tile_size,
-            partition_size: AttentionPartitionSize {},
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: 1,
+                seq_kv: 1,
+                val_dim: 1,
+            },
         },
     };
 
@@ -72,7 +80,6 @@ pub fn attention_different_seq_q<R: Runtime>(
     seq_q: usize,
 ) {
     assert!(tile_size.head_dim == tile_size.val_dim);
-    let tile_seq_q = tile_size.seq_q;
 
     let problem = AttentionProblem {
         batch: 1,
@@ -84,11 +91,49 @@ pub fn attention_different_seq_q<R: Runtime>(
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection { tile_seq_q },
+        hypercube_selection: HypercubeSelection {},
         plane_dim: 32,
         tiling_scheme: AttentionTilingScheme {
             tile_size,
-            partition_size: AttentionPartitionSize {},
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: 1,
+                seq_kv: 1,
+                val_dim: 1,
+            },
+        },
+    };
+
+    test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
+}
+
+pub fn attention_larger_partition<R: Runtime>(
+    client: ComputeClient<R::Server, R::Channel>,
+    partition_size: AttentionPartitionSize,
+    seq_q: usize,
+) {
+    let tile_size = AttentionTileSize {
+        seq_q: 8,
+        seq_kv: 8,
+        head_dim: 8,
+        val_dim: 8,
+    };
+
+    let problem = AttentionProblem {
+        batch: 1,
+        num_heads: 1,
+        seq_q,
+        seq_kv: tile_size.seq_kv as usize,
+        head_dim: tile_size.head_dim as usize,
+        masked: false,
+    };
+
+    let selection = AttentionSelection {
+        hypercube_selection: HypercubeSelection {},
+        plane_dim: 32,
+        tiling_scheme: AttentionTilingScheme {
+            tile_size,
+            partition_size,
         },
     };
 

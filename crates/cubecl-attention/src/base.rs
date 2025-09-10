@@ -90,12 +90,15 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {
-            tile_seq_q: tile_size.seq_q,
-        },
+        hypercube_selection: HypercubeSelection {},
         tiling_scheme: AttentionTilingScheme {
             tile_size,
-            partition_size: AttentionPartitionSize {},
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: 1,
+                seq_kv: 1,
+                val_dim: 1,
+            },
         },
         plane_dim: 32,
     };

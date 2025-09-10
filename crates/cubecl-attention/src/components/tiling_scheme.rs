@@ -83,4 +83,9 @@ impl AttentionTileSize {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AttentionPartitionSize {}
+pub struct AttentionPartitionSize {
+    pub seq_q: u32,
+    pub head_dim: u32,
+    pub seq_kv: u32,
+    pub val_dim: u32,
+}
