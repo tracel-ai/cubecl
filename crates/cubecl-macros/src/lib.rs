@@ -31,7 +31,14 @@ mod statement;
 /// * `launch` - generates a function to launch the kernel
 /// * `launch_unchecked` - generates a launch function without checks
 /// * `debug` - panics after generation to print the output to console
-/// * `create_dummy_kernel` - Generates a function to create a kernel without launching it. Used for testing.
+/// * `create_dummy_kernel` - Generates a function to create a kernel without launching it. Used for
+///   testing.
+///
+/// # Trait arguments
+/// * `expand_base_traits` - base traits for the expanded "second half" of a trait with methods.
+/// * `self_type` - the type used for the `self` parameter of the expanded "second half" of a trait
+///   with methods. You shouldn't need to touch this unless you specifically need to dynamically
+///   dispatch an expanded trait.
 ///
 /// # Example
 ///
@@ -134,8 +141,8 @@ fn gen_cube_type(input: TokenStream, with_launch: bool) -> TokenStream {
     cube_type.generate(with_launch).into()
 }
 
-/// Attribute macro to define a type that can be used as a kernel comptime argument
-/// This derive Debug, Hash, PartialEq, Eq, Clone, Copy
+/// Attribute macro to define a type that can be used as a kernel comptime
+/// argument This derive Debug, Hash, PartialEq, Eq, Clone, Copy
 #[proc_macro_attribute]
 pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> TokenStream {
     let input: proc_macro2::TokenStream = input.into();
@@ -146,8 +153,8 @@ pub fn derive_cube_comptime(_metadata: TokenStream, input: TokenStream) -> Token
     .into()
 }
 
-/// Mark the contents of this macro as compile time values, turning off all expansion for this code
-/// and using it verbatim
+/// Mark the contents of this macro as compile time values, turning off all
+/// expansion for this code and using it verbatim
 ///
 /// # Example
 /// ```ignored
@@ -165,8 +172,8 @@ pub fn comptime(input: TokenStream) -> TokenStream {
     quote![{ #tokens }].into()
 }
 
-/// Mark the contents of this macro as an intrinsic, turning off all expansion for this code
-/// and calling it with the scope
+/// Mark the contents of this macro as an intrinsic, turning off all expansion
+/// for this code and calling it with the scope
 ///
 /// # Example
 /// ```ignored
@@ -221,7 +228,8 @@ pub fn comment(input: TokenStream) -> TokenStream {
 
 /// Terminate the execution of the kernel for the current unit.
 ///
-/// This terminates the execution of the unit even if nested inside many functions.
+/// This terminates the execution of the unit even if nested inside many
+/// functions.
 ///
 /// # Example
 /// ```ignored
@@ -246,8 +254,9 @@ pub fn terminate(input: TokenStream) -> TokenStream {
 /// Use the `#[autotune(anchor)]` helper attribute to anchor a numerical value.
 /// This groups multiple numerical values into the same bucket.
 ///
-/// For now, only an exponential function is supported, and it can be modified with `exp`.
-/// By default, the base is '2' and there are no `min` or `max` provided.
+/// For now, only an exponential function is supported, and it can be modified
+/// with `exp`. By default, the base is '2' and there are no `min` or `max`
+/// provided.
 ///
 /// # Example
 /// ```ignore

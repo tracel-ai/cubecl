@@ -586,7 +586,8 @@ impl MatchArm {
     pub fn to_tokens(&self, context: &mut Context, runtime_variants: bool) -> TokenStream {
         let mut pat = self.pat.clone();
 
-        // If using runtime variants, we need to replace the variant Name with NameExpand.
+        // If using runtime variants, we need to replace the variant Name with
+        // NameExpand.
         if runtime_variants {
             Self::expand_pat(&mut pat);
         }
@@ -635,14 +636,16 @@ impl MatchArm {
                 panic!("unsupported pattern in match for {pat:?}");
                 // NOTE: From the documentation https://docs.rs/syn/latest/syn/enum.Pat.html
                 //       I don't think we should support any other patterns.
-                //       Users can always use a big if, else if, else pattern instead.
-                //       Currently, the goal is to support CubeType enums.
+                //       Users can always use a big if, else if, else pattern
+                // instead.       Currently, the goal is to
+                // support CubeType enums.
             }
         }
     }
 }
 
-// Replace something like `some_path::Enum::Variant` with `some_path::EnumExpand::Variant`.
+// Replace something like `some_path::Enum::Variant` with
+// `some_path::EnumExpand::Variant`.
 fn append_expand_to_enum_name(path: &mut Path) {
     if path.segments.len() >= 2 {
         let segment = path.segments.get_mut(path.segments.len() - 2).unwrap(); // Safe because of the if

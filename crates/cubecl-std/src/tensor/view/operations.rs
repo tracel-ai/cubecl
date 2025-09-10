@@ -8,7 +8,7 @@ use crate::tensor::layout::{Coordinates, Coords1d, VirtualLayout, VirtualLayoutE
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
-#[cube(receiver_type = "ref", expand_base_traits = "LinedExpand")]
+#[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
     CubeType<ExpandType: ViewOperationsExpand<T, C>> + Lined
 {
@@ -47,10 +47,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-#[cube(
-    expand_base_traits = "ViewOperationsExpand<T, C>",
-    receiver_type = "ref"
-)]
+#[cube(expand_base_traits = "ViewOperationsExpand<T, C>", self_type = "ref")]
 pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>:
     CubeType<ExpandType: ViewOperationsMutExpand<T, C>> + ViewOperations<T, C>
 {

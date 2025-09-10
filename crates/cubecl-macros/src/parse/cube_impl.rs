@@ -92,16 +92,16 @@ impl CubeImplItem {
         }
     }
 
-    /// Create the method from the function and update the function body to point to the method's
-    /// implementation.
+    /// Create the method from the function and update the function body to
+    /// point to the method's implementation.
     fn handle_method_expand(func_name_expand: Ident, func: &mut KernelFn) -> KernelFn {
         let mut method_sig = func.sig.clone();
 
         method_sig.name = format_ident!("__expand_{}_method", func.sig.name);
         method_sig.plain_returns_self();
 
-        // Since the function is associated to the expand type, we have to update the normalized
-        // types for the arguments.
+        // Since the function is associated to the expand type, we have to update the
+        // normalized types for the arguments.
         for param in method_sig
             .parameters
             .iter_mut()
@@ -143,14 +143,16 @@ impl CubeImplItem {
         }
     }
 
-    /// Create the same function but that should be generated for the expand type.
+    /// Create the same function but that should be generated for the expand
+    /// type.
     ///
-    /// This is important since it allows to use the Self keyword inside methods.
+    /// This is important since it allows to use the Self keyword inside
+    /// methods.
     fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
         let mut func_sig = func.sig.clone();
 
-        // Since the function is associated to the expand type, we have to update the normalized
-        // types for the arguments.
+        // Since the function is associated to the expand type, we have to update the
+        // normalized types for the arguments.
         for param in func_sig
             .parameters
             .iter_mut()
@@ -236,8 +238,8 @@ impl CubeImpl {
     }
 }
 
-/// When we use a type with generics for calling a function, we have to add more `::` between the type ident and
-/// the generic arguments.
+/// When we use a type with generics for calling a function, we have to add more
+/// `::` between the type ident and the generic arguments.
 fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
     match ty {
         Type::Path(TypePath { path, .. }) => {

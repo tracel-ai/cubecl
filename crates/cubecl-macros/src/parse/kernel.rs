@@ -30,11 +30,11 @@ pub(crate) struct KernelArgs {
     pub expand_base_traits: Option<String>,
     /// What self should be taken as for the expansion
     #[darling(default)]
-    pub receiver_type: ReceiverType,
+    pub self_type: SelfType,
 }
 
 #[derive(Default, FromMeta, PartialEq, Eq)]
-pub(crate) enum ReceiverType {
+pub(crate) enum SelfType {
     #[default]
     Owned,
     Ref,
@@ -263,10 +263,10 @@ impl KernelParam {
                 let normalized_ty =
                     normalize_kernel_ty(*param.ty.clone(), false, &mut is_ref, &mut is_mut);
 
-                let normalized_ty = match args.receiver_type {
-                    ReceiverType::Owned => normalized_ty,
-                    ReceiverType::Ref => parse_quote!(&#normalized_ty),
-                    ReceiverType::RefMut => parse_quote!(&mut #normalized_ty),
+                let normalized_ty = match args.self_type {
+                    SelfType::Owned => normalized_ty,
+                    SelfType::Ref => parse_quote!(&#normalized_ty),
+                    SelfType::RefMut => parse_quote!(&mut #normalized_ty),
                 };
 
                 is_mut = param.mutability.is_some();
@@ -308,7 +308,8 @@ impl KernelParam {
 
     /// If the type is self, we set the normalized ty to self as well.
     ///
-    /// Useful when the param is used in functions or methods associated to the expand type.
+    /// Useful when the param is used in functions or methods associated to the
+    /// expand type.
     pub fn plain_normalized_self(&mut self) {
         if let Type::Path(pat) = &self.ty
             && pat
@@ -347,10 +348,10 @@ impl KernelSignature {
             .map(|it| KernelParam::from_param(it, args))
             .collect::<Result<Vec<_>, _>>()?;
         let receiver_arg = if parameters.iter().any(|it| it.name == "self") {
-            Some(match args.receiver_type {
-                ReceiverType::Owned => parse_quote!(self),
-                ReceiverType::Ref => parse_quote!(&self),
-                ReceiverType::RefMut => parse_quote!(&mut self),
+            Some(match args.self_type {
+                SelfType::Owned => parse_quote!(self),
+                SelfType::Ref => parse_quote!(&self),
+                SelfType::RefMut => parse_quote!(&mut self),
             })
         } else {
             None
@@ -369,7 +370,8 @@ impl KernelSignature {
         Self::from_signature(function.sig, args)
     }
 
-    /// If the type is self, we set the returns type to plain instead of expand type.
+    /// If the type is self, we set the returns type to plain instead of expand
+    /// type.
     pub fn plain_returns_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty()
             && pat
@@ -417,12 +419,14 @@ impl KernelFn {
         })
     }
 
-    /// We need to call IntoMut::into_mut on mutable owned inputs since their local variables need to be
-    /// identified as mut, which is done at initialization.
+    /// We need to call IntoMut::into_mut on mutable owned inputs since their
+    /// local variables need to be identified as mut, which is done at
+    /// initialization.
     ///
-    /// However, we don't specify mutability during initialization when we don't need to mutate the
-    /// type in the current scope; it is done in the function that receives the mutable parameter
-    /// as input. Therefore, we need to adjust the mutability here.
+    /// However, we don't specify mutability during initialization when we don't
+    /// need to mutate the type in the current scope; it is done in the
+    /// function that receives the mutable parameter as input. Therefore, we
+    /// need to adjust the mutability here.
     fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
         let mut mappings = Vec::new();
         let into_mut = frontend_type("IntoMut");

@@ -219,7 +219,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
     }
 }
 
-#[cube(receiver_type = "ref")]
+#[cube(self_type = "ref")]
 pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExpand<E>> {
     /// Return a read-only view of all elements comprise between the `start` and `end` indices.
     /// In `checked` mode, if the `end` index is out-of-bound, it is replaced by
@@ -236,7 +236,7 @@ pub trait SliceOperator<E: CubePrimitive>: CubeType<ExpandType: SliceOperatorExp
     }
 }
 
-#[cube(receiver_type = "ref")]
+#[cube(self_type = "ref")]
 pub trait SliceMutOperator<E: CubePrimitive>:
     CubeType<ExpandType: SliceMutOperatorExpand<E>>
 {

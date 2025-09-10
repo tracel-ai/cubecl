@@ -386,7 +386,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 ///
 /// This trait is kind of unsafe, [VirtualTensorOperations::write] doesn't follow the mutability
 /// rules, but it won't lead to any undefined behavior.
-#[cube(receiver_type = "ref", expand_base_traits = "LinedExpand")]
+#[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>:
     CubeType<ExpandType: VirtualTensorOperationsExpand<E>> + Lined
 {
