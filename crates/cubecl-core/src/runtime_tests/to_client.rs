@@ -12,6 +12,7 @@ pub fn test_to_client<R: Runtime>() {
     }
 
     for (device_0, device_1) in num_combination(type_id, device_count as u32) {
+        println!("Moving data from {device_0:?} to {device_1:?} ...");
         let device_0 = R::Device::from_id(device_0);
         let device_1 = R::Device::from_id(device_1);
         let client_0 = R::client(&device_0);
