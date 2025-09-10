@@ -104,6 +104,8 @@ pub trait FlashMatmulConfig:
 
     fn num_units_per_row(&self, ident: FlashIdent) -> u32;
     fn num_cols_per_unit(&self, ident: FlashIdent) -> u32;
+
+    fn check_bounds(&self) -> bool;
 }
 
 pub trait FlashMatmulFamily: Send + Sync + 'static {
