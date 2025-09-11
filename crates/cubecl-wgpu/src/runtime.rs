@@ -242,8 +242,14 @@ pub(crate) fn create_client_on_setup(
         TimingMethod::System
     };
 
-    let mut device_props =
-        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
+    let mut device_props = DeviceProperties::new(
+        &[],
+        mem_props.clone(),
+        hardware_props,
+        time_measurement,
+        // Default to contiguous for rank>1 allocations on WGPU unless overridden.
+        cubecl_runtime::server::AllocationKind::Contiguous,
+    );
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {

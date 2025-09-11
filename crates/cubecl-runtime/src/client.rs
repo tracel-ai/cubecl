@@ -322,7 +322,13 @@ where
     /// Reserves `shape` in the storage, and returns a tensor handle for it.
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensor(&self, shape: &[usize], elem_size: usize) -> Allocation {
-        let descriptor = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        // Use the device's default allocation preference for rank > 1 tensors.
+        let kind = if shape.len() > 1 {
+            self.state.properties.default_alloc_rank_gt1
+        } else {
+            AllocationKind::Contiguous
+        };
+        let descriptor = AllocationDescriptor::new(kind, shape, elem_size);
         self.do_empty(vec![descriptor]).unwrap().remove(0)
     }
 
@@ -349,7 +355,15 @@ where
     ) -> Allocation {
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
-        let kind = crate::stride::preferred_allocation_kind(shape, src_descriptor.strides);
+        // Prefer the device default for rank > 1 inner‑contiguous rows, otherwise
+        // fall back to contiguous.
+        let kind = if shape.len() > 1
+            && crate::stride::is_inner_contiguous_rows(shape, src_descriptor.strides)
+        {
+            self.state.properties.default_alloc_rank_gt1
+        } else {
+            AllocationKind::Contiguous
+        };
         let alloc_desc = AllocationDescriptor::new(kind, shape, elem_size);
         self.data_transfer(src_descriptor, alloc_desc, dst_server)
     }

@@ -164,6 +164,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_properties,
         hardware_props,
         TimingMethod::System,
+        // Prefer pitched rows by default on CUDA (hardware efficient).
+        cubecl_runtime::server::AllocationKind::Optimized,
     );
     register_supported_types(&mut device_props);
     device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::TF32).into()));

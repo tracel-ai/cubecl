@@ -161,6 +161,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         mem_properties,
         topology,
         TimingMethod::System,
+        // Prefer pitched rows by default on HIP (hardware efficient).
+        cubecl_runtime::server::AllocationKind::Optimized,
     );
     register_supported_types(&mut device_props);
     // Not sure if there's a good way to check for support on HIP
