@@ -318,7 +318,6 @@ impl ComputeServer for HipServer {
         Box::pin(self.sync_stream_async())
     }
 
-    // Completion fences are handled through `sync()`.
 
     fn start_profile(&mut self) -> ProfilingToken {
         cubecl_common::future::block_on(self.sync());

@@ -199,7 +199,6 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    // Completion fences are handled through `sync()`.
 
     fn start_profile(&mut self) -> ProfilingToken {
         self.stream.start_profile()

@@ -79,7 +79,6 @@ where
         server.sync()
     }
 
-    // Completion fences are handled through `sync()`.
 
     fn get_resource(
         &self,

@@ -172,7 +172,7 @@ where
                         server.sync().await;
                         callback.send(()).await.unwrap();
                     }
-                    // Removed: WorkDone
+                    
                     Message::Flush => {
                         server.flush();
                     }
@@ -330,7 +330,7 @@ where
         })
     }
 
-    // Completion fences are handled through `sync()`.
+    
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         let (callback, response) = async_channel::unbounded();
