@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
-use crate::bytes::default_allocation::DefaultAllocation;
+use crate::bytes::default_allocation::DefaultAllocationController;
 
 /// A sort of `Box<[u8]>` that remembers the original alignment and can contain trailing uninitialized bytes.
 pub struct Bytes {
@@ -17,25 +17,28 @@ pub struct Bytes {
 
 /// Internally used to avoid accidentally leaking an allocation or using the wrong layout.
 struct Data {
-    ptr: NonNull<u8>,
-    allocation: Box<dyn Allocation>,
+    allocation: Allocation,
+    controller: Box<dyn AllocationController>,
 }
 
-/// Allocations that are managed by a cubecl runtime.
-pub trait Allocation {
+/// Contains the parts from an allocation.
+pub struct Allocation {
+    ptr: NonNull<u8>,
+    size: usize,
+    align: usize,
+}
+
+/// Defines how the current data is allocated and provides some operations on it.
+pub trait AllocationController {
     /// Deallocates the provided [ptr](NonNull<u8>).
-    fn dealloc(&self, ptr: NonNull<u8>);
+    fn dealloc(&self, allocation: &Allocation);
     /// Extend the current.
     fn grow(
-        &mut self,
-        ptr: NonNull<u8>,
+        &self,
+        allocation: &Allocation,
         size: usize,
         align: usize,
-    ) -> Result<NonNull<u8>, AllocationError>;
-    /// Returns the len of the allocation.
-    fn len(&self) -> usize;
-    /// Returns the memory alignement of the allocation.
-    fn align(&self) -> usize;
+    ) -> Result<Allocation, AllocationError>;
     /// Returns wheter the [alloc crate](alloc) is used for allocation and if the allocation can be
     /// handled by another data structure.
     ///
@@ -47,6 +50,7 @@ pub trait Allocation {
     /// This allows the ptr to be converted into a native Rust vector without new allocation.
     fn can_be_detached(&self) -> bool;
 }
+
 /// Error related to allocation.
 #[derive(Debug, Clone)]
 pub enum AllocationError {
@@ -59,10 +63,19 @@ impl Bytes {
     pub unsafe fn from_raw_parts(
         ptr: NonNull<u8>,
         len: usize,
-        allocation: Box<dyn Allocation>,
+        align: usize,
+        controller: Box<dyn AllocationController>,
     ) -> Self {
+        let allocation = Allocation {
+            ptr,
+            size: len,
+            align,
+        };
         Self {
-            data: Data { ptr, allocation },
+            data: Data {
+                allocation,
+                controller,
+            },
             len,
         }
     }
@@ -110,7 +123,7 @@ impl Bytes {
 
     /// Get the total capacity, in bytes, of the wrapped allocation.
     pub fn capacity(&self) -> usize {
-        self.data.allocation.len()
+        self.data.allocation.size
     }
 
     /// Convert the bytes back into a vector. This requires that the type has the same alignment as the element
@@ -141,7 +154,7 @@ impl Bytes {
 
     /// Get the alignment of the wrapped allocation.
     pub(crate) fn align(&self) -> usize {
-        self.data.allocation.align()
+        self.data.allocation.align
     }
 
     /// Extend the byte buffer from a slice of bytes.
@@ -326,39 +339,57 @@ impl Data {
         let layout = Layout::for_value(data);
         // SAFETY: data is the allocation of a vec, hence can not be null. We use unchecked to avoid a panic-path.
         let ptr = unsafe { NonNull::new_unchecked(elems.as_mut_ptr().cast()) };
-        let allocator = DefaultAllocation { layout };
+        let controller = DefaultAllocationController;
+        let allocation = Allocation {
+            ptr,
+            size: layout.size(),
+            align: layout.align(),
+        };
 
         Self {
-            ptr,
-            allocation: Box::new(allocator),
+            allocation,
+            controller: Box::new(controller),
         }
     }
 
     // Create a new allocation with the specified layout
     fn new(layout: Layout) -> Self {
         let ptr = default_allocation::buffer_alloc(layout);
-        let allocator = DefaultAllocation { layout };
-        Self {
+        let allocation = Allocation {
             ptr,
-            allocation: Box::new(allocator),
+            size: layout.size(),
+            align: layout.align(),
+        };
+        let contoller = DefaultAllocationController;
+        Self {
+            allocation,
+            controller: Box::new(contoller),
         }
     }
 
     // Returns a mutable view of the memory of the whole allocation
     fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         // SAFETY: See type invariants
-        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr().cast(), self.allocation.len()) }
+        unsafe {
+            core::slice::from_raw_parts_mut(
+                self.allocation.ptr.as_ptr().cast(),
+                self.allocation.size,
+            )
+        }
     }
 
     fn grow(&mut self, size: usize, align: usize) {
-        match self.allocation.grow(self.ptr, size, align) {
-            Ok(ptr) => {
-                self.ptr = ptr;
+        match self.controller.grow(&self.allocation, size, align) {
+            Ok(allocation) => {
+                self.allocation = allocation;
             }
             Err(_err) => {
                 let mut new = Self::new(Layout::from_size_align(size, align).unwrap());
                 let data = unsafe {
-                    core::slice::from_raw_parts(self.ptr.as_ptr().cast(), self.allocation.len())
+                    core::slice::from_raw_parts(
+                        self.allocation.ptr.as_ptr().cast(),
+                        self.allocation.size,
+                    )
                 };
                 new.memory_mut().copy_from_slice(data);
                 *self = new;
@@ -368,27 +399,27 @@ impl Data {
 
     // Return a pointer to the underlying allocation. This pointer is valid for reads and writes until the allocation is dropped or reallocated.
     fn as_mut_ptr(&self) -> *mut u8 {
-        self.ptr.as_ptr()
+        self.allocation.ptr.as_ptr()
     }
 
     // Try to convert the allocation to a Vec. The Vec has a length of 0 when returned, but correct capacity and pointer!
     fn try_into_vec<E>(self) -> Result<Vec<E>, Self> {
-        if !self.allocation.can_be_detached() {
+        if !self.controller.can_be_detached() {
             return Err(self);
         }
 
-        let byte_capacity = self.allocation.len();
+        let byte_capacity = self.allocation.size;
         let Some(capacity) = byte_capacity.checked_div(size_of::<E>()) else {
             return Err(self);
         };
         if capacity * size_of::<E>() != byte_capacity {
             return Err(self);
         };
-        if self.allocation.align() < align_of::<E>() {
+        if self.allocation.align < align_of::<E>() {
             return Err(self);
         }
         // Okay, let's commit
-        let ptr = self.ptr.as_ptr().cast();
+        let ptr = self.allocation.ptr.as_ptr().cast();
         core::mem::forget(self);
         // SAFETY:
         // - ptr was allocated by the global allocator as per type-invariant
@@ -403,7 +434,7 @@ impl Data {
 
 impl Drop for Data {
     fn drop(&mut self) {
-        self.allocation.dealloc(self.ptr);
+        self.controller.dealloc(&self.allocation);
     }
 }
 
@@ -428,7 +459,7 @@ pub(crate) mod default_allocation {
     /// the bytes are always over-aligned when deserializing to MAX_ALIGN.
     pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 
-    /// Default allocator using the [alloc crate](alloc).
+    /// Default allocation controller using the [alloc crate](alloc).
     ///
     /// SAFETY:
     ///  - If `layout.size() > 0`, `ptr` points to a valid allocation from the global allocator
@@ -436,40 +467,38 @@ pub(crate) mod default_allocation {
     ///  - If `layout.size() == 0`, `ptr` is aligned to `layout.align()` and `len` is 0.
     ///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts` see [buffer alloc]
     ///    for more details.
-    pub struct DefaultAllocation {
-        pub layout: Layout,
-    }
+    pub struct DefaultAllocationController;
 
-    impl Allocation for DefaultAllocation {
-        fn dealloc(&self, ptr: NonNull<u8>) {
-            buffer_dealloc(self.layout, ptr);
+    impl AllocationController for DefaultAllocationController {
+        fn dealloc(&self, allocation: &Allocation) {
+            let layout =
+                unsafe { Layout::from_size_align_unchecked(allocation.size, allocation.align) };
+            buffer_dealloc(layout, allocation.ptr);
         }
 
         fn grow(
-            &mut self,
-            ptr: NonNull<u8>,
+            &self,
+            allocation: &Allocation,
             size: usize,
             align: usize,
-        ) -> Result<NonNull<u8>, AllocationError> {
+        ) -> Result<Allocation, AllocationError> {
             let Ok(new_layout) = Layout::from_size_align(size, align) else {
                 return Err(AllocationError::CantGrow);
             };
 
-            let (layout, ptr) = buffer_grow(self.layout, ptr, new_layout);
+            // Check done before.
+            let old_layout = unsafe { Layout::from_size_align_unchecked(size, align) };
+            let (layout, ptr) = buffer_grow(old_layout, allocation.ptr, new_layout);
 
-            self.layout = layout;
-
-            Ok(ptr)
+            Ok(Allocation {
+                ptr,
+                size: layout.size(),
+                align: layout.align(),
+            })
         }
 
-        fn len(&self) -> usize {
-            self.layout.size()
-        }
         fn can_be_detached(&self) -> bool {
             true
-        }
-        fn align(&self) -> usize {
-            self.layout.align()
         }
     }
 
