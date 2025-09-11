@@ -36,10 +36,9 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
-    pub fn wait_sync(self) {
+    pub fn wait_sync(&self) {
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
         }
     }
 
@@ -50,7 +49,7 @@ impl Fence {
     /// # Notes
     ///
     /// The [stream](CUevent_st) must be initialized.
-    pub fn wait_async(self, stream: *mut CUstream_st) {
+    pub fn wait_async(&self, stream: *mut CUstream_st) {
         unsafe {
             cudarc::driver::result::stream::wait_event(
                 stream,
@@ -58,7 +57,6 @@ impl Fence {
                 CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
             )
             .unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
         }
     }
 }

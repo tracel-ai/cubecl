@@ -48,15 +48,13 @@ impl Fence {
     /// # Notes
     ///
     /// The [stream](hipStream_t) must be initialized.
-    pub fn wait(self) {
+    pub fn wait(&self) {
         unsafe {
             let status = cubecl_hip_sys::hipStreamWaitEvent(self.stream, self.event, 0);
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should successfully wait for stream event"
             );
-            let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
         }
     }
 }

@@ -199,11 +199,7 @@ impl ComputeServer for WgpuServer {
         self.stream.sync()
     }
 
-    fn work_done(&mut self) -> DynFut<()> {
-        // Same as sync() but semantically used as a completion fence for
-        // work enqueued prior to this call. Non-blocking on creation.
-        self.stream.sync()
-    }
+    // Completion fences are handled through `sync()`.
 
     fn start_profile(&mut self) -> ProfilingToken {
         self.stream.start_profile()

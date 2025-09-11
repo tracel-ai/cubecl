@@ -85,10 +85,7 @@ where
         server.sync()
     }
 
-    fn work_done(&self) -> DynFut<()> {
-        let mut server = self.server.borrow_mut();
-        server.work_done()
-    }
+    // Completion fences are handled through `sync()`.
 
     fn get_resource(
         &self,

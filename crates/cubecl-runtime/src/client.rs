@@ -200,10 +200,11 @@ where
         self.channel.get_resource(binding)
     }
 
-    /// Returns a future that resolves when the work submitted up to this call
-    /// has completed.
+    /// Returns a future that resolves when all work submitted up to this call completes.
+    ///
+    /// Note: This forwards to the underlying channel `sync()`.
     pub fn fence(&self) -> cubecl_common::future::DynFut<()> {
-        self.channel.work_done()
+        self.channel.sync()
     }
 
     /// Execute a kernel asynchronously. The returned future resolves when
@@ -226,7 +227,7 @@ where
             self.channel
                 .execute(kernel, count, bindings, mode, self.state.logger.clone());
         }
-        self.channel.work_done()
+        self.channel.sync()
     }
 
     /// Asynchronously write bytes to buffers; returns a future that resolves when
@@ -238,7 +239,7 @@ where
         let res = self.channel.write(descriptors);
         match res {
             Ok(()) => {
-                let fut = self.channel.work_done();
+                let fut = self.channel.sync();
                 Box::pin(async move {
                     fut.await;
                     Ok(())

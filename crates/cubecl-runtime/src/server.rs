@@ -84,11 +84,7 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
 
-    /// Returns a future that resolves when the work submitted up to this call
-    /// has completed on the device. By default, this is equivalent to `sync()`.
-    fn work_done(&mut self) -> DynFut<()> {
-        self.sync()
-    }
+    // Note: Completion fences are exposed via `sync()` implementations.
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
