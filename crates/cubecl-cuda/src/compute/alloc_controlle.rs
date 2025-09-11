@@ -4,13 +4,14 @@ use cubecl_common::bytes::{Allocation, AllocationController, AllocationError};
 
 pub struct CudaAllocController {
     // Keep the ptr alive for GPU to CPU writes.
+    #[allow(unused)]
     ptr2ptr: *mut *mut c_void,
 }
 
 impl AllocationController for CudaAllocController {
     fn dealloc(&mut self, allocation: &Allocation) {
         unsafe {
-            // cudarc::driver::sys::cuMemFreeHost(allocation.ptr.cast());
+            cudarc::driver::sys::cuMemFreeHost(allocation.ptr.as_ptr().cast());
         };
     }
 
@@ -36,13 +37,9 @@ impl CudaAllocController {
 
             // Call cuMemAllocHost_v2 to allocate pinned host memory
             let result = cudarc::driver::sys::cuMemAllocHost_v2(ptr2ptr, size);
+
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
                 panic!("cuMemAllocHost_v2 failed with error code: {:?}", result);
-            }
-
-            // Ensure ptr is not null
-            if ptr.is_null() {
-                panic!("cuMemAllocHost_v2 returned a null pointer");
             }
 
             (
