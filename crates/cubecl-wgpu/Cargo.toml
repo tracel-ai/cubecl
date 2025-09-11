@@ -15,7 +15,6 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "spirv",
 ]
 exclusive-memory-only = ["cubecl-runtime/exclusive-memory-only"]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
