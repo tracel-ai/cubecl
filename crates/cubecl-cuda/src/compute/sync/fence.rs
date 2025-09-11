@@ -71,3 +71,20 @@ impl Drop for Fence {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Compile-time check: ensure fence wait methods take &self and can be referenced twice.
+    // This does not execute any CUDA calls; it only validates signatures.
+    #[test]
+    fn fence_wait_methods_are_ref_and_multiwait() {
+        let _sync: fn(&Fence) = Fence::wait_sync;
+        let _async: fn(&Fence, *mut CUstream_st) = Fence::wait_async;
+        // Taking the function pointers twice ensures no consumption semantics are required.
+        let _sync2: fn(&Fence) = Fence::wait_sync;
+        let _async2: fn(&Fence, *mut CUstream_st) = Fence::wait_async;
+        let _ = (_sync, _async, _sync2, _async2);
+    }
+}

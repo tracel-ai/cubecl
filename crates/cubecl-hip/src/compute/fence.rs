@@ -71,6 +71,19 @@ impl Drop for Fence {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Compile-time check: ensure fence wait method takes &self and can be referenced twice.
+    #[test]
+    fn fence_wait_method_is_ref_and_multiwait() {
+        let _wait: fn(&Fence) = Fence::wait;
+        let _wait2: fn(&Fence) = Fence::wait;
+        let _ = (_wait, _wait2);
+    }
+}
+
 /// A stream synchronization point that blocks until all previously enqueued work in the stream
 /// has completed.
 ///
