@@ -53,7 +53,7 @@ pub trait AllocationController {
     /// # Safety
     ///
     /// The provided [Allocation] must not be reused after deallocation.
-    fn dealloc(&self, allocation: &Allocation);
+    fn dealloc(&mut self, allocation: &Allocation);
 
     /// Extends the provided [Allocation] to a new size with specified alignment.
     ///
@@ -67,7 +67,7 @@ pub trait AllocationController {
     /// Returns an [AllocationError] if the extension fails (e.g., due to insufficient memory or
     /// unsupported operation by the allocator).
     fn grow(
-        &self,
+        &mut self,
         allocation: &Allocation,
         size: usize,
         align: usize,
