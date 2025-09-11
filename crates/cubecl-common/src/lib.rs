@@ -15,6 +15,10 @@ pub mod rand;
 /// Device module.
 pub mod device;
 
+/// Utilities module to manipulate bytes.
+#[cfg(feature = "serde")]
+pub mod bytes;
+
 /// Stub module contains types for stubs for non-std environments and for std environments.
 pub mod stub;
 
