@@ -208,7 +208,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.batch,
             problem.seq_kv,
             problem.num_heads,
-            problem.head_dim,
+            problem.val_dim,
         ],
         FlashIdent::Mask => [
             problem.batch,
@@ -220,7 +220,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.batch,
             problem.seq_q,
             problem.num_heads,
-            problem.head_dim,
+            problem.val_dim,
         ],
         FlashIdent::ScoreProb => unreachable!("Not a materialized tensor"),
     }

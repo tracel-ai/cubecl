@@ -79,6 +79,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         seq_kv: key.shape[1],
         num_heads: query.shape[2],
         head_dim: query.shape[3],
+        val_dim: value.shape[3],
         masked: false,
     };
 
