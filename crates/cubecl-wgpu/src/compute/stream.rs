@@ -1,7 +1,10 @@
-use crate::WgpuResource;
+use crate::{WgpuResource, alloc_controller::WgpuAllocController};
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::{
+    bytes::Bytes,
+    profile::{ProfileDuration, TimingMethod},
+};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
@@ -176,7 +179,7 @@ impl WgpuStream {
     pub fn read_buffers(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
         let mut staging_buffers = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
@@ -238,22 +241,23 @@ impl WgpuStream {
 
             let result = {
                 staging_buffers
-                    .iter()
+                    .into_iter()
                     .map(|(staging_buffer, size)| {
-                        let data = staging_buffer.slice(..).get_mapped_range();
-                        bytemuck::cast_slice(&data[0..*size]).to_vec()
+                        let (controller, alloc) =
+                            WgpuAllocController::init(staging_buffer, size, 256);
+                        unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
                     })
                     .collect()
             };
 
-            for (staging_buffer, _size) in staging_buffers {
-                staging_buffer.unmap();
-            }
+            // for (staging_buffer, _size) in staging_buffers {
+            //     staging_buffer.unmap();
+            // }
             Ok(result)
         })
     }
 
-    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Vec<u8>, IoError>> {
+    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Bytes, IoError>> {
         let shape = [binding.size() as usize];
         let data = self.read_buffers(vec![CopyDescriptor::new(binding, &shape, &[1], 1)]);
         Box::pin(async move {
