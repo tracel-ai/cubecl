@@ -1,3 +1,4 @@
+pub(crate) mod alloc_controlle;
 mod data_service;
 mod server;
 mod storage;

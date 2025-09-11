@@ -18,7 +18,7 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
-use crate::compute::{DataTransferItem, DataTransferRuntime};
+use crate::compute::{DataTransferItem, DataTransferRuntime, alloc_controlle::CudaAllocController};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
@@ -46,11 +46,11 @@ use cudarc::driver::sys::{
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 #[cfg(feature = "cuda-12080")]
 use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
-use std::collections::HashMap;
 use std::ffi::c_char;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::{collections::HashMap, ops::DerefMut};
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
@@ -119,23 +119,29 @@ impl CudaServer {
                     return Err(IoError::UnsupportedStrides);
                 }
 
+                let size_bytes = binding.size();
                 let resource = ctx
                     .memory_management
                     .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                     .ok_or(IoError::InvalidHandle)?;
-                let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
+
+                let (controller, alloc) = CudaAllocController::init(size_bytes as usize, 256);
+                let mut bytes = unsafe {
+                    Bytes::from_raw_parts(alloc, size_bytes as usize, Box::new(controller))
+                };
+                // let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
 
                 let rank = shape.len();
                 if rank <= 1 {
                     unsafe {
                         cudarc::driver::result::memcpy_dtoh_async(
-                            &mut data,
+                            bytes.deref_mut(),
                             resource.ptr,
                             ctx.stream,
                         )
                         .unwrap();
                     };
-                    result.push(Bytes::from_bytes_vec(data));
+                    result.push(bytes);
                     continue;
                 }
 
@@ -143,13 +149,14 @@ impl CudaServer {
                 let width_bytes = dim_x * elem_size;
                 let dim_y: usize = shape.iter().rev().skip(1).product();
                 let pitch = strides[rank - 2] * elem_size;
+                let slice: &mut [u8] = bytes.deref_mut();
 
                 let cpy = CUDA_MEMCPY2D_st {
                     srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
                     srcDevice: resource.ptr,
                     srcPitch: pitch,
                     dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-                    dstHost: data.as_mut_ptr() as *mut c_void,
+                    dstHost: slice.as_mut_ptr() as *mut c_void,
                     dstPitch: width_bytes,
                     WidthInBytes: width_bytes,
                     Height: dim_y,
@@ -159,7 +166,7 @@ impl CudaServer {
                 unsafe {
                     cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
                 };
-                result.push(Bytes::from_bytes_vec(data));
+                result.push(bytes);
             }
 
             Ok(result)

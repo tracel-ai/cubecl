@@ -5,7 +5,6 @@ use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
 pub struct CpuAllocController {
-    #[allow(unused)]
     binding: Option<Binding>,
 }
 
