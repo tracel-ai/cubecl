@@ -2,6 +2,7 @@
 
 use super::buffer::*;
 use crate::bytes::default_controller;
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::{Layout, LayoutError};
 use core::ops::{Deref, DerefMut};

@@ -1,9 +1,8 @@
 //! Module that defines an allocation based on the [alloc crate](alloc).
 
+use crate::bytes::{Allocation, AllocationController, AllocationError};
 use alloc::alloc::Layout;
 use core::ptr::NonNull;
-
-use crate::bytes::{Allocation, AllocationController, AllocationError};
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
 /// the bytes are always over-aligned when deserializing to MAX_ALIGN.

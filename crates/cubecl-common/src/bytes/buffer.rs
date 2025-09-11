@@ -1,5 +1,7 @@
 use crate::bytes::default_controller::{self, DefaultAllocationController};
 use crate::bytes::{Allocation, AllocationController};
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::alloc::Layout;
 use core::mem::MaybeUninit;
 use core::ptr::NonNull;
