@@ -1,18 +1,13 @@
 use super::{CubeType, ExpandElementTyped};
-use crate::{
-    prelude::{
-        CubePrimitive, SliceMutOperator, SliceMutOperatorExpand, SliceOperator, SliceOperatorExpand,
-    },
-    unexpanded,
-};
+use crate as cubecl;
+use crate::{prelude::*, unexpanded};
 use cubecl_ir::Scope;
 
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
-pub trait List<T: CubePrimitive>:
-    CubeType<ExpandType: ListExpand<T> + SliceOperatorExpand<T>> + SliceOperator<T>
-{
+#[cube(self_type = "ref", expand_base_traits = "SliceOperatorExpand<T>")]
+pub trait List<T: CubePrimitive>: SliceOperator<T> + Lined {
     #[allow(unused)]
     fn read(&self, index: u32) -> T {
         unexpanded!()
@@ -27,81 +22,16 @@ pub trait List<T: CubePrimitive>:
     fn len(&self) -> u32 {
         unexpanded!();
     }
-
-    fn line_size(&self) -> u32 {
-        unexpanded!();
-    }
-
-    fn __expand_read(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        this.__expand_read_method(scope, index)
-    }
-
-    fn __expand_read_unchecked(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType {
-        this.__expand_read_unchecked_method(scope, index)
-    }
-
-    fn __expand_len(scope: &mut Scope, this: Self::ExpandType) -> ExpandElementTyped<u32> {
-        this.__expand_len_method(scope)
-    }
-
-    fn __expand_line_size(scope: &mut Scope, this: Self::ExpandType) -> u32 {
-        this.__expand_line_size_method(scope)
-    }
-}
-
-/// Expand version of [CubeRead].
-pub trait ListExpand<T: CubePrimitive>: SliceOperatorExpand<T> {
-    fn __expand_read_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> T::ExpandType;
-    fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32>;
-    fn line_size(&self) -> u32;
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32;
 }
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-pub trait ListMut<T: CubePrimitive>:
-    CubeType<ExpandType: ListMutExpand<T> + SliceMutOperatorExpand<T>> + List<T> + SliceMutOperator<T>
-{
+#[cube(self_type = "ref", expand_base_traits = "SliceMutOperatorExpand<T>")]
+pub trait ListMut<T: CubePrimitive>: List<T> + SliceMutOperator<T> {
     #[allow(unused)]
     fn write(&self, index: u32, value: T) {
         unexpanded!()
     }
-
-    fn __expand_write(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-        value: T::ExpandType,
-    ) {
-        this.__expand_write_method(scope, index, value)
-    }
-}
-
-/// Expand version of [CubeWrite].
-pub trait ListMutExpand<T: CubePrimitive>: ListExpand<T> + SliceMutOperatorExpand<T> {
-    fn __expand_write_method(
-        &self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-        value: T::ExpandType,
-    );
 }
 
 // Automatic implementation for references to List.
@@ -177,3 +107,22 @@ where
         L::__expand_write(scope, this, index, value);
     }
 }
+
+pub trait Lined: CubeType<ExpandType: LinedExpand> {
+    fn line_size(&self) -> u32 {
+        unexpanded!()
+    }
+    fn __expand_line_size(_scope: &mut Scope, this: Self::ExpandType) -> u32 {
+        this.line_size()
+    }
+}
+
+pub trait LinedExpand {
+    fn line_size(&self) -> u32;
+    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
+        self.line_size()
+    }
+}
+
+impl<'a, L: Lined> Lined for &'a L where &'a L: CubeType<ExpandType: LinedExpand> {}
+impl<'a, L: Lined> Lined for &'a mut L where &'a mut L: CubeType<ExpandType: LinedExpand> {}

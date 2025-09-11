@@ -323,11 +323,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<EO>> {
         unimplemented!("TensorOutputExpand can't be turned into a tensor map");
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        TensorOutputExpand::__expand_line_size_method(self.clone(), scope)
-    }
-
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> Lined
+    for TensorOutput<Lhs, Rhs, EO, MA>
+{
+}
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> LinedExpand
+    for TensorOutputExpand<Lhs, Rhs, EO, MA>
+{
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorOutputExpand::__expand_line_size_method(self.clone(), &mut scope)
@@ -396,11 +400,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<Lhs>> {
         TensorLhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        TensorLhsExpand::__expand_line_size_method(self.clone(), scope)
-    }
-
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> Lined
+    for TensorLhs<Lhs, Rhs, EO, MA>
+{
+}
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> LinedExpand
+    for TensorLhsExpand<Lhs, Rhs, EO, MA>
+{
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorLhsExpand::__expand_line_size_method(self.clone(), &mut scope)
@@ -469,11 +477,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<Rhs>> {
         TensorRhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        TensorRhsExpand::__expand_line_size_method(self.clone(), scope)
-    }
-
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> Lined
+    for TensorRhs<Lhs, Rhs, EO, MA>
+{
+}
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> LinedExpand
+    for TensorRhsExpand<Lhs, Rhs, EO, MA>
+{
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorRhsExpand::__expand_line_size_method(self.clone(), &mut scope)
@@ -542,11 +554,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
     ) -> ExpandElementTyped<TensorMap<EO>> {
         TensorAccExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        TensorAccExpand::__expand_line_size_method(self.clone(), scope)
-    }
-
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> Lined
+    for TensorAcc<Lhs, Rhs, EO, MA>
+{
+}
+impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> LinedExpand
+    for TensorAccExpand<Lhs, Rhs, EO, MA>
+{
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorAccExpand::__expand_line_size_method(self.clone(), &mut scope)

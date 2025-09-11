@@ -254,13 +254,13 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
     ) -> ExpandElementTyped<TensorMap<P::In>> {
         todo!()
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        RA::__expand_line_size_input(scope, self.state.clone())
-    }
-
+impl<P: ReduceDType, RA: ReduceArgs> Lined for TensorArg<P, RA, Input> {}
+impl<P: ReduceDType, RA: ReduceArgs> LinedExpand for TensorArgExpand<P, RA, Input> {
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        RA::__expand_line_size_input(&mut scope, self.state.clone())
     }
 }
 
@@ -326,13 +326,13 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
     ) -> ExpandElementTyped<TensorMap<P::Out>> {
         todo!()
     }
+}
 
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-        RA::__expand_line_size_output(scope, self.state.clone())
-    }
-
+impl<P: ReduceDType, RA: ReduceArgs> Lined for TensorArg<P, RA, Output> {}
+impl<P: ReduceDType, RA: ReduceArgs> LinedExpand for TensorArgExpand<P, RA, Output> {
     fn line_size(&self) -> u32 {
-        todo!()
+        let mut scope = Scope::root(false);
+        RA::__expand_line_size_output(&mut scope, self.state.clone())
     }
 }
 
