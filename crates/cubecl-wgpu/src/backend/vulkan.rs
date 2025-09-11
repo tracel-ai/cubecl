@@ -240,6 +240,20 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
         clippy::collapsible_if,
         reason = "if let chain only supported in newest Rust"
     )]
+    if let Some(float8) = ext_feat.float8 {
+        if float8.shader_float8 == TRUE {
+            // Only supported for conversion/CMMA, but that's the same as CUDA so just register
+            // them normally for now. Maybe we should add a feature-set flags enum to the supported
+            // types? (i.e `Arithmetic | Atomic`)
+            register(ElemType::Float(FloatKind::E4M3).into());
+            register(ElemType::Float(FloatKind::E5M2).into());
+        }
+    }
+
+    #[allow(
+        clippy::collapsible_if,
+        reason = "if let chain only supported in newest Rust"
+    )]
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
             register(StorageType::Atomic(ElemType::Float(FloatKind::F32)));
