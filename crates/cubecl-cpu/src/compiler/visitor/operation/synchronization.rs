@@ -1,5 +1,5 @@
 use cubecl_core::ir::Synchronization;
-use tracel_llvm::melior::{dialect::func, ir::attribute::FlatSymbolRefAttribute};
+use tracel_llvm::mlir_rs::{dialect::func, ir::attribute::FlatSymbolRefAttribute};
 
 use crate::compiler::visitor::prelude::*;
 

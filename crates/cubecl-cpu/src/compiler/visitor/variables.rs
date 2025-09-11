@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use cubecl_core::ir::{
     self, Builtin, ConstantScalarValue, FloatKind, IntKind, UIntKind, VariableKind,
 };
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{
         index, memref,
         ods::{arith, vector},

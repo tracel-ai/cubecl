@@ -1,7 +1,7 @@
 use std::ops::Deref;
 
 use cubecl_opt::{ControlFlow, NodeIndex};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::cf,
     ir::{Block, BlockLike, BlockRef, RegionLike},
 };
