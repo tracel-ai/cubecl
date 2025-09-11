@@ -2,6 +2,7 @@ mod dummy;
 
 use crate::dummy::{DummyDevice, DummyElementwiseAddition, test_client};
 
+use cubecl_common::future::block_on;
 use cubecl_runtime::server::Bindings;
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::{local_tuner, tune::LocalTuner};
@@ -44,6 +45,26 @@ fn execute_elementwise_addition() {
     let obtained_resource = client.read_one(out);
 
     assert_eq!(obtained_resource, Vec::from([4, 5, 6]))
+}
+
+#[test]
+fn fence_completes_submitted_work() {
+    let client = test_client(&DummyDevice);
+    let lhs = client.create(&[1, 2, 3]);
+    let rhs = client.create(&[4, 5, 6]);
+    let out = client.empty(3);
+
+    client.execute(
+        KernelTask::new(DummyElementwiseAddition),
+        CubeCount::Static(1, 1, 1),
+        Bindings::new().with_buffers(vec![lhs.binding(), rhs.binding(), out.clone().binding()]),
+    );
+
+    // Wait for completion of all work submitted up to here.
+    block_on(client.fence());
+
+    let obtained = client.read_one(out);
+    assert_eq!(obtained, Vec::from([5, 7, 9]));
 }
 
 #[test]

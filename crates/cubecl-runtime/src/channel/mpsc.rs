@@ -116,6 +116,10 @@ where
     ),
     Flush,
     Sync(Callback<()>),
+    /// Create a completion fence for all work submitted up to this message.
+    /// The server must not block the message loop while waiting for completion;
+    /// instead it should arrange completion asynchronously and signal the callback.
+    WorkDone(Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
     AllocationMode(MemoryAllocationMode),
@@ -167,6 +171,15 @@ where
                     Message::Sync(callback) => {
                         server.sync().await;
                         callback.send(()).await.unwrap();
+                    }
+                    Message::WorkDone(callback) => {
+                        // Request a device-side fence for work enqueued up to now and
+                        // resolve the callback asynchronously without blocking the server loop.
+                        let fut = server.work_done();
+                        spawn_detached_fut(async move {
+                            fut.await;
+                            callback.send(()).await.unwrap();
+                        });
                     }
                     Message::Flush => {
                         server.flush();
@@ -321,6 +334,16 @@ where
         Box::pin(async move {
             let (callback, response) = async_channel::unbounded();
             sender.send(Message::Sync(callback)).await.unwrap();
+            handle_response(response.recv().await)
+        })
+    }
+
+    fn work_done(&self) -> DynFut<()> {
+        let sender = self.state.sender.clone();
+
+        Box::pin(async move {
+            let (callback, response) = async_channel::unbounded();
+            sender.send(Message::WorkDone(callback)).await.unwrap();
             handle_response(response.recv().await)
         })
     }

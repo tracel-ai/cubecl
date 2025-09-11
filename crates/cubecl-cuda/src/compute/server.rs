@@ -544,6 +544,14 @@ impl ComputeServer for CudaServer {
         Box::pin(self.sync_stream_async())
     }
 
+    fn work_done(&mut self) -> DynFut<()> {
+        let ctx = self.get_context();
+        let fence = ctx.fence();
+        Box::pin(async move {
+            fence.wait_sync();
+        })
+    }
+
     fn start_profile(&mut self) -> ProfilingToken {
         // Wait for current work to be done.
         self.ctx.sync();

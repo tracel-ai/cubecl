@@ -61,6 +61,18 @@ impl Fence {
     }
 }
 
+impl Drop for Fence {
+    fn drop(&mut self) {
+        if !self.event.is_null() {
+            unsafe {
+                // Best-effort destroy; ignore errors in Drop.
+                let _ = cubecl_hip_sys::hipEventDestroy(self.event);
+                self.event = std::ptr::null_mut();
+            }
+        }
+    }
+}
+
 /// A stream synchronization point that blocks until all previously enqueued work in the stream
 /// has completed.
 ///

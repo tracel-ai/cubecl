@@ -195,8 +195,13 @@ impl ComputeServer for WgpuServer {
         self.stream.flush();
     }
 
-    /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> DynFut<()> {
+        self.stream.sync()
+    }
+
+    fn work_done(&mut self) -> DynFut<()> {
+        // Same as sync() but semantically used as a completion fence for
+        // work enqueued prior to this call. Non-blocking on creation.
         self.stream.sync()
     }
 

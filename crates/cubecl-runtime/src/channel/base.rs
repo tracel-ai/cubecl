@@ -37,6 +37,12 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;
 
+    /// Returns a future that resolves when the work submitted up to this call
+    /// has completed. By default, this is equivalent to `sync()`.
+    fn work_done(&self) -> DynFut<()> {
+        self.sync()
+    }
+
     /// Given a resource handle, return the storage resource.
     fn get_resource(
         &self,

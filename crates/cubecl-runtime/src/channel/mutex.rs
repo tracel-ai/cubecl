@@ -79,6 +79,11 @@ where
         server.sync()
     }
 
+    fn work_done(&self) -> DynFut<()> {
+        let mut server = self.server.lock();
+        server.work_done()
+    }
+
     fn get_resource(
         &self,
         binding: Binding,

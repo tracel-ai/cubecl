@@ -62,3 +62,14 @@ impl Fence {
         }
     }
 }
+
+impl Drop for Fence {
+    fn drop(&mut self) {
+        if !self.event.is_null() {
+            unsafe {
+                let _ = cudarc::driver::result::event::destroy(self.event);
+                self.event = core::ptr::null_mut();
+            }
+        }
+    }
+}
