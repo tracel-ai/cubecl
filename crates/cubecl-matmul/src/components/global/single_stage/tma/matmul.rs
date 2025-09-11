@@ -151,12 +151,7 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout.virt()),
-            x_offset,
-            y_offset,
-            batch_offset,
-        )
+        SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

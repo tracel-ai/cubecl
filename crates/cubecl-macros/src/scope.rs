@@ -125,7 +125,8 @@ impl Context {
         Ok((res, self.scopes.len()))
     }
 
-    /// Mutable closures (for loops) have different behaviour because outer vars must be cloned
+    /// Mutable closures (for loops) have different behaviour because outer vars
+    /// must be cloned
     pub fn in_fn_mut<T>(&mut self, scope: &Scope, with: impl FnOnce(&mut Self) -> T) -> T {
         let level = replace(&mut self.level, *scope);
         let old_mut_idx = replace(&mut self.mut_scope_idx, self.level);

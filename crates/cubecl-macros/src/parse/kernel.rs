@@ -26,6 +26,19 @@ pub(crate) struct KernelArgs {
     pub create_dummy_kernel: Flag,
     pub cluster_dim: Option<Expr>,
     pub src_file: Option<LitStr>,
+    /// Base traits for a split expand trait
+    pub expand_base_traits: Option<String>,
+    /// What self should be taken as for the expansion
+    #[darling(default)]
+    pub self_type: SelfType,
+}
+
+#[derive(Default, FromMeta, PartialEq, Eq)]
+pub(crate) enum SelfType {
+    #[default]
+    Owned,
+    Ref,
+    RefMut,
 }
 
 pub fn from_tokens<T: FromMeta>(tokens: TokenStream) -> syn::Result<T> {
@@ -206,6 +219,7 @@ pub struct KernelSignature {
     pub parameters: Vec<KernelParam>,
     pub returns: KernelReturns,
     pub generics: Generics,
+    pub receiver_arg: Option<FnArg>,
 }
 
 impl KernelSignature {
@@ -229,7 +243,7 @@ impl KernelReturns {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelParam {
     pub name: Ident,
     pub ty: Type,
@@ -240,7 +254,7 @@ pub struct KernelParam {
 }
 
 impl KernelParam {
-    fn from_param(param: FnArg) -> syn::Result<Self> {
+    pub fn from_param(param: FnArg, args: &KernelArgs) -> syn::Result<Self> {
         let param = match param {
             FnArg::Typed(param) => param,
             FnArg::Receiver(param) => {
@@ -248,6 +262,12 @@ impl KernelParam {
                 let mut is_mut = false;
                 let normalized_ty =
                     normalize_kernel_ty(*param.ty.clone(), false, &mut is_ref, &mut is_mut);
+
+                let normalized_ty = match args.self_type {
+                    SelfType::Owned => normalized_ty,
+                    SelfType::Ref => parse_quote!(&#normalized_ty),
+                    SelfType::RefMut => parse_quote!(&mut #normalized_ty),
+                };
 
                 is_mut = param.mutability.is_some();
                 is_ref = param.reference.is_some();
@@ -288,7 +308,8 @@ impl KernelParam {
 
     /// If the type is self, we set the normalized ty to self as well.
     ///
-    /// Useful when the param is used in functions or methods associated to the expand type.
+    /// Useful when the param is used in functions or methods associated to the
+    /// expand type.
     pub fn plain_normalized_self(&mut self) {
         if let Type::Path(pat) = &self.ty
             && pat
@@ -303,7 +324,7 @@ impl KernelParam {
 }
 
 impl KernelSignature {
-    pub fn from_signature(sig: Signature) -> syn::Result<Self> {
+    pub fn from_signature(sig: Signature, args: &KernelArgs) -> syn::Result<Self> {
         let name = sig.ident;
         let generics = sig.generics;
         let returns = match sig.output {
@@ -324,22 +345,33 @@ impl KernelSignature {
         let parameters = sig
             .inputs
             .into_iter()
-            .map(KernelParam::from_param)
+            .map(|it| KernelParam::from_param(it, args))
             .collect::<Result<Vec<_>, _>>()?;
+        let receiver_arg = if parameters.iter().any(|it| it.name == "self") {
+            Some(match args.self_type {
+                SelfType::Owned => parse_quote!(self),
+                SelfType::Ref => parse_quote!(&self),
+                SelfType::RefMut => parse_quote!(&mut self),
+            })
+        } else {
+            None
+        };
 
         Ok(KernelSignature {
             generics,
             name,
             parameters,
             returns,
+            receiver_arg,
         })
     }
 
-    pub fn from_trait_fn(function: TraitItemFn) -> syn::Result<Self> {
-        Self::from_signature(function.sig)
+    pub fn from_trait_fn(function: TraitItemFn, args: &KernelArgs) -> syn::Result<Self> {
+        Self::from_signature(function.sig, args)
     }
 
-    /// If the type is self, we set the returns type to plain instead of expand type.
+    /// If the type is self, we set the returns type to plain instead of expand
+    /// type.
     pub fn plain_returns_self(&mut self) {
         if let Type::Path(pat) = self.returns.ty()
             && pat
@@ -359,11 +391,13 @@ impl KernelFn {
         sig: Signature,
         mut block: syn::Block,
         full_name: String,
-        src_file: Option<LitStr>,
-        debug_symbols: bool,
+        args: &KernelArgs,
     ) -> syn::Result<Self> {
+        let src_file = args.src_file.clone();
+        let debug_symbols = args.debug_symbols.is_present();
+
         let span = Span::call_site();
-        let sig = KernelSignature::from_signature(sig)?;
+        let sig = KernelSignature::from_signature(sig, args)?;
         let mut context = Context::new(sig.returns.ty(), debug_symbols);
         context.extend(sig.parameters.clone());
 
@@ -385,12 +419,14 @@ impl KernelFn {
         })
     }
 
-    /// We need to call IntoMut::into_mut on mutable owned inputs since their local variables need to be
-    /// identified as mut, which is done at initialization.
+    /// We need to call IntoMut::into_mut on mutable owned inputs since their
+    /// local variables need to be identified as mut, which is done at
+    /// initialization.
     ///
-    /// However, we don't specify mutability during initialization when we don't need to mutate the
-    /// type in the current scope; it is done in the function that receives the mutable parameter
-    /// as input. Therefore, we need to adjust the mutability here.
+    /// However, we don't specify mutability during initialization when we don't
+    /// need to mutate the type in the current scope; it is done in the
+    /// function that receives the mutable parameter as input. Therefore, we
+    /// need to adjust the mutability here.
     fn patch_mut_owned_inputs(block: &mut Block, sig: &KernelSignature) {
         let mut mappings = Vec::new();
         let into_mut = frontend_type("IntoMut");
@@ -434,8 +470,7 @@ impl Launch {
             function.sig,
             *function.block,
             full_name,
-            args.src_file.clone(),
-            args.debug_symbols.is_present(),
+            &args,
         )?;
 
         // Bail early if the user tries to have a return type in a launch kernel.

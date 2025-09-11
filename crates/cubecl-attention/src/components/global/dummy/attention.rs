@@ -113,7 +113,7 @@ impl<
         comment!("Global: Init Query Loader");
         let layout =
             SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
-        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout.virt()), config)
+        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout), config)
     }
 
     fn init_key_loader(
@@ -122,7 +122,7 @@ impl<
     ) -> Self::KeyLoader {
         comment!("Global: Init Key Loader");
         let layout = SimpleGlobalLayout::new(&key, config.global_memory_config(FlashIdent::Key));
-        DummyKeyLoader::new(key.view(layout.virt()), config)
+        DummyKeyLoader::new(key.view(layout), config)
     }
 
     fn init_value_loader(
@@ -132,7 +132,7 @@ impl<
         comment!("Global: Init Value Loader");
         let layout =
             SimpleGlobalLayout::new(&value, config.global_memory_config(FlashIdent::Value));
-        DummyValueLoader::new(value.view(layout.virt()), config)
+        DummyValueLoader::new(value.view(layout), config)
     }
 
     fn init_writer(
@@ -142,6 +142,6 @@ impl<
     ) -> Self::Writer {
         comment!("Global: Init Writer");
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
-        SA::init_writer(q_offset, out.view_mut(layout.virt()))
+        SA::init_writer(q_offset, out.view_mut(layout))
     }
 }

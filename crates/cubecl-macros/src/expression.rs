@@ -148,7 +148,8 @@ pub enum Expression {
     Match {
         // True implies that discriminants are matched at comptime,
         // but the values of the variants are only known at runtime.
-        // False implies that both the discriminants and the variant's values are known at comptime.
+        // False implies that both the discriminants and the variant's values are known at
+        // comptime.
         runtime_variants: bool,
 
         expr: Expr,
