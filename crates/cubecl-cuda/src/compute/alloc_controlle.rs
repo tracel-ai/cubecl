@@ -1,18 +1,17 @@
-use std::ptr::NonNull;
+use std::{ffi::c_void, ptr::NonNull};
 
 use cubecl_common::bytes::{Allocation, AllocationController, AllocationError};
 
 pub struct CudaAllocController {
     // Keep the ptr alive for GPU to CPU writes.
-    ptr_container: Option<*mut u8>,
+    ptr2ptr: *mut *mut c_void,
 }
 
 impl AllocationController for CudaAllocController {
-    fn dealloc(&mut self, _allocation: &Allocation) {
+    fn dealloc(&mut self, allocation: &Allocation) {
         unsafe {
-            cudarc::driver::sys::cuMemFreeHost(std::ptr::from_mut(&mut self.ptr_container).cast());
+            // cudarc::driver::sys::cuMemFreeHost(allocation.ptr.cast());
         };
-        self.ptr_container = None;
     }
 
     fn grow(
@@ -32,18 +31,24 @@ impl AllocationController for CudaAllocController {
 impl CudaAllocController {
     pub fn init(size: usize, align: usize) -> (Self, Allocation) {
         unsafe {
-            let ptr: *mut u8 = std::ptr::null_mut();
-            let mut container = Some(ptr);
-            let container_ptr = std::ptr::from_mut(&mut container);
+            let mut ptr: *mut c_void = std::ptr::null_mut();
+            let ptr2ptr: *mut *mut c_void = &mut ptr;
 
-            cudarc::driver::sys::cuMemAllocHost_v2(ptr.cast(), size);
+            // Call cuMemAllocHost_v2 to allocate pinned host memory
+            let result = cudarc::driver::sys::cuMemAllocHost_v2(ptr2ptr, size);
+            if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
+                panic!("cuMemAllocHost_v2 failed with error code: {:?}", result);
+            }
+
+            // Ensure ptr is not null
+            if ptr.is_null() {
+                panic!("cuMemAllocHost_v2 returned a null pointer");
+            }
 
             (
-                Self {
-                    ptr_container: container,
-                },
+                Self { ptr2ptr },
                 Allocation {
-                    ptr: NonNull::new(ptr).unwrap(),
+                    ptr: NonNull::new(ptr as *mut u8).expect("NonNull creation failed"),
                     size,
                     align,
                 },
