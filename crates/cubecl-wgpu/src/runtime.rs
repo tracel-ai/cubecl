@@ -1,8 +1,6 @@
-use crate::{
-    AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
-    contiguous_strides,
-};
+use crate::{AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer};
 use cubecl_common::{future, profile::TimingMethod};
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 
 use cubecl_core::Feature;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
@@ -81,17 +79,7 @@ impl Runtime for WgpuRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        if shape.is_empty() {
-            return true;
-        }
-
-        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
-            if expected != stride {
-                return false;
-            }
-        }
-
-        true
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {

@@ -112,7 +112,21 @@ where
 
     async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Vec<u8>>, IoError> {
         self.profile_guard();
-
+        // Preflight stride compatibility using shared helpers for clearer, uniform errors.
+        let mut ok = true;
+        for d in &descriptors {
+            let shape = d.shape;
+            let strides = d.strides;
+            if !(crate::stride::is_contiguous(shape, strides)
+                || crate::stride::is_inner_contiguous_rows(shape, strides))
+            {
+                ok = false;
+                break;
+            }
+        }
+        if !ok {
+            return Err(IoError::UnsupportedStrides);
+        }
         self.channel.read(descriptors).await
     }
 
@@ -205,7 +219,14 @@ where
         data: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
-
+        // Preflight size checks to avoid allocating on mismatch.
+        for (desc, buf) in descriptors.iter().zip(data.iter().copied()) {
+            let expected = desc.shape.iter().product::<usize>() * desc.elem_size;
+            let actual = buf.len();
+            if expected != actual {
+                return Err(IoError::InvalidSize { expected, actual });
+            }
+        }
         let allocations = self.channel.create(descriptors.clone())?;
         let descriptors = descriptors
             .into_iter()
@@ -328,8 +349,35 @@ where
     ) -> Allocation {
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        let kind = crate::stride::preferred_allocation_kind(shape, src_descriptor.strides);
+        let alloc_desc = AllocationDescriptor::new(kind, shape, elem_size);
         self.data_transfer(src_descriptor, alloc_desc, dst_server)
+    }
+
+    /// Write tensor data to bindings asynchronously and wait for completion.
+    pub async fn write_async(
+        &self,
+        writes: Vec<(CopyDescriptor<'_>, &[u8])>,
+    ) -> Result<(), IoError> {
+        self.profile_guard();
+        // Preflight stride compatibility.
+        for (d, _data) in &writes {
+            let shape = d.shape;
+            let strides = d.strides;
+            if !(crate::stride::is_contiguous(shape, strides)
+                || crate::stride::is_inner_contiguous_rows(shape, strides))
+            {
+                return Err(IoError::UnsupportedStrides);
+            }
+        }
+        self.channel.write(writes)?;
+        self.channel.sync().await;
+        Ok(())
+    }
+
+    /// Write tensor data to bindings; panics on error.
+    pub fn write(&self, writes: Vec<(CopyDescriptor<'_>, &[u8])>) {
+        cubecl_common::reader::read_sync(self.write_async(writes)).unwrap()
     }
 
     #[track_caller]

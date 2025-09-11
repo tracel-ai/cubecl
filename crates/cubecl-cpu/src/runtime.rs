@@ -5,12 +5,12 @@ use cubecl_core::{
     client::ComputeClient,
     ir::{StorageType, TargetProperties},
 };
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
-use cubecl_std::tensor::is_contiguous;
 use sysinfo::System;
 
 use crate::{
@@ -107,7 +107,7 @@ impl Runtime for CpuRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        is_contiguous(shape, strides)
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {

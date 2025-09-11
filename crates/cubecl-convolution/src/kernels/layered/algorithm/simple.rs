@@ -15,6 +15,7 @@ use cubecl_matmul::components::{
     tile::TileMatmulFamily,
 };
 
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 use cubecl_std::tensor::{TensorHandle, into_contiguous};
 
 use crate::components::{
@@ -68,12 +69,8 @@ impl<TMM: TileMatmulFamily> Algorithm for SimpleConvAlgorithm<TMM> {
     }
 }
 
-fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, ident: MatmulIdent) -> bool {
-    let rank = handle.shape.len();
-    let dim_c = rank - 1;
-    match ident {
-        MatmulIdent::Lhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Rhs => handle.strides[dim_c] == 1,
-        MatmulIdent::Out => unreachable!(),
-    }
+fn has_valid_layout<R: Runtime>(handle: &TensorHandleRef<'_, R>, _ident: MatmulIdent) -> bool {
+    // Accept fully contiguous or inner‑contiguous rows (rank>=2)
+    is_contiguous(handle.shape, handle.strides)
+        || is_inner_contiguous_rows(handle.shape, handle.strides)
 }

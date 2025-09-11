@@ -1,6 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
+    compute::{CudaContext, CudaServer, CudaStorage},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
@@ -20,6 +20,7 @@ use cubecl_cpp::{
         register_wmma_features,
     },
 };
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
@@ -280,7 +281,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        valid_strides(shape, strides)
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
