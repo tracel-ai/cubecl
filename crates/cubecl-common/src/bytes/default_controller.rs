@@ -37,7 +37,8 @@ impl AllocationController for DefaultAllocationController {
         };
 
         // Check done before.
-        let old_layout = unsafe { Layout::from_size_align_unchecked(size, align) };
+        let old_layout =
+            unsafe { Layout::from_size_align_unchecked(allocation.size, allocation.align) };
         let (layout, ptr) = buffer_grow(old_layout, allocation.ptr, new_layout);
 
         Ok(Allocation {
