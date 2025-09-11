@@ -15,6 +15,7 @@ pub(crate) struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
     memory_uniforms: MemoryManagement<WgpuStorage>,
     uniforms: Vec<SliceHandle>,
+    pub alignment: u64,
 }
 
 impl WgpuMemManager {
@@ -55,6 +56,7 @@ impl WgpuMemManager {
             memory_pool: memory_main,
             memory_uniforms,
             uniforms: vec![],
+            alignment: memory_properties.alignment,
         }
     }
 

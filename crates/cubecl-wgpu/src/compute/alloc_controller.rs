@@ -9,6 +9,7 @@ pub struct WgpuAllocController {
 impl AllocationController for WgpuAllocController {
     fn dealloc(&self, _allocation: &cubecl_common::bytes::Allocation) {
         self.staging_buffer.unmap();
+        self.staging_buffer.destroy();
     }
 
     fn grow(

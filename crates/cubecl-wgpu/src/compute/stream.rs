@@ -226,6 +226,7 @@ impl WgpuStream {
         }
 
         let poll = self.poll.start_polling();
+        let align = self.mem_manage.alignment as usize;
 
         Box::pin(async move {
             for callback in callbacks {
@@ -244,7 +245,7 @@ impl WgpuStream {
                     .into_iter()
                     .map(|(staging_buffer, size)| {
                         let (controller, alloc) =
-                            WgpuAllocController::init(staging_buffer, size, 256);
+                            WgpuAllocController::init(staging_buffer, size, align);
                         unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
                     })
                     .collect()
