@@ -195,6 +195,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     }
     if arch_version >= 90 {
         device_props.features.tma.insert(Tma::Base);
+        device_props.register_semantic_type(SemanticType::TensorMap);
         device_props.features.cube_cluster = true;
         comp_opts.supports_clusters = true;
     }

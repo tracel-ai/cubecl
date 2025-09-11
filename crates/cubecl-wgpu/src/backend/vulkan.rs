@@ -310,7 +310,7 @@ fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut De
     log::debug!("Supported CMMA sizes: {sizes:#?}");
 
     for size in sizes {
-        props.features.mma.insert(size);
+        props.features.cmma.insert(size);
     }
 }
 
