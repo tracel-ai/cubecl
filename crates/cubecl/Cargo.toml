@@ -20,7 +20,7 @@ default = [
     "convolution",
     "cubecl-core/default",
     "cubecl-cuda?/default",
-    "cubecl-cpu?/default",
+    "cubecl-cpu/default",
     "cubecl-hip?/default",
     "cubecl-wgpu?/default",
 ]

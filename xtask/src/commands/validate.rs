@@ -18,30 +18,30 @@ pub fn handle_command(
         CheckSubCommand::Lint,
         CheckSubCommand::Typos,
     ]
-        .iter()
-        .try_for_each(|c| {
-            base_commands::check::handle_command(
-                CheckCmdArgs {
-                    command: Some(c.clone()),
-                    exclude: exclude.clone(),
-                    ignore_audit: args.ignore_audit,
-                    only: only.clone(),
-                    target: target.clone(),
-                },
-                env.clone(),
-                context.clone(),
+    .iter()
+    .try_for_each(|c| {
+        base_commands::check::handle_command(
+            CheckCmdArgs {
+                command: Some(c.clone()),
+                exclude: exclude.clone(),
+                ignore_audit: args.ignore_audit,
+                only: only.clone(),
+                target: target.clone(),
+            },
+            env.clone(),
+            context.clone(),
         )
     })?;
 
     // build
     super::build::handle_command(
-         CubeCLBuildCmdArgs {
-             ci: true,
-             exclude: exclude.clone(),
-             only: only.clone(),
-             release: false,
-             target: target.clone(),
-         },
+        CubeCLBuildCmdArgs {
+            ci: true,
+            exclude: exclude.clone(),
+            only: only.clone(),
+            release: false,
+            target: target.clone(),
+        },
         env.clone(),
         context.clone(),
     )?;

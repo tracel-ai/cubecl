@@ -6,7 +6,7 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{NonSemantic, Operation};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
     ir::{
         attribute::{FlatSymbolRefAttribute, TypeAttribute},
