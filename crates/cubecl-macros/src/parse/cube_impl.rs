@@ -1,10 +1,13 @@
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, LitStr, PathArguments, Token,
-    Type, TypePath, spanned::Spanned, visit_mut::VisitMut,
+    FnArg, GenericArgument, Generics, Ident, ImplItem, ItemImpl, PathArguments, Token, Type,
+    TypePath, spanned::Spanned, visit_mut::VisitMut,
 };
 
-use crate::{parse::kernel::KernelBody, scope::Context};
+use crate::{
+    parse::kernel::{KernelArgs, KernelBody},
+    scope::Context,
+};
 
 use super::{
     helpers::{RemoveHelpers, ReplaceIndices},
@@ -30,8 +33,7 @@ impl CubeImplItem {
     pub fn from_impl_item(
         struct_ty_name: &Type,
         item: ImplItem,
-        src_file: Option<LitStr>,
-        debug_symbols: bool,
+        args: &KernelArgs,
     ) -> syn::Result<Vec<Self>> {
         let res = match item {
             ImplItem::Fn(func) => {
@@ -44,14 +46,8 @@ impl CubeImplItem {
                     .iter()
                     .any(|param| matches!(param, FnArg::Receiver(_)));
                 let func_name_expand = format_ident!("__expand_{}", func.sig.ident);
-                let mut func = KernelFn::from_sig_and_block(
-                    func.vis,
-                    func.sig,
-                    func.block,
-                    full_name,
-                    src_file,
-                    debug_symbols,
-                )?;
+                let mut func =
+                    KernelFn::from_sig_and_block(func.vis, func.sig, func.block, full_name, args)?;
 
                 if is_method {
                     let method = Self::handle_method_expand(func_name_expand, &mut func);
@@ -96,16 +92,16 @@ impl CubeImplItem {
         }
     }
 
-    /// Create the method from the function and update the function body to point to the method's
-    /// implementation.
+    /// Create the method from the function and update the function body to
+    /// point to the method's implementation.
     fn handle_method_expand(func_name_expand: Ident, func: &mut KernelFn) -> KernelFn {
         let mut method_sig = func.sig.clone();
 
         method_sig.name = format_ident!("__expand_{}_method", func.sig.name);
         method_sig.plain_returns_self();
 
-        // Since the function is associated to the expand type, we have to update the normalized
-        // types for the arguments.
+        // Since the function is associated to the expand type, we have to update the
+        // normalized types for the arguments.
         for param in method_sig
             .parameters
             .iter_mut()
@@ -116,7 +112,7 @@ impl CubeImplItem {
         }
 
         func.sig.name = func_name_expand;
-
+        func.sig.receiver_arg = None;
         let param = func.sig.parameters.first_mut().expect("Should be a method");
         param.name = Ident::new("this", param.span());
 
@@ -147,14 +143,16 @@ impl CubeImplItem {
         }
     }
 
-    /// Create the same function but that should be generated for the expand type.
+    /// Create the same function but that should be generated for the expand
+    /// type.
     ///
-    /// This is important since it allows to use the Self keyword inside methods.
+    /// This is important since it allows to use the Self keyword inside
+    /// methods.
     fn create_func_expand(struct_ty_name: &Type, func: &KernelFn, is_method: bool) -> KernelFn {
         let mut func_sig = func.sig.clone();
 
-        // Since the function is associated to the expand type, we have to update the normalized
-        // types for the arguments.
+        // Since the function is associated to the expand type, we have to update the
+        // normalized types for the arguments.
         for param in func_sig
             .parameters
             .iter_mut()
@@ -173,6 +171,7 @@ impl CubeImplItem {
             };
             param.name = Ident::new("this", param.span());
             param.normalized_ty = ty;
+            func_sig.receiver_arg = None;
         }
         func_sig.plain_returns_self();
 
@@ -203,20 +202,14 @@ impl CubeImplItem {
 }
 
 impl CubeImpl {
-    pub fn from_item_impl(
-        mut item_impl: ItemImpl,
-        src_file: Option<LitStr>,
-        debug_symbols: bool,
-    ) -> syn::Result<Self> {
+    pub fn from_item_impl(mut item_impl: ItemImpl, args: &KernelArgs) -> syn::Result<Self> {
         let struct_name = *item_impl.self_ty.clone();
 
         let items = item_impl
             .items
             .iter()
             .cloned()
-            .map(|item| {
-                CubeImplItem::from_impl_item(&struct_name, item, src_file.clone(), debug_symbols)
-            })
+            .map(|item| CubeImplItem::from_impl_item(&struct_name, item, args))
             .flat_map(|items| {
                 let result: Vec<syn::Result<CubeImplItem>> = match items {
                     Ok(items) => items.into_iter().map(Ok).collect(),
@@ -245,8 +238,8 @@ impl CubeImpl {
     }
 }
 
-/// When we use a type with generics for calling a function, we have to add more `::` between the type ident and
-/// the generic arguments.
+/// When we use a type with generics for calling a function, we have to add more
+/// `::` between the type ident and the generic arguments.
 fn format_type_with_turbofish(ty: &Type) -> proc_macro2::TokenStream {
     match ty {
         Type::Path(TypePath { path, .. }) => {

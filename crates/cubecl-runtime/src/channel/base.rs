@@ -1,6 +1,7 @@
 use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
 
 use crate::{
+    data_service::DataTransferId,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::{
@@ -26,6 +27,12 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Write bytes to each binding
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+
+    /// Send data to another server.
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>);
+
+    /// Receive data from another server. Returns when the transfer has been registered.
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>);
 
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;

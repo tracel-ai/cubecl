@@ -86,7 +86,8 @@ impl Display for Operator {
 }
 
 impl Operator {
-    /// Whether this is an assign op, aka whether the output is the same as the left hand side
+    /// Whether this is an assign op, aka whether the output is the same as the
+    /// left hand side
     pub fn is_assign(&self) -> bool {
         matches!(
             self,

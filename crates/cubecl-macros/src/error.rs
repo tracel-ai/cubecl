@@ -25,9 +25,9 @@ pub(crate) fn error_into_token_stream(err: syn::Error, item: TokenStream) -> Tok
 /// type analysis, completions and other hints features working even if macro
 /// fails to parse some syntax or finds some other logic errors.
 ///
-/// This utility does very low-level parsing to strip helper attributes (i.e. `#[comptime]`) from
-/// the input. This is to prevent the IDE from showing errors for helper attributes that need to be
-/// processed by this macro.
+/// This utility does very low-level parsing to strip helper attributes (i.e.
+/// `#[comptime]`) from the input. This is to prevent the IDE from showing
+/// errors for helper attributes that need to be processed by this macro.
 struct Fallback {
     output: TokenStream,
 }

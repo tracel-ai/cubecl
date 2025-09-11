@@ -1,7 +1,7 @@
 use crate::codegen::Compiler;
 use crate::compute::CubeTask;
+use cubecl_common::device::Device;
 use cubecl_ir::{StorageType, TargetProperties};
-use cubecl_runtime::id::DeviceId;
 use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
 
 pub use cubecl_runtime::channel;
@@ -18,10 +18,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The channel used to communicate with the compute server.
     type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
-    type Device: Default + Clone + core::fmt::Debug + Send + Sync;
-
-    /// Fetch the id for the given device.
-    fn device_id(device: &Self::Device) -> DeviceId;
+    type Device: Device;
 
     /// Retrieve the compute client from the runtime device.
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
@@ -50,8 +47,7 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool;
 
-    fn device_count() -> usize;
-
+    /// Returns the properties of the target hardware architecture.
     fn target_properties() -> TargetProperties;
 }
 

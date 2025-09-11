@@ -22,6 +22,7 @@ pub mod slice;
 pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
+pub mod to_client;
 pub mod topology;
 pub mod traits;
 pub mod unary;
@@ -135,6 +136,8 @@ macro_rules! testgen_untyped {
 
         cubecl_core::testgen_enums!();
         cubecl_core::testgen_comparison!();
+
+        cubecl_core::testgen_to_client!();
     };
 }
 

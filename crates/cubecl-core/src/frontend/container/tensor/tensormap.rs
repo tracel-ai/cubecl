@@ -116,6 +116,13 @@ impl<R: Runtime> ArgSettings<R> for TensorMapArg<'_, R> {
     }
 }
 
+impl<E: CubePrimitive> Lined for TensorMap<E> {}
+impl<E: CubePrimitive> LinedExpand for ExpandElementTyped<TensorMap<E>> {
+    fn line_size(&self) -> u32 {
+        1
+    }
+}
+
 /// Compilation argument for a [tensor map](TensorMap).
 #[derive(Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub struct TensorMapCompilationArg;

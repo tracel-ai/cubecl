@@ -1,13 +1,11 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::tensor::{
-    layout::{
-        Coordinates, Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
-    },
+    layout::{Coordinates, Coords1d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
 };
 
-use crate::components::{Dimensionality, global::layout::virtual_layout};
+use crate::components::Dimensionality;
 
 #[derive(CubeType, Clone)]
 pub struct NhwcCoords {
@@ -93,42 +91,39 @@ impl Layout for NhwcLayout {
     type Coordinates = NhwcCoords;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
         let NhwcCoords {
             batch,
             spatial,
             channel,
         } = pos;
 
-        let spatial_dims = this.shapes_spatial.len();
-        let mut read_pos = batch * this.stride_batch + channel * this.stride_channel;
+        let spatial_dims = self.shapes_spatial.len();
+        let mut read_pos = batch * self.stride_batch + channel * self.stride_channel;
 
         #[unroll]
         for i in 0..spatial_dims {
             let i = unwrap(i);
-            read_pos += *spatial.index(i) as u32 * *this.strides_spatial.index(i);
+            read_pos += *spatial.index(i) as u32 * *self.strides_spatial.index(i);
         }
 
-        read_pos / this.line_size
+        read_pos / self.line_size
     }
 
-    fn to_source_pos_checked(
-        this: &Self,
-        pos: Self::Coordinates,
-    ) -> (Self::SourceCoordinates, bool) {
-        (this.to_source_pos(pos.clone()), this.is_in_bounds(pos))
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        (self.to_source_pos(pos.clone()), self.is_in_bounds(pos))
     }
 
-    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
-        if comptime![this.check_spatial] {
-            let spatial_dims = this.shapes_spatial.len();
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        if comptime![self.check_spatial] {
+            let spatial_dims = self.shapes_spatial.len();
             let mut spatial_in_bounds = true;
 
             #[unroll]
             for i in 0..spatial_dims {
                 let i = unwrap(i);
                 let pos = *pos.spatial.index(i);
-                spatial_in_bounds &= pos >= 0 && (pos as u32) < *this.shapes_spatial.index(i);
+                spatial_in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
             }
 
             spatial_in_bounds
@@ -137,16 +132,14 @@ impl Layout for NhwcLayout {
         }
     }
 
-    fn shape(this: &Self) -> Self::Coordinates {
+    fn shape(&self) -> Self::Coordinates {
         NhwcCoords {
-            batch: this.shape_batch,
-            spatial: cast_seq(this.shapes_spatial.clone()),
-            channel: this.shape_channel,
+            batch: self.shape_batch,
+            spatial: cast_seq(self.shapes_spatial.clone()),
+            channel: self.shape_channel,
         }
     }
 }
-
-virtual_layout!(NhwcLayout, NhwcLayoutExpand);
 
 #[allow(unused_variables)]
 #[cube]

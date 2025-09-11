@@ -2,7 +2,8 @@ use crate::{
     frontend::{CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, SizedContainer},
     ir::{Metadata, Scope, Type},
     prelude::{
-        Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
+        Line, Lined, LinedExpand, List, ListExpand, ListMut, ListMutExpand, index, index_assign,
+        index_unchecked,
     },
     unexpanded,
 };
@@ -297,11 +298,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Tensor<T>> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+}
 
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
-    }
-
+impl<T: CubePrimitive> Lined for Tensor<T> {}
+impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Tensor<T>> {
     fn line_size(&self) -> u32 {
         self.expand.ty.line_size()
     }

@@ -2,6 +2,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -310,6 +311,27 @@ where
         self.do_empty(descriptors).unwrap()
     }
 
+    /// Transfer data from one client to another
+    pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
+        let shape = [src.size() as usize];
+        let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
+
+        self.data_transfer(src_descriptor, alloc_desc, dst_server)
+    }
+
+    /// Transfer data from one client to another
+    pub fn to_client_tensor(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        let shape = src_descriptor.shape;
+        let elem_size = src_descriptor.elem_size;
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        self.data_transfer(src_descriptor, alloc_desc, dst_server)
+    }
+
     #[track_caller]
     unsafe fn execute_inner(
         &self,
@@ -547,6 +569,86 @@ where
         self.profile_release(stream_id);
 
         result
+    }
+
+    /// Transfer data from one client to another
+    fn data_transfer_async(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        alloc_descriptor: AllocationDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        let strides = src_descriptor.strides;
+        let shape = src_descriptor.shape;
+        let elem_size = src_descriptor.elem_size;
+
+        // Allocate destination
+        let alloc = dst_server
+            .channel
+            .create(vec![alloc_descriptor])
+            .unwrap()
+            .remove(0);
+
+        // Unique id for this transaction
+        let id = DataTransferId::new();
+
+        // Send with source server
+        self.channel.data_transfer_send(id, src_descriptor);
+
+        // Recv with destination server
+        let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
+        dst_server.channel.data_transfer_recv(id, desc);
+
+        alloc
+    }
+
+    /// Transfer data from one client to another
+    fn data_transfer_sync(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        alloc_descriptor: AllocationDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        let shape = src_descriptor.shape;
+        let elem_size = src_descriptor.elem_size;
+
+        // Allocate destination
+        let alloc = dst_server
+            .channel
+            .create(vec![alloc_descriptor])
+            .unwrap()
+            .remove(0);
+
+        let read = self.channel.read(vec![src_descriptor]);
+        let data = cubecl_common::future::block_on(read).unwrap();
+
+        let desc_descriptor = CopyDescriptor {
+            binding: alloc.handle.clone().binding(),
+            shape,
+            strides: &alloc.strides,
+            elem_size,
+        };
+
+        dst_server
+            .channel
+            .write(vec![(desc_descriptor, &data[0])])
+            .unwrap();
+
+        alloc
+    }
+
+    /// Transfer data from one client to another
+    fn data_transfer(
+        &self,
+        src_descriptor: CopyDescriptor<'_>,
+        alloc_descriptor: AllocationDescriptor<'_>,
+        dst_server: &Self,
+    ) -> Allocation {
+        if self.properties().memory.data_transfer_async {
+            self.data_transfer_async(src_descriptor, alloc_descriptor, dst_server)
+        } else {
+            self.data_transfer_sync(src_descriptor, alloc_descriptor, dst_server)
+        }
     }
 
     #[cfg(not(multi_threading))]
