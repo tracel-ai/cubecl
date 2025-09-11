@@ -33,6 +33,7 @@ pub mod storage;
 pub mod config;
 
 mod feature_set;
+/// Runtime features and associated types
 pub mod features;
 
 mod base;

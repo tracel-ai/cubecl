@@ -12,7 +12,7 @@ use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
-use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage};
+use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
 
