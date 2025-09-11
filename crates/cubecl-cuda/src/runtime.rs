@@ -118,14 +118,14 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
 
 
-    let (mem_properties, storage) = if !vmm_supported || !options.expandable_storage_enabled {
+    //let (mem_properties, storage) = if !vmm_supported || !options.expandable_storage_enabled {
         let storage = CudaStorage::new(mem_alignment, stream);
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
             alignment: mem_alignment as u64,
             data_transfer_async: true,
         };
-        (mem_properties, CudaStorageType::Regular(storage))
+   /*     (mem_properties, CudaStorageType::Regular(storage))
     } else {
         let mut granularity: usize = 0;
 
@@ -183,7 +183,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         (mem_properties, CudaStorageType::Expandable(storage))
 
 
-    };
+    };*/
 
     let mut comp_opts = CompilationOptions::default();
 
