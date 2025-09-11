@@ -196,7 +196,7 @@ pub fn register_features(
 #[cfg(all(feature = "msl", target_os = "macos"))]
 pub fn register_features(
     adapter: &Adapter,
-    props: &mut DeviceProperties<Feature>,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     if is_metal(adapter) {

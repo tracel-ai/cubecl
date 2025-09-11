@@ -20,8 +20,6 @@ pub struct Features {
     /// Semantic constructs supported by this runtime.
     pub semantic_types: BTreeSet<SemanticType>,
 
-    /// Statically known warp size for CMMA ops
-    pub cmma_warp_size: Option<u32>,
     /// Tensor Memory Accelerator supported features
     pub tma: EnumSet<Tma>,
     /// The cmma feature enables cooperative matrix-multiply and accumulate operations.

@@ -6,7 +6,6 @@ use cubecl_core::{
 };
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_runtime::DeviceProperties;
-use cubecl_runtime::EnumSet;
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use wgpu::Features;
 
@@ -70,7 +69,7 @@ pub fn register_wgsl_features(
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 pub fn register_types(props: &mut DeviceProperties, adapter: &wgpu::Adapter) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
-    use cubecl_runtime::TypeUsage;
+    use cubecl_runtime::{EnumSet, TypeUsage};
 
     let supported_types = [
         ElemType::UInt(UIntKind::U32),
