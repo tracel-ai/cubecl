@@ -1,6 +1,6 @@
 use std::{borrow::Cow, sync::Arc};
 
-use cubecl_core::{ExecutionMode, Feature, WgpuCompilationOptions, prelude::CompiledKernel};
+use cubecl_core::{ExecutionMode, WgpuCompilationOptions, prelude::CompiledKernel};
 use cubecl_runtime::DeviceProperties;
 use wgpu::{
     Adapter, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, BufferBindingType,
@@ -174,7 +174,7 @@ pub async fn request_device(adapter: &Adapter) -> (Device, Queue) {
 #[cfg(all(not(feature = "spirv"), not(feature = "msl")))]
 pub fn register_features(
     adapter: &Adapter,
-    props: &mut DeviceProperties<Feature>,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     wgsl::register_wgsl_features(adapter, props, comp_options);
@@ -183,7 +183,7 @@ pub fn register_features(
 #[cfg(feature = "spirv")]
 pub fn register_features(
     adapter: &Adapter,
-    props: &mut DeviceProperties<Feature>,
+    props: &mut DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     if is_vulkan(adapter) {

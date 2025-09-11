@@ -1,6 +1,6 @@
-use cubecl_core::{Feature, ir::StorageType};
+use cubecl_core::ir::StorageType;
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, MmaConfig};
 
 use crate::components::batch::{
     CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation,
@@ -159,16 +159,22 @@ fn select_size(
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
 pub fn find_instruction_size(
-    properties: Option<(
-        &DeviceProperties<Feature>,
-        (StorageType, StorageType, StorageType),
-    )>,
+    properties: Option<(&DeviceProperties, (StorageType, StorageType, StorageType))>,
     m: usize,
     n: usize,
 ) -> TileSize {
-    let supported = |m: u8, n: u8, k: u8| {
+    let supported = |m: u32, n: u32, k: u32| {
         properties
-            .map(|(p, (a, b, c))| p.feature_enabled(Feature::Cmma { a, b, c, m, n, k }))
+            .map(|(p, (a_type, b_type, cd_type))| {
+                p.features.cmma.contains(&MmaConfig {
+                    a_type,
+                    b_type,
+                    cd_type,
+                    m,
+                    n,
+                    k,
+                })
+            })
             .unwrap_or(true)
     };
 

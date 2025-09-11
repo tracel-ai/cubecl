@@ -356,7 +356,7 @@ impl Launch {
                 settings.extend(quote![.debug_symbols()]);
             }
             if let Some(mode) = &self.args.fast_math {
-                settings.extend(quote![.fp_math_mode(#mode)]);
+                settings.extend(quote![.fp_math_mode((#mode).into())]);
             }
             if let Some(cluster_dim) = &self.args.cluster_dim {
                 settings.extend(quote![.cluster_dim(#cluster_dim)]);

@@ -1,8 +1,9 @@
 use std::fmt::Display;
 
+use crate::runtime_tests::binary::assert_equals_approx;
 use crate::{self as cubecl};
-use crate::{Feature, runtime_tests::binary::assert_equals_approx};
 use cubecl::prelude::*;
+use cubecl_runtime::Plane;
 
 #[cube(launch)]
 pub fn kernel_sum<F: Float>(output: &mut Tensor<F>) {
@@ -535,7 +536,7 @@ pub fn test_plane_any<
 pub fn test_plane_ballot<TestRuntime: Runtime>(
     client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
 ) {
-    if !client.properties().feature_enabled(Feature::Plane) {
+    if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
     }
@@ -638,7 +639,7 @@ fn test_plane_operation<
 ) where
     Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>),
 {
-    if !client.properties().feature_enabled(Feature::Plane) {
+    if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
     }

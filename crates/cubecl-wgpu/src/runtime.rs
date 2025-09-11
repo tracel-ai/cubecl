@@ -4,10 +4,8 @@ use crate::{
 };
 use cubecl_common::{future, profile::TimingMethod};
 
-use cubecl_core::Feature;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
-use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
@@ -15,6 +13,7 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
+use cubecl_runtime::{Plane, memory_management::MemoryDeviceProperties};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -254,8 +253,12 @@ pub(crate) fn create_client_on_setup(
         TimingMethod::System
     };
 
-    let mut device_props =
-        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
+    let mut device_props = DeviceProperties::new(
+        Default::default(),
+        mem_props.clone(),
+        hardware_props,
+        time_measurement,
+    );
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
@@ -269,7 +272,9 @@ pub(crate) fn create_client_on_setup(
             && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
             && !fake_plane_info
         {
-            device_props.register_feature(Feature::Plane);
+            use cubecl_runtime::Plane;
+
+            device_props.features.plane.insert(Plane::Ops);
         }
     }
 
@@ -289,35 +294,16 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        use cubecl_core::AtomicFeature;
         use cubecl_core::ir::{ElemType, FloatKind, StorageType};
+        use cubecl_runtime::TypeUsage;
 
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F32,
-        ))));
-
-        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
+            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
+        );
     }
 
-    #[cfg(not(all(target_os = "macos", feature = "msl")))]
-    {
-        use cubecl_core::AtomicFeature;
-        use cubecl_core::ir::{ElemType, IntKind, StorageType, UIntKind};
-
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-            IntKind::I32,
-        ))));
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-            UIntKind::U32,
-        ))));
-        device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-    }
-
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.plane.insert(Plane::Ops);
 
     ComputeClient::new(channel, device_props, setup.backend)
 }

@@ -588,7 +588,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
     fn supported_wmma_combinations(
         arch: &CudaArchitecture,
-    ) -> crate::shared::SupportedWmmaCombinations {
+    ) -> crate::shared::SupportedMmaCombinations {
         M::supported_wmma_combinations(arch)
     }
 

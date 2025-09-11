@@ -42,8 +42,6 @@ where
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
-    /// The type of the features supported by the server.
-    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn create(

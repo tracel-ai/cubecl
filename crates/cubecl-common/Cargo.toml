@@ -16,10 +16,10 @@ version.workspace = true
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]
-serde = []
-std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
 fp4 = ["float4"]
 fp8 = ["float8", "float4"]
+serde = []
+std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **

@@ -5,10 +5,10 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
-        UIntKind,
+        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
+        TargetProperties,
     },
 };
 use cubecl_cpp::{
@@ -21,7 +21,7 @@ use cubecl_cpp::{
     },
 };
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
+    ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
@@ -159,25 +159,27 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
 
     let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
+        Default::default(),
         mem_properties,
         hardware_props,
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::TF32).into()));
+    device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
     if arch_version >= 60 {
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F64,
-        ))));
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F64)),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
     }
     if arch_version >= 70 {
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F16,
-        ))));
-        device_props.register_feature(Feature::Pipeline);
-        device_props.register_feature(Feature::Barrier);
-        device_props.register_feature(Feature::SyncPlane);
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F16)),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
+        device_props.register_semantic_type(SemanticType::Pipeline);
+        device_props.register_semantic_type(SemanticType::Barrier);
+        device_props.features.plane.insert(Plane::Sync);
 
         comp_opts.grid_constants = true;
     }
@@ -188,50 +190,35 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // }
 
     if arch_version >= 89 {
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E4M3).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E5M2).into()));
+        device_props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Conversion);
+        device_props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Conversion);
     }
     if arch_version >= 90 {
-        device_props.register_feature(Feature::Tma(TmaFeature::Base));
-        device_props.register_feature(Feature::CubeCluster);
+        device_props.features.tma.insert(Tma::Base);
+        device_props.features.cube_cluster = true;
         comp_opts.supports_clusters = true;
     }
 
     if arch_version >= 100 {
-        device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
+        device_props.features.tma.insert(Tma::Im2colWide);
     }
 
     // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
     // major version. Try to keep this up to date with new arch major revisions if they also
     // implement it.
     if arch_major == 10 || arch_major == 12 {
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M1).into()));
-        device_props.register_feature(Feature::Type(StorageType::Packed(
-            ElemType::Float(FloatKind::E2M1),
-            2,
-        )));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M3).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E3M2).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::UE8M0).into()));
+        device_props.register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
+        device_props.register_type_usage(
+            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2),
+            TypeUsage::Conversion,
+        );
+        device_props.register_type_usage(ElemType::Float(FloatKind::E2M3), TypeUsage::Conversion);
+        device_props.register_type_usage(ElemType::Float(FloatKind::E3M2), TypeUsage::Conversion);
+        device_props.register_type_usage(ElemType::Float(FloatKind::UE8M0), TypeUsage::Conversion);
     }
 
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-
-    // Supported by all architectures
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-        IntKind::I32,
-    ))));
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-        UIntKind::U32,
-    ))));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-
-    device_props.register_feature(Feature::DynamicLineSize);
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.dynamic_line_size = true;
+    device_props.features.plane.insert(Plane::Ops);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);

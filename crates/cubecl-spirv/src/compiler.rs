@@ -5,7 +5,10 @@ use cubecl_core::{
     prelude::FastMath,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
-use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
+use cubecl_runtime::{
+    EnumSet,
+    config::{GlobalConfig, compilation::CompilationLogLevel},
+};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -417,7 +420,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 }
 
-fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
+fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
     let mut flags = FPFastMathMode::NONE;
 
     for mode in math_mode.iter() {
