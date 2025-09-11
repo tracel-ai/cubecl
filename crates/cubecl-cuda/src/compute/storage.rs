@@ -309,7 +309,7 @@ impl HandlePool {
             }
             #[cfg(target_os = "windows")]
             {
-                CU_MEM_HANDLE_TYPE_WIN32
+                CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
             }
         };
 
