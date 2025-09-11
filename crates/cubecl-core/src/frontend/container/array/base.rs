@@ -2,14 +2,19 @@ use std::marker::PhantomData;
 
 use cubecl_ir::{ExpandElement, Scope};
 
-use crate::frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped};
-use crate::prelude::{List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked};
+use crate::prelude::{
+    LinedExpand, List, ListExpand, ListMut, ListMutExpand, SizedContainer, index_unchecked,
+};
 use crate::prelude::{assign, index, index_assign};
 use crate::{self as cubecl};
 use crate::{
     frontend::CubeType,
     ir::{Metadata, Type},
     unexpanded,
+};
+use crate::{
+    frontend::{CubePrimitive, ExpandElementIntoMut, ExpandElementTyped},
+    prelude::Lined,
 };
 use cubecl_macros::{cube, intrinsic};
 
@@ -320,11 +325,10 @@ impl<T: CubePrimitive> ListExpand<T> for ExpandElementTyped<Array<T>> {
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+}
 
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
-    }
-
+impl<T: CubePrimitive> Lined for Array<T> {}
+impl<T: CubePrimitive> LinedExpand for ExpandElementTyped<Array<T>> {
     fn line_size(&self) -> u32 {
         self.expand.ty.line_size()
     }

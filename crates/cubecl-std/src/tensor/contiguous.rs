@@ -1,7 +1,7 @@
 use crate::{
     FastDivmod,
     tensor::layout::{
-        VirtualLayoutOperations, VirtualLayoutOperationsExpand,
+        Layout, LayoutExpand,
         linear::{LinearLayout, LinearLayoutArgs, LinearView, linear_view},
     },
 };

@@ -107,7 +107,7 @@ where
     ) -> Self::LhsLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         Self::LhsLoader::new(
-            lhs.view(layout.virt()),
+            lhs.view(layout),
             x_offset,
             y_offset,
             batch_offset,
@@ -126,7 +126,7 @@ where
     ) -> Self::RhsLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         Self::RhsLoader::new(
-            rhs.view(layout.virt()),
+            rhs.view(layout),
             x_offset,
             y_offset,
             batch_offset,
@@ -144,12 +144,7 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout.virt()),
-            x_offset,
-            y_offset,
-            batch_offset,
-        )
+        SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

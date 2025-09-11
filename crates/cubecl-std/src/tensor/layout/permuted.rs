@@ -5,10 +5,7 @@ use crate::{
     FastDivmod, FastDivmodArgs,
     tensor::{
         index_offset_contiguous_fastdivmod,
-        layout::{
-            Coords1d, Layout, VirtualLayoutOperations, VirtualLayoutOperationsExpand,
-            virtual_layout,
-        },
+        layout::{Coords1d, Layout, LayoutExpand},
     },
 };
 
@@ -30,7 +27,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         strides: &[usize],
         line_size: &'a u8,
     ) -> Self {
-        let len = shape.iter().product::<usize>();
+        let len = shape.iter().product::<usize>() / *line_size as usize;
 
         let shape = SequenceArg {
             values: shape
@@ -62,26 +59,24 @@ impl Layout for PermutedLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
 
-    fn to_source_pos(this: &Self, pos: Self::Coordinates) -> u32 {
+    fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
         index_offset_contiguous_fastdivmod(
             pos,
-            &this.shape,
-            &this.strides,
-            comptime![this.line_size as u32],
+            &self.shape,
+            &self.strides,
+            comptime![self.line_size as u32],
         )
     }
 
-    fn to_source_pos_checked(this: &Self, pos: Self::Coordinates) -> (u32, bool) {
-        (this.to_source_pos(pos), this.is_in_bounds(pos))
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {
+        (self.to_source_pos(pos), self.is_in_bounds(pos))
     }
 
-    fn shape(this: &Self) -> Self::Coordinates {
-        this.len
+    fn shape(&self) -> Self::Coordinates {
+        self.len
     }
 
-    fn is_in_bounds(this: &Self, pos: Self::Coordinates) -> bool {
-        pos < this.len
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        pos < self.len
     }
 }
-
-virtual_layout!(PermutedLayout, PermutedLayoutExpand);

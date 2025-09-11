@@ -8,9 +8,8 @@ use crate::tensor::layout::{Coordinates, Coords1d, VirtualLayout, VirtualLayoutE
 /// Type from which we can read values in cube functions.
 /// For a mutable version, see [ListMut].
 #[allow(clippy::len_without_is_empty)]
-pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
-    CubeType<ExpandType: ViewOperationsExpand<T, C>>
-{
+#[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
+pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     #[allow(unused)]
     fn read(&self, pos: C) -> T {
         unexpanded!()
@@ -42,91 +41,12 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>:
     fn is_in_bounds(&self, pos: C) -> bool {
         unexpanded!();
     }
-
-    fn line_size(&self) -> u32 {
-        unexpanded!();
-    }
-
-    fn __expand_read(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> T::ExpandType {
-        this.__expand_read_method(scope, pos)
-    }
-
-    fn __expand_read_checked(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> T::ExpandType {
-        this.__expand_read_checked_method(scope, pos)
-    }
-
-    fn __expand_read_unchecked(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> T::ExpandType {
-        this.__expand_read_unchecked_method(scope, pos)
-    }
-
-    fn __expand_slice(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-        size: ExpandElementTyped<u32>,
-    ) -> SliceExpand<T, ReadOnly> {
-        this.__expand_slice_method(scope, pos, size)
-    }
-
-    fn __expand_shape(scope: &mut Scope, this: Self::ExpandType) -> C::ExpandType {
-        this.__expand_shape_method(scope)
-    }
-
-    fn __expand_is_in_bounds(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-    ) -> ExpandElementTyped<bool> {
-        this.__expand_is_in_bounds_method(scope, pos)
-    }
-
-    fn __expand_line_size(scope: &mut Scope, this: Self::ExpandType) -> u32 {
-        this.__expand_line_size_method(scope)
-    }
-}
-
-/// Expand version of [CubeRead].
-pub trait ViewOperationsExpand<T: CubePrimitive, C: Coordinates> {
-    fn __expand_read_method(&self, scope: &mut Scope, pos: C::ExpandType) -> T::ExpandType;
-    fn __expand_read_checked_method(&self, scope: &mut Scope, pos: C::ExpandType) -> T::ExpandType;
-    fn __expand_read_unchecked_method(
-        &self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-    ) -> T::ExpandType;
-    fn __expand_slice_method(
-        &self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-        size: ExpandElementTyped<u32>,
-    ) -> SliceExpand<T, ReadOnly>;
-    fn __expand_shape_method(&self, scope: &mut Scope) -> C::ExpandType;
-    fn __expand_is_in_bounds_method(
-        &self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-    ) -> ExpandElementTyped<bool>;
-    fn line_size(&self) -> u32;
-    fn __expand_line_size_method(&self, scope: &mut Scope) -> u32;
 }
 
 /// Type for which we can read and write values in cube functions.
 /// For an immutable version, see [List].
-pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>:
-    CubeType<ExpandType: ViewOperationsMutExpand<T, C>> + ViewOperations<T, C>
-{
+#[cube(expand_base_traits = "ViewOperationsExpand<T, C>", self_type = "ref")]
+pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T, C> {
     #[allow(unused)]
     fn write(&self, pos: C, value: T) {
         unexpanded!()
@@ -136,37 +56,6 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>:
     fn write_checked(&self, pos: C, value: T) {
         unexpanded!()
     }
-
-    fn __expand_write(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-        value: T::ExpandType,
-    ) {
-        this.__expand_write_method(scope, pos, value)
-    }
-
-    fn __expand_write_checked(
-        scope: &mut Scope,
-        this: Self::ExpandType,
-        pos: C::ExpandType,
-        value: T::ExpandType,
-    ) {
-        this.__expand_write_checked_method(scope, pos, value)
-    }
-}
-
-/// Expand version of [CubeWrite].
-pub trait ViewOperationsMutExpand<T: CubePrimitive, C: Coordinates>:
-    ViewOperationsExpand<T, C>
-{
-    fn __expand_write_method(&self, scope: &mut Scope, pos: C::ExpandType, value: T::ExpandType);
-    fn __expand_write_checked_method(
-        &self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-        value: T::ExpandType,
-    );
 }
 
 // Automatic implementation for references to List.
@@ -275,7 +164,7 @@ macro_rules! impl_operations_1d {
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
             ) -> <T>::ExpandType {
-                <Self as ListExpand<T>>::__expand_read_unchecked_method(&self, scope, pos)
+                <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
             }
 
             fn __expand_slice_method(
@@ -285,7 +174,7 @@ macro_rules! impl_operations_1d {
                 size: ExpandElementTyped<u32>,
             ) -> SliceExpand<T, ReadOnly> {
                 let end = add::expand(scope, pos.clone(), size);
-                <Self as SliceOperatorExpand<T>>::__expand_slice_method(&self, scope, pos, end)
+                <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, pos, end)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
@@ -299,14 +188,6 @@ macro_rules! impl_operations_1d {
             ) -> ExpandElementTyped<bool> {
                 let len = self.clone().__expand_buffer_len_method(scope);
                 lt::expand(scope, pos, len)
-            }
-
-            fn line_size(&self) -> u32 {
-                <Self as ListExpand<T>>::line_size(&self)
-            }
-
-            fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-                <Self as ListExpand<T>>::__expand_line_size_method(&self, scope)
             }
         }
 
@@ -398,14 +279,6 @@ mod slice {
             let len = self.__expand_shape_method(scope);
             lt::expand(scope, pos, len)
         }
-
-        fn line_size(&self) -> u32 {
-            <Self as ListExpand<T>>::line_size(self)
-        }
-
-        fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            <Self as ListExpand<T>>::__expand_line_size_method(self, scope)
-        }
     }
 
     impl<T: CubePrimitive> ViewOperationsMut<T, Coords1d> for Slice<T, ReadWrite> {}
@@ -491,14 +364,6 @@ mod virtual_tensor {
             let len = self.clone().__expand_buffer_len_method(scope);
             lt::expand(scope, pos, len)
         }
-
-        fn line_size(&self) -> u32 {
-            <Self as ListExpand<Line<T>>>::line_size(self)
-        }
-
-        fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            <Self as ListExpand<Line<T>>>::__expand_line_size_method(self, scope)
-        }
     }
 
     impl<T: Numeric> ViewOperationsMut<Line<T>, Coords1d> for VirtualTensor<T, ReadWrite> {}
@@ -528,12 +393,7 @@ mod virtual_tensor {
 }
 
 #[derive(CubeType)]
-pub struct VirtualView<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> {
+pub struct VirtualView<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>> {
     #[allow(unused)]
     view: V,
     #[allow(unused)]
@@ -543,12 +403,8 @@ pub struct VirtualView<
 }
 
 #[cube]
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> VirtualView<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>>
+    VirtualView<T, C, S, V>
 {
     pub fn new(view: V, layout: VirtualLayout<C, S>) -> Self {
         VirtualView::<T, C, S, V> {
@@ -559,12 +415,8 @@ impl<
     }
 }
 
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperations<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
-> VirtualViewExpand<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperations<T, S>>
+    VirtualViewExpand<T, C, S, V>
 {
     pub fn new(view: V::ExpandType, layout: VirtualLayoutExpand<C, S>) -> Self {
         VirtualViewExpand::<T, C, S, V> {
@@ -580,7 +432,7 @@ pub struct VirtualViewMut<
     T: CubePrimitive,
     C: Coordinates,
     S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
+    V: ViewOperationsMut<T, S>,
 > {
     #[allow(unused)]
     view: V,
@@ -591,12 +443,8 @@ pub struct VirtualViewMut<
 }
 
 #[cube]
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
-> VirtualViewMut<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S>>
+    VirtualViewMut<T, C, S, V>
 {
     pub fn new(view: V, layout: VirtualLayout<C, S>) -> Self {
         VirtualViewMut::<T, C, S, V> {
@@ -607,12 +455,8 @@ impl<
     }
 }
 
-impl<
-    T: CubePrimitive,
-    C: Coordinates,
-    S: Coordinates,
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
-> VirtualViewMutExpand<T, C, S, V>
+impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V: ViewOperationsMut<T, S>>
+    VirtualViewMutExpand<T, C, S, V>
 {
     pub fn new(view: V::ExpandType, layout: VirtualLayoutExpand<C, S>) -> Self {
         VirtualViewMutExpand::<T, C, S, V> {
@@ -625,10 +469,24 @@ impl<
 
 macro_rules! impl_virtual_read {
     ($ty: ident, $expand: ident, $trait: ident) => {
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> Lined for $ty<T, C, S, V> where
+            V: $trait<T, S>
+        {
+        }
+        impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> LinedExpand
+            for $expand<T, C, S, V>
+        where
+            V: $trait<T, S>,
+        {
+            fn line_size(&self) -> u32 {
+                self.view.line_size()
+            }
+        }
+
         impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> ViewOperations<T, C>
             for $ty<T, C, S, V>
         where
-            V: $trait<T, S> + CubeType<ExpandType: ViewOperationsExpand<T, S>>,
+            V: $trait<T, S>,
         {
         }
 
@@ -699,14 +557,6 @@ macro_rules! impl_virtual_read {
             ) -> ExpandElementTyped<bool> {
                 self.layout.clone().__expand_is_in_bounds_method(scope, pos)
             }
-
-            fn line_size(&self) -> u32 {
-                self.view.line_size()
-            }
-
-            fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-                self.view.__expand_line_size_method(scope)
-            }
         }
     };
 }
@@ -717,7 +567,7 @@ impl_virtual_read!(VirtualViewMut, VirtualViewMutExpand, ViewOperationsMut);
 impl<T: CubePrimitive, C: Coordinates, S: Coordinates, V> ViewOperationsMut<T, C>
     for VirtualViewMut<T, C, S, V>
 where
-    V: ViewOperationsMut<T, S> + CubeType<ExpandType: ViewOperationsMutExpand<T, S>>,
+    V: ViewOperationsMut<T, S>,
 {
 }
 
@@ -759,6 +609,13 @@ mod view {
     use crate::tensor::{View, ViewExpand};
 
     use super::*;
+
+    impl<T: CubePrimitive, C: Coordinates, IO: Clone> Lined for View<T, C, IO> {}
+    impl<T: CubePrimitive, C: Coordinates, IO: Clone> LinedExpand for ViewExpand<T, C, IO> {
+        fn line_size(&self) -> u32 {
+            ViewExpand::line_size(self)
+        }
+    }
 
     impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperations<T, C> for View<T, C, IO> {}
     impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
@@ -803,14 +660,6 @@ mod view {
             pos: <C>::ExpandType,
         ) -> ExpandElementTyped<bool> {
             ViewExpand::__expand_is_in_bounds_method(self.clone(), scope, pos)
-        }
-
-        fn line_size(&self) -> u32 {
-            ViewExpand::line_size(self)
-        }
-
-        fn __expand_line_size_method(&self, scope: &mut Scope) -> u32 {
-            ViewExpand::__expand_line_size_method(self.clone(), scope)
         }
     }
 
