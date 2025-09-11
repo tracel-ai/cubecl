@@ -1,5 +1,5 @@
 use cubecl_core::ir::Metadata;
-use tracel_llvm::melior::dialect::{arith, index, memref};
+use tracel_llvm::mlir_rs::dialect::{arith, index, memref};
 
 use crate::compiler::visitor::prelude::*;
 
