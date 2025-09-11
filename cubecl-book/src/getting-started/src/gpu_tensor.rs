@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
-use cubecl::{prelude::*, server::Handle, std::tensor::compact_strides};
+use cubecl::{prelude::*, server::Handle};
+use cubecl_runtime::stride::contiguous_strides;
 
 /// Simple GpuTensor
 #[derive(Debug)]
@@ -31,7 +32,7 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
         let data: Vec<F> = (0..size).map(|i| F::from_int(i as i64)).collect();
         let data = client.create(F::as_bytes(&data));
 
-        let strides = compact_strides(&shape);
+        let strides = contiguous_strides(&shape);
         Self {
             data,
             shape,
@@ -46,7 +47,7 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
         let size = shape.iter().product::<usize>() * core::mem::size_of::<F>();
         let data = client.empty(size);
 
-        let strides = compact_strides(&shape);
+        let strides = contiguous_strides(&shape);
         Self {
             data,
             shape,

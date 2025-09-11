@@ -2,7 +2,7 @@ use cubecl_core::{
     channel::ComputeChannel, prelude::*, server::ComputeServer, tensor_line_size_parallel,
     tensor_line_size_perpendicular,
 };
-use cubecl_std::tensor::is_contiguous;
+use cubecl_runtime::stride::is_contiguous;
 
 use crate::ReduceStrategy;
 

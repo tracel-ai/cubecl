@@ -6,7 +6,6 @@ use crate::{
             cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
             gpu::GpuStorage,
         },
-        valid_strides,
     },
     device::CudaDevice,
 };
@@ -27,6 +26,7 @@ use cubecl_cpp::{
         register_wmma_features,
     },
 };
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
     channel::MutexComputeChannel,
@@ -184,6 +184,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_properties,
         hardware_props,
         TimingMethod::System,
+        // Prefer pitched rows by default on CUDA (hardware efficient).
+        cubecl_runtime::server::AllocationKind::Optimized,
     );
     register_supported_types(&mut device_props);
     device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
@@ -311,7 +313,7 @@ impl Runtime for CudaRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        valid_strides(shape, strides)
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
