@@ -36,7 +36,7 @@ impl CudaAllocController {
             let mut container = Some(ptr);
             let container_ptr = std::ptr::from_mut(&mut container);
 
-            cudarc::driver::sys::cuMemAllocHost_v2(container_ptr.cast(), size);
+            cudarc::driver::sys::cuMemAllocHost_v2(ptr.cast(), size);
 
             (
                 Self {
