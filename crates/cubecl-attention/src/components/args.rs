@@ -527,14 +527,9 @@ impl<EG: Numeric> ConcreteInputsFactory for TensorInputs<EG> {
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            query
-                .try_as_tensor_arg(line_sizes.query)
-                .expect("valid vectorisation for query"),
-            key.try_as_tensor_arg(line_sizes.key)
-                .expect("valid vectorisation for key"),
-            value
-                .try_as_tensor_arg(line_sizes.value)
-                .expect("valid vectorisation for value"),
+            query.as_tensor_arg(line_sizes.query),
+            key.as_tensor_arg(line_sizes.key),
+            value.as_tensor_arg(line_sizes.value),
             // mask.as_tensor_arg(line_sizes.value),
         )
     }
@@ -547,8 +542,7 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
-        out.try_as_tensor_arg(line_sizes.out)
-            .expect("valid vectorisation for out")
+        out.as_tensor_arg(line_sizes.out)
     }
 }
 

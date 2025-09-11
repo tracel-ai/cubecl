@@ -38,23 +38,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         line_sizes: &MatmulLineSizes,
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
-            lhs.data()
-                .try_as_tensor_arg(line_sizes.lhs)
-                .expect("valid vec lhs"),
-            lhs.scale()
-                .map(|it| it.try_as_tensor_arg(1).expect("vec=1"))
-                .into(),
-            rhs.data()
-                .try_as_tensor_arg(line_sizes.rhs)
-                .expect("valid vec rhs"),
-            rhs.scale()
-                .map(|it| it.try_as_tensor_arg(1).expect("vec=1"))
-                .into(),
-            bias.map(|it| {
-                it.try_as_tensor_arg(line_sizes.out)
-                    .expect("valid vec out")
-            })
-            .into(),
+            lhs.data().as_tensor_arg(line_sizes.lhs),
+            lhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            rhs.data().as_tensor_arg(line_sizes.rhs),
+            rhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            bias.map(|it| it.as_tensor_arg(line_sizes.out)).into(),
         )
     }
 }
@@ -116,9 +104,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 channels_per_pixel: tile_size_k,
                 pixels_per_column: stage_m,
             },
-            lhs.data()
-                .try_as_tensor_arg(line_sizes.lhs)
-                .expect("valid vec lhs"),
+            lhs.data().as_tensor_arg(line_sizes.lhs),
             lhs_elem,
         )
         .with_elem_stride(elem_stride)
@@ -128,15 +114,12 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             TensorMapFormat::Tiled {
                 tile_size: stage_size_rhs,
             },
-            rhs.data().try_as_tensor_arg(1).expect("vec=1"),
+            rhs.data().as_tensor_arg(1),
             Rhs::as_type_native_unchecked(),
         )
         .with_prefetch(prefetch_rhs);
 
-        let bias = bias.map(|it| {
-            it.try_as_tensor_arg(line_sizes.out)
-                .expect("valid vec out")
-        });
+        let bias = bias.map(|it| it.as_tensor_arg(line_sizes.out));
 
         // TODO: Think about how to handle scales with TMA
         TensorMapInputsLaunch::new(lhs, rhs, bias.into())
