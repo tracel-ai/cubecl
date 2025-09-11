@@ -1,4 +1,5 @@
 use crate::{
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -31,7 +32,7 @@ pub enum ProfileError {
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug
+pub trait ComputeServer: DataTransferService + Send + core::fmt::Debug
 where
     Self: Sized,
 {
@@ -123,6 +124,36 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode);
+}
+
+/// Defines a way to move data from one compute server to another.
+///
+/// # Notes
+///
+/// This is an optional trait to be implemented and methods will only be called if the
+/// memory device property 'data_service_async' is set to 'true'.
+pub trait DataTransferService {
+    /// Send data to another server. Should be called with [register_dest](DataTransferService::register_dest)
+    ///
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `src`: The source for the read operation.
+    #[allow(unused_variables)]
+    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
+
+    /// Receive data from another server. Should be called with [register_src](DataTransferService::register_src)
+    ///
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `dst`: The destination for the write operation.
+    #[allow(unused_variables)]
+    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

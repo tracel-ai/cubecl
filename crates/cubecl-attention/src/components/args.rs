@@ -243,7 +243,10 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> VirtualTensorOperationsExpand<
     ) -> ExpandElementTyped<TensorMap<EO>> {
         unimplemented!("TensorOutputExpand can't be turned into a tensor map");
     }
+}
 
+impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> Lined for TensorOutput<EI, EO, MA> {}
+impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> LinedExpand for TensorOutputExpand<EI, EO, MA> {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorOutputExpand::__expand_line_size_method(self.clone(), &mut scope)
@@ -312,7 +315,10 @@ impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> VirtualTensorOperationsExpand<
     ) -> ExpandElementTyped<TensorMap<EI>> {
         TensorInputExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
+}
 
+impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> Lined for TensorInput<EI, EO, MA> {}
+impl<EI: Numeric, EO: Numeric, MA: AttentionArgs> LinedExpand for TensorInputExpand<EI, EO, MA> {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
         TensorInputExpand::__expand_line_size_method(self.clone(), &mut scope)

@@ -6,8 +6,8 @@ use cubecl_core::{
     compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
+        DataTransferService, Handle, IoError, ProfileError, ProfilingToken,
     },
 };
 use cubecl_runtime::{
@@ -27,6 +27,8 @@ pub struct CpuServer {
     scheduler: Scheduler,
     logger: ServerLogger,
 }
+
+impl DataTransferService for CpuServer {}
 
 impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {

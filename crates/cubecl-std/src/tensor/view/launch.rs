@@ -7,10 +7,7 @@ use std::{
 
 use crate::tensor::{
     View, ViewExpand, VirtualViewExpand, VirtualViewMutExpand,
-    layout::{
-        Coords1d, Layout, VirtualLayoutExpand, VirtualLayoutOperations,
-        VirtualLayoutOperationsExpand,
-    },
+    layout::{Coords1d, Layout, VirtualLayoutExpand},
     view::ViewType,
 };
 
@@ -110,9 +107,6 @@ impl<
     L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
     IO: Clone + Send + Sync + 'static,
 > LaunchArg for TypedView<E, L, IO>
-where
-    L: VirtualLayoutOperations<L::Coordinates, L::SourceCoordinates>,
-    L::ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>,
 {
     type RuntimeArg<'a, R: Runtime> = TypedViewLaunch<'a, L, R>;
 
@@ -130,9 +124,6 @@ impl<
     L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
     IO: Clone + Send + Sync + 'static,
 > LaunchArgExpand for TypedView<E, L, IO>
-where
-    L: VirtualLayoutOperations<L::Coordinates, L::SourceCoordinates>,
-    L::ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>,
 {
     type CompilationArg = TypedViewCompilationArg<L>;
     fn expand(
@@ -140,7 +131,7 @@ where
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let buffer = <Array<E> as LaunchArgExpand>::expand(&arg.buffer, builder);
-        let layout = VirtualLayoutExpand::new::<L>(L::expand(&arg.layout, builder));
+        let layout = VirtualLayoutExpand::new::<L::ExpandType>(L::expand(&arg.layout, builder));
         let view = VirtualViewExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
         ViewExpand::<E, L::Coordinates, IO> {
             inner: ViewType::Read(Arc::new(view)),
@@ -152,7 +143,8 @@ where
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
         let buffer = <Array<E> as LaunchArgExpand>::expand_output(&arg.buffer, builder);
-        let layout = VirtualLayoutExpand::new::<L>(L::expand_output(&arg.layout, builder));
+        let layout =
+            VirtualLayoutExpand::new::<L::ExpandType>(L::expand_output(&arg.layout, builder));
         let view =
             VirtualViewMutExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
         ViewExpand::<E, L::Coordinates, IO> {

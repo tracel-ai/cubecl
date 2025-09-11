@@ -1,7 +1,7 @@
 use std::env;
 
-// Allow overriding nightly macro features on the end user side without having to propagate the feature
-// everywhere
+// Allow overriding nightly macro features on the end user side without having
+// to propagate the feature everywhere
 fn main() {
     println!("cargo::rustc-check-cfg=cfg(debug_symbols)");
     println!("cargo:rerun-if-env-changed=CUBECL_DEBUG");
