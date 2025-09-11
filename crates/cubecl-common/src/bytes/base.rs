@@ -106,6 +106,11 @@ pub enum AllocationError {
 
 impl Bytes {
     /// Creates the type from its raw parts.
+    ///
+    /// # Safety
+    ///
+    /// This function is highly unsafe, since the [Allocation] must be valid with correct alignment
+    /// and size coupled with an [AllocationController] compatible with the [Allocation].
     pub unsafe fn from_raw_parts(
         allocation: Allocation,
         len: usize,
