@@ -7,13 +7,17 @@ pub struct CubeCLCheckCmdArgs {
     pub ci: bool,
 }
 
-pub(crate) fn handle_command(mut args: CubeCLCheckCmdArgs) -> anyhow::Result<()> {
+pub(crate) fn handle_command(
+    mut args: CubeCLCheckCmdArgs,
+    env: Environment,
+    context: Context,
+) -> anyhow::Result<()> {
     if args.ci {
         // Exclude crates that are not supported on CI
         args.exclude
             .extend(vec!["cubecl-cuda".to_string(), "cubecl-hip".to_string()]);
     }
-    base_commands::check::handle_command(args.try_into().unwrap())?;
+    base_commands::check::handle_command(args.try_into().unwrap(), env, context)?;
     // Specific additional commands to test specific features
     // cubecl-wgpu with SPIR-V
     // cubecl-wgpu with exclusive-memory-only
