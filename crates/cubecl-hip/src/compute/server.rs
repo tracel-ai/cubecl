@@ -2,6 +2,7 @@ use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
 use crate::runtime::HipCompiler;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
@@ -96,11 +97,11 @@ impl HipServer {
     fn read_async(
         &mut self,
         descriptors: Vec<server::CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         fn inner(
             server: &mut HipServer,
             descriptors: Vec<CopyDescriptor<'_>>,
-        ) -> Result<Vec<Vec<u8>>, IoError> {
+        ) -> Result<Vec<Bytes>, IoError> {
             let mut result = Vec::with_capacity(descriptors.len());
 
             for descriptor in descriptors {
@@ -126,7 +127,7 @@ impl HipServer {
                     server.copy_from_binding_2d(binding, &mut data, shape, stride, elem_size);
                 }
 
-                result.push(data);
+                result.push(Bytes::from_bytes_vec(data));
             }
 
             Ok(result)
@@ -214,7 +215,7 @@ impl ComputeServer for HipServer {
     fn read(
         &mut self,
         descriptors: Vec<server::CopyDescriptor>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 

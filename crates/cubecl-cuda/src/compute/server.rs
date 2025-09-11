@@ -24,7 +24,7 @@ use crate::{CudaCompiler, WmmaCompiler};
 use super::CudaResource;
 use super::storage::CudaStorage;
 use super::sync::{Fence, SyncStream};
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
@@ -98,13 +98,13 @@ impl CudaServer {
     fn read_async(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let ctx = self.get_context();
 
         fn inner(
             ctx: &mut CudaContext,
             descriptors: Vec<CopyDescriptor<'_>>,
-        ) -> Result<Vec<Vec<u8>>, IoError> {
+        ) -> Result<Vec<Bytes>, IoError> {
             let mut result = Vec::with_capacity(descriptors.len());
 
             for descriptor in descriptors {
@@ -135,7 +135,7 @@ impl CudaServer {
                         )
                         .unwrap();
                     };
-                    result.push(data);
+                    result.push(Bytes::from_bytes_vec(data));
                     continue;
                 }
 
@@ -159,7 +159,7 @@ impl CudaServer {
                 unsafe {
                     cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
                 };
-                result.push(data);
+                result.push(Bytes::from_bytes_vec(data));
             }
 
             Ok(result)
@@ -196,7 +196,7 @@ impl ComputeServer for CudaServer {
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 
