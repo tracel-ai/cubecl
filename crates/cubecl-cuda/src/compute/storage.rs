@@ -186,17 +186,7 @@ impl ComputeStorage for CudaStorage {
 }
 
 
-// This is a utility I added to avoid repeating CUDA error checking code
-macro_rules! cuda_driver_try {
-    ($expr:expr) => {{
-        let result = unsafe { $expr };
-        if result != CUDA_SUCCESS {
-            Err(DriverError(result))
-        } else {
-            Ok(())
-        }
-    }};
-}
+
 
 // I decided to implement this simple FIFO pool instead of creating a storage that returns handles and create a new pool in the memory manage module because I think it fits more with your current structure.
 // The goal of the pool is to automatically manage physical memory reusability. This way when blocks are deallocated by the pool, they are just unmapped, but memory is not completely released until pool goes out of scope or you call the [`flush`] method inside the pool.
@@ -245,7 +235,9 @@ impl HandlePool {
         let mut free_bytes = 0usize;
         let mut total_bytes = 0usize;
 
-        cuda_driver_try!(cuMemGetInfo_v2(&mut free_bytes, &mut total_bytes))?;
+        unsafe {
+            cuMemGetInfo_v2(&mut free_bytes, &mut total_bytes).result()?;
+        }
         Ok((free_bytes as u64, total_bytes as u64))
     }
 
@@ -264,7 +256,8 @@ impl HandlePool {
     /// Returns the virtual address on success, or `IoError::InvalidHandle` if
     /// mapping fails.
     fn try_map_handle(&mut self, new_addr: CUdeviceptr, handle: CUmemGenericAllocationHandle) -> Result<CUdeviceptr,IoError>{
-        if cuda_driver_try!(cuMemMap(new_addr, self.handle_size as usize, 0, handle, 0)).is_err()
+
+            if unsafe{cuMemMap(new_addr, self.handle_size as usize, 0, handle, 0).result()}.is_err()
             {
 
                 Err(IoError::InvalidHandle)
@@ -275,7 +268,8 @@ impl HandlePool {
                 self.allocated_handles.insert(new_addr, handle);
                 Ok(new_addr)
             }
-    }
+     }
+
 
     /// Allocates a physical memory handle and maps it to a virtual address.
     ///
@@ -331,12 +325,12 @@ impl HandlePool {
         };
 
         // If physical memory creation fails, we attempt to evict one handle.
-        if cuda_driver_try!(cuMemCreate(
+        if unsafe{ cuMemCreate(
             &mut handle,
             self.handle_size as usize,
             &prop,
             0
-        ))
+        ).result()}
         .is_err()
         {
             // To avoid infinite recursion, the max number of retries is set to 1.
@@ -378,7 +372,7 @@ impl HandlePool {
     pub fn deallocate_handle(&mut self, addr: CUdeviceptr) {
         if let Some(handle) = self.allocated_handles.remove(&addr) {
             // Note: I am not sure if it is a good idea or not to let return an error here in case of failure on the device side. PyTorch does not ignore unmapping errors (See the macro C10_CUDA_DRIVER_CHECK  at https://github.dev/pytorch/pytorch/blob/main/c10/cuda/CUDACachingAllocator.cpp)
-            let _ = cuda_driver_try!(cuMemUnmap(addr, self.handle_size as usize));
+            let _ = unsafe{cuMemUnmap(addr, self.handle_size as usize).result()};
             self.free_queue.push_back(handle);
         }
     }
@@ -407,7 +401,7 @@ impl HandlePool {
         self.free_queue
             .drain((self.free_queue.len().saturating_sub(n_handles))..)
             .for_each(|handle| {
-                let _ = cuda_driver_try!(cuMemRelease(handle));
+                let _ = unsafe{cuMemRelease(handle).result()};
             });
 
 
@@ -420,7 +414,7 @@ impl HandlePool {
     /// to the CUDA driver and cannot be reused by this pool.
     fn flush(&mut self) {
         self.free_queue.drain(..).for_each(|handle| {
-            let _ = cuda_driver_try!(cuMemRelease(handle));
+            let _ = unsafe{cuMemRelease(handle).result()};
         });
 
         // Clear the free queue
@@ -444,12 +438,12 @@ impl HandlePool {
             flags: CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
         };
 
-        let _ = cuda_driver_try!(cuMemSetAccess(
+        let _ = unsafe{cuMemSetAccess(
             addr,
             self.handle_size as usize,
             &access_desc,
             1
-        ));
+        ).result()};
     }
 }
 
@@ -462,7 +456,7 @@ impl Drop for HandlePool {
     /// 3. Clearing internal data structures
     fn drop(&mut self) {
         self.allocated_handles.drain().for_each(|(_, handle)| {
-            let _ = cuda_driver_try!(cuMemRelease(handle));
+            let _ = unsafe{cuMemRelease(handle).result()};
         });
         self.allocated_handles.clear();
         self.flush();
@@ -600,13 +594,13 @@ impl VirtualStorage {
         let virtual_size = virtual_size.next_multiple_of(alignment);
 
 
-        if let Err(e) = cuda_driver_try!(cuMemAddressReserve(
+        if let Err(e) = unsafe{cuMemAddressReserve(
             &mut base_addr,
             virtual_size as usize,
             0,
             0,
             0
-        )) {
+        ).result()} {
             panic!("Error while attempting to reserve memory: {e}");
         };
 
@@ -774,15 +768,15 @@ impl Drop for VirtualStorage {
         self.flush();
 
         for addr in self.pool.allocated_handles.keys() {
-            let _ = cuda_driver_try!(cuMemUnmap(*addr, self.handle_size as usize));
+            unsafe{cuMemUnmap(*addr, self.handle_size as usize)};
         }
 
         self.pool.allocated_handles.drain().for_each(|(_, handle)| {
-            let _ = cuda_driver_try!(cuMemRelease(handle));
+            unsafe {cuMemRelease(handle)};
         });
         self.pool.allocated_handles.clear();
         self.pool.flush();
-        let _ = cuda_driver_try!(cuMemAddressFree(self.base_addr, self.virtual_size as usize));
+        unsafe{cuMemAddressFree(self.base_addr, self.virtual_size as usize)};
     }
 }
 

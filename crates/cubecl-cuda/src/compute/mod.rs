@@ -1,8 +1,10 @@
+mod data_service;
 mod server;
 mod storage;
 
-pub(crate) mod fence;
+pub mod sync;
 
+pub use data_service::*;
 pub use server::*;
 pub use storage::*;
 

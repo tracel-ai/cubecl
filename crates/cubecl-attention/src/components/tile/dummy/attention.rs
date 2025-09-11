@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
-use cubecl_std::tensor::r#virtual::ReadWrite;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -36,6 +36,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     type Score = ScoreFragment<AP::FlashPrecision, FM>;
     type Accumulator = AccumulatorFragment<AP::FlashPrecision, FM>;
 
+    type OutOfBoundMask = (u32, u32);
+
     fn execute(
         key_tile: &Tile<AP::ES>,
         value_tile: &Tile<AP::ES>,
@@ -44,6 +46,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
         comment!("Tile: Execute");
@@ -55,6 +58,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         let prev_l = state.l;
 
         FM::fill_key_value(key_tile, key_value.key_mut(), config);
+        FM::zero_score_prob(&mut score_prob.fragment, config);
 
         FM::score_matmul(
             &query.fragment,
@@ -62,9 +66,15 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             &mut score_prob.fragment,
             config,
         );
-
         score_prob.multiply_score(inv_sqrt_dk);
+
+        match out_of_bound_mask {
+            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
+            CubeOption::None => {}
+        }
+
         let new_m = score_prob.row_max(prev_m);
+
         score_prob.to_prob(new_m);
         let row_sum = score_prob.row_sum();
 
@@ -125,8 +135,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         )
     }
 
-    fn init_writer(out: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer {
-        DummyWriter::new(out, 0, 0, 0)
+    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+        DummyWriter::new(out, q_offset, 0, 0)
     }
 
     fn init_fragments(

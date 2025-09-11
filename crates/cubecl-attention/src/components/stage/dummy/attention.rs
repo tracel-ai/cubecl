@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::StageToTileReader;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
-use cubecl_std::tensor::r#virtual::ReadWrite;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -40,6 +40,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
         let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
@@ -57,6 +58,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             score_prob,
             accumulator,
             state,
+            out_of_bound_mask,
             config.tile_config(),
         );
     }
@@ -81,8 +83,8 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         TA::write::<G>(acc, writer, stage_config.tile_config(), global_config);
     }
 
-    fn init_writer(out: View<AP::EO, Coords3d, ReadWrite>) -> Self::Writer {
-        TA::init_writer(out)
+    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+        TA::init_writer(q_offset, out)
     }
 
     fn init_fragments(

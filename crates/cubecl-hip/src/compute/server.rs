@@ -1,9 +1,3 @@
-use cubecl_core::server::{
-    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
-};
-use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::shared::CompilationOptions;
-
 use super::fence::{Fence, SyncStream};
 use super::storage::HipStorage;
 use super::{HipResource, uninit_vec};
@@ -13,7 +7,13 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
+use cubecl_core::server::{
+    Allocation, AllocationKind, CopyDescriptor, DataTransferService, IoError, ProfileError,
+    ProfilingToken,
+};
 use cubecl_core::{Feature, server::Bindings};
+use cubecl_cpp::formatter::format_cpp;
+use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{
     HIP_SUCCESS, get_hip_include_path, hipMemcpyKind_hipMemcpyDeviceToHost,
     hipMemcpyKind_hipMemcpyHostToDevice, hiprtcResult_HIPRTC_SUCCESS,
@@ -69,6 +69,7 @@ struct HipCompiledKernel {
 }
 
 unsafe impl Send for HipServer {}
+impl DataTransferService for HipServer {}
 
 impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {

@@ -58,7 +58,7 @@ pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadin
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: View<IP::Global, Coords3d>,
+        tensor: View<Line<IP::Global>, Coords3d>,
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
@@ -93,7 +93,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader.update_view(k_offset, this.ident);
+        this.tensor_reader
+            .update_view(k_offset, comptime!(this.ident.view_direction()));
     }
 
     /// Accomplish the entire job of filling the stage memory

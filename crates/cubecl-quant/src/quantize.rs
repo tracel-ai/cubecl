@@ -2,8 +2,8 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
+use cubecl_std::tensor::layout::linear::LinearView;
 use cubecl_std::tensor::{View, into_contiguous, layout::linear::linear_view};
-use cubecl_std::tensor::{layout::linear::LinearView, r#virtual::ReadWrite};
 
 use crate::scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue};
 use crate::utils::check_block_size_compat;
@@ -76,8 +76,8 @@ fn pack_q<F: Float, QS: Int>(value: Line<F>, #[comptime] quant: QuantValue) -> Q
 #[cube]
 fn write_scale_per_tensor<F: Float, FS: Float>(
     in_pos: u32,
-    scale: &View<F, u32>,
-    out_scale: &mut View<FS, u32, ReadWrite>,
+    scale: &View<Line<F>, u32>,
+    out_scale: &mut View<Line<FS>, u32, ReadWrite>,
 ) -> FS {
     let scale = FS::cast_from(scale[0]);
 
@@ -92,8 +92,8 @@ fn write_scale_per_tensor<F: Float, FS: Float>(
 #[cube]
 fn write_scale_per_block<F: Float, FS: Float>(
     in_pos: u32,
-    scale: &View<F, u32>,
-    out_scale: &mut View<FS, u32, ReadWrite>,
+    scale: &View<Line<F>, u32>,
+    out_scale: &mut View<Line<FS>, u32, ReadWrite>,
     #[comptime] block_size: u32,
 ) -> FS {
     let scale_pos = in_pos / block_size;
@@ -109,15 +109,15 @@ fn write_scale_per_block<F: Float, FS: Float>(
 
 #[cube(launch_unchecked)]
 fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &LinearView<F>,
-    scale: &LinearView<F>,
+    input: &LinearView<Line<F>>,
+    scale: &LinearView<Line<F>>,
     range_min: F,
     range_max: F,
-    output: &mut LinearView<i8, ReadWrite>,
-    out_scale: &mut LinearView<FS, ReadWrite>,
+    output: &mut LinearView<Line<i8>, ReadWrite>,
+    out_scale: &mut LinearView<Line<FS>, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
-    if ABSOLUTE_POS >= output.len() {
+    if !output.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
@@ -145,16 +145,16 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
 }
 
 #[cube(launch_unchecked)]
-fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
-    input: &LinearView<F>,
-    scale: &LinearView<F>,
+fn quantize_symmetric_packed_kernel<F: Float, FS: Float>(
+    input: &LinearView<Line<F>>,
+    scale: &LinearView<Line<F>>,
     range_min: F,
     range_max: F,
-    output: &mut LinearView<u32, ReadWrite>,
-    out_scale: &mut LinearView<FS, ReadWrite>,
+    output: &mut LinearView<Line<u32>, ReadWrite>,
+    out_scale: &mut LinearView<Line<FS>, ReadWrite>,
     #[comptime] scheme: QuantScheme,
 ) {
-    if ABSOLUTE_POS >= output.len() {
+    if !output.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
@@ -274,7 +274,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::Q8S,
+            value: QuantValue::Q8S | QuantValue::Q8F,
             store: QuantStore::Native,
             ..
         } => {
@@ -310,7 +310,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
 ) {
     let input = into_contiguous::<R, F>(client, input);
     let input = input.as_ref();
-    let num_elems: usize = output.shape.iter().product();
+    let num_elems: usize = input.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
     let line_size = num_quants;
@@ -329,7 +329,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
         } => {
             check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
-                quantize_symmetric_int8_packed_kernel::launch_unchecked::<F, FS, R>(
+                quantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
                     client,
                     cube_count,
                     cube_dim,

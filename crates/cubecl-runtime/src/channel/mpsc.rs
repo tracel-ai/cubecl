@@ -8,6 +8,7 @@ use cubecl_common::{
 
 use super::ComputeChannel;
 use crate::{
+    data_service::DataTransferId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
@@ -123,6 +124,8 @@ where
         Callback<Result<ProfileDuration, ProfileError>>,
         ProfilingToken,
     ),
+    DataTransferSend(DataTransferId, CopyDescriptorOwned),
+    DataTransferRecv(DataTransferId, CopyDescriptorOwned),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -183,6 +186,12 @@ where
                     }
                     Message::AllocationMode(mode) => {
                         server.allocation_mode(mode);
+                    }
+                    Message::DataTransferSend(id, src) => {
+                        server.register_src(id, src.as_ref());
+                    }
+                    Message::DataTransferRecv(id, dst) => {
+                        server.register_dest(id, dst.as_ref());
                     }
                 };
             }
@@ -250,6 +259,24 @@ where
             .unwrap();
 
         handle_response(response.recv_blocking())
+    }
+
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let sender = self.state.sender.clone();
+        let src = src.into();
+
+        sender
+            .send_blocking(Message::DataTransferSend(id, src))
+            .unwrap();
+    }
+
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let sender = self.state.sender.clone();
+        let dst = dst.into();
+
+        sender
+            .send_blocking(Message::DataTransferRecv(id, dst))
+            .unwrap();
     }
 
     fn get_resource(

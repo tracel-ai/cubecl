@@ -26,10 +26,9 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
-use cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR;
+
 use cudarc::driver::sys::CUmemAllocationProp;
 use cudarc::driver::sys::CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED;
 use cudarc::driver::sys::CUmemLocation;
@@ -61,7 +60,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let device_id = device.index as i32;
+    let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -116,11 +116,14 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         bytes.assume_init() as u64
     };
 
-    let (mem_properties, storage) = if !vmm_supported && !options.expandable_storage_enabled {
+
+
+    let (mem_properties, storage) = if !vmm_supported || !options.expandable_storage_enabled {
         let storage = CudaStorage::new(mem_alignment, stream);
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
             alignment: mem_alignment as u64,
+            data_transfer_async: true,
         };
         (mem_properties, CudaStorageType::Regular(storage))
     } else {
@@ -130,11 +133,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         let handle_type = {
             #[cfg(unix)]
             {
-                CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
             }
             #[cfg(target_os = "windows")]
             {
-                CU_MEM_HANDLE_TYPE_WIN32
+                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
             }
         };
 
@@ -164,6 +167,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_memory / 4,
             alignment: granularity as u64,
+            data_transfer_async: true,
+             // TODO: We should have a fallback when peer access isn't supported.
         };
         // For safety, reserve only 3/4 of the GPU memory
         let virtual_size = 3 * (max_memory / 4); // Avoid reserving all the mmeory in the gpu
@@ -176,6 +181,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         );
 
         (mem_properties, CudaStorageType::Expandable(storage))
+
+
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -335,10 +342,6 @@ impl Runtime for CudaRuntime {
         })
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
-    }
-
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "cuda"
     }
@@ -357,10 +360,6 @@ impl Runtime for CudaRuntime {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         valid_strides(shape, strides)
-    }
-
-    fn device_count() -> usize {
-        cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
     }
 
     fn target_properties() -> TargetProperties {

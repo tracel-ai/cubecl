@@ -1,7 +1,7 @@
 use crate::compute::CudaStorage;
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
-    server::IoError,
+    server::{DataTransferService, IoError},
 };
 use cubecl_core::{
     future::{self, DynFut},
@@ -14,14 +14,17 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
+use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use serde::{Deserialize, Serialize};
 
+use crate::compute::{DataTransferItem, DataTransferRuntime};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
-use super::fence::{Fence, SyncStream};
+
+use super::sync::{Fence, SyncStream};
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
@@ -167,7 +170,7 @@ impl CudaServer {
         let fence = ctx.fence();
 
         async move {
-            fence.wait();
+            fence.wait_sync();
             result
         }
     }
@@ -483,7 +486,7 @@ impl ComputeServer for CudaServer {
                     } => unsafe {
                         cuTensorMapEncodeIm2colWide(
                             map_ptr.as_mut_ptr(),
-                            elem_to_tensor_map_type(map.elem),
+                            elem_to_tensor_map_type(map.storage_ty),
                             map.rank as u32,
                             device_ptr,
                             shape.as_ptr(),
@@ -573,6 +576,56 @@ impl ComputeServer for CudaServer {
 
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         self.ctx.memory_management.mode(mode);
+    }
+}
+
+impl DataTransferService for CudaServer {
+    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = DataTransferRuntime::client();
+
+        let handle = DataTransferItem {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: src_resource,
+        };
+        let fence = Fence::new(self.ctx.stream);
+
+        client.register_src(id, handle, fence);
+    }
+
+    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let dst_ctx = self.get_context();
+        let dst_resource = dst_ctx
+            .memory_management
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = DataTransferRuntime::client();
+
+        let call = DataTransferItem {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: dst_resource,
+        };
+
+        client.register_dest(id, call);
     }
 }
 

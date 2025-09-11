@@ -17,8 +17,7 @@ use cubecl_core::{
         UIntKind,
     },
 };
-use cubecl_hip_sys::{HIP_SUCCESS, hipGetDeviceCount};
-use cubecl_runtime::id::DeviceId;
+use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
@@ -31,7 +30,6 @@ use crate::{
     compute::{HipContext, HipServer, HipStorage, contiguous_strides},
     device::AmdDevice,
 };
-use core::ffi::c_int;
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -130,6 +128,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
+        data_transfer_async: false,
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
@@ -231,10 +230,6 @@ impl Runtime for HipRuntime {
         (i32::MAX as u32, u16::MAX as u32, u16::MAX as u32)
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
-    }
-
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         if shape.is_empty() {
             return true;
@@ -247,19 +242,6 @@ impl Runtime for HipRuntime {
         }
 
         true
-    }
-
-    fn device_count() -> usize {
-        let mut device_count: c_int = 0;
-        let result;
-        unsafe {
-            result = hipGetDeviceCount(&mut device_count);
-        }
-        if result == HIP_SUCCESS {
-            device_count.try_into().unwrap_or(0)
-        } else {
-            0
-        }
     }
 
     fn target_properties() -> TargetProperties {

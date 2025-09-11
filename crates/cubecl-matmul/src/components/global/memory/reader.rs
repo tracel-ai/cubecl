@@ -1,4 +1,3 @@
-use crate::components::MatmulIdent;
 use crate::components::MatrixLayout;
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
@@ -10,7 +9,7 @@ use cubecl_std::tensor::{View, layout::Coords3d};
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
-    pub view: View<EI, Coords3d>,
+    pub view: View<Line<EI>, Coords3d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
     pub batch_offset: u32,
@@ -28,10 +27,16 @@ pub struct Window<EG: Numeric> {
     pub size: u32,
 }
 
+#[derive(CubeType)]
+pub enum ViewDirection {
+    Row,
+    Col,
+}
+
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: View<EG, Coords3d>, offset_global: Coords3d) -> Self {
+    pub fn new(view: View<Line<EG>, Coords3d>, offset_global: Coords3d) -> Self {
         let (b, row, col) = offset_global;
         TensorReader::<EG> {
             view,
@@ -42,15 +47,14 @@ impl<EG: Numeric> TensorReader<EG> {
     }
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
-    pub fn update_view(&self, k_offset: u32, #[comptime] ident: MatmulIdent) {
-        match ident {
-            MatmulIdent::Lhs => {
+    pub fn update_view(&self, k_offset: u32, #[comptime] view_direction: ViewDirection) {
+        match view_direction {
+            ViewDirection::Col => {
                 self.col_offset.store(self.col_offset.read() + k_offset);
             }
-            MatmulIdent::Rhs => {
+            ViewDirection::Row => {
                 self.row_offset.store(self.row_offset.read() + k_offset);
             }
-            MatmulIdent::Out => comptime!(unreachable!()),
         }
     }
 

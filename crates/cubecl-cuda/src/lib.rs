@@ -19,7 +19,7 @@ pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
-   
+
 
     pub use half::{bf16, f16};
 
@@ -41,9 +41,4 @@ mod tests {
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
 
-    // NOTE THIS TESTS ARE MEMORY INTENSIVE. I ADDED THEM TO THE CRATE BUT NOT SURE TO ADD THEM HERE SINCE ON MY LOCAL GPU OTHER TESTS ARE FAILING WITH OOM (maybe due to that).
-    //    crate::testgen_storage!(CudaStorage, create_cuda_storage);
-    //   crate::testgen_storage!(VirtualStorage, create_expandable_storage);
-    //  crate::testgen_storage_advanced!(CudaStorage, create_cuda_storage);
-    //  crate::testgen_storage_advanced!(VirtualStorage, create_expandable_storage);
 }

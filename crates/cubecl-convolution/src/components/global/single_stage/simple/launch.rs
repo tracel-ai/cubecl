@@ -34,12 +34,15 @@ impl<
         problem: &ConvolutionProblem,
         config: GlobalConfig<Self>,
     ) {
+        let shape_channels = FastDivmodArgs::new(client, problem.channels as u32);
+
         let runtime_args = RuntimeArgsLaunch::new(
             ScalarArg::new(problem.m as u32),
             ScalarArg::new(problem.n as u32),
             ScalarArg::new(problem.k as u32),
-            FastDivmodArgs::new(client, problem.channels as u32),
+            shape_channels,
             shape_divmod(client, &problem.out_shape),
+            shape_channels,
         );
 
         unsafe {

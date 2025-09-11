@@ -43,7 +43,7 @@ macro_rules! storage_id_type {
 }
 
 /// Reference to a buffer handle.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HandleRef<Id> {
     id: Arc<Id>,
     all: Arc<()>,
@@ -108,7 +108,7 @@ where
 macro_rules! memory_id_type {
     ($id:ident, $handle:ident) => {
         /// Memory Handle.
-        #[derive(Clone, Debug)]
+        #[derive(Clone, Debug, PartialEq, Eq)]
         pub struct $handle {
             value: $crate::id::HandleRef<$id>,
         }
@@ -404,15 +404,6 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
     fn as_any(&self) -> &dyn Any {
         self
     }
-}
-
-/// The device id.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, new)]
-pub struct DeviceId {
-    /// The type id identifies the type of the device.
-    pub type_id: u16,
-    /// The index id identifies the device number.
-    pub index_id: u32,
 }
 
 #[cfg(test)]

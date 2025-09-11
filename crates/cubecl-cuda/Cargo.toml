@@ -17,14 +17,15 @@ default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
-    "cudarc/cuda-12050",
     "cudarc/dynamic-loading",
+    "cuda-12050",
 ]
 benchmark = []
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 cuda-12080 = ["cudarc/cuda-12080"]
+cuda-12050 = ["cudarc/cuda-12050"]
 
 conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
@@ -71,13 +72,13 @@ matmul_tests_partition_buffering = [
     "cubecl-matmul/matmul_tests_partition_buffering",
 ]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
-matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 matmul_tests_simple = ["cubecl-matmul/matmul_tests_simple"]
 matmul_tests_specialized = ["cubecl-matmul/matmul_tests_specialized"]
 matmul_tests_strided = ["cubecl-matmul/matmul_tests_strided"]
 matmul_tests_tilewise = ["cubecl-matmul/matmul_tests_tilewise"]
 matmul_tests_tma = ["cubecl-matmul/matmul_tests_tma"]
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
+matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
@@ -90,12 +91,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-featur
 ] }
 
 bytemuck = { workspace = true }
-cudarc = { version = "0.17.2", features = [
-    "std",
-    "driver",
-    "cuda-version-from-build-system",
-    "dynamic-loading",
-], default-features = false }
+cudarc = { workspace = true }
 
 derive-new = { workspace = true }
 half = { workspace = true }
