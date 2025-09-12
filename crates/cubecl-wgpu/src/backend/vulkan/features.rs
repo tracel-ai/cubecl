@@ -1,15 +1,6 @@
 use std::{ffi::CStr, ptr::null_mut};
 
-use ash::vk::{
-    DeviceCreateInfo, EXT_SHADER_ATOMIC_FLOAT_NAME, EXT_SHADER_ATOMIC_FLOAT2_NAME,
-    ExtendsDeviceCreateInfo, ExtendsPhysicalDeviceFeatures2, KHR_COOPERATIVE_MATRIX_NAME,
-    KHR_SHADER_FLOAT_CONTROLS2_NAME, PhysicalDevice8BitStorageFeatures,
-    PhysicalDevice16BitStorageFeatures, PhysicalDeviceCooperativeMatrixFeaturesKHR,
-    PhysicalDeviceFeatures2, PhysicalDeviceShaderAtomicFloat2FeaturesEXT,
-    PhysicalDeviceShaderAtomicFloatFeaturesEXT, PhysicalDeviceShaderFloat16Int8Features,
-    PhysicalDeviceShaderFloatControls2FeaturesKHR,
-    PhysicalDeviceShaderSubgroupExtendedTypesFeatures, PhysicalDeviceVulkanMemoryModelFeatures,
-};
+use tracel_ash::vk::*;
 use wgpu::{Features, hal::vulkan};
 
 #[derive(Default, Debug)]
@@ -25,6 +16,8 @@ pub struct ExtendedFeatures<'a> {
     pub atomic_float: Option<PhysicalDeviceShaderAtomicFloatFeaturesEXT<'a>>,
     pub atomic_float2: Option<PhysicalDeviceShaderAtomicFloat2FeaturesEXT<'a>>,
     pub float_controls2: Option<PhysicalDeviceShaderFloatControls2FeaturesKHR<'a>>,
+    pub bfloat16: Option<PhysicalDeviceShaderBfloat16FeaturesKHR<'a>>,
+    pub float8: Option<PhysicalDeviceShaderFloat8FeaturesEXT<'a>>,
 
     pub extensions: Vec<&'static CStr>,
 }
@@ -64,22 +57,32 @@ impl<'a> ExtendedFeatures<'a> {
             self.extensions.push(KHR_SHADER_FLOAT_CONTROLS2_NAME);
             self.float_controls2 = Some(PhysicalDeviceShaderFloatControls2FeaturesKHR::default());
         }
+
+        if phys_caps.supports_extension(KHR_SHADER_BFLOAT16_NAME) {
+            self.extensions.push(KHR_SHADER_BFLOAT16_NAME);
+            self.bfloat16 = Some(PhysicalDeviceShaderBfloat16FeaturesKHR::default());
+        }
+
+        if phys_caps.supports_extension(EXT_SHADER_FLOAT8_NAME) {
+            self.extensions.push(EXT_SHADER_FLOAT8_NAME);
+            self.float8 = Some(PhysicalDeviceShaderFloat8FeaturesEXT::default());
+        }
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
         let mut info = info
-            .push_next(&mut self.mem_model)
-            .push_next(&mut self.float16_int8)
-            .push_next(&mut self.buf_16)
-            .push_next(&mut self.buf_8)
-            .push_next(&mut self.subgroup_extended);
+            .push(&mut self.mem_model)
+            .push(&mut self.float16_int8)
+            .push(&mut self.buf_16)
+            .push(&mut self.buf_8)
+            .push(&mut self.subgroup_extended);
 
-        fn push_opt<'a, T: ExtendsDeviceCreateInfo>(
+        fn push_opt<'a, T: Extends<DeviceCreateInfo<'a>> + TaggedStructure<'a>>(
             mut info: DeviceCreateInfo<'a>,
             feat: &'a mut Option<T>,
         ) -> DeviceCreateInfo<'a> {
             if let Some(feat) = feat {
-                info = info.push_next(feat);
+                info = info.push(feat);
             }
             info
         }
@@ -88,24 +91,26 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.atomic_float);
         info = push_opt(info, &mut self.atomic_float2);
         info = push_opt(info, &mut self.float_controls2);
+        info = push_opt(info, &mut self.bfloat16);
+        info = push_opt(info, &mut self.float8);
 
         info
     }
 
     fn fill_features(&mut self, ash: &ash::Instance, adapter: &vulkan::Adapter) {
         let mut features = PhysicalDeviceFeatures2::default()
-            .push_next(&mut self.mem_model)
-            .push_next(&mut self.float16_int8)
-            .push_next(&mut self.buf_16)
-            .push_next(&mut self.buf_8)
-            .push_next(&mut self.subgroup_extended);
+            .push(&mut self.mem_model)
+            .push(&mut self.float16_int8)
+            .push(&mut self.buf_16)
+            .push(&mut self.buf_8)
+            .push(&mut self.subgroup_extended);
 
-        fn push_opt<'a, T: ExtendsPhysicalDeviceFeatures2>(
+        fn push_opt<'a, 'b: 'a, T: Extends<PhysicalDeviceFeatures2<'a>> + TaggedStructure<'b>>(
             mut features: PhysicalDeviceFeatures2<'a>,
             feat: &'a mut Option<T>,
         ) -> PhysicalDeviceFeatures2<'a> {
             if let Some(feat) = feat {
-                features = features.push_next(feat);
+                features = features.push(feat);
             }
             features
         }
@@ -114,9 +119,14 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.atomic_float);
         features = push_opt(features, &mut self.atomic_float2);
         features = push_opt(features, &mut self.float_controls2);
+        features = push_opt(features, &mut self.bfloat16);
+        features = push_opt(features, &mut self.float8);
 
         unsafe {
-            ash.get_physical_device_features2(adapter.raw_physical_device(), &mut features);
+            // convert to ash version, they represent the same type so this is safe
+            let features =
+                &mut *<*mut _>::cast::<ash::vk::PhysicalDeviceFeatures2<'_>>(&mut features);
+            ash.get_physical_device_features2(adapter.raw_physical_device(), features);
         }
 
         self.zero_pointers();
@@ -141,6 +151,12 @@ impl<'a> ExtendedFeatures<'a> {
         }
         if let Some(float_controls2) = &mut self.float_controls2 {
             float_controls2.p_next = null_mut();
+        }
+        if let Some(bfloat16) = &mut self.bfloat16 {
+            bfloat16.p_next = null_mut();
+        }
+        if let Some(float8) = &mut self.float8 {
+            float8.p_next = null_mut();
         }
     }
 }

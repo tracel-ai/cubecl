@@ -10,7 +10,7 @@ use crate::{
 use cubecl_core::ir::{self, ConstantScalarValue, FloatKind, Id};
 use rspirv::{
     dr::Builder,
-    spirv::{StorageClass, Word},
+    spirv::{FPEncoding, StorageClass, Word},
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,11 +96,20 @@ impl ConstVal {
         }
     }
 
-    pub fn as_float(&self, width: u32) -> f64 {
-        match width {
-            64 => f64::from_bits(self.as_u64()),
-            32 => f32::from_bits(self.as_u32()) as f64,
-            16 => half::f16::from_bits(self.as_u32() as u16).to_f64(),
+    pub fn as_float(&self, width: u32, encoding: Option<FPEncoding>) -> f64 {
+        match (width, encoding) {
+            (64, _) => f64::from_bits(self.as_u64()),
+            (32, _) => f32::from_bits(self.as_u32()) as f64,
+            (16, None) => half::f16::from_bits(self.as_u32() as u16).to_f64(),
+            (_, Some(FPEncoding::BFloat16KHR)) => {
+                half::bf16::from_bits(self.as_u32() as u16).to_f64()
+            }
+            (_, Some(FPEncoding::Float8E4M3EXT)) => {
+                cubecl_common::e4m3::from_bits(self.as_u32() as u8).to_f64()
+            }
+            (_, Some(FPEncoding::Float8E5M2EXT)) => {
+                cubecl_common::e5m2::from_bits(self.as_u32() as u8).to_f64()
+            }
             _ => unreachable!(),
         }
     }
@@ -117,11 +126,20 @@ impl ConstVal {
         }
     }
 
-    pub fn from_float(value: f64, width: u32) -> Self {
-        match width {
-            64 => ConstVal::Bit64(value.to_bits()),
-            32 => ConstVal::Bit32((value as f32).to_bits()),
-            16 => ConstVal::Bit32(half::f16::from_f64(value).to_bits() as u32),
+    pub fn from_float(value: f64, width: u32, encoding: Option<FPEncoding>) -> Self {
+        match (width, encoding) {
+            (64, _) => ConstVal::Bit64(value.to_bits()),
+            (32, _) => ConstVal::Bit32((value as f32).to_bits()),
+            (16, None) => ConstVal::Bit32(half::f16::from_f64(value).to_bits() as u32),
+            (_, Some(FPEncoding::BFloat16KHR)) => {
+                ConstVal::Bit32(half::bf16::from_f64(value).to_bits() as u32)
+            }
+            (_, Some(FPEncoding::Float8E4M3EXT)) => {
+                ConstVal::Bit32(cubecl_common::e4m3::from_f64(value).to_bits() as u32)
+            }
+            (_, Some(FPEncoding::Float8E5M2EXT)) => {
+                ConstVal::Bit32(cubecl_common::e5m2::from_f64(value).to_bits() as u32)
+            }
             _ => unreachable!(),
         }
     }
@@ -156,10 +174,16 @@ impl From<ConstantScalarValue> for ConstVal {
         let width = value.elem_type().size() as u32 * 8;
         match value {
             ConstantScalarValue::Int(val, _) => ConstVal::from_int(val, width),
-            ConstantScalarValue::Float(_, FloatKind::BF16) => {
-                panic!("bf16 not supported in SPIR-V")
+            ConstantScalarValue::Float(val, FloatKind::BF16) => {
+                ConstVal::from_float(val, width, Some(FPEncoding::BFloat16KHR))
             }
-            ConstantScalarValue::Float(val, _) => ConstVal::from_float(val, width),
+            ConstantScalarValue::Float(val, FloatKind::E4M3) => {
+                ConstVal::from_float(val, width, Some(FPEncoding::Float8E4M3EXT))
+            }
+            ConstantScalarValue::Float(val, FloatKind::E5M2) => {
+                ConstVal::from_float(val, width, Some(FPEncoding::Float8E5M2EXT))
+            }
+            ConstantScalarValue::Float(val, _) => ConstVal::from_float(val, width, None),
             ConstantScalarValue::UInt(val, _) => ConstVal::from_uint(val, width),
             ConstantScalarValue::Bool(val) => ConstVal::from_bool(val),
         }

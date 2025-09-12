@@ -106,7 +106,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, _) => self
                         .atomic_i_add(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
-                    Elem::Float(width) => {
+                    Elem::Float(width, None) => {
                         match width {
                             16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
                             32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
@@ -143,7 +143,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, _) => self
                         .atomic_i_sub(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
-                    Elem::Float(width) => {
+                    Elem::Float(width, None) => {
                         match width {
                             16 => self.capabilities.insert(Capability::AtomicFloat16AddEXT),
                             32 => self.capabilities.insert(Capability::AtomicFloat32AddEXT),
@@ -181,7 +181,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, true) => self
                         .atomic_s_max(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
-                    Elem::Float(width) => {
+                    Elem::Float(width, None) => {
                         match width {
                             16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
                             32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
@@ -216,7 +216,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     Elem::Int(_, true) => self
                         .atomic_s_min(ty, Some(out_id), lhs_id, memory, semantics, rhs_id)
                         .unwrap(),
-                    Elem::Float(width) => {
+                    Elem::Float(width, None) => {
                         match width {
                             16 => self.capabilities.insert(Capability::AtomicFloat16MinMaxEXT),
                             32 => self.capabilities.insert(Capability::AtomicFloat32MinMaxEXT),
