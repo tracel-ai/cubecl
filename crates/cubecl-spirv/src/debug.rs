@@ -20,13 +20,9 @@ use std::borrow::Cow;
 
 use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
 use hashbrown::HashMap;
-use rspirv::spirv::{FunctionControl, Word};
-use rspirv_ext::{
-    spirv::DebugInfoFlags,
-    sr::{
-        nonsemantic_debugprintf::DebugPrintfBuilder,
-        nonsemantic_shader_debuginfo_100::DebugInfoBuilder,
-    },
+use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
+use rspirv::sr::{
+    nonsemantic_debugprintf::DebugPrintfBuilder, nonsemantic_shader_debuginfo_100::DebugInfoBuilder,
 };
 
 use crate::{SpirvCompiler, SpirvTarget};
@@ -220,7 +216,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.read(&var)
                 })
                 .collect::<Vec<_>>();
-            self.debug_printf(format_string, args).unwrap();
+            DebugPrintfBuilder::debug_printf(&mut self.builder, format_string, args).unwrap();
             return;
         }
         if self.debug_enabled() {
@@ -269,12 +265,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             let source = self.debug_source(file.as_ref(), Some(source_text.as_ref()));
 
             let comp_unit = {
-                use rspirv_ext::dr::autogen_nonsemantic_shader_debuginfo_100::DebugInfoOpBuilder;
-
                 let version = self.const_u32(1);
                 let dwarf_version = self.const_u32(5);
                 let language = self.const_u32(13);
-                self.debug_compilation_unit_id(None, version, dwarf_version, source, language)
+                self.shader_debug_compilation_unit_id(
+                    None,
+                    version,
+                    dwarf_version,
+                    source,
+                    language,
+                )
             };
 
             let source_file = SourceFile {

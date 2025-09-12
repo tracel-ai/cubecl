@@ -34,81 +34,79 @@ pub trait TargetExtensions<T: SpirvTarget> {
 }
 
 pub mod glcompute {
-    use rspirv_ext::dr::autogen_glsl_std_450::GLOpBuilder;
-
     use super::*;
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
         fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.round_id(ty, Some(out), input).unwrap();
+            b.gl_round_id(ty, Some(out), input).unwrap();
         }
 
         fn f_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.f_abs_id(ty, Some(out), input).unwrap();
+            b.gl_f_abs_id(ty, Some(out), input).unwrap();
         }
 
         fn s_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.s_abs_id(ty, Some(out), input).unwrap();
+            b.gl_s_abs_id(ty, Some(out), input).unwrap();
         }
 
         fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.floor_id(ty, Some(out), input).unwrap();
+            b.gl_floor_id(ty, Some(out), input).unwrap();
         }
 
         fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.ceil_id(ty, Some(out), input).unwrap();
+            b.gl_ceil_id(ty, Some(out), input).unwrap();
         }
 
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.sin_id(ty, Some(out), input).unwrap();
+            b.gl_sin_id(ty, Some(out), input).unwrap();
         }
 
         fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.cos_id(ty, Some(out), input).unwrap();
+            b.gl_cos_id(ty, Some(out), input).unwrap();
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.tanh_id(ty, Some(out), input).unwrap();
+            b.gl_tanh_id(ty, Some(out), input).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.pow_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_pow_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.exp_id(ty, Some(out), input).unwrap();
+            b.gl_exp_id(ty, Some(out), input).unwrap();
         }
 
         fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.log_id(ty, Some(out), input).unwrap();
+            b.gl_log_id(ty, Some(out), input).unwrap();
         }
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.sqrt_id(ty, Some(out), input).unwrap();
+            b.gl_sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.f_min_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_f_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.u_min_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_u_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.s_min_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_s_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn f_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.f_max_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_f_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn u_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.u_max_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_u_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn s_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.s_max_id(ty, Some(out), lhs, rhs).unwrap();
+            b.gl_s_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn f_clamp(
@@ -119,7 +117,7 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            b.f_clamp_id(ty, Some(out), input, min, max).unwrap();
+            b.gl_f_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn u_clamp(
@@ -130,7 +128,7 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            b.u_clamp_id(ty, Some(out), input, min, max).unwrap();
+            b.gl_u_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn s_clamp(
@@ -141,23 +139,23 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
-            b.s_clamp_id(ty, Some(out), input, min, max).unwrap();
+            b.gl_s_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
         fn magnitude(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.length_id(ty, Some(out), input).unwrap();
+            b.gl_length_id(ty, Some(out), input).unwrap();
         }
 
         fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.normalize_id(ty, Some(out), input).unwrap();
+            b.gl_normalize_id(ty, Some(out), input).unwrap();
         }
 
         fn find_msb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.find_u_msb_id(ty, Some(out), input).unwrap();
+            b.gl_find_u_msb_id(ty, Some(out), input).unwrap();
         }
 
         fn find_lsb(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.find_i_lsb_id(ty, Some(out), input).unwrap();
+            b.gl_find_i_lsb_id(ty, Some(out), input).unwrap();
         }
     }
 }
