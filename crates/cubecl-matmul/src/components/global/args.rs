@@ -837,9 +837,15 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
     ) -> Self::RuntimeArg<'a, R> {
         TensorInputsLaunch::new(
             lhs.data().as_tensor_arg(line_sizes.lhs),
-            lhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            lhs
+                .scale()
+                .map(|it| it.as_tensor_arg(1))
+                .into(),
             rhs.data().as_tensor_arg(line_sizes.rhs),
-            rhs.scale().map(|it| it.as_tensor_arg(1)).into(),
+            rhs
+                .scale()
+                .map(|it| it.as_tensor_arg(1))
+                .into(),
             CubeOptionArgs::None,
         )
     }

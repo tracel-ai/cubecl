@@ -21,6 +21,7 @@ pub mod sequence;
 pub mod slice;
 pub mod synchronization;
 pub mod tensor;
+pub mod tensor_handle;
 pub mod tensormap;
 pub mod to_client;
 pub mod topology;
@@ -138,6 +139,7 @@ macro_rules! testgen_untyped {
         cubecl_core::testgen_comparison!();
 
         cubecl_core::testgen_to_client!();
+        cubecl_core::testgen_tensor_handle!();
     };
 }
 
