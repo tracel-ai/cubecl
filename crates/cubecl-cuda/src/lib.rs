@@ -20,7 +20,6 @@ pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::CudaWmmaCompiler;
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
 
-
     pub use half::{bf16, f16};
 
     cubecl_core::testgen_all!(f32: [f16, bf16, f32, f64], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
@@ -40,5 +39,4 @@ mod tests {
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
-
 }
