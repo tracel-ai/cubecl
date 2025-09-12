@@ -7,6 +7,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
 use crate::components::tile::dummy::{
     FlashMatmul, FlashMatmulConfig, FlashPrecision, ScoreFragment,
@@ -33,7 +34,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
 
     type Query = QueryFragment<AP::FlashPrecision, FM>;
     type KeyValue = KeyValueFragment<AP::FlashPrecision, FM>;
-    type Score = ScoreFragment<AP::FlashPrecision, FM>;
+    type ScoreProb = ScoreFragment<AP::FlashPrecision, FM>;
     type Accumulator = AccumulatorFragment<AP::FlashPrecision, FM>;
 
     type OutOfBoundMask = (u32, u32);
@@ -43,7 +44,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::Score,
+        score_prob: &mut Self::ScoreProb,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         out_of_bound_mask: CubeOption<(u32, u32)>,
@@ -96,7 +97,11 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         state.l = new_l;
     }
 
-    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] _config: Self::Config) {
+    fn rescale(
+        acc: &mut Self::Accumulator,
+        state: &Self::State,
+        #[comptime] _config: Self::Config,
+    ) {
         acc.scale(AP::EA::recip(state.l));
     }
 
@@ -139,16 +144,97 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         DummyWriter::new(out, q_offset, 0, 0)
     }
 
-    fn init_fragments(
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+        Self::Accumulator::new(config)
+    }
+
+    fn init_query(
         query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
-        (
-            Self::Query::new(query_reader, config),
-            Self::KeyValue::new(config),
-            Self::Score::new(config),
-            Self::Accumulator::new(config),
-        )
+    ) -> Self::Query {
+        Self::Query::new(query_reader, config)
+    }
+
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
+        Self::KeyValue::new(config)
+    }
+
+    fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb {
+        Self::ScoreProb::new(config)
+    }
+
+    fn fill_key<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    ) {
+        FM::fill_key_value(tile, rhs.key_mut(), config);
+    }
+
+    fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config) {
+        FM::zero_score_prob(&mut score.fragment, config);
+    }
+
+    fn accumulate_score(
+        query: &Self::Query,
+        key_value: &Self::KeyValue,
+        score_prob: &mut Self::ScoreProb,
+        #[comptime] config: Self::Config,
+    ) {
+    }
+
+    fn score_to_prob(
+        score_prob: &mut Self::ScoreProb,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
+        state: &Self::State,
+        #[comptime] config: Self::Config,
+    ) -> RowStats<AP::EA> {
+        let inv_sqrt_dk = AP::EA::new(comptime!(
+            1.0 / (config.attention_tile_size().head_dim as f32).sqrt()
+        ));
+
+        score_prob.multiply_score(inv_sqrt_dk);
+
+        match out_of_bound_mask {
+            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
+            CubeOption::None => {}
+        }
+
+        let m = score_prob.row_max(state.m);
+
+        score_prob.to_prob(m);
+        let prob_row_sum = score_prob.row_sum();
+
+        RowStats::<AP::EA> { m, prob_row_sum }
+    }
+
+    fn accumulate_value(
+        key_value: &Self::KeyValue,
+        score_prob: &Self::ScoreProb,
+        accumulator: &mut Self::Accumulator,
+        score_prob_row_stats: &RowStats<AP::EA>,
+        state: &mut Self::State,
+        #[comptime] config: Self::Config,
+    ) {
+        let prev_m = state.m;
+        let prev_l = state.l;
+        let new_m = score_prob_row_stats.m;
+        let row_sum = score_prob_row_stats.prob_row_sum;
+
+        let exp_m_diff = Exp::exp(prev_m - new_m);
+        let new_l = exp_m_diff * prev_l + row_sum;
+
+        accumulator.scale(exp_m_diff);
+
+        FM::value_matmul(
+            &score_prob.fragment,
+            key_value.value(),
+            &mut accumulator.fragment,
+            config,
+        );
+
+        state.m = new_m;
+        state.l = new_l;
     }
 }
 

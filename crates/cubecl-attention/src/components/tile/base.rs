@@ -53,7 +53,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Score: CubeType;
+    type ScoreProb: CubeType;
     type Accumulator: CubeType;
     type OutOfBoundMask: CubeType;
 
@@ -64,7 +64,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         value_tile: &Tile<AP::ES>,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
-        score: &mut Self::Score,
+        score: &mut Self::ScoreProb,
         accumulator: &mut Self::Accumulator,
         state: &mut Self::State,
         out_of_bound_mask: CubeOption<(u32, u32)>,
@@ -73,7 +73,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn rescale(
         acc: &mut Self::Accumulator,
-        prev_state: Self::State,
+        prev_state: &Self::State,
         #[comptime] config: Self::Config,
     );
 
@@ -86,8 +86,51 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
-    fn init_fragments(
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    fn init_query(
         query_reader: QueryRegisterReader<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
+    ) -> Self::Query;
+
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+
+    fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb;
+
+    fn fill_key<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+
+    fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config);
+
+    fn accumulate_score(
+        query: &Self::Query,
+        key_value: &Self::KeyValue,
+        score_prob: &mut Self::ScoreProb,
+        #[comptime] config: Self::Config,
+    );
+
+    fn score_to_prob(
+        score_prob: &mut Self::ScoreProb,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
+        state: &Self::State,
+        #[comptime] config: Self::Config,
+    ) -> RowStats<AP::EA>;
+
+    fn accumulate_value(
+        key_value: &Self::KeyValue,
+        score_prob: &Self::ScoreProb,
+        accumulator: &mut Self::Accumulator,
+        row_stats: &RowStats<AP::EA>,
+        state: &mut Self::State,
+        #[comptime] config: Self::Config,
+    );
+}
+
+#[derive(CubeType)]
+pub struct RowStats<E: Numeric> {
+    pub m: E,
+    pub prob_row_sum: E,
 }
