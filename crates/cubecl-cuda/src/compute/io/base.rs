@@ -6,6 +6,16 @@ use cubecl_runtime::memory_management::MemoryHandle;
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, cuMemcpy2DAsync_v2};
 use std::{ffi::c_void, ops::DerefMut};
 
+/// Registers multiple lazy buffer copies to [Bytes], potentially using pinned memory.
+///
+/// # Arguments
+///
+/// * `ctx` - The CUDA context for managing memory and streams.
+/// * `descriptors` - A vector of copy descriptors specifying the source data.
+///
+/// # Returns
+///
+/// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
 pub fn register_copies_to_bytes(
     ctx: &mut CudaContext,
     descriptors: Vec<CopyDescriptor<'_>>,
@@ -19,7 +29,17 @@ pub fn register_copies_to_bytes(
     Ok(result)
 }
 
-/// Register a lazy buffer copy potentially using pinned memory.
+/// Registers a single lazy buffer copy to [Bytes], potentially using pinned memory.
+///
+/// # Arguments
+///
+/// * `ctx` - The CUDA context for managing memory and streams.
+/// * `descriptor` - The copy descriptor specifying the source data.
+/// * `marked_pinned` - Whether to force the use of pinned memory for the copy.
+///
+/// # Returns
+///
+/// A [Result] containing the copied data as [Bytes], or an [IoError] if the copy fails.
 pub fn register_copy_to_bytes(
     ctx: &mut CudaContext,
     descriptor: CopyDescriptor<'_>,
@@ -32,7 +52,7 @@ pub fn register_copy_to_bytes(
         elem_size,
     } = descriptor;
 
-    if !valid_strides(shape, strides) {
+    if !valid_strides(&shape, &strides) {
         return Err(IoError::UnsupportedStrides);
     }
 
@@ -49,8 +69,8 @@ pub fn register_copy_to_bytes(
     if rank <= 1 {
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource.ptr, ctx.stream)
-                .unwrap();
-        };
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+        }
         return Ok(bytes);
     }
 
@@ -58,7 +78,7 @@ pub fn register_copy_to_bytes(
     let width_bytes = dim_x * elem_size;
     let dim_y: usize = shape.iter().rev().skip(1).product();
     let pitch = strides[rank - 2] * elem_size;
-    let slice: &mut [u8] = bytes.deref_mut();
+    let slice = bytes.deref_mut();
 
     let cpy = CUDA_MEMCPY2D_st {
         srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
@@ -73,19 +93,34 @@ pub fn register_copy_to_bytes(
     };
 
     unsafe {
-        cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
-    };
+        cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+            .result()
+            .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+    }
 
     Ok(bytes)
 }
 
+/// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
+///
+/// For small data transfers (<= 100 MB) or when explicitly marked as pinned, this function
+/// uses pinned memory to optimize performance. For larger transfers, it falls back to regular memory.
+///
+/// # Arguments
+///
+/// * `ctx` - The CUDA context for managing memory.
+/// * `num_bytes` - The number of bytes to allocate.
+/// * `marked_pinned` - Whether to force the use of pinned memory.
+///
+/// # Returns
+///
+/// An [Option] containing a [Bytes] instance if pinned memory is used, or [None] if regular memory should be used instead.
 fn bytes_from_managed_pinned_memory(
     ctx: &mut CudaContext,
     num_bytes: usize,
     marked_pinned: bool,
 ) -> Option<Bytes> {
-    // If not marked as pinned memory, we still use pinned memory for small data transfer to
-    // speedup sync caused by small reads.
+    // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
     if !marked_pinned && num_bytes > 100 * MB {
         return None;
     }
@@ -94,9 +129,11 @@ fn bytes_from_managed_pinned_memory(
     let binding = handle.binding();
     let resource = ctx
         .memory_management_cpu
-        .get_resource(binding.clone(), None, None)?;
+        .get_resource(binding.clone(), None, None)
+        .ok_or(IoError::InvalidHandle)
+        .ok()?;
 
-    let (controler, alloc) = PinnedMemoryManagedAllocController::init(binding, resource).ok()?;
+    let (controller, alloc) = PinnedMemoryManagedAllocController::init(binding, resource);
 
-    Some(unsafe { Bytes::from_raw_parts(alloc, num_bytes as usize, Box::new(controler)) })
+    Some(unsafe { Bytes::from_raw_parts(alloc, num_bytes, Box::new(controller)) })
 }
