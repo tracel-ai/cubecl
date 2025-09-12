@@ -22,9 +22,15 @@ impl core::fmt::Debug for WgpuStorage {
 #[derive(new, Debug)]
 pub struct WgpuResource {
     /// The wgpu buffer.
-    buffer: wgpu::Buffer,
-    offset: u64,
-    size: u64,
+    pub buffer: wgpu::Buffer,
+    /// The size the handle is pointing to in memory.
+    pub offset: u64,
+    /// The size of the resource.
+    ///
+    /// # Notes
+    ///
+    /// The result considers the offset.
+    pub size: u64,
 }
 
 impl WgpuResource {
@@ -38,20 +44,6 @@ impl WgpuResource {
             ),
         };
         wgpu::BindingResource::Buffer(binding)
-    }
-
-    pub fn buffer(&self) -> &wgpu::Buffer {
-        &self.buffer
-    }
-
-    /// Return the buffer size.
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    /// Return the buffer offset.
-    pub fn offset(&self) -> u64 {
-        self.offset
     }
 }
 

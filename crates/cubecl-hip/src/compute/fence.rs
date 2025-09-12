@@ -6,7 +6,6 @@ use cubecl_hip_sys::HIP_SUCCESS;
 /// This is useful for doing synchronization outside of the compute server, which is normally
 /// locked by a mutex or a channel. This allows the server to continue accepting other tasks.
 pub struct Fence {
-    stream: cubecl_hip_sys::hipStream_t,
     event: cubecl_hip_sys::hipEvent_t,
 }
 
@@ -36,7 +35,6 @@ impl Fence {
             assert_eq!(status, HIP_SUCCESS, "Should record the stream event");
 
             Self {
-                stream,
                 event: event as *mut _,
             }
         }
@@ -48,9 +46,24 @@ impl Fence {
     /// # Notes
     ///
     /// The [stream](hipStream_t) must be initialized.
-    pub fn wait(self) {
+    #[allow(unused)]
+    pub fn wait_async(self, stream: cubecl_hip_sys::hipStream_t) {
         unsafe {
-            let status = cubecl_hip_sys::hipStreamWaitEvent(self.stream, self.event, 0);
+            let status = cubecl_hip_sys::hipStreamWaitEvent(stream, self.event, 0);
+            assert_eq!(
+                status, HIP_SUCCESS,
+                "Should successfully wait for stream event"
+            );
+            let status = cubecl_hip_sys::hipEventDestroy(self.event);
+            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
+        }
+    }
+
+    /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
+    /// [stream](hipStream_t) are completed.
+    pub fn wait_sync(self) {
+        unsafe {
+            let status = cubecl_hip_sys::hipEventSynchronize(self.event);
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should successfully wait for stream event"

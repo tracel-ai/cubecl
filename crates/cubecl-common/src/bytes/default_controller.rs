@@ -19,14 +19,14 @@ pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 pub struct DefaultAllocationController;
 
 impl AllocationController for DefaultAllocationController {
-    fn dealloc(&self, allocation: &Allocation) {
+    fn dealloc(&mut self, allocation: &Allocation) {
         let layout =
             unsafe { Layout::from_size_align_unchecked(allocation.size, allocation.align) };
         buffer_dealloc(layout, allocation.ptr);
     }
 
     fn grow(
-        &self,
+        &mut self,
         allocation: &Allocation,
         size: usize,
         align: usize,
