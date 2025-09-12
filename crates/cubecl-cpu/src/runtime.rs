@@ -5,12 +5,12 @@ use cubecl_core::{
     client::ComputeClient,
     ir::{StorageType, TargetProperties},
 };
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
-use cubecl_std::tensor::is_contiguous;
 use sysinfo::System;
 
 use crate::{
@@ -67,8 +67,14 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props =
-        DeviceProperties::new(&[], mem_properties, topology, TimingMethod::Device);
+    let mut device_props = DeviceProperties::new(
+        &[],
+        mem_properties,
+        topology,
+        TimingMethod::Device,
+        // Default to contiguous on CPU.
+        cubecl_runtime::server::AllocationKind::Contiguous,
+    );
     register_supported_types(&mut device_props);
 
     let ctx = CpuContext::new(memory_management);
@@ -107,7 +113,7 @@ impl Runtime for CpuRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        is_contiguous(shape, strides)
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {

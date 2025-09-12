@@ -256,54 +256,9 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     );
 }
 
-/// Checks if the tensor associated with the given shape and strides is contiguous.
-pub fn is_contiguous(shape: &[usize], strides: &[usize]) -> bool {
-    if shape.is_empty() {
-        return true;
-    }
-
-    for (expected, &stride) in compact_strides(shape).into_iter().zip(strides) {
-        if expected != stride {
-            return false;
-        }
-    }
-
-    true
-}
-
 /// Checks if a tensor is only strided on the last dimension, and could be safely reinterpreted as
 /// a 2D tensor with unit stride on the last dimension. This will always hold for non-permuted
 /// tensors allocated on a runtime.
 pub fn is_contiguous_pitched(shape: &[usize], strides: &[usize]) -> bool {
-    let rank = shape.len();
-    if strides[rank - 1] != 1 {
-        return false;
-    }
-    if rank <= 1 {
-        return true;
-    }
-
-    let mut sorted = strides.to_vec();
-    sorted.sort();
-    sorted.reverse();
-
-    if sorted != strides {
-        return false;
-    }
-
-    for i in 0..rank - 2 {
-        if strides[i] != shape[i + 1] * strides[i + 1] {
-            return false;
-        }
-    }
-    true
-}
-
-pub fn compact_strides(shape: &[usize]) -> Vec<usize> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
+    cubecl_runtime::stride::is_inner_contiguous_rows(shape, strides)
 }
