@@ -99,6 +99,12 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
+    fn fill_value<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+
     fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config);
 
     fn accumulate_score(

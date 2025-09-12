@@ -126,7 +126,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
                         <Self::Config as StageAttentionConfig>::ValueStageMemoryConfig,
                     >(value_reader, kv, vd, config.value_stage_memory_config());
 
-                TA::fill_key(
+                TA::fill_value(
                     &value_tile,
                     key_value.get_at_mut(vd, config),
                     config.tile_config(),

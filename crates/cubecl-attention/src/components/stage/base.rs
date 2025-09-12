@@ -98,7 +98,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
-        query_reader: QueryLoader<AP>,
+        query_loader: QueryLoader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }

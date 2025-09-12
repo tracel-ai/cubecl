@@ -167,6 +167,14 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         FM::fill_key_value(tile, rhs.key_mut(), config);
     }
 
+    fn fill_value<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    ) {
+        FM::fill_key_value(tile, rhs.value_mut(), config);
+    }
+
     fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config) {
         FM::zero_score_prob(&mut score.fragment, config);
     }
