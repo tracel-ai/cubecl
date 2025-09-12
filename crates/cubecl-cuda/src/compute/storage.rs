@@ -524,10 +524,10 @@ impl VirtualStorage for CudaVirtualStorage {
         self.granularity
     }
 
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+    fn get(&mut self, id: StorageId) -> Self::Resource {
         let (block, virtual_addr) = self
             .memory
-            .get(&handle.id)
+            .get(&id)
             .expect("Invalid storage handle");
 
         let virtual_addr = virtual_addr.expect("This block is not mapped yet. Please make sure that the block is mapped to a virtual memory range before calling this method.");
@@ -599,6 +599,11 @@ impl VirtualStorage for CudaVirtualStorage {
                 for i in 0..pages {
                     let page_addr = addr + (i as u64 * self.virtual_manager.page_size());
                     let _ = self.virtual_manager.unmap_handle(page_addr);
+
+                }
+
+                for handle in &block.physical_handles {
+                    self.physical_allocator.dealloc(handle.id);
                 }
 
                 // Release virtual address space

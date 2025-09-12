@@ -1,5 +1,6 @@
 use crate::server::IoError;
 use crate::storage::{StorageHandle, StorageId, StorageUtilization};
+use crate::storage::ComputeStorage;
 
 enum VirtualBlockState {
     Mapped,
@@ -90,8 +91,8 @@ pub trait VirtualStorage: Send {
     /// Required alignment for allocations
     fn alignment(&self) -> usize;
 
-    /// Gets a resource for the given handle (must be mapped)
-    fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
+    /// Gets a resource for the given storage id
+    fn get(&mut self, id: StorageId) -> Self::Resource;
 
     /// Allocates physical memory without mapping
     /// Returns a block in Unmapped state
@@ -111,4 +112,146 @@ pub trait VirtualStorage: Send {
 
     /// Processes all pending deallocations
     fn flush(&mut self);
+}
+
+
+
+/// Lazy dealloc VirtualStorage.
+/// Works exactly the same as current storages.
+pub struct LazyVirtualStorageAdapter<V>
+where
+    V: VirtualStorage
+{
+    virtual_storage: V,
+    deallocations: Vec<StorageId>,
+}
+
+
+impl<V> LazyVirtualStorageAdapter<V>
+where
+    V: VirtualStorage,
+{
+    pub fn new(virtual_storage: V) -> Self {
+        Self {
+            virtual_storage,
+            deallocations: Vec::new(),
+        }
+    }
+}
+
+impl<V> ComputeStorage for LazyVirtualStorageAdapter<V>
+where
+    V: VirtualStorage,
+{
+    type Resource = V::Resource;
+
+    fn alignment(&self) -> usize {
+        self.virtual_storage.alignment()
+    }
+
+    fn get(&mut self, handle: &StorageHandle) -> V::Resource {
+        self.virtual_storage.get(handle.id)
+    }
+
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        // 1. Allocate virtual block
+        let mut virtual_block = self.virtual_storage.alloc(size)?;
+        let block_id = virtual_block.id();
+
+        // 2. Immediately map the block
+        self.virtual_storage.map(&mut virtual_block)?;
+
+        // 3. Create handle
+        let handle_id = StorageId::new();
+        let handle = StorageHandle::new(
+            handle_id,
+            StorageUtilization { offset: 0, size: virtual_block.size() }
+        );
+
+
+        Ok(handle)
+    }
+
+    fn dealloc(&mut self, id: StorageId) {
+
+        self.deallocations.push(id);
+
+    }
+
+    fn flush(&mut self) {
+        for block_id in self.deallocations.drain(..) {
+            self.virtual_storage.dealloc(block_id);
+        }
+        self.virtual_storage.flush();
+    }
+}
+
+
+
+
+/// Eager VirtualStorage.
+/// Inmediately unmaps blocks when deallocation is requested.
+// Does not completely deallocate memory, as this can be potentially be reused.
+pub struct EagerVirtualStorageAdapter<V>
+where
+    V: VirtualStorage
+{
+    virtual_storage: V,
+    deallocations: Vec<StorageId>,
+}
+
+
+impl<V> EagerVirtualStorageAdapter<V>
+where
+    V: VirtualStorage,
+{
+    pub fn new(virtual_storage: V) -> Self {
+        Self {
+            virtual_storage,
+            deallocations: Vec::new(),
+        }
+    }
+}
+
+impl<V> ComputeStorage for EagerVirtualStorageAdapter<V>
+where
+    V: VirtualStorage,
+{
+    type Resource = V::Resource;
+
+    fn alignment(&self) -> usize {
+        self.virtual_storage.alignment()
+    }
+
+    fn get(&mut self, handle: &StorageHandle) -> V::Resource {
+        self.virtual_storage.get(handle.id)
+    }
+
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        // 1. Allocate virtual block
+        let mut virtual_block = self.virtual_storage.alloc(size)?;
+        let block_id = virtual_block.id();
+
+        // 2. Immediately map the block
+        self.virtual_storage.map(&mut virtual_block)?;
+
+        // 3. Create handle
+        let handle_id = StorageId::new();
+        let handle = StorageHandle::new(
+            handle_id,
+            StorageUtilization { offset: 0, size: virtual_block.size() }
+        );
+
+
+        Ok(handle)
+    }
+
+    fn dealloc(&mut self, id: StorageId) {
+        self.virtual_storage.unmap(id); // Automatically sets the physical memory for reuse.
+
+    }
+
+    fn flush(&mut self) {
+        self.virtual_storage.flush();
+    }
 }
