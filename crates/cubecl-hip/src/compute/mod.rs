@@ -1,6 +1,5 @@
 mod server;
 
-pub(crate) mod alloc_controller;
 pub(crate) mod fence;
 pub(crate) mod io;
 pub(crate) mod storage;
