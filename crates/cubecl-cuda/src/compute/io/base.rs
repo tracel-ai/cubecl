@@ -52,7 +52,7 @@ pub fn register_copy_to_bytes(
         elem_size,
     } = descriptor;
 
-    if !valid_strides(&shape, &strides) {
+    if !valid_strides(shape, strides) {
         return Err(IoError::UnsupportedStrides);
     }
 

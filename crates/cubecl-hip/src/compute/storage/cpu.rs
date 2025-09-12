@@ -34,6 +34,12 @@ struct PinnedMemory {
     ptr2ptr: *mut *mut c_void,
 }
 
+impl Default for PinnedMemoryStorage {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PinnedMemoryStorage {
     /// Creates a new [PinnedMemoryStorage] instance.
     ///
