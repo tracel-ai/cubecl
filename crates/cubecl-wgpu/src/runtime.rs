@@ -6,6 +6,7 @@ use cubecl_common::{future, profile::TimingMethod};
 
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
+use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
@@ -13,7 +14,6 @@ use cubecl_runtime::{
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
-use cubecl_runtime::{Plane, memory_management::MemoryDeviceProperties};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -302,8 +302,6 @@ pub(crate) fn create_client_on_setup(
             TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
         );
     }
-
-    device_props.features.plane.insert(Plane::Ops);
 
     ComputeClient::new(channel, device_props, setup.backend)
 }

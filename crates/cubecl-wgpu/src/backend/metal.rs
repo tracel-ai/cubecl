@@ -73,6 +73,7 @@ fn register_features(
 ) {
     register_types(props);
     register_cmma(props);
+    props.features.plane.insert(Plane::Ops);
     props.features.plane.insert(Plane::Sync);
 }
 
