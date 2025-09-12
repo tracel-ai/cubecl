@@ -28,13 +28,10 @@ use cubecl_core::{
     ir::FloatKind,
     server::{Bindings, CopyDescriptor, TensorMapBinding},
 };
+use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{
-    data_service::DataTransferId, memory_management::MemoryDeviceProperties,
-    storage::ComputeStorage,
-};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
@@ -577,27 +574,16 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResourc
 
 impl CudaContext {
     pub fn new(
-        memory_management: MemoryManagement<CudaStorage>,
+        memory_management_gpu: MemoryManagement<CudaStorage>,
+        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
-        let storage = PinnedMemoryStorage::new();
-        let properties = MemoryDeviceProperties {
-            max_page_size: 1024 * MB as u64,
-            alignment: storage.alignment() as u64,
-            data_transfer_async: false,
-        };
-        let memory_management_cpu = MemoryManagement::from_configuration(
-            storage,
-            &properties,
-            cubecl_core::MemoryConfiguration::SubSlices,
-        );
-
         Self {
             context,
-            memory_management_gpu: memory_management,
+            memory_management_gpu,
             memory_management_cpu,
             module_names: HashMap::new(),
             #[cfg(feature = "compilation-cache")]
