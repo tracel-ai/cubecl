@@ -27,7 +27,7 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
+    compute::{HipContext, HipServer, contiguous_strides, storage::gpu::GpuStorage},
     device::AmdDevice,
 };
 
@@ -124,7 +124,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = HipStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,

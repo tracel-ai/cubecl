@@ -1,6 +1,6 @@
 use super::fence::{Fence, SyncStream};
-use super::storage::HipStorage;
-use super::{HipResource, uninit_vec};
+use super::storage::gpu::GpuStorage;
+use super::{storage::gpu::GpuResource, uninit_vec};
 use crate::runtime::HipCompiler;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
@@ -46,7 +46,7 @@ pub struct HipServer {
 #[derive(Debug)]
 pub(crate) struct HipContext {
     stream: cubecl_hip_sys::hipStream_t,
-    memory_management: MemoryManagement<HipStorage>,
+    memory_management: MemoryManagement<GpuStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: TimestampProfiler,
     compilation_options: CompilationOptions,
@@ -159,7 +159,7 @@ impl HipServer {
 
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
-    type Storage = HipStorage;
+    type Storage = GpuStorage;
     type Feature = Feature;
     type Info = ();
 
@@ -329,7 +329,7 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
@@ -345,7 +345,7 @@ impl ComputeServer for HipServer {
     }
 }
 
-fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {
+fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> GpuResource {
     ctx.memory_management
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
@@ -353,7 +353,7 @@ fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource 
 
 impl HipContext {
     pub fn new(
-        memory_management: MemoryManagement<HipStorage>,
+        memory_management: MemoryManagement<GpuStorage>,
         compilation_options: CompilationOptions,
         stream: cubecl_hip_sys::hipStream_t,
     ) -> Self {
@@ -384,7 +384,6 @@ impl HipContext {
                 "Should successfully synchronize stream"
             );
         };
-        self.memory_management.storage().flush();
     }
 
     fn memory_usage(&self) -> MemoryUsage {
@@ -578,7 +577,7 @@ impl HipContext {
         &mut self,
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
-        resources: Vec<HipResource>,
+        resources: Vec<GpuResource>,
     ) {
         let mut bindings = resources
             .iter()

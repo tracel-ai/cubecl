@@ -1,53 +1,46 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
+use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use cudarc::driver::{DriverError, sys::CUstream};
 use std::collections::HashMap;
 
-/// Buffer storage for NVIDIA GPUs.
+/// Buffer storage for AMD GPUs.
 ///
-/// This struct manages memory resources for CUDA kernels, allowing them to be used as bindings
+/// This struct manages memory resources for HIP kernels, allowing them to be used as bindings
 /// for launching kernels.
 pub struct GpuStorage {
-    memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
-    deallocations: Vec<StorageId>,
-    stream: cudarc::driver::sys::CUstream,
-    ptr_bindings: PtrBindings,
     mem_alignment: usize,
+    memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
+    deallocations: Vec<StorageId>,
+    stream: cubecl_hip_sys::hipStream_t,
+    ptr_bindings: PtrBindings,
 }
 
-/// A GPU memory resource allocated for CUDA using [GpuStorage].
-#[derive(Debug)]
+/// A GPU memory resource allocated for HIP using [GpuStorage].
+#[derive(new, Debug)]
 pub struct GpuResource {
     /// The GPU memory pointer.
-    pub ptr: u64,
-    /// The CUDA binding pointer.
-    pub binding: *mut std::ffi::c_void,
+    pub ptr: cubecl_hip_sys::hipDeviceptr_t,
+    /// The HIP binding pointer.
+    pub binding: cubecl_hip_sys::hipDeviceptr_t,
     /// The size of the resource.
     pub size: u64,
 }
 
-impl GpuResource {
-    /// Creates a new [GpuResource].
-    pub fn new(ptr: u64, binding: *mut std::ffi::c_void, size: u64) -> Self {
-        Self { ptr, binding, size }
-    }
-}
-
 impl GpuStorage {
-    /// Creates a new [GpuStorage] instance for the specified CUDA stream.
+    /// Creates a new [GpuStorage] instance for the specified HIP stream.
     ///
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    /// * `stream` - The CUDA stream for asynchronous memory operations.
-    pub fn new(mem_alignment: usize, stream: CUstream) -> Self {
+    /// * `stream` - The HIP stream for asynchronous memory operations.
+    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
         Self {
+            mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
             ptr_bindings: PtrBindings::new(),
-            mem_alignment,
         }
     }
 
@@ -58,29 +51,18 @@ impl GpuStorage {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
                 unsafe {
-                    cudarc::driver::result::free_async(ptr, self.stream).unwrap();
+                    cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
                 }
             }
         }
     }
 }
 
-unsafe impl Send for GpuResource {}
-unsafe impl Send for GpuStorage {}
-
-impl core::fmt::Debug for GpuStorage {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("GpuStorage")
-            .field("stream", &self.stream)
-            .finish()
-    }
-}
-
-/// Manages active CUDA buffer bindings in a ring buffer.
+/// Manages active HIP buffer bindings in a ring buffer.
 ///
 /// This ensures that pointers remain valid during kernel execution, preventing use-after-free errors.
 struct PtrBindings {
-    slots: Vec<cudarc::driver::sys::CUdeviceptr>,
+    slots: Vec<u64>,
     cursor: usize,
 }
 
@@ -88,7 +70,7 @@ impl PtrBindings {
     /// Creates a new [PtrBindings] instance with a fixed-size ring buffer.
     fn new() -> Self {
         Self {
-            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
+            slots: uninit_vec(crate::device::AMD_MAX_BINDINGS as usize),
             cursor: 0,
         }
     }
@@ -97,7 +79,7 @@ impl PtrBindings {
     ///
     /// # Arguments
     ///
-    /// * `ptr` - The CUDA device pointer to register.
+    /// * `ptr` - The HIP device pointer to register.
     ///
     /// # Returns
     ///
@@ -125,38 +107,33 @@ impl ComputeStorage for GpuStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = self
-            .memory
-            .get(&handle.id)
-            .expect("Storage handle not found");
+        let ptr = (*self.memory.get(&handle.id).unwrap()) as u64;
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
         GpuResource::new(
-            *ptr,
-            ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
+            *ptr as cubecl_hip_sys::hipDeviceptr_t,
+            std::ptr::from_ref(ptr) as *mut std::ffi::c_void,
             size,
         )
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
-        let ptr = match ptr {
-            Ok(ptr) => ptr,
-            Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                return Err(IoError::BufferTooBig(size as usize));
+        unsafe {
+            let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
+            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
+
+            match status {
+                HIP_SUCCESS => {}
+                other => {
+                    return Err(IoError::Unknown(format!("HIP allocation error: {}", other)));
+                }
             }
-            Err(other) => {
-                return Err(IoError::Unknown(format!(
-                    "CUDA allocation error: {}",
-                    other
-                )));
-            }
+            self.memory.insert(id, dptr);
         };
-        self.memory.insert(id, ptr);
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -166,8 +143,13 @@ impl ComputeStorage for GpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
+}
 
-    fn flush(&mut self) {
-        self.perform_deallocations();
+unsafe impl Send for GpuStorage {}
+unsafe impl Send for GpuResource {}
+
+impl core::fmt::Debug for GpuStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(format!("GpuStorage {{ stream: {:?} }}", self.stream).as_str())
     }
 }
