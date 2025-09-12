@@ -85,6 +85,10 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    pub fn packing_factor(&self) -> usize {
+        self.elem.packing_factor()
+    }
+
     pub fn de_optimized(&self) -> Self {
         match self.elem {
             Elem::FP4x2(kind) => Item::new(Elem::FP4(kind), self.vectorization * 2, self.native),

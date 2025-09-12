@@ -17,9 +17,11 @@ pub trait Cast: CubePrimitive {
         if core::any::TypeId::of::<Self>() == core::any::TypeId::of::<From>() {
             return value.expand.into();
         }
-        let new_var = scope.create_local(
-            Type::new(<Self as CubePrimitive>::as_type(scope)).line(value.expand.ty.line_size()),
-        );
+        let line_size_in = value.expand.ty.line_size();
+        let line_size_out = line_size_in * value.expand.ty.storage_type().packing_factor()
+            / Self::as_type(scope).packing_factor();
+        let new_var = scope
+            .create_local(Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size_out));
         cast::expand(scope, value, new_var.clone().into());
         new_var.into()
     }
