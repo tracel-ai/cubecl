@@ -35,9 +35,12 @@ pub(crate) fn special_cast<D: Dialect>(
 ) -> fmt::Result {
     let mut current_in = *input;
 
-    if matches!(input.elem(), Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)) {
+    if matches!(
+        input.elem().unpacked(),
+        Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)
+    ) {
         let mut item = out.item();
-        item.elem = match input.elem() {
+        item.elem = match input.elem().unpacked() {
             Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
             _ => Elem::F16,
         };
@@ -80,11 +83,11 @@ pub(crate) fn special_cast<D: Dialect>(
         current_in = tmp;
     }
 
-    if matches!(out.elem(), Elem::FP4(_) | Elem::FP6(_)) {
+    if matches!(out.elem().unpacked(), Elem::FP4(_) | Elem::FP6(_)) {
         return cast_to_fp4_fp6(f, current_in, *out);
     }
 
-    if matches!(out.elem(), Elem::FP8(FP8Kind::UE8M0)) {
+    if matches!(out.elem().unpacked(), Elem::FP8(FP8Kind::UE8M0)) {
         // Scale can't be converted from half...
         if matches!(current_in.elem(), Elem::F16) {
             let mut item = current_in.item();
@@ -100,7 +103,7 @@ pub(crate) fn special_cast<D: Dialect>(
         return cast_to_scale(f, current_in, *out);
     }
 
-    if matches!(out.elem(), Elem::FP8(_)) {
+    if matches!(out.elem().unpacked(), Elem::FP8(_)) {
         return cast_to_fp8(f, current_in, *out);
     }
 
@@ -122,8 +125,8 @@ fn cast_to_fp4_fp6<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
-    let packed = packing > 1;
+    let packing = out_opt.item().packing_factor();
+    let packed = packing == 2;
     let pack_suffix = if packed { "2" } else { "" };
 
     let (out_ty, interpretation) = match out_opt.elem() {
@@ -161,7 +164,7 @@ fn cast_to_scale<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
+    let packing = out_opt.item().packing_factor();
     let packed = packing > 1;
     let pack_suffix = if packed { "2" } else { "" };
 
@@ -197,7 +200,7 @@ fn cast_to_fp8<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
+    let packing = out_opt.item().packing_factor();
     let packed = packing > 1;
     let pack_suffix = if packed { "2" } else { "" };
 

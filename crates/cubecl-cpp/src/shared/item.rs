@@ -85,6 +85,11 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    /// Get the number of values packed into a single storage element. (i.e. `f16x2 -> 2`)
+    pub fn packing_factor(&self) -> usize {
+        self.elem.packing_factor()
+    }
+
     pub fn de_optimized(&self) -> Self {
         match self.elem {
             Elem::FP4x2(kind) => Item::new(Elem::FP4(kind), self.vectorization * 2, self.native),

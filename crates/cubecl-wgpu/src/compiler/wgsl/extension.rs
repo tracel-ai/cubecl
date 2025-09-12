@@ -58,7 +58,7 @@ impl Display for Extension {
                 SAFE_TANH_PRIMITIVE,
                 &[VectorIdent {
                     name: "x",
-                    item: item.clone(),
+                    item: *item,
                 }],
                 *item,
             ),

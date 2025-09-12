@@ -146,6 +146,14 @@ impl<D: Dialect> Elem<D> {
         }
     }
 
+    /// Get the number of values packed into a single storage element. (i.e. `f16x2 -> 2`)
+    pub const fn packing_factor(&self) -> usize {
+        match self {
+            Elem::FP4x2(_) | Elem::FP6x2(_) | Elem::FP8x2(_) | Elem::F16x2 | Elem::BF16x2 => 2,
+            _ => 1,
+        }
+    }
+
     pub const fn ident(&self) -> &str {
         match self {
             Elem::FP4(_) => "fp4",
