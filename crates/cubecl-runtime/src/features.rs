@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use alloc::collections::{BTreeMap, BTreeSet};
 
 use cubecl_ir::{SemanticType, StorageType, Type};
 use enumset::EnumSetType;
