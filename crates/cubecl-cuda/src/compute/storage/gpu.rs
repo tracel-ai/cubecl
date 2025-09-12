@@ -1,12 +1,14 @@
+use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::{DriverError, sys::CUstream};
 use std::collections::HashMap;
 
-use crate::compute::uninit_vec;
-
-/// Buffer storage for cuda.
-pub struct CudaStorage {
+/// Buffer storage for NVIDIA GPUs.
+///
+/// This struct manages memory resources for CUDA kernels, allowing them to be used as bindings
+/// for launching kernels.
+pub struct GpuStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     stream: cudarc::driver::sys::CUstream,
@@ -14,45 +16,31 @@ pub struct CudaStorage {
     mem_alignment: usize,
 }
 
-struct PtrBindings {
-    slots: Vec<cudarc::driver::sys::CUdeviceptr>,
-    cursor: usize,
+/// A GPU memory resource allocated for CUDA using [GpuStorage].
+#[derive(Debug)]
+pub struct GpuResource {
+    /// The GPU memory pointer.
+    pub ptr: u64,
+    /// The CUDA binding pointer.
+    pub binding: *mut std::ffi::c_void,
+    /// The size of the resource.
+    pub size: u64,
 }
 
-impl PtrBindings {
-    fn new() -> Self {
-        Self {
-            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
-            cursor: 0,
-        }
-    }
-
-    fn register(&mut self, ptr: u64) -> &u64 {
-        self.slots[self.cursor] = ptr;
-        let ptr = self.slots.get(self.cursor).unwrap();
-
-        self.cursor += 1;
-
-        // Reset the cursor.
-        if self.cursor >= self.slots.len() {
-            self.cursor = 0;
-        }
-
-        ptr
+impl GpuResource {
+    /// Creates a new `GpuResource`.
+    pub fn new(ptr: u64, binding: *mut std::ffi::c_void, size: u64) -> Self {
+        Self { ptr, binding, size }
     }
 }
 
-unsafe impl Send for CudaStorage {}
-
-impl core::fmt::Debug for CudaStorage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("CudaStorage {{ device: {:?} }}", self.stream).as_str())
-    }
-}
-
-/// Keeps actual CUDA buffer references in a hashmap with ids as keys.
-impl CudaStorage {
-    /// Create a new storage on the given [device](cudarc::driver::sys::CUdeviceptr).
+impl GpuStorage {
+    /// Creates a new [GpuStorage] instance for the specified CUDA stream.
+    ///
+    /// # Arguments
+    ///
+    /// * `mem_alignment` - The memory alignment requirement in bytes.
+    /// * `stream` - The CUDA stream for asynchronous memory operations.
     pub fn new(mem_alignment: usize, stream: CUstream) -> Self {
         Self {
             memory: HashMap::new(),
@@ -63,7 +51,9 @@ impl CudaStorage {
         }
     }
 
-    /// Actually deallocates buffers tagged to be deallocated.
+    /// Deallocates buffers marked for deallocation.
+    ///
+    /// This method processes all pending deallocations by freeing the associated GPU memory.
     pub fn perform_deallocations(&mut self) {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
@@ -75,54 +65,78 @@ impl CudaStorage {
     }
 }
 
-/// The memory resource that can be allocated for CUDA.
-#[derive(new, Debug)]
-pub struct CudaResource {
-    pub ptr: u64,
-    pub binding: *mut std::ffi::c_void,
-    offset: u64,
-    size: u64,
-}
+unsafe impl Send for GpuResource {}
+unsafe impl Send for GpuStorage {}
 
-unsafe impl Send for CudaResource {}
-
-pub type Binding = *mut std::ffi::c_void;
-
-impl CudaResource {
-    /// Return the binding view of the buffer.
-    pub fn as_binding(&self) -> Binding {
-        self.binding
-    }
-
-    /// Return the buffer size.
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    /// Return the buffer offset.
-    pub fn offset(&self) -> u64 {
-        self.offset
+impl core::fmt::Debug for GpuStorage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("GpuStorage")
+            .field("stream", &self.stream)
+            .finish()
     }
 }
 
-impl ComputeStorage for CudaStorage {
-    type Resource = CudaResource;
+/// Manages active CUDA buffer bindings in a ring buffer.
+///
+/// This ensures that pointers remain valid during kernel execution, preventing use-after-free errors.
+struct PtrBindings {
+    slots: Vec<cudarc::driver::sys::CUdeviceptr>,
+    cursor: usize,
+}
+
+impl PtrBindings {
+    /// Creates a new [PtrBindings] instance with a fixed-size ring buffer.
+    fn new() -> Self {
+        Self {
+            slots: uninit_vec(crate::device::CUDA_MAX_BINDINGS as usize),
+            cursor: 0,
+        }
+    }
+
+    /// Registers a new pointer in the ring buffer.
+    ///
+    /// # Arguments
+    ///
+    /// * `ptr` - The CUDA device pointer to register.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the registered pointer.
+    fn register(&mut self, ptr: u64) -> &u64 {
+        self.slots[self.cursor] = ptr;
+        let ptr_ref = self.slots.get(self.cursor).unwrap();
+
+        self.cursor += 1;
+
+        // Reset the cursor when the ring buffer is full.
+        if self.cursor >= self.slots.len() {
+            self.cursor = 0;
+        }
+
+        ptr_ref
+    }
+}
+
+impl ComputeStorage for GpuStorage {
+    type Resource = GpuResource;
 
     fn alignment(&self) -> usize {
         self.mem_alignment
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let ptr = self.memory.get(&handle.id).unwrap();
+        let ptr = self
+            .memory
+            .get(&handle.id)
+            .expect("Storage handle not found");
 
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
 
-        CudaResource::new(
+        GpuResource::new(
             *ptr,
             ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
-            offset,
             size,
         )
     }
@@ -132,12 +146,15 @@ impl ComputeStorage for CudaStorage {
         let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
         let ptr = match ptr {
             Ok(ptr) => ptr,
-            // I don't think this actually triggers immediately, might be returning the error on the next call
-            // Need to figure out how to handle this
             Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
-                Err(IoError::BufferTooBig(size as usize))?
+                return Err(IoError::BufferTooBig(size as usize));
             }
-            Err(other) => panic!("{other}"),
+            Err(other) => {
+                return Err(IoError::Unknown(format!(
+                    "CUDA allocation error: {}",
+                    other
+                )));
+            }
         };
         self.memory.insert(id, ptr);
         Ok(StorageHandle::new(

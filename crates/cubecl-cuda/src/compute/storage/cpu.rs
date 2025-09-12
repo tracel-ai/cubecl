@@ -1,36 +1,53 @@
-use std::{collections::HashMap, ffi::c_void};
-
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use std::{collections::HashMap, ffi::c_void};
 
+/// Memory alignment for pinned host memory, set to the size of `u128` for optimal performance.
 pub const PINNED_MEMORY_ALIGNMENT: usize = core::mem::size_of::<u128>();
 
+/// Manages pinned host memory for CUDA operations.
+///
+/// This storage handles allocation and deallocation of pinned (page-locked) host memory,
+/// which is optimized for fast data transfers between host and GPU in CUDA applications.
 pub struct PinnedMemoryStorage {
     memory: HashMap<StorageId, PinnedMemory>,
     mem_alignment: usize,
 }
 
+/// A pinned memory resource allocated on the host.
+#[derive(Debug)]
+pub struct PinnedMemoryResource {
+    /// Pointer to the pinned memory buffer.
+    pub ptr: *mut u8,
+    /// Size of the memory resource in bytes.
+    pub size: usize,
+}
+
+/// Internal representation of pinned memory with associated pointers.
+#[derive(Debug)]
+struct PinnedMemory {
+    /// Pointer to the pinned memory buffer.
+    ptr: *mut c_void,
+    /// Pointer-to-pointer for CUDA allocation, kept alive for async operations.
+    #[allow(unused)]
+    ptr2ptr: *mut *mut c_void,
+}
+
 impl PinnedMemoryStorage {
-    /// Create a new storage.
+    /// Creates a new [PinnedMemoryStorage] instance.
+    ///
+    /// Initializes the storage with the default pinned memory alignment
+    /// defined by [PINNED_MEMORY_ALIGNMENT].
     pub fn new() -> Self {
         Self {
-            memory: Default::default(),
+            memory: HashMap::new(),
             mem_alignment: PINNED_MEMORY_ALIGNMENT,
         }
     }
 }
 
-struct PinnedMemory {
-    ptr: *mut c_void,
-    /// Keep the pointer alive for async allocation.
-    #[allow(unused)]
-    ptr2ptr: *mut *mut c_void,
-}
-
-pub struct PinnedMemoryResource {
-    pub ptr: *mut u8,
-    pub size: usize,
-}
+unsafe impl Send for PinnedMemoryResource {}
+unsafe impl Send for PinnedMemoryStorage {}
 
 impl ComputeStorage for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
@@ -40,14 +57,17 @@ impl ComputeStorage for PinnedMemoryStorage {
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let memory = self.memory.get(&handle.id).unwrap();
+        let memory = self
+            .memory
+            .get(&handle.id)
+            .expect("Storage handle not found");
 
         let offset = handle.offset() as usize;
         let size = handle.size() as usize;
 
         unsafe {
             PinnedMemoryResource {
-                ptr: memory.ptr.add(offset).cast(),
+                ptr: memory.ptr.cast::<u8>().add(offset),
                 size,
             }
         }
@@ -58,18 +78,21 @@ impl ComputeStorage for PinnedMemoryStorage {
             let mut ptr: *mut c_void = std::ptr::null_mut();
             let ptr2ptr: *mut *mut c_void = &mut ptr;
 
-            // Call cuMemAllocHost_v2 to allocate pinned host memory
+            // Allocate pinned host memory using cuMemAllocHost_v2
             let result = cudarc::driver::sys::cuMemAllocHost_v2(ptr2ptr, size as usize);
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
-                panic!("cuMemAllocHost_v2 failed with error code: {:?}", result);
+                return Err(IoError::Unknown(format!(
+                    "cuMemAllocHost_v2 failed with error code: {:?}",
+                    result
+                )));
             }
 
             PinnedMemory { ptr, ptr2ptr }
         };
 
         let id = StorageId::new();
-        self.memory.insert(id.clone(), resource);
+        self.memory.insert(id, resource);
         Ok(StorageHandle::new(
             id,
             StorageUtilization { offset: 0, size },
@@ -80,10 +103,7 @@ impl ComputeStorage for PinnedMemoryStorage {
         if let Some(resource) = self.memory.remove(&id) {
             unsafe {
                 cudarc::driver::sys::cuMemFreeHost(resource.ptr);
-            };
+            }
         }
     }
 }
-
-unsafe impl Send for PinnedMemoryResource {}
-unsafe impl Send for PinnedMemoryStorage {}

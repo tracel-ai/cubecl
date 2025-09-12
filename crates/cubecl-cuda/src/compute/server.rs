@@ -13,7 +13,7 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use super::storage::gpu::{CudaResource, CudaStorage};
+use super::storage::gpu::{GpuResource, GpuStorage};
 use super::sync::{Fence, SyncStream};
 use crate::compute::{
     DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
@@ -69,7 +69,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     pub(crate) stream: cudarc::driver::sys::CUstream,
-    pub(crate) memory_management_gpu: MemoryManagement<CudaStorage>,
+    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage>,
     pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
@@ -127,7 +127,7 @@ impl CudaServer {
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type Storage = CudaStorage;
+    type Storage = GpuStorage;
     type Feature = Feature;
     type Info = ();
 
@@ -493,7 +493,7 @@ impl ComputeServer for CudaServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
@@ -566,7 +566,7 @@ impl DataTransferService for CudaServer {
     }
 }
 
-fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResource {
+fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> GpuResource {
     ctx.memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
@@ -574,7 +574,7 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResourc
 
 impl CudaContext {
     pub fn new(
-        memory_management_gpu: MemoryManagement<CudaStorage>,
+        memory_management_gpu: MemoryManagement<GpuStorage>,
         memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
@@ -771,14 +771,14 @@ impl CudaContext {
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
-        resources: &[CudaResource],
+        resources: &[GpuResource],
         scalars: &[*mut c_void],
     ) -> Result<(), String> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
-        bindings.extend(resources.iter().map(|memory| memory.as_binding()));
+        bindings.extend(resources.iter().map(|memory| memory.binding));
         bindings.extend(scalars);
 
         let kernel = self.module_names.get(&kernel_id).unwrap();

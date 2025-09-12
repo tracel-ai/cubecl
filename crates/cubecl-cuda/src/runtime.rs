@@ -4,7 +4,7 @@ use crate::{
         CudaContext, CudaServer,
         storage::{
             cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-            gpu::CudaStorage,
+            gpu::GpuStorage,
         },
         valid_strides,
     },
@@ -105,7 +105,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = CudaStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,

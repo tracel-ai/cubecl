@@ -231,6 +231,9 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
+    /// Unknown error happened during execution
+    #[error("Unknown error happened during execution")]
+    Unknown(String),
 }
 
 impl Handle {
