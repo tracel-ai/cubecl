@@ -53,16 +53,11 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
         let attention_tile_size = config.tiling_scheme().tile_size;
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.view.slice(
-                // (
-                //     // batch?
-                //     0u32.runtime(),
-                //     row,
-                //     col,
-                // ),
                 (
-                    self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
+                    // batch
                     0u32.runtime(),
-                    0u32.runtime(),
+                    self.tensor_reader.row_offset.read() + row * attention_tile_size.seq_q,
+                    col * attention_tile_size.head_dim,
                 ),
                 attention_tile_size.query_size(),
             ),
