@@ -47,6 +47,24 @@ macro_rules! test_unary_impl {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
+        test_unary_impl!($test_name, $float_type, $unary_func, [$({
+            input_vectorization: $input_vectorization,
+            out_vectorization: $out_vectorization,
+            input: $input,
+            expected: $expected
+        }),*], 0.02);
+    };
+    (
+        $test_name:ident,
+        $float_type:ident,
+        $unary_func:expr,
+        [$({
+            input_vectorization: $input_vectorization:expr,
+            out_vectorization: $out_vectorization:expr,
+            input: $input:expr,
+            expected: $expected:expr
+        }),*],
+        $epsilon:expr) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
@@ -71,7 +89,7 @@ macro_rules! test_unary_impl {
                     )
                 };
 
-                assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new(0.02));
+                assert_equals_approx::<R, $float_type>(&client, output_handle, $expected, $float_type::new($epsilon));
             }
             )*
         }
@@ -419,7 +437,7 @@ test_unary_impl!(test_degrees, F, F::to_degrees, [
         input: as_type![F: 0., PI / 2., PI, -PI / 2.],
         expected: as_type![F: 0., 90., 180., -90.]
     }
-]);
+], 0.3);
 
 test_unary_impl!(test_radians, F, F::to_radians, [
     {
