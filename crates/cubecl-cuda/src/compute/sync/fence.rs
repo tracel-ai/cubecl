@@ -36,10 +36,9 @@ impl Fence {
 
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
-    pub fn wait_sync(self) {
+    pub fn wait_sync(&self) {
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
         }
     }
 
@@ -50,7 +49,7 @@ impl Fence {
     /// # Notes
     ///
     /// The [stream](CUevent_st) must be initialized.
-    pub fn wait_async(self, stream: *mut CUstream_st) {
+    pub fn wait_async(&self, stream: *mut CUstream_st) {
         unsafe {
             cudarc::driver::result::stream::wait_event(
                 stream,
@@ -58,7 +57,34 @@ impl Fence {
                 CUevent_wait_flags::CU_EVENT_WAIT_DEFAULT,
             )
             .unwrap();
-            cudarc::driver::result::event::destroy(self.event).unwrap();
         }
+    }
+}
+
+impl Drop for Fence {
+    fn drop(&mut self) {
+        if !self.event.is_null() {
+            unsafe {
+                let _ = cudarc::driver::result::event::destroy(self.event);
+                self.event = core::ptr::null_mut();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Compile-time check: ensure fence wait methods take &self and can be referenced twice.
+    // This does not execute any CUDA calls; it only validates signatures.
+    #[test]
+    fn fence_wait_methods_are_ref_and_multiwait() {
+        let _sync: fn(&Fence) = Fence::wait_sync;
+        let _async: fn(&Fence, *mut CUstream_st) = Fence::wait_async;
+        // Taking the function pointers twice ensures no consumption semantics are required.
+        let _sync2: fn(&Fence) = Fence::wait_sync;
+        let _async2: fn(&Fence, *mut CUstream_st) = Fence::wait_async;
+        let _ = (_sync, _async, _sync2, _async2);
     }
 }

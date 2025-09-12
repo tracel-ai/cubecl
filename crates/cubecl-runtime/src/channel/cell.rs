@@ -85,6 +85,8 @@ where
         server.sync()
     }
 
+    
+
     fn get_resource(
         &self,
         binding: Binding,

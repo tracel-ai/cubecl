@@ -195,10 +195,10 @@ impl ComputeServer for WgpuServer {
         self.stream.flush();
     }
 
-    /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self) -> DynFut<()> {
         self.stream.sync()
     }
+
 
     fn start_profile(&mut self) -> ProfilingToken {
         self.stream.start_profile()

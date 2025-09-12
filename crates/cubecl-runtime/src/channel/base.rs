@@ -37,6 +37,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// Wait for the completion of every task in the server.
     fn sync(&self) -> DynFut<()>;
 
+
     /// Given a resource handle, return the storage resource.
     fn get_resource(
         &self,

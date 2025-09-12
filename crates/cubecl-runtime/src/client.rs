@@ -12,6 +12,7 @@ use crate::{
     },
     storage::{BindingResource, ComputeStorage},
 };
+use alloc::boxed::Box;
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -197,6 +198,55 @@ where
         self.profile_guard();
 
         self.channel.get_resource(binding)
+    }
+
+    /// Returns a future that resolves when all work submitted up to this call completes.
+    ///
+    /// Note: This forwards to the underlying channel `sync()`.
+    pub fn fence(&self) -> cubecl_common::future::DynFut<()> {
+        self.channel.sync()
+    }
+
+    /// Execute a kernel asynchronously. The returned future resolves when
+    /// the submitted work has completed on the device.
+    ///
+    /// # Safety
+    ///
+    /// This forwards to the underlying channel `execute`, which is unsafe. The caller must
+    /// guarantee the same safety invariants as [`ComputeChannel::execute`], including but not
+    /// limited to ensuring that the kernel does not perform out‑of‑bounds accesses when running
+    /// with the provided bindings and execution mode.
+    pub unsafe fn execute_async(
+        &self,
+        kernel: Server::Kernel,
+        count: CubeCount,
+        bindings: Bindings,
+        mode: ExecutionMode,
+    ) -> cubecl_common::future::DynFut<()> {
+        unsafe {
+            self.channel
+                .execute(kernel, count, bindings, mode, self.state.logger.clone());
+        }
+        self.channel.sync()
+    }
+
+    /// Asynchronously write bytes to buffers; returns a future that resolves when
+    /// the writes are visible on the device (after the device completes enqueued work).
+    pub fn write_async(
+        &self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+    ) -> cubecl_common::future::DynFut<Result<(), IoError>> {
+        let res = self.channel.write(descriptors);
+        match res {
+            Ok(()) => {
+                let fut = self.channel.sync();
+                Box::pin(async move {
+                    fut.await;
+                    Ok(())
+                })
+            }
+            Err(e) => Box::pin(async move { Err(e) }),
+        }
     }
 
     fn do_create(

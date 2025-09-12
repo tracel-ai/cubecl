@@ -116,6 +116,10 @@ where
     ),
     Flush,
     Sync(Callback<()>),
+    /// Create a completion fence for all work submitted up to this message.
+    /// The server must not block the message loop while waiting for completion;
+    /// instead it should arrange completion asynchronously and signal the callback.
+    // Removed: WorkDone
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
     AllocationMode(MemoryAllocationMode),
@@ -168,6 +172,7 @@ where
                         server.sync().await;
                         callback.send(()).await.unwrap();
                     }
+                    
                     Message::Flush => {
                         server.flush();
                     }
@@ -324,6 +329,8 @@ where
             handle_response(response.recv().await)
         })
     }
+
+    
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
         let (callback, response) = async_channel::unbounded();

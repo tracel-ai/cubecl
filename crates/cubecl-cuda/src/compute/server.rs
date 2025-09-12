@@ -544,6 +544,7 @@ impl ComputeServer for CudaServer {
         Box::pin(self.sync_stream_async())
     }
 
+
     fn start_profile(&mut self) -> ProfilingToken {
         // Wait for current work to be done.
         self.ctx.sync();

@@ -84,6 +84,8 @@ where
     /// Wait for the completion of every task in the server.
     fn sync(&mut self) -> DynFut<()>;
 
+    // Note: Completion fences are exposed via `sync()` implementations.
+
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,

@@ -48,16 +48,39 @@ impl Fence {
     /// # Notes
     ///
     /// The [stream](hipStream_t) must be initialized.
-    pub fn wait(self) {
+    pub fn wait(&self) {
         unsafe {
             let status = cubecl_hip_sys::hipStreamWaitEvent(self.stream, self.event, 0);
             assert_eq!(
                 status, HIP_SUCCESS,
                 "Should successfully wait for stream event"
             );
-            let status = cubecl_hip_sys::hipEventDestroy(self.event);
-            assert_eq!(status, HIP_SUCCESS, "Should destrdestroy the stream eventt");
         }
+    }
+}
+
+impl Drop for Fence {
+    fn drop(&mut self) {
+        if !self.event.is_null() {
+            unsafe {
+                // Best-effort destroy; ignore errors in Drop.
+                let _ = cubecl_hip_sys::hipEventDestroy(self.event);
+                self.event = std::ptr::null_mut();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Compile-time check: ensure fence wait method takes &self and can be referenced twice.
+    #[test]
+    fn fence_wait_method_is_ref_and_multiwait() {
+        let _wait: fn(&Fence) = Fence::wait;
+        let _wait2: fn(&Fence) = Fence::wait;
+        let _ = (_wait, _wait2);
     }
 }
 
