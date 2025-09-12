@@ -27,7 +27,11 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, contiguous_strides, storage::gpu::GpuStorage},
+    compute::{
+        HipContext, HipServer, contiguous_strides,
+        cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
+        storage::gpu::GpuStorage,
+    },
     device::AmdDevice,
 };
 
@@ -138,9 +142,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
-        // This is a guess - not clear if ROCM has a limit on the number of bindings,
-        // but it's dubious it's more than this.
-        max_bindings: 1024,
+        max_bindings: crate::device::AMD_MAX_BINDINGS,
         max_shared_memory_size: prop_max_shared_memory_size,
         max_cube_count,
         max_units_per_cube: prop_max_threads,
@@ -153,8 +155,23 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             Some(16)
         },
     };
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+    let memory_management_gpu = MemoryManagement::from_configuration(
+        storage,
+        &mem_properties,
+        options.memory_config.clone(),
+    );
+    // We use the same page size and memory pools configuration for CPU pinned memory, since we
+    // expect the CPU to have at least the same amount of RAM as GPU memory.
+    let memory_management_cpu = MemoryManagement::from_configuration(
+        PinnedMemoryStorage::new(),
+        &MemoryDeviceProperties {
+            max_page_size: mem_properties.max_page_size,
+            alignment: PINNED_MEMORY_ALIGNMENT as u64,
+            data_transfer_async: false,
+        },
+        options.memory_config,
+    );
+
     let mut device_props = DeviceProperties::new(
         &[Feature::Plane],
         mem_properties,
@@ -197,7 +214,12 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         grid_constants: false,
         supports_clusters: false,
     };
-    let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
+    let hip_ctx = HipContext::new(
+        memory_management_gpu,
+        memory_management_cpu,
+        comp_opts,
+        stream,
+    );
     let server = HipServer::new(mem_alignment, hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
