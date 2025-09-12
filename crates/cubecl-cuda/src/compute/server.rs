@@ -55,7 +55,7 @@ use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
-use crate::compute::CudaStorageType;
+//use crate::compute::CudaStorageType;
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
@@ -68,7 +68,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorageType>, // Set this to allow dispatching on the storage at runtime based on device properties and configuration.
+    memory_management: MemoryManagement<CudaStorage>, // Set this to allow dispatching on the storage at runtime based on device properties and configuration.
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -637,7 +637,7 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResourc
 
 impl CudaContext {
     pub fn new(
-        memory_management: MemoryManagement<CudaStorageType>,
+        memory_management: MemoryManagement<CudaStorage>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,

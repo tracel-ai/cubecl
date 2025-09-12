@@ -1,5 +1,5 @@
-use crate::compute::CudaStorageType;
-use crate::compute::VirtualStorage;
+//use crate::compute::CudaStorageType;
+//use crate::compute::VirtualStorage;
 use crate::{
     WmmaCompiler,
     compute::{CudaContext, CudaServer, CudaStorage, valid_strides},

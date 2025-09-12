@@ -1,6 +1,5 @@
-use crate::storage::{StorageHandle, StorageId};
-use cubecl_core::server::IoError;
-
+use crate::server::IoError;
+use crate::storage::{StorageHandle, StorageId, StorageUtilization};
 
 // Enum with possible states for a virtual block.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -13,56 +12,46 @@ pub enum VirtualHandleState {
 #[derive(Debug)]
 pub struct VirtualHandle {
     state: VirtualHandleState,
-    handle: StorageHandle
+    handle: StorageHandle,
 }
 
-
 impl VirtualHandle {
-
-
-    fn new(id: StorageId, utilization: StorageUtilization)-> Self{
+    pub fn new(id: StorageId, utilization: StorageUtilization) -> Self {
         Self {
-        state: VirtualHandleState::Unmapped,
-        handle: StorageHandle::new(
-            id,
-            utilization,
-        )}
+            state: VirtualHandleState::Unmapped,
+            handle: StorageHandle::new(id, utilization),
+        }
     }
 
-
-    fn size(&self) -> usize {
+    pub fn size(&self) -> u64 {
         self.handle.size()
     }
 
-    fn id(&self) -> StorageId {
+    pub fn id(&self) -> StorageId {
         self.handle.id
     }
 
-    fn offset(&self) -> usize {
+    pub fn offset(&self) -> u64 {
         self.handle.offset()
     }
 
     /// Map the block to mark it as mapped
-    fn set_mapped(&mut self) {
+    pub fn set_mapped(&mut self) {
         self.state = VirtualHandleState::Mapped;
     }
 
-    fn is_mapped(&self) -> bool {
+    pub fn is_mapped(&self) -> bool {
         matches!(self.state, VirtualHandleState::Mapped)
     }
 
-    fn is_unmapped(&self) -> bool {
+    pub fn is_unmapped(&self) -> bool {
         matches!(self.state, VirtualHandleState::Unmapped)
     }
 
     /// Marks the block as unmapped from physical memory.
-    fn set_unmapped(&mut self) {
+    pub fn set_unmapped(&mut self) {
         self.state = VirtualHandleState::Unmapped;
     }
-
-
-
-
 }
 pub trait VirtualStorage: Send {
     type Resource: Send;
@@ -84,7 +73,7 @@ pub trait VirtualStorage: Send {
     fn flush(&mut self);
 
     // Maps a physical memory range of an specified size to a set of contiguous virtual memory addresses. Returns a mapped handle.
-    fn map(&mut self,  size: usize)-> Result<VirtualHandle, IoError>;
+    fn map(&mut self, handle: &mut VirtualHandle) -> Result<(), IoError>;
 
     // Just unmaps a block of virtual memory, allowing for future reuse of its underlying physical handles.
     fn unmap(&mut self, id: StorageId);
