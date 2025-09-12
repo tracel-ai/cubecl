@@ -85,6 +85,7 @@ impl<D: Dialect> Item<D> {
         }
     }
 
+    /// Get the number of values packed into a single storage element. (i.e. `f16x2 -> 2`)
     pub fn packing_factor(&self) -> usize {
         self.elem.packing_factor()
     }
