@@ -1,6 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
+    compute::{CudaContext, CudaServer, storage::gpu::CudaStorage, valid_strides},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;

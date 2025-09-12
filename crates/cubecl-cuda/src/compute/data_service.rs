@@ -1,4 +1,4 @@
-use crate::compute::{CudaResource, sync::Fence};
+use crate::compute::{storage::gpu::CudaResource, sync::Fence};
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
 use cubecl_runtime::data_service::DataTransferId;

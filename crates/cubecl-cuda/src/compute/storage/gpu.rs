@@ -3,7 +3,7 @@ use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageU
 use cudarc::driver::{DriverError, sys::CUstream};
 use std::collections::HashMap;
 
-use super::uninit_vec;
+use crate::compute::uninit_vec;
 
 /// Buffer storage for cuda.
 pub struct CudaStorage {
@@ -78,7 +78,6 @@ impl CudaStorage {
 /// The memory resource that can be allocated for CUDA.
 #[derive(new, Debug)]
 pub struct CudaResource {
-    /// The wgpu buffer.
     pub ptr: u64,
     pub binding: *mut std::ffi::c_void,
     offset: u64,
@@ -108,6 +107,7 @@ impl CudaResource {
 
 impl ComputeStorage for CudaStorage {
     type Resource = CudaResource;
+
     fn alignment(&self) -> usize {
         self.mem_alignment
     }

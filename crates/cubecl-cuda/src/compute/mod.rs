@@ -1,13 +1,13 @@
 pub(crate) mod alloc_controlle;
+pub(crate) mod io;
+pub(crate) mod storage;
+pub(crate) mod sync;
+
 mod data_service;
 mod server;
-mod storage;
-
-pub mod sync;
 
 pub use data_service::*;
 pub use server::*;
-pub use storage::*;
 
 #[allow(clippy::uninit_vec)]
 pub fn uninit_vec<I>(len: usize) -> Vec<I> {

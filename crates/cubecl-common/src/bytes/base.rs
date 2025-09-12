@@ -66,12 +66,15 @@ pub trait AllocationController {
     ///
     /// Returns an [AllocationError] if the extension fails (e.g., due to insufficient memory or
     /// unsupported operation by the allocator).
+    #[allow(unused_variables)]
     fn grow(
         &mut self,
         allocation: &Allocation,
         size: usize,
         align: usize,
-    ) -> Result<Allocation, AllocationError>;
+    ) -> Result<Allocation, AllocationError> {
+        Err(AllocationError::UnsupportedOperation)
+    }
 
     /// Indicates whether the allocation uses the Rust [alloc](alloc) crate and can be safely
     /// managed by another data structure.
@@ -83,7 +86,9 @@ pub trait AllocationController {
     ///
     /// This allows the allocation's pointer to be converted into a native Rust `Vec` without
     /// requiring a new allocation.
-    fn can_be_detached(&self) -> bool;
+    fn can_be_detached(&self) -> bool {
+        false
+    }
 }
 
 /// Errors that may occur during memory allocation operations.
