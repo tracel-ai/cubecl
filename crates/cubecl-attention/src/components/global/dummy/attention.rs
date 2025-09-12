@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
+use crate::components::global::dummy::load::{DummyKeyLoader, QueryLoader, DummyValueLoader};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::dummy::FlashMatmulConfig;
@@ -39,7 +39,7 @@ impl<
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
+        query_loader: QueryLoader<AP>,
         mut key_loader: Self::KeyLoader,
         mut value_loader: Self::ValueLoader,
         mut writer: Self::Writer,
@@ -48,14 +48,13 @@ impl<
     ) {
         comment!("Global: Execute");
 
-        let query_reader = query_loader.reader(config);
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
         let (query, mut key_value, mut score_prob, mut accumulator) =
-            SA::init_fragments(query_reader, config.stage_config());
+            SA::init_fragments(query_loader, config.stage_config());
 
         let seq_kv_stage = config.tiling_scheme().seq_kv();
 
@@ -101,11 +100,11 @@ impl<
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config> {
+    ) -> QueryLoader<AP> {
         comment!("Global: Init Query Loader");
         let layout =
             SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
-        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout.virt()), config)
+        QueryLoader::<AP>::new(q_offset, query.view(layout.virt()))
     }
 
     fn init_key_loader(

@@ -10,15 +10,12 @@ use std::marker::PhantomData;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecision};
+use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
-pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct QueryLoader<AP: AttentionPrecision> {
     tensor_reader: TensorReader<AP::EI>,
-
-    #[cube(comptime)]
-    _phantom: PhantomData<G>,
 }
 
 #[derive(CubeType)]
@@ -40,22 +37,28 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
-    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords3d>, #[comptime] _config: G) -> Self {
+impl<AP: AttentionPrecision> QueryLoader<AP> {
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords3d>) -> Self {
         let tensor_reader = TensorReader::new(query, (0u32.runtime(), q_offset, 0u32.runtime()));
 
-        DummyQueryLoader::<AP, G> {
-            tensor_reader,
-            _phantom: PhantomData,
-        }
+        QueryLoader::<AP> { tensor_reader }
     }
 
-    pub fn reader(&self, #[comptime] config: G) -> QueryRegisterReader<AP::EI> {
-        comment!("Loading Query");
-
-        let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
+    pub fn get_tile<S: StageAttentionConfig>(
+        &self,
+        row: u32,
+        col: u32,
+        #[comptime] config: S,
+    ) -> Tile<AP::EI> {
+        let attention_tile_size = config.tiling_scheme().tile_size;
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.view.slice(
+                // (
+                //     // batch?
+                //     0u32.runtime(),
+                //     row,
+                //     col,
+                // ),
                 (
                     self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
                     0u32.runtime(),
@@ -67,7 +70,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
             layout: MatrixLayout::RowMajor,
         };
 
-        QueryRegisterReader::<AP::EI> { tile }
+        tile
     }
 }
 
@@ -204,20 +207,5 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
     pub fn advance_view(&mut self, offset: u32) {
         self.tensor_reader
             .update_view(offset, comptime!(ViewDirection::Row));
-    }
-}
-
-#[derive(CubeType)]
-pub struct QueryRegisterReader<E: Numeric> {
-    tile: Tile<E>,
-}
-
-#[cube]
-impl<E: Numeric> QueryRegisterReader<E> {
-    pub fn read_tile<FP: FlashPrecision, FM: FlashMatmul<FP>>(
-        &self,
-        #[comptime] config: FM::Config,
-    ) -> FM::Query {
-        FM::allocate_fill_query(&self.tile, config)
     }
 }

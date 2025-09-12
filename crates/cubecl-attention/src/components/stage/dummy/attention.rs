@@ -6,7 +6,7 @@ use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
-use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::global::dummy::QueryLoader;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowStats;
@@ -128,7 +128,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
                 TA::fill_key(
                     &value_tile,
-                    key_value.get_at_mut(hd, config),
+                    key_value.get_at_mut(vd, config),
                     config.tile_config(),
                 );
 
@@ -168,11 +168,13 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         comment!("Stage: Rescale");
         let partition_size = config.tiling_scheme().partition_size;
 
-        let (mut i, mut j) = comptime!((0u32, 0u32));
+        let mut i = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime!(partition_size.seq_q) {
+            let mut j = comptime!(0u32);
+
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime!(partition_size.val_dim) {
@@ -203,11 +205,13 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         comment!("Stage: Write");
         let partition_size = stage_config.tiling_scheme().partition_size;
 
-        let (mut i, mut j) = comptime!((0u32, 0u32));
+        let mut i = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime!(partition_size.seq_q) {
+            let mut j = comptime!(0u32);
+
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime!(partition_size.val_dim) {
@@ -230,11 +234,11 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     }
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
+        query_loader: QueryLoader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         (
-            Self::Query::new(query_reader, config),
+            Self::Query::new(query_loader, config),
             Self::KeyValue::new(config),
             Self::Score::new(config),
             Self::Accumulator::new(config),

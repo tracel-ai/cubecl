@@ -3,10 +3,8 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::{
-    AttentionPrecision, global::dummy::QueryRegisterReader, stage::StageAttentionConfig,
-    tile::TileAttention,
-};
+use crate::components::global::dummy::QueryLoader;
+use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 
 #[derive(CubeType)]
 pub struct Accumulators<
@@ -82,16 +80,27 @@ impl<
     S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
 > Queries<AP, TA, S>
 {
-    pub fn new(
-        query_reader: QueryRegisterReader<AP::EI>,
-        #[comptime] config: S,
-    ) -> Queries<AP, TA, S> {
+    pub fn new(query_loader: QueryLoader<AP>, #[comptime] config: S) -> Queries<AP, TA, S> {
         let partition_size = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
+        let mut i = comptime!(0u32);
+
         #[unroll]
-        for _ in 0..comptime!(partition_size.seq_q * partition_size.val_dim) {
-            sequence.push(TA::init_query(query_reader, config.tile_config()));
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..comptime!(partition_size.seq_q) {
+            let mut j = comptime!(0u32);
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..comptime!(partition_size.head_dim) {
+                let tile = query_loader.get_tile::<S>(i, j, config);
+                sequence.push(TA::init_query(&tile, config.tile_config()));
+
+                comptime![j += 1];
+            }
+
+            comptime![i += 1];
         }
 
         Queries::<AP, TA, S> {

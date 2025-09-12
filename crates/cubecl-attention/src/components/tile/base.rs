@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords3d};
 
-use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
@@ -88,10 +87,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    fn init_query(
-        query_reader: QueryRegisterReader<AP::EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query;
+    fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 

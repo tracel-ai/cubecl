@@ -6,10 +6,11 @@ use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::AttentionTilingScheme;
+use crate::components::global::dummy::QueryLoader;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
-    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
+    global::GlobalAttentionConfig,
     tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
 };
 
@@ -97,7 +98,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
+        query_reader: QueryLoader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }
@@ -118,5 +119,4 @@ pub trait StageAttentionConfig:
     fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
-
 }

@@ -6,7 +6,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, FlashIdent,
-    global::dummy::DummyQueryLoader, stage::StageAttentionConfig,
+    global::dummy::QueryLoader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -50,7 +50,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
+        query_loader: QueryLoader<AP>,
         key_loader: Self::KeyLoader,
         value_loader: Self::ValueLoader,
         writer: Self::Writer,
@@ -62,7 +62,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config>;
+    ) -> QueryLoader<AP>;
 
     fn init_key_loader(
         key: VirtualTensor<AP::EI>,

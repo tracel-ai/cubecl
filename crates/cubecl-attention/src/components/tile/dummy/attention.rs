@@ -6,7 +6,6 @@ use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
-use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
 use crate::components::tile::dummy::{
@@ -148,11 +147,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         Self::Accumulator::new(config)
     }
 
-    fn init_query(
-        query_reader: QueryRegisterReader<AP::EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query {
-        Self::Query::new(query_reader, config)
+    fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query {
+        Self::Query::new(tile, config)
     }
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
@@ -181,6 +177,12 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         score_prob: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     ) {
+        FM::score_matmul(
+            &query.fragment,
+            key_value.key(),
+            &mut score_prob.fragment,
+            config,
+        );
     }
 
     fn score_to_prob(
