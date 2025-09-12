@@ -1,7 +1,9 @@
 use super::uninit_vec;
 use cubecl_core::server::IoError;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use cubecl_runtime::storage::{VirtualHandle, VirtualStorage};
+use cubecl_runtime::storage::{
+    ComputeStorage, StorageHandle, StorageId, StorageUtilization,
+};
+use cubecl_runtime::storage::{VirtualBlock, VirtualStorage, VirtualMemoryManager};
 use cudarc::driver::DriverError;
 
 use cudarc::driver::sys::{
@@ -12,7 +14,7 @@ use cudarc::driver::sys::{
     cuMemAddressReserve, cuMemCreate, cuMemGetInfo_v2, cuMemMap, cuMemRelease, cuMemSetAccess,
     cuMemUnmap, cudaError_enum::CUDA_SUCCESS,
 };
-
+use cudarc::driver::sys::cuMemGetAllocationGranularity;
 use std::collections::{HashMap, VecDeque};
 
 /// Buffer storage for cuda.
@@ -176,104 +178,83 @@ impl ComputeStorage for CudaStorage {
 /// and bigger handles of 20MB.
 /// 2MB is the GPU memory page size (minimum granularity).
 // It is preferred to set the handle size to this amount since it allows for finer-grained handle reuse.
-#[derive(Debug)]
-enum CudaPhysicalHandle {
-    UnmappedHandle {
-        handle: CUmemGenericAllocationHandle,
-        size: u64,
-    },
-    MappedHandle {
-        handle: CUmemGenericAllocationHandle,
-        size: u64,
-        address: CUdeviceptr,
-    },
-}
+type CudaPhysicalHandle = CUmemGenericAllocationHandle;
 
-/// Sets memory access permissions for the mapped range
-/// [`device_id`] is a parameter to allow for setting access permissions to other devices in the future.
-fn set_access_permissions(addr: CUdeviceptr, size: usize, device_id: i32) {
-    let access_desc = CUmemAccessDesc {
-        location: CUmemLocation {
-            type_: CU_MEM_LOCATION_TYPE_DEVICE,
-            id: device_id,
-        },
-        flags: CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
-    };
-
-    unsafe { cuMemSetAccess(addr, size, &access_desc, 1) };
-}
-
-/// [`CudaVirtualStorage`] implementing the [`VirtualStorage`] trait
-pub struct CudaVirtualStorage {
-    /// CUDA device ID for this storage instance
+/// Physical memory allocator for CUDA handles
+pub struct CudaPhysicalAllocator {
     device_id: i32,
-    /// CUDA stream for asynchronous memory operations
-    stream: CUstream,
-    /// Base address of the reserved virtual address space
-    base_addr: CUdeviceptr,
-    /// Next available virtual address for new allocations
-    next_addr: CUdeviceptr,
-    /// Total size of the reserved virtual address space
-    virtual_size: u64,
-    /// Size of each physical memory handle (aligned to granularity)
-    handle_size: u64,
-    /// Memory alignment requirement for allocations
-    granularity: usize,
-    /// Maps storage IDs to their mapped set of physical handles, stored in sorted order.
-    /// This way, when the storage is asked for a specific virtualblock, it can successfully return the address of the first physical handle.
-    memory: HashMap<StorageId, Vec<CudaPhysicalHandle>>,
-
-    /// Helper for managing GPU kernel parameter bindings
-    ptr_bindings: PtrBindings,
-
-    /// Free physical handles available for reuse
+    memory: HashMap<StorageId, CudaPhysicalHandle>,
     deallocations: VecDeque<CudaPhysicalHandle>,
-    // Vector of free virtual pages.
-    free_pages: Vec<CUdeviceptr>,
+    granularity: usize
 }
 
-impl CudaVirtualStorage {
-    /// Creates a new virtual storage allocator.
-    pub fn new(
-        device_id: i32,
-        stream: CUstream,
-        virtual_size: u64,
-        granularity: u64,
-        handle_size: u64,
-    ) -> Self {
-        let mut base_addr = 0;
-        let handle_size = handle_size.next_multiple_of(granularity);
-        let virtual_size = virtual_size.next_multiple_of(granularity);
-        let max_pages = virtual_size.div_ceil(handle_size); // This storage currently works with fixed size memory pages.
+impl CudaPhysicalAllocator {
+    pub fn new(device_id: i32, granularity: usize) -> Self {
 
-        if let Err(e) =
-            unsafe { cuMemAddressReserve(&mut base_addr, virtual_size as usize, 0, 0, 0).result() }
-        {
-            panic!("Error while attempting to reserve memory: {e}");
-        };
 
         Self {
             device_id,
-            stream,
-            base_addr,
-            next_addr: base_addr,
-            virtual_size,
-            handle_size,
-            granularity: granularity as usize,
             memory: HashMap::new(),
-            ptr_bindings: PtrBindings::new(None),
             deallocations: VecDeque::new(),
-            free_pages: Vec::with_capacity(max_pages as usize),
+            granularity
         }
     }
-    /// Creates a new physical memory handle
-    fn get_or_create_physical_handle(&mut self, size: u64) -> Result<CudaPhysicalHandle, IoError> {
-        // Try reuse an unmapped handle first.
-        // As all handles are the same size this is super efficient
-        if let Some(handle) = self.deallocations.pop_front() {
-            return Ok(handle);
-        }
+}
 
+impl ComputeStorage for CudaPhysicalAllocator {
+    type Resource = CudaPhysicalHandle;
+
+    fn alignment(&self) -> usize {
+        // Physical handles are aligned to handle_size
+        self.granularity
+    }
+
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        // Return the physical handle for the given storage ID
+        *self.memory.get(&handle.id).expect("Invalid storage handle")
+    }
+
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+
+        let size = size.next_multiple_of(self.granularity as u64); // makes sure the allocations are always multiples of gpu page size.
+        // Try reuse an unmapped handle first
+        let cuda_handle = if let Some(reused_handle) = self.deallocations.pop_front() {
+            reused_handle
+        } else {
+            // Create new handle
+            self.create_physical_handle(size)?
+        };
+
+        let id = StorageId::new();
+        self.memory.insert(id, cuda_handle);
+
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization {
+                offset: 0,
+                size, // Physical handles should have fixed size, but this must be managed by the VirtualStorage
+            },
+        ))
+    }
+
+    fn dealloc(&mut self, id: StorageId) {
+        if let Some(cuda_handle) = self.memory.remove(&id) {
+            self.deallocations.push_back(cuda_handle);
+        }
+    }
+
+    fn flush(&mut self) {
+        for physical_handle in self.deallocations.drain(..) {
+            unsafe {
+                cuMemRelease(physical_handle);
+            }
+        }
+    }
+}
+
+impl CudaPhysicalAllocator {
+    /// Creates a new CUDA physical memory handle
+    fn create_physical_handle(&self, size: u64) -> Result<CudaPhysicalHandle, IoError> {
         let mut handle = 0;
         let handle_type = {
             #[cfg(unix)]
@@ -297,80 +278,95 @@ impl CudaVirtualStorage {
             allocFlags: Default::default(),
         };
 
-        if unsafe { cuMemCreate(&mut handle, size as usize, &prop, 0).result() }.is_err() {
+        if unsafe { cuMemCreate(&mut handle, size as usize, &prop, 0).result() }
+            .is_err()
+        {
             return Err(IoError::BufferTooBig(size as usize));
         }
 
-        Ok(CudaPhysicalHandle::UnmappedHandle { handle, size })
+        Ok(handle)
     }
+}
 
-    /// Processes all pending deallocations, releasing physical memory.
-    fn perform_deallocations(&mut self) {
-        for physical_handle in self.deallocations.drain(..) {
-            match physical_handle {
-                CudaPhysicalHandle::UnmappedHandle { handle, .. } => unsafe {
-                    cuMemRelease(handle);
-                },
-                CudaPhysicalHandle::MappedHandle {
-                    handle,
-                    address,
-                    size,
-                } => {
-                    // Handle is mapped.
-                    // This should not happen as handles have already been unmapped in the dealloc method.
-                    // Unmap the handle and push to deallocation queue.
-                    unsafe {
-                        // Unmap the mapped memory address
-                        cuMemUnmap(address, size as usize);
-                        cuMemRelease(handle);
-                    }
-                    match self.free_pages.binary_search(&address) {
-                        Ok(_) => {} // Already exists, no-op
-                        Err(pos) => self.free_pages.insert(pos, address),
-                    }
-                }
-            }
+/// CUDA virtual memory mapper implementation
+pub struct CudaVirtualMemoryManager {
+    device_id: i32,
+    base_addr: CUdeviceptr,
+    virtual_size: u64,
+    handle_size: u64,
+    /// Free virtual pages available for allocation
+    /// Must stay sorted to guarantee no memory fragmentation happens
+    free_pages: Vec<CUdeviceptr>,
+}
+
+impl CudaVirtualMemoryManager {
+    pub fn new(virtual_size: u64, handle_size: u64, granularity: u64, device_id: i32) -> Self {
+        let mut base_addr = 0;
+        let handle_size = handle_size.next_multiple_of(granularity);
+        let virtual_size = virtual_size.next_multiple_of(granularity);
+        let max_pages = virtual_size.div_ceil(handle_size);
+
+        if let Err(e) = unsafe {
+            cuMemAddressReserve(
+                &mut base_addr,
+                virtual_size as usize,
+                0, // third argument is the preferred address to reserve the full memory range.
+                // If we set 0, CUDA will automatically choose the start address for us.
+                0,
+                0,
+            )
+            .result()
+        } {
+            panic!("Error while attempting to reserve memory: {e}");
+        }
+
+        let free_pages: Vec<CUdeviceptr> = (0..max_pages)
+            .map(|i| base_addr + i * handle_size)
+            .collect();
+        Self {
+            device_id,
+            base_addr,
+            virtual_size,
+            handle_size,
+            free_pages,
         }
     }
 
-    fn get_address_for_block(&self, id: StorageId) -> Option<CUdeviceptr> {
-        if let Some(mapped_handles) = self.memory.get(&id) {
-            // Runtime check to validate all handles are in mapped state
-            assert!(
-                mapped_handles
-                    .iter()
-                    .all(|h| matches!(h, CudaPhysicalHandle::MappedHandle { .. })),
-                "Attempted to get resource but some physical handles are not mapped"
-            );
+    /// Sets memory access permissions for the mapped range
+    fn set_access_permissions(&self, addr: u64, size: u64, device_id: i32) {
+        let access_desc = CUmemAccessDesc {
+            location: CUmemLocation {
+                type_: CU_MEM_LOCATION_TYPE_DEVICE,
+                id: device_id,
+            },
+            flags: CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
+        };
 
-            // Get the base address of the block, which is the address of the first physical handle.
-            let base_addr =
-                if let CudaPhysicalHandle::MappedHandle { address, .. } = &mapped_handles[0] {
-                    *address
-                } else {
-                    unreachable!()
-                };
-            Some(base_addr)
-        } else {
-            None
-        }
+        unsafe { cuMemSetAccess(addr, size as usize, &access_desc, 1) };
     }
+}
 
-    /// Virtual memory allocation methods.
-    /// Allocates a contiguous range of virtual memory addresses.
-    /// Will return None if it cannot find a range of contiguous addresses of enough size.
-    fn alloc_virtual(&mut self, page_count: usize) -> Option<u64> {
-        if page_count == 0 || page_count > self.free_pages.len() {
-            return None;
+impl VirtualMemoryManager for CudaVirtualMemoryManager {
+    type VirtualAddress = CUdeviceptr;
+    type PhysicalHandle = CudaPhysicalHandle;
+
+    fn reserve_range(&mut self, pages: usize) -> Result<Self::VirtualAddress, IoError> {
+        if pages == 0 {
+            return Err(IoError::InvalidHandle);
+        }
+
+        // If we don't have enough free pages, fail the allocation
+        if pages > self.free_pages.len() {
+            return Err(IoError::BufferTooBig(pages * self.handle_size as usize));
         }
 
         // Look for a contiguous range in the free pages vector
-        for i in 0..=self.free_pages.len() - page_count {
+        for i in 0..=self.free_pages.len() - pages {
             let base = self.free_pages[i];
             let mut is_contiguous = true;
 
             // Verify the subsequent addresses are contiguous
-            for j in 1..page_count {
+            for j in 1..pages {
                 if self.free_pages[i + j] != base + (j as u64 * self.handle_size) {
                     is_contiguous = false;
                     break;
@@ -378,23 +374,145 @@ impl CudaVirtualStorage {
             }
 
             if is_contiguous {
-                // Remove the pages from the vector (backwards)
-                for j in (0..page_count).rev() {
+                // Remove the pages from the vector (backwards to maintain indices)
+                for j in (0..pages).rev() {
                     self.free_pages.remove(i + j);
                 }
-                return Some(base);
+                return Ok(base);
             }
         }
 
-        None
+        // No contiguous range found
+        Err(IoError::BufferTooBig(pages * self.handle_size as usize))
     }
 
-    /// Returns a contiguous virtual memoy range back to the list of free pages.
-    fn dealloc_virtual(&mut self, addr: u64) {
-        // Insert on correct position to keep the order.
-        match self.free_pages.binary_search(&addr) {
-            Ok(_) => {} // Already exists, no-op
-            Err(pos) => self.free_pages.insert(pos, addr),
+    fn release_range(&mut self, addr: Self::VirtualAddress, pages: usize) {
+        // Add each page back to free list
+        for i in 0..pages {
+            let page_addr = addr + (i as u64 * self.handle_size);
+            match self.free_pages.binary_search(&page_addr) {
+                Ok(_) => {} // Already exists, no-op
+                Err(pos) => self.free_pages.insert(pos, page_addr),
+            }
+        }
+    }
+
+    fn page_size(&self) -> u64 {
+        self.handle_size
+    }
+
+    fn map_handle(
+        &mut self,
+        virtual_addr: Self::VirtualAddress,
+        physical_handle: Self::PhysicalHandle
+    ) -> Result<(), IoError> {
+
+
+        unsafe {
+            let res = cuMemMap(
+                virtual_addr,
+                self.handle_size as usize,
+                0, // offset in the handle
+                physical_handle,                     // CUmemGenericAllocationHandle
+                0,                                   // flags
+            );
+            if res != CUDA_SUCCESS {
+                return Err(IoError::InvalidHandle);
+            }
+        }
+
+        // Set access permissions
+        self.set_access_permissions(virtual_addr, self.handle_size, self.device_id);
+        Ok(())
+    }
+
+    fn unmap_handle(&mut self, virtual_addr: Self::VirtualAddress) -> Result<(), IoError> {
+        unsafe {
+            let res = cuMemUnmap(virtual_addr, self.handle_size as usize);
+            if res != CUDA_SUCCESS {
+                return Err(IoError::InvalidHandle);
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Drop for CudaVirtualMemoryManager {
+    fn drop(&mut self) {
+        unsafe {
+            cuMemAddressFree(self.base_addr, self.virtual_size as usize);
+        }
+    }
+}
+
+unsafe impl Send for CudaVirtualMemoryManager {}
+
+/// CUDA Virtual Storage that orchestrates physical allocation and virtual mapping
+pub struct CudaVirtualStorage {
+    /// Physical memory allocator
+    physical_allocator: CudaPhysicalAllocator,
+    /// Virtual memory manager (handles both address management and mapping)
+    virtual_manager: CudaVirtualMemoryManager,
+    /// Memory alignment requirement
+    granularity: usize, // Typically we will set handle size to this number
+    /// Helper for managing GPU kernel parameter bindings
+    ptr_bindings: PtrBindings,
+    /// Maps storage IDs to their mapped virtual addresses
+    /// The Storage id here points to the first physical handle of this memory block.
+    memory: HashMap<StorageId, (VirtualBlock, Option<CUdeviceptr>)>,
+}
+
+impl CudaVirtualStorage {
+    pub fn new(device_id: i32, virtual_size: u64,  handle_size: u64) -> Self {
+        // I think this makes more sense here.
+        let mut granularity: usize = 0;
+
+        // Handle type will differ by platform
+        let handle_type = {
+            #[cfg(unix)]
+            {
+                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+            }
+            #[cfg(target_os = "windows")]
+            {
+                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
+            }
+        };
+
+        // Define CUDA allocation properties for pinned, device-local memory.
+        // Sharing mappings accross devices is still not implemented on [`VirtualStorage`].
+        let prop = CUmemAllocationProp {
+            type_: CU_MEM_ALLOCATION_TYPE_PINNED,
+            requestedHandleTypes: handle_type,
+            location: CUmemLocation {
+                type_: CU_MEM_LOCATION_TYPE_DEVICE,
+                id: device_id,
+            },
+            win32HandleMetaData: std::ptr::null_mut(),
+            allocFlags: Default::default(),
+        };
+
+        // Query allocation granularity (GPU page size)
+        unsafe {
+            cuMemGetAllocationGranularity(
+                &mut granularity,
+                &prop,
+                cudarc::driver::sys::CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+            )
+        };
+
+        Self {
+            physical_allocator: CudaPhysicalAllocator::new(device_id, granularity),
+            virtual_manager: CudaVirtualMemoryManager::new(
+                virtual_size,
+                handle_size,
+                granularity as u64,
+                device_id,
+            ),
+            granularity: granularity,
+            ptr_bindings: PtrBindings::new(None),
+            memory: HashMap::new(),
         }
     }
 }
@@ -406,237 +524,121 @@ impl VirtualStorage for CudaVirtualStorage {
         self.granularity
     }
 
-    fn get(&mut self, handle: &VirtualHandle) -> Self::Resource {
-        let mapped_handles = self.memory.get(&handle.id()).unwrap();
+    fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+        let (block, virtual_addr) = self
+            .memory
+            .get(&handle.id)
+            .expect("Invalid storage handle");
 
-        // Runtime check to validate all handles are in mapped state
-        assert!(
-            mapped_handles
-                .iter()
-                .all(|h| matches!(h, CudaPhysicalHandle::MappedHandle { .. })),
-            "Attempted to get resource but some physical handles are not mapped"
-        );
+        let virtual_addr = virtual_addr.expect("This block is not mapped yet. Please make sure that the block is mapped to a virtual memory range before calling this method.");
 
-        // Get the base address of the block, which is the address of the first physical handle.
-        let base_addr = if let CudaPhysicalHandle::MappedHandle { address, .. } = &mapped_handles[0]
-        {
-            *address
-        } else {
-            unreachable!()
-        };
-
-        let offset = handle.offset();
-        let size = handle.size();
-        let ptr = self.ptr_bindings.register(base_addr + offset);
+        let offset = block.offset();
+        let size = block.size();
+        let ptr = self.ptr_bindings.register(virtual_addr + offset);
 
         CudaResource::new(
             *ptr,
-            ptr as *const cudarc::driver::sys::CUdeviceptr as *mut std::ffi::c_void,
+            ptr as *const CUdeviceptr as *mut std::ffi::c_void,
             offset,
             size,
         )
     }
 
-    /// Allocates a physical block of the specified size.
-    /// Does not perform any mapping.
-    fn alloc(&mut self, size: u64) -> Result<VirtualHandle, IoError> {
-        let id = StorageId::new();
+    fn alloc(&mut self, size: u64) -> Result<VirtualBlock, IoError> {
+        let aligned_size = size.next_multiple_of(self.granularity as u64);
+        let handle_size = self.virtual_manager.page_size(); // will return the configured handle size
+        let num_handles = aligned_size.div_ceil(handle_size) as usize;
 
-        let virtual_size = size.next_multiple_of(self.granularity as u64);
-        let num_handles = virtual_size.div_ceil(self.handle_size) as usize;
-
-        let mut block_handles = Vec::with_capacity(num_handles);
-        for _ in 0..num_handles {
-            // Create physical handle
-            let handle = self.get_or_create_physical_handle(size)?;
-            block_handles.push(handle);
+        // Allocate physical handles
+        let mut handles = Vec::with_capacity(num_handles);
+        for _ in 1..num_handles {
+            let handle = self.physical_allocator.alloc(handle_size)?;
+            handles.push(handle);
         }
 
-        self.memory.insert(id, block_handles);
-
-        Ok(VirtualHandle::new(
-            id,
-            StorageUtilization { offset: 0, size },
-        ))
+        // Create a new unmapped handle
+        Ok(VirtualBlock::new(handles, aligned_size, 0))
     }
 
-    /// Sets a physical block for deallocation.
-    /// Unmaps all handles and pushes them to the deallocation queue
-    fn dealloc(&mut self, id: StorageId) {
-        if let Some(handles) = self.memory.remove(&id) {
-            for handle in handles {
-                match handle {
-                    CudaPhysicalHandle::MappedHandle {
-                        handle,
-                        size,
-                        address,
-                    } => {
-                        // Handle is mapped.
-                        // Unmap the handle and push to deallocation queue.
-                        unsafe {
-                            // Unmap the mapped memory address
-                            let res = cuMemUnmap(address, size as usize);
-                            if res != CUDA_SUCCESS {
-                                panic!("cuMemUnmap failed: {:?}", res);
-                            }
-                        }
-                        self.dealloc_virtual(address);
-                        // Return the handle for future reuse.
-                        self.deallocations
-                            .push_back(CudaPhysicalHandle::UnmappedHandle { handle, size });
-                    }
-                    CudaPhysicalHandle::UnmappedHandle { handle, size } => {
-                        // Already unmapped, just push queue for future reuse.
-                        self.deallocations
-                            .push_back(CudaPhysicalHandle::UnmappedHandle { handle, size });
-                    }
-                }
-            }
+    fn map(&mut self, block: &mut VirtualBlock) -> Result<(), IoError> {
+        if block.is_mapped() {
+            return Err(IoError::InvalidHandle);
         }
-    }
 
-    /// Flushes all pending deallocations
-    fn flush(&mut self) {
-        self.perform_deallocations();
-    }
+        let first_id = block.id();
+        let pages = block.pages_needed(self.virtual_manager.page_size());
 
-    /// Maps enough physical handles to form a contiguous virtual block of the specified size.
-    fn map(&mut self, handle: &mut VirtualHandle) -> Result<(), IoError> {
-        let id = handle.id();
+        // Reserve virtual address space
+        let virtual_addr = self.virtual_manager.reserve_range(pages)?;
 
-        let aligned_size = handle.size().next_multiple_of(self.granularity as u64);
-        assert!(
-            handle.is_unmapped(),
-            "Cannot re-map an already mapped handle!"
-        );
-        let num_handles = aligned_size.div_ceil(self.handle_size);
-        let base_addr = self
-            .alloc_virtual(num_handles as usize)
-            .ok_or(IoError::BufferTooBig(aligned_size as usize))?;
-        // The required handles of this block should be in memory.
-        let physical_handles = self.memory.get_mut(&id).expect("Invalid storage ID in map");
+        // Map each physical handle
+        for (i, physical_descriptor) in block.physical_handles.iter().enumerate() {
+            let page_addr = virtual_addr + (i as u64 * self.virtual_manager.page_size());
+            let cuda_handle = self.physical_allocator.get(physical_descriptor);
+            self.virtual_manager
+                .map_handle(page_addr, cuda_handle)?;
+        }
 
-        for (i, ph) in physical_handles.iter_mut().enumerate() {
-            let virt_addr = base_addr + (i as u64) * self.handle_size;
-
-            match ph {
-                CudaPhysicalHandle::UnmappedHandle { handle, size } => {
-                    unsafe {
-                        let res = cuMemMap(
-                            virt_addr,
-                            (*size) as usize,
-                            0,       // offset in the handle
-                            *handle, // CUmemGenericAllocationHandle
-                            0,       // flags
-                        );
-                        if res != CUDA_SUCCESS {
-                            return Err(IoError::InvalidHandle);
-                        }
-                    }
-                    // Set access permissions
-                    set_access_permissions(virt_addr, (*size) as usize, self.device_id);
-
-                    // Update the entry to create a mapped handle.
-                    *ph = CudaPhysicalHandle::MappedHandle {
-                        handle: *handle,
-                        size: *size,
-                        address: virt_addr,
-                    };
-                }
-                CudaPhysicalHandle::MappedHandle { .. } => {
-                    /// This would indicate memory corruption
-                    panic!("Handle already mapped for StorageId {:?}", id);
-                }
-            }
+        // Update state
+        block.set_mapped();
+        if let Some((stored_block, slot)) = self.memory.get_mut(&first_id) {
+            stored_block.set_mapped();
+            *slot = Some(virtual_addr);
         }
 
         Ok(())
     }
 
-    /// Unmaps all handles associated with the given storage ID.
-    /// Leaves the handles in memory (still owned by this allocator) but in unmapped state,
-    /// ready for reuse or eventual deallocation.
+    // No op if the block is already unmapped
     fn unmap(&mut self, id: StorageId) {
-        if let Some(handles) = self.memory.get_mut(&id) {
-            for ph in handles.iter_mut() {
-                match ph {
-                    CudaPhysicalHandle::MappedHandle {
-                        handle,
-                        size,
-                        address,
-                    } => {
-                        // Call unmap over the virtual address
-                        unsafe {
-                            let res = cuMemUnmap(*address, (*size) as usize);
-                            if res != CUDA_SUCCESS {
-                                panic!("cuMemUnmap failed for StorageId {:?}: {:?}", id, res);
-                            }
-                        }
+        if let Some((block, some_addr)) = self.memory.get_mut(&id) {
+            if let Some(addr) = some_addr.take() {
+                let pages = block.pages_needed(self.virtual_manager.page_size());
 
-                        match self.free_pages.binary_search(&address) {
-                            Ok(_) => {} // Already exists, no-op
-                            Err(pos) => self.free_pages.insert(pos, *address),
-                        }
-
-                        // Convert from mapped to unmapped
-                        *ph = CudaPhysicalHandle::UnmappedHandle {
-                            handle: *handle,
-                            size: *size,
-                        };
-                    }
-                    CudaPhysicalHandle::UnmappedHandle { .. } => {
-                        //  No-op in this case. The handle is already unmapped
-                    }
+                // Unmap each page
+                for i in 0..pages {
+                    let page_addr = addr + (i as u64 * self.virtual_manager.page_size());
+                    let _ = self.virtual_manager.unmap_handle(page_addr);
                 }
+
+                // Release virtual address space
+                self.virtual_manager.release_range(addr, pages);
+                block.set_unmapped();
             }
         }
     }
-}
 
-impl Drop for CudaVirtualStorage {
-    fn drop(&mut self) {
-        // Flush all pending deallocations
-        self.perform_deallocations();
+    fn dealloc(&mut self, id: StorageId) {
+        // First unmap if still mapped
+        self.unmap(id);
 
-        // Unmap all blocks that are in memory
-        for (_id, handles) in self.memory.drain() {
-            for ph in handles {
-                match ph {
-                    CudaPhysicalHandle::MappedHandle {
-                        handle,
-                        size,
-                        address,
-                    } => {
-                        // First unmap
-                        unsafe {
-                            let _ = cuMemUnmap(address, size as usize);
-                        }
-
-                        match self.free_pages.binary_search(&address) {
-                            Ok(_) => {} // Already exists, no-op
-                            Err(pos) => self.free_pages.insert(pos, address),
-                        }
-
-                        // Then release the physical handle
-                        unsafe {
-                            cuMemRelease(handle);
-                        }
-                    }
-                    CudaPhysicalHandle::UnmappedHandle { handle, .. } => {
-                        //  If already unmapped just release the handle.
-                        unsafe {
-                            cuMemRelease(handle);
-                        }
-                    }
-                }
+        // Then deallocate physical handles
+        if let Some((block, _)) = self.memory.remove(&id) {
+            for descriptor in block.physical_handles {
+                self.physical_allocator.dealloc(descriptor.id);
             }
         }
+    }
 
-        // Free virtual address space
-        unsafe {
-            cuMemAddressFree(self.base_addr, self.virtual_size as usize);
-        }
+    fn flush(&mut self) {
+        self.physical_allocator.flush();
     }
 }
 
 unsafe impl Send for CudaVirtualStorage {}
+
+
+impl Drop for CudaVirtualStorage {
+    fn drop(&mut self) {
+        // First, unmap and deallocate all virtual blocks
+        let block_ids: Vec<StorageId> = self.memory.keys().copied().collect();
+
+        for block_id in block_ids {
+            self.dealloc(block_id);
+        }
+
+        // Flush any remaining pending deallocations
+        self.flush();
+
+    }
+}
