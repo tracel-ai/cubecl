@@ -1,5 +1,5 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{alloc_controller::WgpuAllocController, storage::WgpuResource};
+use crate::{WgpuResource, controller::WgpuAllocController};
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},

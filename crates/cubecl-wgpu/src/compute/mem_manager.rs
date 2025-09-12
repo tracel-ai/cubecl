@@ -1,4 +1,4 @@
-use crate::storage::{WgpuResource, WgpuStorage};
+use crate::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
