@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_common::stream_id::StreamId;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -55,9 +56,10 @@ where
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut server = self.server.borrow_mut();
-        server.create(descriptors)
+        server.create(descriptors, stream_id)
     }
 
     fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {

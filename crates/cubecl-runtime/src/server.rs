@@ -15,7 +15,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
+use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
@@ -49,16 +49,20 @@ where
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+    fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
-            .create(vec![AllocationDescriptor::new(
-                AllocationKind::Contiguous,
-                &[data.len()],
-                1,
-            )])?
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
             .remove(0);
         self.write(vec![(
             CopyDescriptor::new(
@@ -172,6 +176,10 @@ pub struct Handle {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
 }
@@ -356,6 +364,10 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Size in bytes
     size: u64,
 }
@@ -430,6 +442,8 @@ impl Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 
@@ -456,6 +470,8 @@ impl Clone for Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }
@@ -467,6 +483,8 @@ impl Clone for Binding {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }

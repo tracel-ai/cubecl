@@ -1,7 +1,10 @@
 use crate::WgpuResource;
 
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::{
+    profile::{ProfileDuration, TimingMethod},
+    stream_id::StreamId,
+};
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
@@ -358,8 +361,8 @@ impl WgpuStream {
         }
     }
 
-    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size)
+    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
+        self.mem_manage.reserve(size, stream_id)
     }
 
     fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

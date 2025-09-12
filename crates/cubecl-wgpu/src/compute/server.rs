@@ -3,6 +3,7 @@ use super::{WgpuStorage, stream::WgpuStream};
 use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
+use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
 use cubecl_core::server::{DataTransferService, ProfileError, ProfilingToken};
 use cubecl_core::{
@@ -126,6 +127,7 @@ impl ComputeServer for WgpuServer {
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         let strides = descriptors
@@ -141,7 +143,7 @@ impl ComputeServer for WgpuServer {
             .map(|it| it.next_multiple_of(align))
             .sum::<usize>();
 
-        let mem_handle = self.stream.empty(total_size as u64)?;
+        let mem_handle = self.stream.empty(total_size as u64, stream_id)?;
         let handles = offset_handles(mem_handle, &sizes, align);
 
         Ok(handles

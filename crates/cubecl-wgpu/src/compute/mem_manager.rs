@@ -1,3 +1,4 @@
+use cubecl_common::stream_id::StreamId;
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
@@ -58,11 +59,12 @@ impl WgpuMemManager {
         }
     }
 
-    pub(crate) fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
+    pub(crate) fn reserve(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
         Ok(Handle::new(
             self.memory_pool.reserve(size)?,
             None,
             None,
+            stream_id,
             size,
         ))
     }

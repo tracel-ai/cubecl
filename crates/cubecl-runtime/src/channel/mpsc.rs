@@ -4,6 +4,7 @@ use cubecl_common::{
     ExecutionMode,
     future::{DynFut, spawn_detached_fut},
     profile::ProfileDuration,
+    stream_id::StreamId,
 };
 
 use super::ComputeChannel;
@@ -95,6 +96,7 @@ where
 {
     Create(
         Vec<AllocationDescriptorOwned>,
+        StreamId,
         Callback<Result<Vec<Allocation>, IoError>>,
     ),
     Read(
@@ -139,9 +141,9 @@ where
         spawn_detached_fut(async move {
             while let Ok(message) = receiver.recv().await {
                 match message {
-                    Message::Create(descriptors, callback) => {
+                    Message::Create(descriptors, stream_id, callback) => {
                         let descriptors = descriptors.iter().map(|it| it.as_ref()).collect();
-                        let data = server.create(descriptors);
+                        let data = server.create(descriptors, stream_id);
                         callback.send(data).await.unwrap();
                     }
                     Message::Read(descriptors, callback) => {
@@ -218,6 +220,7 @@ where
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let descriptors = descriptors.into_iter().map(|it| it.into()).collect();
 
@@ -225,7 +228,7 @@ where
 
         self.state
             .sender
-            .send_blocking(Message::Create(descriptors, callback))
+            .send_blocking(Message::Create(descriptors, stream_id, callback))
             .unwrap();
 
         handle_response(response.recv_blocking())

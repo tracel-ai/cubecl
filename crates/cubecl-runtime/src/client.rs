@@ -206,7 +206,9 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        let allocations = self.channel.create(descriptors.clone())?;
+        let allocations = self
+            .channel
+            .create(descriptors.clone(), StreamId::current())?;
         let descriptors = descriptors
             .into_iter()
             .zip(allocations.iter())
@@ -288,7 +290,7 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        self.channel.create(descriptors)
+        self.channel.create(descriptors, StreamId::current())
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -585,7 +587,7 @@ where
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor])
+            .create(vec![alloc_descriptor], StreamId::current())
             .unwrap()
             .remove(0);
 
@@ -615,7 +617,7 @@ where
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor])
+            .create(vec![alloc_descriptor], StreamId::current())
             .unwrap()
             .remove(0);
 

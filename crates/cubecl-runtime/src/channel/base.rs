@@ -1,4 +1,4 @@
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
+use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
 
 use crate::{
     data_service::DataTransferId,
@@ -20,6 +20,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
     /// Given bindings, returns owned resources as bytes
