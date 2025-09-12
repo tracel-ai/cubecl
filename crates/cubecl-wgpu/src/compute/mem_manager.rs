@@ -1,21 +1,22 @@
+use crate::storage::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
 };
 use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryHandle, MemoryManagement, SliceHandle},
+    memory_management::{
+        MemoryDeviceProperties, MemoryHandle, MemoryManagement, SliceBinding, SliceHandle,
+    },
     storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
-
-use super::{WgpuResource, WgpuStorage};
 
 #[derive(Debug)]
 pub(crate) struct WgpuMemManager {
     memory_pool: MemoryManagement<WgpuStorage>,
     memory_uniforms: MemoryManagement<WgpuStorage>,
+    memory_pool_staging: MemoryManagement<WgpuStorage>,
     uniforms: Vec<SliceHandle>,
-    pub alignment: u64,
 }
 
 impl WgpuMemManager {
@@ -37,7 +38,19 @@ impl WgpuMemManager {
                     | BufferUsages::INDIRECT,
             ),
             &memory_properties,
-            memory_config.clone(),
+            memory_config,
+        );
+
+        let memory_staging = MemoryManagement::from_configuration(
+            WgpuStorage::new(
+                wgpu::COPY_BUFFER_ALIGNMENT as usize,
+                device.clone(),
+                wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            ),
+            &memory_properties,
+            // Unfortunately, we can't reuse a different part of a buffer for different reads, so we
+            // can't have a single binding with multiple slices allocated.
+            MemoryConfiguration::ExclusivePages,
         );
 
         // TODO: In the future this should not need STORAGE, if cube writes out all
@@ -54,9 +67,9 @@ impl WgpuMemManager {
 
         Self {
             memory_pool: memory_main,
+            memory_pool_staging: memory_staging,
             memory_uniforms,
             uniforms: vec![],
-            alignment: memory_properties.alignment,
         }
     }
 
@@ -67,6 +80,20 @@ impl WgpuMemManager {
             None,
             size,
         ))
+    }
+
+    pub(crate) fn reserve_staging(
+        &mut self,
+        size: u64,
+    ) -> Result<(WgpuResource, SliceBinding), IoError> {
+        let handle = self.memory_pool_staging.reserve(size)?;
+        let binding = MemoryHandle::binding(handle);
+        let resource = self
+            .memory_pool_staging
+            .get_resource(binding.clone(), None, None)
+            .unwrap();
+
+        Ok((resource, binding))
     }
 
     pub(crate) fn get_resource(&mut self, binding: Binding) -> WgpuResource {

@@ -1,5 +1,5 @@
-use super::WgpuResource;
-use super::{WgpuStorage, stream::WgpuStream};
+use super::storage::{WgpuResource, WgpuStorage};
+use super::stream::WgpuStream;
 use crate::AutoCompiler;
 use alloc::sync::Arc;
 use cubecl_common::bytes::Bytes;

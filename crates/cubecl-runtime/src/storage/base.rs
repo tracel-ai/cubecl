@@ -36,7 +36,7 @@ impl StorageHandle {
         self.utilization.size
     }
 
-    /// Returns the size the handle is pointing to in memory.
+    /// Returns the offset of the handle.
     pub fn offset(&self) -> u64 {
         self.utilization.offset
     }

@@ -1,8 +1,7 @@
-use std::{alloc::Layout, ptr::NonNull};
-
-use cubecl_common::bytes::{Allocation, AllocationController, AllocationError};
+use cubecl_common::bytes::{Allocation, AllocationController};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
+use std::{alloc::Layout, ptr::NonNull};
 
 pub struct CpuAllocController {
     binding: Option<Binding>,
@@ -11,19 +10,6 @@ pub struct CpuAllocController {
 impl AllocationController for CpuAllocController {
     fn dealloc(&mut self, _allocation: &Allocation) {
         self.binding = None;
-    }
-
-    fn grow(
-        &mut self,
-        _allocation: &Allocation,
-        _size: usize,
-        _align: usize,
-    ) -> Result<Allocation, AllocationError> {
-        Err(AllocationError::UnsupportedOperation)
-    }
-
-    fn can_be_detached(&self) -> bool {
-        false
     }
 }
 
