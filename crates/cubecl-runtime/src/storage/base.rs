@@ -28,6 +28,10 @@ pub struct StorageHandle {
 
 impl StorageHandle {
     /// Returns the size the handle is pointing to in memory.
+    ///
+    /// # Notes
+    ///
+    /// The result considers the offset.
     pub fn size(&self) -> u64 {
         self.utilization.size
     }

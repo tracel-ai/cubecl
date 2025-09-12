@@ -42,14 +42,13 @@ impl ComputeStorage for PinnedMemoryStorage {
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let memory = self.memory.get(&handle.id).unwrap();
 
-        let offset = handle.offset();
-        let size = handle.size();
-        let length = size - offset;
+        let offset = handle.offset() as usize;
+        let size = handle.size() as usize;
 
         unsafe {
             PinnedMemoryResource {
-                ptr: memory.ptr.add(offset as usize).cast(),
-                size: length as usize,
+                ptr: memory.ptr.add(offset).cast(),
+                size,
             }
         }
     }
