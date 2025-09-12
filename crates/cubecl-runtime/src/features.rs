@@ -41,6 +41,8 @@ pub enum TypeUsage {
     Arithmetic,
     /// Dot product, mainly for BF16 on Intel
     DotProduct,
+    /// Whether this type can be stored in a buffer
+    Buffer,
     /// Atomic loads and stores
     AtomicLoadStore,
     /// Atomic add/sub
@@ -130,7 +132,7 @@ impl Features {
 impl TypeUsage {
     /// All uses except atomics
     pub fn all_scalar() -> EnumSet<TypeUsage> {
-        TypeUsage::Conversion | TypeUsage::Arithmetic | TypeUsage::DotProduct
+        TypeUsage::Conversion | TypeUsage::Arithmetic | TypeUsage::DotProduct | TypeUsage::Buffer
     }
 
     /// All atomic uses

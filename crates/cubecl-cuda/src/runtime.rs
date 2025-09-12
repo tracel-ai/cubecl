@@ -190,8 +190,14 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // }
 
     if arch_version >= 89 {
-        device_props.register_type_usage(ElemType::Float(FloatKind::E4M3), TypeUsage::Conversion);
-        device_props.register_type_usage(ElemType::Float(FloatKind::E5M2), TypeUsage::Conversion);
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E4M3),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E5M2),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
     if arch_version >= 90 {
         device_props.features.tma.insert(Tma::Base);
@@ -211,11 +217,20 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
         device_props.register_type_usage(
             StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2),
-            TypeUsage::Conversion,
+            TypeUsage::Conversion | TypeUsage::Buffer,
         );
-        device_props.register_type_usage(ElemType::Float(FloatKind::E2M3), TypeUsage::Conversion);
-        device_props.register_type_usage(ElemType::Float(FloatKind::E3M2), TypeUsage::Conversion);
-        device_props.register_type_usage(ElemType::Float(FloatKind::UE8M0), TypeUsage::Conversion);
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E2M3),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E3M2),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::UE8M0),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
     device_props.features.dynamic_line_size = true;
