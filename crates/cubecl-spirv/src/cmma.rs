@@ -4,7 +4,7 @@ use crate::{
     lookups::Matrix,
     variable::Variable,
 };
-use cubecl_core::ir::{self as core, CoopMma, Id, MatrixLayout};
+use cubecl_core::ir::{self as core, CoopMma, ElemType, Id, MatrixLayout};
 use rspirv::spirv::{
     Capability, CooperativeMatrixLayout, CooperativeMatrixOperands, CooperativeMatrixUse,
     StorageClass,
@@ -240,6 +240,18 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     }
 
     pub fn init_coop_matrix(&mut self, mat: core::Matrix, var: core::Variable) -> Matrix {
+        if mat.storage.elem_type() == ElemType::Float(core::FloatKind::BF16) {
+            self.capabilities
+                .insert(Capability::BFloat16CooperativeMatrixKHR);
+        }
+        if matches!(
+            mat.storage.elem_type(),
+            ElemType::Float(core::FloatKind::E5M2 | core::FloatKind::E4M3)
+        ) {
+            self.capabilities
+                .insert(Capability::Float8CooperativeMatrixEXT);
+        }
+
         let elem = self.compile_type(core::Type::new(mat.storage)).elem();
         let ident = match mat.ident {
             core::MatrixIdent::A => CooperativeMatrixUse::MatrixAKHR,
