@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::StageIdent;
 use crate::components::tile::{
     TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::TileMatrixLoader,
 };
@@ -10,7 +11,6 @@ use crate::components::tile::{
     loader::TileKind,
     plane_vec_mat_inner_product::{config::PlaneVecMatInnerProductConfig, loader::VectorLoader},
 };
-use crate::components::{MatrixLayout, StageIdent};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -96,8 +96,6 @@ where
     }
 
     fn fill_lhs<E: Numeric>(tile: Tile<E>, lhs: &mut Self::Lhs, #[comptime] _config: Self::Config) {
-        comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
-
         Self::LhsLoader::fill_fragment(tile, lhs)
     }
 

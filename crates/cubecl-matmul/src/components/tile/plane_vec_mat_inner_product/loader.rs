@@ -35,7 +35,7 @@ pub struct MatrixLoader<Kind: TileKind> {
 #[cube]
 impl VectorLoader {
     pub fn fill_fragment<E: Numeric, V: Numeric>(tile: Tile<V>, frag: &mut LineContainer<E>) {
-        comptime!(assert!(tile.layout == MatrixLayout::ColMajor));
+        comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
 
         frag.line = Line::cast_from(tile.slice[UNIT_POS_X]);
     }

@@ -4,7 +4,7 @@ use crate::components::{AccS, stage::StageReader, tile::TileMatmul};
 use crate::components::{InputPrecision, MatmulPrecision};
 use crate::components::{stage::StageConfig, tile::loader::LoaderKind};
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, intrinsic};
 
 #[derive(CubeType)]
 /// Wrapper over a sequence of Tile Matmul accumulators
@@ -58,10 +58,13 @@ impl<
         let size_n = comptime![config.tiling_scheme().partition_size.n()];
         #[unroll]
         for m in 0..size_m {
-            let i = m * size_n;
+            let m = unwrap(m);
             #[unroll]
             for n in 0..size_n {
-                let acc = self.sequence.index_mut(i + n);
+                let n = unwrap(n);
+                let i = comptime![m * size_n + n];
+
+                let acc = self.sequence.index_mut(i);
                 let tile = R::read_tile::<S::StageMemoryConfig>(
                     reader,
                     m,
@@ -101,4 +104,10 @@ impl<
 pub enum RhsTile<Rhs: CubeType> {
     Single(Rhs),
     Double((Rhs, Rhs)),
+}
+
+#[cube]
+#[allow(unused)]
+fn unwrap(i: u32) -> comptime_type!(u32) {
+    intrinsic!(|_| i.constant().unwrap().as_u32())
 }
