@@ -2,6 +2,7 @@
 //! Optimized for fixed shapes and low-level compute strategies.
 
 pub mod accelerated;
+pub mod loader;
 pub mod plane_vec_mat_inner_product;
 pub mod register;
 

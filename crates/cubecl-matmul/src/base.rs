@@ -7,7 +7,10 @@ use cubecl_core::{
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{EO, LhsG, MatmulSetupError, RhsG, tile::accelerated::AcceleratedMatmul},
+    components::{
+        AccG, LhsG, MatmulSetupError, RhsG,
+        tile::{accelerated::AcceleratedMatmul, loader::FillLoader},
+    },
     kernels::layered::{
         Selection,
         double_buffering::DoubleBufferingArgs,
@@ -177,7 +180,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: MatmulInputHandle<R, LhsG<MP>>,
     rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, MP::EO>,
+    out: TensorHandle<R, AccG<MP>>,
 ) -> Result<(), MatmulSetupError> {
     launch_ref::<R, MP>(
         strategy,
@@ -196,10 +199,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulSetupError> {
+    type Accelerated = AcceleratedMatmul<FillLoader>;
+
     match strategy {
         Strategy::Simple(loading_strategy, selection) => match loading_strategy {
             SyncLoadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
@@ -207,7 +212,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 R,
                 MP,
                 SimpleAlgorithm<
-                    AcceleratedMatmul,
+                    Accelerated,
                     sync_full_strided::SyncFullStridedLoading,
                     sync_full_strided::SyncFullStridedLoading,
                 >,
@@ -217,83 +222,84 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     R,
                     MP,
                     SimpleAlgorithm<
-                        AcceleratedMatmul,
+                        Accelerated,
                         sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
                         sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
         },
-        Strategy::SimpleBarrier(loading_strategy) => {
-            match loading_strategy {
-                AsyncLoadingStrategy::Cooperative => {
-                    layered::launch_ref::<
-                        R,
-                        MP,
-                        SimpleBarrierAlgorithm<
-                            AcceleratedMatmul,
-                            async_full_cooperative::AsyncFullCooperativeLoading,
-                        >,
-                    >(client, lhs, rhs, out, &Default::default())
-                }
-                AsyncLoadingStrategy::Cyclic => {
-                    layered::launch_ref::<
-                        R,
-                        MP,
-                        SimpleBarrierAlgorithm<
-                            AcceleratedMatmul,
-                            async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
-                        >,
-                    >(client, lhs, rhs, out, &Default::default())
-                }
-                AsyncLoadingStrategy::MaximizeSliceLength => {
-                    layered::launch_ref::<
-                        R,
-                        MP,
-                        SimpleBarrierAlgorithm<
-                            AcceleratedMatmul,
-                            async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
-                        >,
-                    >(client, lhs, rhs, out, &Default::default())
-                }
-                AsyncLoadingStrategy::MaximizeUnitCount => {
-                    layered::launch_ref::<
-                        R,
-                        MP,
-                        SimpleBarrierAlgorithm<
-                            AcceleratedMatmul,
-                            async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
-                        >,
-                    >(client, lhs, rhs, out, &Default::default())
-                }
-                AsyncLoadingStrategy::Tma => {
-                    layered::matmul_cmma_tma_ref_no_check::<
-                        R,
-                        MP,
-                        SimpleTmaAlgorithm<AcceleratedMatmul>,
-                    >(client, lhs, rhs, out, (false, false), &Default::default())
-                }
+        Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
+            AsyncLoadingStrategy::Cooperative => {
+                layered::launch_ref::<
+                    R,
+                    MP,
+                    SimpleBarrierAlgorithm<
+                        Accelerated,
+                        async_full_cooperative::AsyncFullCooperativeLoading,
+                    >,
+                >(client, lhs, rhs, out, &Default::default())
             }
-        }
+            AsyncLoadingStrategy::Cyclic => {
+                layered::launch_ref::<
+                    R,
+                    MP,
+                    SimpleBarrierAlgorithm<
+                        Accelerated,
+                        async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
+                    >,
+                >(client, lhs, rhs, out, &Default::default())
+            }
+            AsyncLoadingStrategy::MaximizeSliceLength => {
+                layered::launch_ref::<
+                    R,
+                    MP,
+                    SimpleBarrierAlgorithm<
+                        Accelerated,
+                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
+                    >,
+                >(client, lhs, rhs, out, &Default::default())
+            }
+            AsyncLoadingStrategy::MaximizeUnitCount => {
+                layered::launch_ref::<
+                    R,
+                    MP,
+                    SimpleBarrierAlgorithm<
+                        Accelerated,
+                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
+                    >,
+                >(client, lhs, rhs, out, &Default::default())
+            }
+            AsyncLoadingStrategy::Tma => {
+                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                    client,
+                    lhs,
+                    rhs,
+                    out,
+                    (false, false),
+                    &Default::default(),
+                )
+            }
+        },
         Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
             SyncPartialLoadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
             SyncPartialLoadingStrategy::Tilewise => {
-                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
             SyncPartialLoadingStrategy::Hybrid => {
-                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
         },
         Strategy::OrderedDoubleBuffering(selection) => {
-            layered::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<AcceleratedMatmul>>(
+            layered::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<Accelerated>>(
                 client, lhs, rhs, out, selection,
             )
         }
@@ -304,11 +310,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, LhsG<MP>, EO<MP>>(client, lhs.data(), rhs.data(), out)?;
+            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs.data(), rhs.data(), out)?;
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<AcceleratedMatmul>>(
+            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
                 client,
                 lhs,
                 rhs,

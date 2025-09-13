@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
     InputPrecision, MatmulIdent, MatmulPrecision, StageIdent,
     global::{AccumulatorLoader, GlobalConfig},
     stage::{StageConfig, StageMemory},
-    tile::{Tile, TileConfig, TileMatmul},
+    tile::{StridedSlice, TileConfig, TileMatmul},
 };
 
 use crate::components::global::{memory::BiasReader, single_stage::simple::ConvTilingLayout};
@@ -15,7 +15,7 @@ use crate::components::global::{memory::BiasReader, single_stage::simple::ConvTi
 #[derive(CubeType)]
 pub enum BiasLoader<MP: MatmulPrecision> {
     Some {
-        tensor_view: BiasReader<MP::EO>,
+        tensor_view: BiasReader<AccG<MP>>,
         stage: StageMemory<MP::EA, ConvTilingLayout>,
     },
     None,
@@ -66,8 +66,8 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                 let slice = stage
                     .as_slice_mut(line_size)
                     .slice(start, start + tile_elems);
-                let tile = Tile::new_strided(slice, 0, config.matrix_layout(StageIdent::Acc));
-                TMM::fill_accumulator(&tile, acc, config.tile_config());
+                let tile = StridedSlice::new_strided(slice, 0, config.matrix_layout(StageIdent::Acc));
+                TMM::fill_acc(&tile, acc, config.tile_config());
             }
             BiasLoader::None => {
                 TMM::zero_accumulator(acc, config.tile_config());
@@ -79,7 +79,7 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
 #[cube]
 impl<MP: MatmulPrecision> BiasLoader<MP> {
     pub fn new<G: GlobalConfig>(
-        tensor: CubeOption<VirtualTensor<MP::EO>>,
+        tensor: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: G,
     ) -> Self {
@@ -87,7 +87,7 @@ impl<MP: MatmulPrecision> BiasLoader<MP> {
             CubeOption::Some(tensor) => {
                 let stage = init_stage::<MP::EA, G>(config);
                 let shape_n = tensor.shape(0);
-                let tensor_view = BiasReader::<MP::EO>::new(tensor, n_offset, shape_n);
+                let tensor_view = BiasReader::<AccG<MP>>::new(tensor, n_offset, shape_n);
 
                 BiasLoader::<MP>::new_Some(tensor_view, stage)
             }

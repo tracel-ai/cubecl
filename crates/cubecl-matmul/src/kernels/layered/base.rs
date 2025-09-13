@@ -1,5 +1,8 @@
-use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::args::TensorArgs;
+use crate::components::{
+    AccG, AccS,
+    batch::{BatchMatmulFamily, CubeCountInputArgs},
+};
 use crate::components::{
     AvailableLineSizes, InputRuntimeArg, LhsG, LhsS, MatmulAvailabilityError, MatmulLineSizes,
     MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout,
@@ -53,9 +56,9 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server, R::Channel>,
     lhs: MatmulInputHandle<R, LhsG<MP>>,
     rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, MP::EO>,
+    out: TensorHandle<R, AccG<MP>>,
     selection: &Selection<A::SelectionArgs>,
-) -> Result<TensorHandle<R, MP::EO>, MatmulSetupError> {
+) -> Result<TensorHandle<R, AccG<MP>>, MatmulSetupError> {
     let result = launch_ref::<R, MP, A>(
         client,
         &lhs.as_ref(),
@@ -144,16 +147,16 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let rank = lhs.strides.len();
     let lhs_elem = LhsG::<MP>::as_type_native().expect("To be a native type");
     let rhs_elem = RhsG::<MP>::as_type_native().expect("To be a native type");
-    let eo_elem = MP::EO::as_type_native().expect("To be a native type");
+    let acc_elem = AccG::<MP>::as_type_native().expect("To be a native type");
 
     if !client.properties().feature_enabled(Feature::Type(lhs_elem))
-        || !client.properties().feature_enabled(Feature::Type(eo_elem))
+        || !client.properties().feature_enabled(Feature::Type(acc_elem))
     {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::TypesUnavailable {
                 lhs: lhs_elem,
                 rhs: rhs_elem,
-                output: eo_elem,
+                output: acc_elem,
             },
         ));
     }
@@ -182,7 +185,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs_layout,
     };
 
-    let line_sizes = AvailableLineSizes::from_types::<R>(&lhs_elem, &rhs_elem, &eo_elem);
+    let line_sizes = AvailableLineSizes::from_types::<R>(&lhs_elem, &rhs_elem, &acc_elem);
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
@@ -222,20 +225,28 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
             TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>(),
             TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>(),
         ) {
-            (true, true) => {
-                launch_kernel_concrete::<((f32, f32, tf32, tf32, MP::EA, MP::EO), TensorArgs), R, A>(
-                    client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-                )
-            }
+            (true, true) => launch_kernel_concrete::<
+                ((f32, f32, AccG<MP>, tf32, tf32, AccS<MP>), TensorArgs),
+                R,
+                A,
+            >(
+                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
+            ),
             (true, false) => launch_kernel_concrete::<
-                ((f32, RhsG<MP>, tf32, RhsS<MP>, MP::EA, MP::EO), TensorArgs),
+                (
+                    (f32, RhsG<MP>, AccG<MP>, tf32, RhsS<MP>, AccS<MP>),
+                    TensorArgs,
+                ),
                 R,
                 A,
             >(
                 client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
             ),
             (false, true) => launch_kernel_concrete::<
-                ((LhsG<MP>, f32, LhsS<MP>, tf32, MP::EA, MP::EO), TensorArgs),
+                (
+                    (LhsG<MP>, f32, AccG<MP>, LhsS<MP>, tf32, AccS<MP>),
+                    TensorArgs,
+                ),
                 R,
                 A,
             >(
@@ -265,7 +276,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
     let rhs = rhs_handle.data();
 
     let rank = lhs.strides.len();
-    let eo_elem = MP::EO::as_type_native().expect("To be a native type");
+    let out_elem = AccG::<MP>::as_type_native().expect("To be a native type");
 
     let m = lhs.shape[rank - 2] as u32;
     let k = lhs.shape[rank - 1] as u32;
@@ -284,7 +295,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         lhs: 1,
         rhs: 1,
         out: try_tensor_line_size_parallel(
-            R::line_size_type(&eo_elem),
+            R::line_size_type(&out_elem),
             out.shape,
             out.strides,
             rank - 1,
@@ -323,7 +334,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
             TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>(),
         ) {
             (true, true) => launch_kernel_concrete::<
-                ((f32, f32, tf32, tf32, MP::EA, MP::EO), TensorMapArgs),
+                ((f32, f32, AccG<MP>, tf32, tf32, AccS<MP>), TensorMapArgs),
                 R,
                 A,
             >(
@@ -331,7 +342,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
             ),
             (true, false) => launch_kernel_concrete::<
                 (
-                    (f32, RhsG<MP>, tf32, RhsS<MP>, MP::EA, MP::EO),
+                    (f32, RhsG<MP>, AccG<MP>, tf32, RhsS<MP>, AccS<MP>),
                     TensorMapArgs,
                 ),
                 R,
@@ -341,7 +352,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
             ),
             (false, true) => launch_kernel_concrete::<
                 (
-                    (LhsG<MP>, f32, LhsS<MP>, tf32, MP::EA, MP::EO),
+                    (LhsG<MP>, f32, AccG<MP>, LhsS<MP>, tf32, AccS<MP>),
                     TensorMapArgs,
                 ),
                 R,

@@ -1,0 +1,31 @@
+use cubecl::prelude::*;
+use cubecl_core as cubecl;
+
+use crate::components::tile::Tile;
+
+pub trait TileKind: CubeType + Send + Sync + 'static {
+    type Tile<E: Numeric>: CubeType;
+}
+
+/// Tile is a slice of memory with a stride
+#[derive(CubeType)]
+pub struct TileLoader {}
+
+/// Tile is a single value that gets filled in everywhere
+#[derive(CubeType)]
+pub struct FillLoader {}
+
+impl TileKind for TileLoader {
+    type Tile<E: Numeric> = Tile<E>;
+}
+
+impl TileKind for FillLoader {
+    type Tile<E: Numeric> = E;
+}
+
+pub trait Loader {
+    type TileKind: TileKind;
+}
+
+pub type LoaderTile<L, E> = <<L as Loader>::TileKind as TileKind>::Tile<E>;
+pub type LoaderKind<L> = <L as Loader>::TileKind;

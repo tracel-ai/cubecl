@@ -39,7 +39,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
     type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Writer: GlobalWriter<MP::EO>;
+    type Writer: GlobalWriter<AccG<MP>>;
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
@@ -75,13 +75,13 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::RhsLoader;
 
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccumulatorLoader;
 
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,

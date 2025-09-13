@@ -1,14 +1,24 @@
-use crate::components::error::MatmulSetupError;
-use crate::components::resource::ComputeResources;
-use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
+use crate::components::tile::{TileMatmulFamily, loader::TileLoader};
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{error::MatmulSetupError, tile::loader::TileKind};
+use crate::components::{
+    resource::ComputeResources,
+    tile::plane_vec_mat_inner_product::loader::{MatrixLoader, TileMatrixLoader},
+};
 use cubecl_core::prelude::*;
 
-impl TileMatmulFamily for PlaneVecMatInnerProduct {
-    type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct;
+impl<Kind: TileKind> TileMatmulFamily for PlaneVecMatInnerProduct<Kind>
+where
+    MatrixLoader<Kind>: TileMatrixLoader<TileKind = Kind>,
+{
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;
+
+    type LhsTile = TileLoader;
+    type RhsTile = TileLoader;
+    type AccTile = Kind;
 
     fn requires_accelerator() -> bool {
         false

@@ -1,19 +1,25 @@
-use crate::components::global::load::{
-    StageBuffer, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
-    SyncPartialLoadingStrategy,
-};
-use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_load_next, execute_last_and_write_results, load_first,
-};
-use crate::components::global::multi_stage::ordered::LL;
-use crate::components::global::{self, GlobalConfig, ZeroAccumulatorLoader};
+use crate::components::global::{self, GlobalConfig};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::PartialStageToTileReader;
+use crate::components::{
+    AccG,
+    global::load::{
+        StageBuffer, SyncFullLoader, SyncFullLoadingStrategy, SyncPartialLoader,
+        SyncPartialLoadingStrategy, ZeroLoader,
+    },
+};
+use crate::components::{AccS, global::multi_stage::ordered::LL};
 use crate::components::{LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, stage};
+use crate::components::{
+    global::multi_stage::double_buffer_execution::{
+        execute_current_and_load_next, execute_last_and_write_results, load_first,
+    },
+    stage::FillReader,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
 use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 use std::marker::PhantomData;
 
@@ -46,6 +52,7 @@ where
                 <LL as SyncFullLoadingStrategy>::TilingLayout,
             >,
             RhsReader = PartialStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            AccReader = FillReader<AccS<MP>>,
             WriteCoords = Coords3d,
         >,
     RL: SyncPartialLoadingStrategy,
@@ -53,13 +60,14 @@ where
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
     type LhsLoader = SyncFullLoader<MP::Lhs, Self::Config, LL>;
     type RhsLoader = SyncPartialLoader<MP::Rhs, Self::Config, RL>;
-    type AccumulatorLoader = ZeroAccumulatorLoader;
+    type AccLoader = ZeroLoader<MP::Acc>;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
+        acc_loader: Self::AccLoader,
         mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -74,7 +82,8 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        SMM::zero_accumulator(acc, config.stage_config());
+        let acc_reader = Self::AccLoader::reader(&acc_loader);
+        SMM::fill_accumulator(&acc_reader, acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
@@ -203,8 +212,22 @@ where
         )
     }
 
+    fn init_acc_loader(
+        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
+        _m_offset: u32,
+        _n_offset: u32,
+        _nth_batch: u32,
+        _batch_offset: u32,
+        #[comptime] _config: Self::Config,
+    ) -> Self::AccLoader {
+        match rhs {
+            CubeOption::None => ZeroLoader::new(),
+            CubeOption::Some(_) => panic!("Accumulator loading is not yet supported"),
+        }
+    }
+
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

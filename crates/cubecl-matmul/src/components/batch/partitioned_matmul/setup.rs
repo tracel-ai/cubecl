@@ -1,14 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::entry_point::matmul;
-use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
+use crate::components::{AccG, batch::entry_point::matmul};
+use crate::components::{AccS, batch::partitioned_matmul::config::PartitionedBatchConfig};
 use crate::components::{
-    Args, EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulPrecision, MatmulProblem, MatmulSelection,
-    MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    Args, InputRuntimeArg, LhsG, LhsS, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSpec,
+    OutputRuntimeArg, RhsG, RhsS,
 };
 use crate::components::{MatmulLineSizes, MatmulSetupError};
 use cubecl_core::prelude::*;
@@ -56,10 +56,10 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
                 Args<MS>,
                 LhsG<MS>,
                 RhsG<MS>,
+                AccG<MS>,
                 LhsS<MS>,
                 RhsS<MS>,
-                EA<MS>,
-                EO<MS>,
+                AccS<MS>,
                 Self,
                 R,
             >(

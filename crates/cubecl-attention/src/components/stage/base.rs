@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
+use cubecl_matmul::components::stage::{StageReaderFamily, StageMemoryConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
@@ -18,8 +18,8 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyReader = <Self::KeyReader as ReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
-            ValueReader = <Self::ValueReader as ReaderFamily>::Reader<
+            KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
+            ValueReader = <Self::ValueReader as StageReaderFamily>::Reader<
                 AP::ES,
                 AttentionTilingLayout,
             >,
@@ -28,8 +28,8 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     /// The configuration type associated with this Attention family.
     type Config: StageAttentionConfig;
 
-    type KeyReader: ReaderFamily;
-    type ValueReader: ReaderFamily;
+    type KeyReader: StageReaderFamily;
+    type ValueReader: StageReaderFamily;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///

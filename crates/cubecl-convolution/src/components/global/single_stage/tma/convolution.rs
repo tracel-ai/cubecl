@@ -162,7 +162,7 @@ where
     }
 
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccumulatorLoader {
@@ -170,7 +170,7 @@ where
     }
 
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,

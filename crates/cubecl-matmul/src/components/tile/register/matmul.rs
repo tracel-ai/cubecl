@@ -1,34 +1,41 @@
-use crate::components::tile::register::config::{ProductType, RegisterConfig};
-use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{MatrixLayout, StageIdent};
+use std::marker::PhantomData;
+
+use crate::components::StageIdent;
+use crate::components::tile::{TileConfig, TileMatmul, register::loader::TileRegisterLoader};
+use crate::components::tile::{loader::TileKind, tile_data::Tile};
+use crate::components::tile::{
+    loader::TileLoader,
+    register::{
+        config::{ProductType, RegisterConfig},
+        loader::RegisterLoader,
+    },
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 /// Uses one unit to perform a small matmul directly in registers
-pub struct RegisterMatmul;
+pub struct RegisterMatmul<Acc: TileKind> {
+    _ty: PhantomData<Acc>,
+}
 
 /// Doesn't impact performance much, but may increase kernel size too much when true (often ~6X).
 ///
 /// TODO: make it configurable
 static UNROLL: bool = false;
 
-#[derive(CubeType)]
-/// Contains the accumulated result in a row-major array of size rows x cols
-pub struct TileAccumulator<EA: Numeric> {
-    data: Array<EA>,
-    #[cube(comptime)]
-    rows: u32,
-    #[cube(comptime)]
-    cols: u32,
-}
-
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for RegisterMatmul {
+impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
+where
+    RegisterLoader<Acc>: TileRegisterLoader<TileKind = Acc>,
+{
     type Config = RegisterConfig;
     type Lhs = Array<L>;
     type Rhs = Array<R>;
-    type Accumulator = TileAccumulator<A>;
+    type Accumulator = Array<A>;
+
+    type LhsLoader = RegisterLoader<TileLoader>;
+    type RhsLoader = RegisterLoader<TileLoader>;
+    type AccLoader = RegisterLoader<Acc>;
 
     fn execute(
         lhs: &Self::Lhs,
@@ -50,69 +57,24 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for RegisterMatmul 
         Array::new(config.tile_size().nk())
     }
 
-    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
-        let size = config.tile_size();
-        let lhs_line_size = config.stage_line_size(StageIdent::Lhs);
-        let lhs_layout = config.matrix_layout(StageIdent::Lhs);
-
-        match config.product_type() {
-            ProductType::Inner => match lhs_layout {
-                MatrixLayout::RowMajor => {
-                    Self::fill_plain(tile, lhs, size.m(), size.k(), lhs_line_size);
-                }
-                MatrixLayout::ColMajor => {
-                    Self::fill_transposed(tile, lhs, size.k(), size.m(), lhs_line_size);
-                }
-            },
-            ProductType::Outer => match lhs_layout {
-                MatrixLayout::RowMajor => {
-                    Self::fill_transposed(tile, lhs, size.m(), size.k(), lhs_line_size);
-                }
-                MatrixLayout::ColMajor => {
-                    Self::fill_plain(tile, lhs, size.k(), size.m(), lhs_line_size);
-                }
-            },
-        }
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::Accumulator {
+        Array::new(config.tile_size().mn())
     }
 
-    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        let size = config.tile_size();
-        let rhs_line_size = config.stage_line_size(StageIdent::Rhs);
-        let rhs_layout = config.matrix_layout(StageIdent::Rhs);
-
-        match config.product_type() {
-            ProductType::Inner => match rhs_layout {
-                MatrixLayout::RowMajor => {
-                    Self::fill_transposed(tile, rhs, size.k(), size.n(), rhs_line_size);
-                }
-                MatrixLayout::ColMajor => {
-                    Self::fill_plain(tile, rhs, size.n(), size.k(), rhs_line_size);
-                }
-            },
-            ProductType::Outer => match rhs_layout {
-                MatrixLayout::RowMajor => {
-                    Self::fill_plain(tile, rhs, size.k(), size.n(), rhs_line_size);
-                }
-                MatrixLayout::ColMajor => {
-                    Self::fill_transposed(tile, rhs, size.n(), size.k(), rhs_line_size);
-                }
-            },
-        }
+    fn fill_lhs<E: Numeric>(tile: Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
+        Self::LhsLoader::fill_fragment(tile, lhs, StageIdent::Lhs, config)
     }
 
-    fn fill_accumulator(
-        tile: &Tile<A>,
+    fn fill_rhs<E: Numeric>(tile: Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
+        Self::RhsLoader::fill_fragment(tile, rhs, StageIdent::Rhs, config)
+    }
+
+    fn fill_acc<E: Numeric>(
+        tile: Acc::Tile<E>,
         acc: &mut Self::Accumulator,
-        #[comptime] _config: Self::Config,
+        #[comptime] config: Self::Config,
     ) {
-        #[unroll(UNROLL)]
-        for i in 0..comptime!(acc.rows) {
-            #[unroll(UNROLL)]
-            for j in 0..comptime!(acc.cols) {
-                acc.data[i * acc.cols + j] =
-                    tile.slice.with_line_size(1u32)[i * tile.stride + j][0];
-            }
-        }
+        Self::AccLoader::fill_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(
@@ -122,41 +84,23 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for RegisterMatmul 
     ) {
         let out_line_size = config.stage_line_size(StageIdent::Acc);
         #[unroll(UNROLL)]
-        for i in 0..comptime!(acc.rows * acc.cols / out_line_size) {
+        for i in 0..comptime!(config.tile_size().mn() / out_line_size) {
             let mut line = Line::empty(out_line_size);
             #[unroll(UNROLL)]
             for j in 0..comptime!(out_line_size) {
-                line[j] = acc.data[i * out_line_size + j];
+                line[j] = acc[i * out_line_size + j];
             }
             slice[i] = Line::cast_from(line);
-        }
-    }
-
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let rows = config.tile_size().m();
-        let cols = config.tile_size().n();
-
-        TileAccumulator::<A> {
-            data: Array::<A>::new(rows * cols),
-            rows,
-            cols,
-        }
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        #[unroll(UNROLL)]
-        for i in 0..comptime!(acc.rows * acc.cols) {
-            acc.data[i] = A::cast_from(0);
         }
     }
 }
 
 #[cube]
-impl RegisterMatmul {
+impl<Acc: TileKind> RegisterMatmul<Acc> {
     fn inner_product<Lhs: Numeric, Rhs: Numeric, EA: Numeric>(
         lhs: &Array<Lhs>,
         rhs: &Array<Rhs>,
-        acc: &mut TileAccumulator<EA>,
+        acc: &mut Array<EA>,
         #[comptime] config: RegisterConfig,
     ) {
         let (m, n, k) =
@@ -170,7 +114,7 @@ impl RegisterMatmul {
                 for k_ in 0..k {
                     let lhs_elem = EA::cast_from(lhs[m_ * k + k_]);
                     let rhs_elem = EA::cast_from(rhs[n_ * k + k_]);
-                    acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
+                    acc[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
             }
         }
@@ -179,7 +123,7 @@ impl RegisterMatmul {
     fn outer_product<Lhs: Numeric, Rhs: Numeric, EA: Numeric>(
         lhs: &Array<Lhs>,
         rhs: &Array<Rhs>,
-        acc: &mut TileAccumulator<EA>,
+        acc: &mut Array<EA>,
         #[comptime] config: RegisterConfig,
     ) {
         let (m, n, k) =
@@ -193,13 +137,13 @@ impl RegisterMatmul {
                 #[unroll(UNROLL)]
                 for n_ in 0..n {
                     let rhs_elem = EA::cast_from(rhs[k_ * n + n_]);
-                    acc.data[m_ * n + n_] += lhs_elem * rhs_elem;
+                    acc[m_ * n + n_] += lhs_elem * rhs_elem;
                 }
             }
         }
     }
 
-    fn fill_plain<ES: Numeric, ER: Numeric>(
+    pub fn fill_plain<ES: Numeric, ER: Numeric>(
         tile: &Tile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,
@@ -223,7 +167,7 @@ impl RegisterMatmul {
         }
     }
 
-    fn fill_transposed<ES: Numeric, ER: Numeric>(
+    pub fn fill_transposed<ES: Numeric, ER: Numeric>(
         tile: &Tile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,

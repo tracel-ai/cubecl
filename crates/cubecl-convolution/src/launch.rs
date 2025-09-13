@@ -142,18 +142,18 @@ where
     let launch = if lhs_is_f32 || rhs_is_f32 {
         if tf32::is_supported(client) {
             if lhs_is_f32 && rhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, tf32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, tf32, f32, AccG<MP>), Alg>
             } else if lhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, f32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, f32, f32, AccG<MP>), Alg>
             } else {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, tf32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, tf32, f32, AccG<MP>), Alg>
             }
         } else if lhs_is_f32 && rhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, AccG<MP>), Alg>
         } else if lhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, AccG<MP>), Alg>
         } else {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, AccG<MP>), Alg>
         }
     } else {
         launch_kernel::<R, MP, Alg>
@@ -179,7 +179,7 @@ where
     let line_sizes = AvailableLineSizes::from_types::<R>(
         &LhsG::<MP>::as_type_native_unchecked(),
         &RhsG::<MP>::as_type_native_unchecked(),
-        &MP::EO::as_type_native_unchecked(),
+        &AccG<MP>::as_type_native_unchecked(),
     )
     .filter_lhs_with_tensor(input.data().strides, input.data().shape, problem.lhs_layout)
     .filter_rhs_with_tensor(

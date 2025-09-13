@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::AccumulatorLoader;
-use crate::components::stage::StageConfig;
-use crate::components::tile::TileMatmul;
+use crate::components::{AccS, stage::StageReader, tile::TileMatmul};
 use crate::components::{InputPrecision, MatmulPrecision};
+use crate::components::{stage::StageConfig, tile::loader::LoaderKind};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -15,7 +14,7 @@ pub struct Accumulators<
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            MP::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     S: StageConfig<TileConfig = TM::Config>,
 > {
@@ -30,7 +29,7 @@ impl<
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            MP::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     S: StageConfig<TileConfig = TM::Config>,
 > Accumulators<MP, TM, S>
@@ -41,7 +40,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(partition_size.mn()) {
-            accumulators.push(TM::allocate_accumulator(config.tile_config()));
+            accumulators.push(TM::allocate_acc(config.tile_config()));
         }
 
         Accumulators::<MP, TM, S> {
@@ -50,18 +49,27 @@ impl<
         }
     }
 
-    pub fn zero(&mut self, #[comptime] config: S) {
+    pub fn fill<R: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccLoader>>>(
+        &mut self,
+        reader: &R,
+        #[comptime] config: S,
+    ) {
+        let size_m = comptime![config.tiling_scheme().partition_size.m()];
+        let size_n = comptime![config.tiling_scheme().partition_size.n()];
         #[unroll]
-        for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
-            TM::zero_accumulator(self.sequence.index_mut(i), config.tile_config());
-        }
-    }
-
-    pub fn fill<L: AccumulatorLoader<MP>>(&mut self, loader: &mut L, #[comptime] config: S) {
-        #[unroll]
-        for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
-            let acc = self.sequence.index_mut(i);
-            L::load::<TM, S>(loader, acc, i, config);
+        for m in 0..size_m {
+            let i = m * size_n;
+            #[unroll]
+            for n in 0..size_n {
+                let acc = self.sequence.index_mut(i + n);
+                let tile = R::read_tile::<S::StageMemoryConfig>(
+                    reader,
+                    m,
+                    n,
+                    config.stage_memory_config(),
+                );
+                TM::fill_acc(tile, acc, config.tile_config());
+            }
         }
     }
 
