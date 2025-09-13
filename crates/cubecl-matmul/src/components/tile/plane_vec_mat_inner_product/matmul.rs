@@ -4,11 +4,11 @@ use crate::components::tile::{
     TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::TileMatrixLoader,
 };
 use crate::components::tile::{
-    loader::TileKind,
-    plane_vec_mat_inner_product::{config::PlaneVecMatInnerProductConfig, loader::VectorLoader},
+    loader::Strided, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
 };
 use crate::components::tile::{
-    loader::Strided, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
+    loader::TileKind,
+    plane_vec_mat_inner_product::{config::PlaneVecMatInnerProductConfig, loader::VectorLoader},
 };
 use crate::components::{MatrixLayout, StageIdent};
 use cubecl_core::prelude::*;

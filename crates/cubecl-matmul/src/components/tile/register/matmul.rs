@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::components::StageIdent;
 use crate::components::tile::{TileConfig, TileMatmul, register::loader::TileRegisterLoader};
-use crate::components::tile::{loader::TileKind, tile_data::Tile};
 use crate::components::tile::{
     loader::Strided,
     register::{
@@ -10,6 +9,7 @@ use crate::components::tile::{
         loader::RegisterLoader,
     },
 };
+use crate::components::tile::{loader::TileKind, tile_data::Tile};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 

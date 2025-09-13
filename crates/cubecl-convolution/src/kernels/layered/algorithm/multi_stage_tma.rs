@@ -29,9 +29,8 @@ pub struct MultiStageTmaConvAlgorithm<TMM: TileMatmulFamily> {
     _tmm: PhantomData<TMM>,
 }
 
-impl<
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>,
-> Algorithm for MultiStageTmaConvAlgorithm<TMM>
+impl<TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>>
+    Algorithm for MultiStageTmaConvAlgorithm<TMM>
 {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<

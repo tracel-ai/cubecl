@@ -34,9 +34,8 @@ pub struct SimpleConvAlgorithm<TMM: TileMatmulFamily> {
     _tmm: PhantomData<TMM>,
 }
 
-impl<
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>,
-> Algorithm for SimpleConvAlgorithm<TMM>
+impl<TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>>
+    Algorithm for SimpleConvAlgorithm<TMM>
 {
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<

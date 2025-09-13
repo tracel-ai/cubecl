@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{StageReaderFamily, StageMemoryConfig};
+use cubecl_matmul::components::stage::{StageMemoryConfig, StageReaderFamily};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
@@ -18,7 +18,10 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
+            KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<
+                AP::ES,
+                AttentionTilingLayout,
+            >,
             ValueReader = <Self::ValueReader as StageReaderFamily>::Reader<
                 AP::ES,
                 AttentionTilingLayout,
