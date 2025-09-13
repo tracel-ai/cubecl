@@ -406,15 +406,6 @@ impl<T: 'static + PartialEq + Eq + Hash + core::fmt::Debug + Send + Sync> DynKey
     }
 }
 
-/// The device id.
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy, new)]
-pub struct DeviceId {
-    /// The type id identifies the type of the device.
-    pub type_id: u16,
-    /// The index id identifies the device number.
-    pub index_id: u32,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

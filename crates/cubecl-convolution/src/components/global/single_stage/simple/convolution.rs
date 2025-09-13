@@ -21,7 +21,7 @@ use crate::{
         ConvGemmConfig, ConvolutionConfig,
         global::{
             ConvTilingLayout, GlobalConvolution,
-            layout::{Im2colGlobalLayout, NhwcLayout, OutLayout, WeightLayout},
+            layout::{Im2colLayout, NhwcLayout, OutLayout, WeightLayout},
             load::bias::BiasLoader,
         },
     },
@@ -133,9 +133,8 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader {
         let check_spatial = comptime![config.check_spatial_bounds()];
-        let layout_global =
-            NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial).virt();
-        let layout_im2col = Im2colGlobalLayout::new(runtime_args, config).virt();
+        let layout_global = NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial);
+        let layout_im2col = Im2colLayout::new(runtime_args, config);
         Self::LhsLoader::new(
             lhs.view(layout_global).view(layout_im2col),
             x_offset,
@@ -153,8 +152,8 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader {
-        let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false).virt();
-        let layout_weight = WeightLayout::new(&rhs, runtime_args, config).virt();
+        let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false);
+        let layout_weight = WeightLayout::new(&rhs, runtime_args, config);
         Self::RhsLoader::new(
             rhs.view(layout_global).view(layout_weight),
             x_offset,
@@ -180,9 +179,9 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false).virt();
+        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
-            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out)).virt();
+            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(
             out.view_mut(layout_global).view_mut(layout_out),
             x_offset,

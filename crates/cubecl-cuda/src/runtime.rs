@@ -24,7 +24,6 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
@@ -53,7 +52,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let device_id = device.index as i32;
+    let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -102,6 +102,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
+        // TODO: We should have a fallback when peer access isn't supported.
+        data_transfer_async: true,
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -261,10 +263,6 @@ impl Runtime for CudaRuntime {
         })
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
-    }
-
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "cuda"
     }
@@ -283,10 +281,6 @@ impl Runtime for CudaRuntime {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         valid_strides(shape, strides)
-    }
-
-    fn device_count() -> usize {
-        cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
     }
 
     fn target_properties() -> TargetProperties {
