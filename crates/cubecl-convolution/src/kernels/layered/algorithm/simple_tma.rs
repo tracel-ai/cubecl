@@ -6,7 +6,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, tile::loader::TileLoader,
+    MatmulElems, MatmulSelection, MatmulSetupError, tile::loader::Strided,
 };
 
 use cubecl_matmul::components::stage::NumStages;
@@ -37,7 +37,7 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
 }
 
 impl<
-    TMM: TileMatmulFamily<LhsTile = TileLoader, RhsTile = TileLoader, AccTile = CubeOption<TileLoader>>,
+    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>,
 > Algorithm for SimpleTmaConvAlgorithm<TMM>
 {
     type TileMatmul = TMM;

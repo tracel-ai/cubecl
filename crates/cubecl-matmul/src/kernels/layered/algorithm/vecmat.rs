@@ -20,7 +20,7 @@ use crate::{
             ColMajorTilingOrder, FillReaderFamily, FullReaderFamily, PartialReaderFamily,
             PartitionBuffering, PlaneMatmulFamily, RowMajorTilingOrder,
         },
-        tile::{loader::FillLoader, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
+        tile::{loader::Filled, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
     },
     kernels::layered::Algorithm,
 };
@@ -29,7 +29,7 @@ pub struct SimpleVecMatAlgorithm {}
 
 impl Algorithm for SimpleVecMatAlgorithm {
     type SelectionArgs = ();
-    type TileMatmul = PlaneVecMatInnerProduct<FillLoader>;
+    type TileMatmul = PlaneVecMatInnerProduct<Filled>;
     type StageMatmul =
         PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily, FillReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<
@@ -61,7 +61,7 @@ pub struct DoubleVecMatAlgorithm {}
 
 impl Algorithm for DoubleVecMatAlgorithm {
     type SelectionArgs = ();
-    type TileMatmul = PlaneVecMatInnerProduct<FillLoader>;
+    type TileMatmul = PlaneVecMatInnerProduct<Filled>;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
         PartialReaderFamily,

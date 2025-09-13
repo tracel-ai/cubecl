@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{stage::StageReader, tile::loader::TileLoader};
+use cubecl_matmul::components::{stage::StageReader, tile::loader::Strided};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
@@ -17,7 +17,7 @@ pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>>
 }
 
 #[cube]
-impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = TileLoader>, TA: TileAttention<AP>>
+impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
     StageAttention<AP> for DummyStageAttention<AP, R, TA>
 {
     type Config = DummyStageConfig<TA::Config>;

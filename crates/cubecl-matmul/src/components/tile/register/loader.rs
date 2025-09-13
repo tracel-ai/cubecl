@@ -7,7 +7,7 @@ use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
         Tile, TileConfig,
-        loader::{FillLoader, Loader, TileKind, TileLoader},
+        loader::{Filled, Loader, Strided, TileKind},
         register::{
             RegisterMatmul,
             config::{ProductType, RegisterConfig},
@@ -32,7 +32,7 @@ pub(super) trait TileRegisterLoader: Loader {
 }
 
 #[cube]
-impl TileRegisterLoader for RegisterLoader<TileLoader> {
+impl TileRegisterLoader for RegisterLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         fragment: &mut Array<E>,
@@ -52,20 +52,20 @@ impl TileRegisterLoader for RegisterLoader<TileLoader> {
         match config.product_type() {
             ProductType::Inner => match layout {
                 MatrixLayout::RowMajor => {
-                    RegisterMatmul::<TileLoader>::fill_transposed(
+                    RegisterMatmul::<Strided>::fill_transposed(
                         &tile, fragment, row, col, line_size,
                     );
                 }
                 MatrixLayout::ColMajor => {
-                    RegisterMatmul::<TileLoader>::fill_plain(&tile, fragment, col, row, line_size);
+                    RegisterMatmul::<Strided>::fill_plain(&tile, fragment, col, row, line_size);
                 }
             },
             ProductType::Outer => match layout {
                 MatrixLayout::RowMajor => {
-                    RegisterMatmul::<TileLoader>::fill_plain(&tile, fragment, row, col, line_size);
+                    RegisterMatmul::<Strided>::fill_plain(&tile, fragment, row, col, line_size);
                 }
                 MatrixLayout::ColMajor => {
-                    RegisterMatmul::<TileLoader>::fill_transposed(
+                    RegisterMatmul::<Strided>::fill_transposed(
                         &tile, fragment, col, row, line_size,
                     );
                 }
@@ -75,7 +75,7 @@ impl TileRegisterLoader for RegisterLoader<TileLoader> {
 }
 
 #[cube]
-impl TileRegisterLoader for RegisterLoader<FillLoader> {
+impl TileRegisterLoader for RegisterLoader<Filled> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut Array<E>,
@@ -112,7 +112,7 @@ where
             CubeOption::Some(tile) => {
                 RegisterLoader::<Inner>::fill_fragment(tile, fragment, ident, config)
             }
-            CubeOption::None => RegisterLoader::<FillLoader>::fill_fragment::<E, V>(
+            CubeOption::None => RegisterLoader::<Filled>::fill_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 ident,

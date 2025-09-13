@@ -9,7 +9,7 @@ use crate::{
             multi_stage::double_buffering::DoubleBufferingMatmulFamily,
         },
         stage::{FillReaderFamily, PartialReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-        tile::{loader::FillLoader, register::RegisterMatmul},
+        tile::{loader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         Algorithm,
@@ -27,7 +27,7 @@ pub struct DoubleUnitSelectionArgs {
 
 impl Algorithm for DoubleUnitAlgorithm {
     type SelectionArgs = DoubleUnitSelectionArgs;
-    type TileMatmul = RegisterMatmul<FillLoader>;
+    type TileMatmul = RegisterMatmul<Filled>;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, PartialReaderFamily, FillReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,

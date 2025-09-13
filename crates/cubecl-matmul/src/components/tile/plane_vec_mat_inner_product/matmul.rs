@@ -8,7 +8,7 @@ use crate::components::tile::{
     plane_vec_mat_inner_product::{config::PlaneVecMatInnerProductConfig, loader::VectorLoader},
 };
 use crate::components::tile::{
-    loader::TileLoader, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
+    loader::Strided, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
 };
 use crate::components::{MatrixLayout, StageIdent};
 use cubecl_core::prelude::*;
@@ -50,7 +50,7 @@ where
     type Accumulator = Sequence<LineContainer<A>>;
 
     type LhsLoader = VectorLoader;
-    type RhsLoader = MatrixLoader<TileLoader>;
+    type RhsLoader = MatrixLoader<Strided>;
     type AccLoader = MatrixLoader<Acc>;
 
     fn execute(

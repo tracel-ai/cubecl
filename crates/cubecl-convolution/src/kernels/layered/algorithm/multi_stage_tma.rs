@@ -10,7 +10,7 @@ use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
-    tile::{TileMatmulFamily, loader::TileLoader},
+    tile::{TileMatmulFamily, loader::Strided},
 };
 
 use cubecl_std::{CubeOption, tensor::TensorHandle};
@@ -30,7 +30,7 @@ pub struct MultiStageTmaConvAlgorithm<TMM: TileMatmulFamily> {
 }
 
 impl<
-    TMM: TileMatmulFamily<LhsTile = TileLoader, RhsTile = TileLoader, AccTile = CubeOption<TileLoader>>,
+    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeOption<Strided>>,
 > Algorithm for MultiStageTmaConvAlgorithm<TMM>
 {
     type TileMatmul = TMM;

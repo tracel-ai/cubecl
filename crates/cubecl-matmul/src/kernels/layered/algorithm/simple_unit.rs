@@ -14,7 +14,7 @@ use crate::{
             ColMajorTilingOrder, FillReaderFamily, FullReaderFamily, RowMajorTilingOrder,
             UnitMatmulFamily,
         },
-        tile::{loader::FillLoader, register::RegisterMatmul},
+        tile::{loader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -46,7 +46,7 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
-    type TileMatmul = RegisterMatmul<FillLoader>;
+    type TileMatmul = RegisterMatmul<Filled>;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily, FillReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 

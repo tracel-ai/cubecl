@@ -9,7 +9,7 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::{
         AccG, LhsG, MatmulSetupError, RhsG,
-        tile::{accelerated::AcceleratedMatmul, loader::FillLoader},
+        tile::{accelerated::AcceleratedMatmul, loader::Filled},
     },
     kernels::layered::{
         Selection,
@@ -199,7 +199,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulSetupError> {
-    type Accelerated = AcceleratedMatmul<FillLoader>;
+    type Accelerated = AcceleratedMatmul<Filled>;
 
     match strategy {
         Strategy::Simple(loading_strategy, selection) => match loading_strategy {

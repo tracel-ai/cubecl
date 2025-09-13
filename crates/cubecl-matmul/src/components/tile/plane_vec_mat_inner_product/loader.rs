@@ -9,7 +9,7 @@ use crate::components::{
     MatrixLayout,
     tile::{
         Tile,
-        loader::{FillLoader, Loader, TileKind, TileLoader},
+        loader::{Filled, Loader, Strided, TileKind},
         plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
     },
 };
@@ -42,11 +42,11 @@ impl VectorLoader {
 }
 
 impl Loader for VectorLoader {
-    type TileKind = TileLoader;
+    type TileKind = Strided;
 }
 
 #[cube]
-impl TileMatrixLoader for MatrixLoader<TileLoader> {
+impl TileMatrixLoader for MatrixLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Sequence<LineContainer<E>>,
@@ -68,7 +68,7 @@ impl TileMatrixLoader for MatrixLoader<TileLoader> {
 }
 
 #[cube]
-impl TileMatrixLoader for MatrixLoader<FillLoader> {
+impl TileMatrixLoader for MatrixLoader<Filled> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         value: V,
         frag: &mut Sequence<LineContainer<E>>,
@@ -100,7 +100,7 @@ where
         match tile {
             CubeOption::Some(tile) => MatrixLoader::<Inner>::fill_fragment(tile, frag, config),
             CubeOption::None => {
-                MatrixLoader::<FillLoader>::fill_fragment::<E, V>(V::from_int(0), frag, config)
+                MatrixLoader::<Filled>::fill_fragment::<E, V>(V::from_int(0), frag, config)
             }
         }
     }

@@ -1,6 +1,6 @@
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
-use crate::components::tile::{TileMatmulFamily, loader::TileLoader};
+use crate::components::tile::{TileMatmulFamily, loader::Strided};
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
 use crate::components::{error::MatmulSetupError, tile::loader::TileKind};
 use crate::components::{
@@ -16,8 +16,8 @@ where
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;
 
-    type LhsTile = TileLoader;
-    type RhsTile = TileLoader;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
     type AccTile = Kind;
 
     fn requires_accelerator() -> bool {

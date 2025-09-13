@@ -19,7 +19,7 @@ use crate::{
         },
         tile::{
             TileMatmulFamily,
-            loader::{FillLoader, TileLoader},
+            loader::{Filled, Strided},
         },
     },
     kernels::layered::{
@@ -47,7 +47,7 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily<LhsTile = TileLoader, RhsTile = TileLoader, AccTile = FillLoader>,
+    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {

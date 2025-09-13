@@ -11,17 +11,17 @@ pub trait TileKind: CubeType + Send + Sync + 'static {
 
 /// Tile is a slice of memory with a stride
 #[derive(CubeType)]
-pub struct TileLoader {}
+pub struct Strided {}
 
 /// Tile is a single value that gets filled in everywhere
 #[derive(CubeType)]
-pub struct FillLoader {}
+pub struct Filled {}
 
-impl TileKind for TileLoader {
+impl TileKind for Strided {
     type Tile<E: Numeric> = Tile<E>;
 }
 
-impl TileKind for FillLoader {
+impl TileKind for Filled {
     type Tile<E: Numeric> = E;
 }
 

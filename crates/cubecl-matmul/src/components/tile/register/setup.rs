@@ -1,6 +1,6 @@
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
-use crate::components::tile::{TileMatmulFamily, loader::TileLoader};
+use crate::components::tile::{TileMatmulFamily, loader::Strided};
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
 };
@@ -18,8 +18,8 @@ where
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = RegisterMatmul<AccTile>;
     type Config = RegisterConfig;
 
-    type LhsTile = TileLoader;
-    type RhsTile = TileLoader;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
     type AccTile = AccTile;
 
     fn requires_accelerator() -> bool {

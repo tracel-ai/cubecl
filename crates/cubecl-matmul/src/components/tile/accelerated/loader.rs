@@ -6,11 +6,11 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::tile::{
     Tile,
-    loader::{FillLoader, Loader, TileKind, TileLoader},
+    loader::{Filled, Loader, Strided, TileKind},
 };
 
 #[cube]
-pub(crate) trait CmmaTileLoader: Loader {
+pub(crate) trait CmmaStrided: Loader {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
         fragment: &mut cmma::Matrix<E>,
@@ -26,7 +26,7 @@ pub struct CmmaLoader<Kind: TileKind> {
 }
 
 #[cube]
-impl CmmaTileLoader for CmmaLoader<TileLoader> {
+impl CmmaStrided for CmmaLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         fragment: &mut cmma::Matrix<E>,
@@ -42,7 +42,7 @@ impl CmmaTileLoader for CmmaLoader<TileLoader> {
 }
 
 #[cube]
-impl CmmaTileLoader for CmmaLoader<FillLoader> {
+impl CmmaStrided for CmmaLoader<Filled> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut cmma::Matrix<E>,
@@ -54,9 +54,9 @@ impl CmmaTileLoader for CmmaLoader<FillLoader> {
 }
 
 #[cube]
-impl<Inner: TileKind> CmmaTileLoader for CmmaLoader<CubeOption<Inner>>
+impl<Inner: TileKind> CmmaStrided for CmmaLoader<CubeOption<Inner>>
 where
-    CmmaLoader<Inner>: CmmaTileLoader<TileKind = Inner>,
+    CmmaLoader<Inner>: CmmaStrided<TileKind = Inner>,
 {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
@@ -68,7 +68,7 @@ where
             CubeOption::Some(tile) => {
                 CmmaLoader::<Inner>::fill_fragment(tile, fragment, layout, line_size)
             }
-            CubeOption::None => CmmaLoader::<FillLoader>::fill_fragment::<E, V>(
+            CubeOption::None => CmmaLoader::<Filled>::fill_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 layout,

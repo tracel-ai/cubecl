@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaTileLoader};
+use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaStrided};
 use crate::components::tile::{
     accelerated::{config::AcceleratedConfig, loader::CmmaLoader},
-    loader::{TileKind, TileLoader},
+    loader::{Strided, TileKind},
 };
 use crate::components::{StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
@@ -20,15 +20,15 @@ pub struct AcceleratedMatmul<Acc: TileKind> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for AcceleratedMatmul<Acc>
 where
-    CmmaLoader<Acc>: CmmaTileLoader<TileKind = Acc>,
+    CmmaLoader<Acc>: CmmaStrided<TileKind = Acc>,
 {
     type Config = AcceleratedConfig;
     type Lhs = cmma::Matrix<L>;
     type Rhs = cmma::Matrix<R>;
     type Accumulator = cmma::Matrix<A>;
 
-    type LhsLoader = CmmaLoader<TileLoader>;
-    type RhsLoader = CmmaLoader<TileLoader>;
+    type LhsLoader = CmmaLoader<Strided>;
+    type RhsLoader = CmmaLoader<Strided>;
     type AccLoader = CmmaLoader<Acc>;
 
     fn execute(

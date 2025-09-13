@@ -4,7 +4,7 @@ use crate::components::StageIdent;
 use crate::components::tile::{TileConfig, TileMatmul, register::loader::TileRegisterLoader};
 use crate::components::tile::{loader::TileKind, tile_data::Tile};
 use crate::components::tile::{
-    loader::TileLoader,
+    loader::Strided,
     register::{
         config::{ProductType, RegisterConfig},
         loader::RegisterLoader,
@@ -33,8 +33,8 @@ where
     type Rhs = Array<R>;
     type Accumulator = Array<A>;
 
-    type LhsLoader = RegisterLoader<TileLoader>;
-    type RhsLoader = RegisterLoader<TileLoader>;
+    type LhsLoader = RegisterLoader<Strided>;
+    type RhsLoader = RegisterLoader<Strided>;
     type AccLoader = RegisterLoader<Acc>;
 
     fn execute(
