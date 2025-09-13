@@ -1,6 +1,7 @@
 pub use cubecl_core::*;
 
 pub use cubecl_runtime::config;
+pub use cubecl_runtime::features;
 pub use cubecl_runtime::memory_management::MemoryAllocationMode;
 
 #[cfg(feature = "wgpu")]

@@ -1,5 +1,6 @@
 use cubecl_common::CubeDim;
 use cubecl_ir::{Id, Scope, StorageType, Type};
+use enumset::EnumSet;
 
 use crate::{
     compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
@@ -35,7 +36,7 @@ pub struct KernelSettings {
 pub struct KernelOptions {
     pub kernel_name: String,
     pub debug_symbols: bool,
-    pub fp_math_mode: FastMath,
+    pub fp_math_mode: EnumSet<FastMath>,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -61,7 +62,7 @@ impl KernelSettings {
     }
 
     /// Set FP math mode
-    pub fn fp_math_mode(mut self, mode: FastMath) -> Self {
+    pub fn fp_math_mode(mut self, mode: EnumSet<FastMath>) -> Self {
         self.options.fp_math_mode = mode;
         self
     }

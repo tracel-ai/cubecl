@@ -11,15 +11,12 @@ use cubecl_cpp::{
 
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{
-        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
-        UIntKind,
-    },
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    ir::{MatrixLayout, MmaProperties, TargetProperties},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
+    ComputeRuntime, DeviceProperties, Plane,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
@@ -156,37 +153,19 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
     let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
+        Default::default(),
         mem_properties,
         topology,
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    // Not sure if there's a good way to check for support on HIP
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-        FloatKind::F32,
-    ))));
+
     // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-
-    // Supported by all architectures
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-        IntKind::I32,
-    ))));
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-        UIntKind::U32,
-    ))));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-
-    device_props.register_feature(Feature::DynamicLineSize);
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.dynamic_line_size = true;
+    device_props.features.plane.insert(Plane::Ops);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);

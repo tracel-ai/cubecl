@@ -1,33 +1,11 @@
-use cubecl_core::Feature;
-use cubecl_core::ir::{self as gpu};
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, MmaConfig, ScaledMmaConfig};
 use std::fmt::{Display, Formatter};
 use std::{fmt::Debug, marker::PhantomData};
 
 use super::{Component, Dialect, Elem, FmtLeft, Variable};
 
-pub type SupportedWmmaCombinations = Vec<(
-    gpu::StorageType,
-    gpu::StorageType,
-    gpu::StorageType,
-    Vec<(u8, u8, u8)>,
-)>;
-pub type SupportedMmaCombinations = Vec<(
-    gpu::StorageType,
-    gpu::StorageType,
-    gpu::StorageType,
-    u32,
-    u32,
-    u32,
-)>;
-pub type SupportedScaledMmaCombinations = Vec<(
-    gpu::StorageType,
-    gpu::StorageType,
-    gpu::StorageType,
-    gpu::StorageType,
-    (u32, u32, u32),
-    u32,
-)>;
+pub type SupportedMmaCombinations = Vec<MmaConfig>;
+pub type SupportedScaledMmaCombinations = Vec<ScaledMmaConfig>;
 
 pub trait Architecture {
     fn warp_size(&self) -> u32;
@@ -39,54 +17,29 @@ pub trait Architecture {
 }
 
 pub fn register_wmma_features(
-    supported_combinations: SupportedWmmaCombinations,
-    properties: &mut DeviceProperties<Feature>,
+    supported_combinations: SupportedMmaCombinations,
+    properties: &mut DeviceProperties,
 ) {
-    for (i, o, c, tdims) in supported_combinations {
-        for (m, n, k) in tdims {
-            properties.register_feature(Feature::Cmma {
-                a: i,
-                b: o,
-                c,
-                m,
-                n,
-                k,
-            });
-        }
+    for config in supported_combinations {
+        properties.features.cmma.insert(config);
     }
 }
 
 pub fn register_mma_features(
     supported_combinations: SupportedMmaCombinations,
-    properties: &mut DeviceProperties<Feature>,
+    properties: &mut DeviceProperties,
 ) {
-    for (a, b, o, m, n, k) in supported_combinations {
-        properties.register_feature(Feature::ManualMma {
-            a_type: a,
-            b_type: b,
-            cd_type: o,
-            m,
-            n,
-            k,
-        });
+    for config in supported_combinations {
+        properties.features.mma.insert(config);
     }
 }
 
 pub fn register_scaled_mma_features(
     supported_combinations: SupportedScaledMmaCombinations,
-    properties: &mut DeviceProperties<Feature>,
+    properties: &mut DeviceProperties,
 ) {
-    for (a, b, o, s, (m, n, k), factor) in supported_combinations {
-        properties.register_feature(Feature::ScaledMma {
-            a_type: a,
-            b_type: b,
-            cd_type: o,
-            m,
-            n,
-            k,
-            scales_type: s,
-            scales_factor: factor,
-        });
+    for config in supported_combinations {
+        properties.features.scaled_mma.insert(config);
     }
 }
 

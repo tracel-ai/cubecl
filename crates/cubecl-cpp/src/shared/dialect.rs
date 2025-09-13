@@ -10,8 +10,8 @@ use crate::shared::{
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations,
-    Variable, WarpInstruction, WmmaInstruction,
+    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, Variable, WarpInstruction,
+    WmmaInstruction,
 };
 
 // Base dialect
@@ -794,7 +794,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         scales_b: Variable<D>,
         scales_factor: u32,
     ) -> std::fmt::Result;
-    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
+    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
     fn supported_mma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
     fn supported_scaled_mma_combinations(
         _arch: &D::Architecture,

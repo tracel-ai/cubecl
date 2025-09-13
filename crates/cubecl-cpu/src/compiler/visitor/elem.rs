@@ -1,8 +1,5 @@
-use cubecl_core::{
-    Feature,
-    ir::{ElemType, FloatKind, IntKind, StorageType, UIntKind},
-};
-use cubecl_runtime::DeviceProperties;
+use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType, UIntKind};
+use cubecl_runtime::{DeviceProperties, TypeUsage};
 use tracel_llvm::melior::{
     dialect::index,
     ir::{ValueLike, r#type::IntegerType},
@@ -68,7 +65,7 @@ impl<'a> Visitor<'a> {
     }
 }
 
-pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_supported_types(props: &mut DeviceProperties) {
     let supported_types = [
         ElemType::UInt(UIntKind::U8),
         ElemType::UInt(UIntKind::U16),
@@ -90,6 +87,6 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     ];
 
     for ty in supported_types {
-        props.register_feature(Feature::Type(ty.into()));
+        props.register_type_usage(ty, TypeUsage::all_scalar());
     }
 }
