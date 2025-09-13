@@ -3,6 +3,8 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+use cubecl_std::{CubeOption, CubeOptionExpand};
+
 use crate::components::{
     MatrixLayout,
     tile::{
@@ -81,6 +83,25 @@ impl TileMatrixLoader for MatrixLoader<FillLoader> {
             line_container.line = Line::cast_from(value);
 
             comptime![n += 1];
+        }
+    }
+}
+
+#[cube]
+impl<Inner: TileKind> TileMatrixLoader for MatrixLoader<CubeOption<Inner>>
+where
+    MatrixLoader<Inner>: TileMatrixLoader<TileKind = Inner>,
+{
+    fn fill_fragment<E: Numeric, V: Numeric>(
+        tile: CubeOption<Inner::Tile<V>>,
+        frag: &mut Sequence<LineContainer<E>>,
+        #[comptime] config: PlaneVecMatInnerProductConfig,
+    ) {
+        match tile {
+            CubeOption::Some(tile) => MatrixLoader::<Inner>::fill_fragment(tile, frag, config),
+            CubeOption::None => {
+                MatrixLoader::<FillLoader>::fill_fragment::<E, V>(V::from_int(0), frag, config)
+            }
         }
     }
 }

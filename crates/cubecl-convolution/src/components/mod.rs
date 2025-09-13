@@ -1,4 +1,5 @@
 pub mod global;
+pub mod stage;
 
 mod config;
 mod error;

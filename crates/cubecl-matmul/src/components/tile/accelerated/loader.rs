@@ -53,6 +53,31 @@ impl CmmaTileLoader for CmmaLoader<FillLoader> {
     }
 }
 
+#[cube]
+impl<Inner: TileKind> CmmaTileLoader for CmmaLoader<CubeOption<Inner>>
+where
+    CmmaLoader<Inner>: CmmaTileLoader<TileKind = Inner>,
+{
+    fn fill_fragment<E: Numeric, V: Numeric>(
+        tile: CubeOption<Inner::Tile<V>>,
+        fragment: &mut cmma::Matrix<E>,
+        layout: CubeOption<cmma::MatrixLayout>,
+        #[comptime] line_size: u32,
+    ) {
+        match tile {
+            CubeOption::Some(tile) => {
+                CmmaLoader::<Inner>::fill_fragment(tile, fragment, layout, line_size)
+            }
+            CubeOption::None => CmmaLoader::<FillLoader>::fill_fragment::<E, V>(
+                V::from_int(0),
+                fragment,
+                layout,
+                line_size,
+            ),
+        }
+    }
+}
+
 impl<Kind: TileKind> Loader for CmmaLoader<Kind> {
     type TileKind = Kind;
 }

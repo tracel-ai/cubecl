@@ -1,6 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coordinates};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::{View, layout::Coordinates},
+};
 
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{AccS, global::MaxLoaderPlanes};
@@ -239,4 +242,28 @@ pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
 pub trait StageReaderFamily: Send + Sync + 'static {
     type TileKind: TileKind;
     type Reader<ES: Numeric, T: TilingLayout>: StageReader<ES, TileKind = Self::TileKind>;
+}
+
+#[cube]
+impl<ES: Numeric, Inner: StageReader<ES>> StageReader<ES> for CubeOption<Inner> {
+    type TileKind = CubeOption<Inner::TileKind>;
+
+    fn read_tile<S: StageMemoryConfig>(
+        this: &Self,
+        row: u32,
+        col: u32,
+        #[comptime] config: S,
+    ) -> <Self::TileKind as TileKind>::Tile<ES> {
+        match this {
+            CubeOption::Some(reader) => {
+                CubeOption::new_Some(Inner::read_tile::<S>(reader, row, col, config))
+            }
+            CubeOption::None => CubeOption::new_None(),
+        }
+    }
+}
+
+impl<Inner: StageReaderFamily> StageReaderFamily for Option<Inner> {
+    type TileKind = CubeOption<Inner::TileKind>;
+    type Reader<ES: Numeric, T: TilingLayout> = CubeOption<Inner::Reader<ES, T>>;
 }

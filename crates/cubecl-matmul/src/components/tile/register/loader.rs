@@ -1,5 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -92,6 +93,31 @@ impl TileRegisterLoader for RegisterLoader<FillLoader> {
 
         for i in 0..size / line_size {
             fragment[i] = E::cast_from(value);
+        }
+    }
+}
+
+#[cube]
+impl<Inner: TileKind> TileRegisterLoader for RegisterLoader<CubeOption<Inner>>
+where
+    RegisterLoader<Inner>: TileRegisterLoader<TileKind = Inner>,
+{
+    fn fill_fragment<E: Numeric, V: Numeric>(
+        tile: CubeOption<Inner::Tile<V>>,
+        fragment: &mut Array<E>,
+        #[comptime] ident: StageIdent,
+        #[comptime] config: RegisterConfig,
+    ) {
+        match tile {
+            CubeOption::Some(tile) => {
+                RegisterLoader::<Inner>::fill_fragment(tile, fragment, ident, config)
+            }
+            CubeOption::None => RegisterLoader::<FillLoader>::fill_fragment::<E, V>(
+                V::from_int(0),
+                fragment,
+                ident,
+                config,
+            ),
         }
     }
 }

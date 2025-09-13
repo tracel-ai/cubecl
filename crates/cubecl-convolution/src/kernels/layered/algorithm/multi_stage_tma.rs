@@ -10,10 +10,10 @@ use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
-    tile::TileMatmulFamily,
+    tile::{TileMatmulFamily, loader::TileLoader},
 };
 
-use cubecl_std::tensor::TensorHandle;
+use cubecl_std::{CubeOption, tensor::TensorHandle};
 
 use crate::components::{
     ConvolutionProblem, convolution_matmul_selection,
@@ -29,9 +29,17 @@ pub struct MultiStageTmaConvAlgorithm<TMM: TileMatmulFamily> {
     _tmm: PhantomData<TMM>,
 }
 
-impl<TMM: TileMatmulFamily> Algorithm for MultiStageTmaConvAlgorithm<TMM> {
+impl<
+    TMM: TileMatmulFamily<LhsTile = TileLoader, RhsTile = TileLoader, AccTile = CubeOption<TileLoader>>,
+> Algorithm for MultiStageTmaConvAlgorithm<TMM>
+{
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullReaderFamily,
+        FullReaderFamily,
+        Option<FullReaderFamily>,
+    >;
     type GlobalConvolution = MultiStageTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

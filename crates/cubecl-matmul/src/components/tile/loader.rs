@@ -1,6 +1,8 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+use cubecl_std::CubeOption;
+
 use crate::components::tile::Tile;
 
 pub trait TileKind: CubeType + Send + Sync + 'static {
@@ -21,6 +23,10 @@ impl TileKind for TileLoader {
 
 impl TileKind for FillLoader {
     type Tile<E: Numeric> = E;
+}
+
+impl<Inner: TileKind> TileKind for CubeOption<Inner> {
+    type Tile<E: Numeric> = CubeOption<Inner::Tile<E>>;
 }
 
 pub trait Loader {

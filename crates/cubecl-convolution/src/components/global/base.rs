@@ -1,9 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    RhsG,
-    global::{AccumulatorLoader, GlobalWriter},
+    AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulSetupError, RhsG,
+    global::GlobalWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
@@ -36,8 +36,8 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
 pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
+    type AccLoader: CubeType;
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<MP>;
 
     type Writer: GlobalWriter<AccG<MP>>;
     type Accumulator: CubeType;
@@ -51,7 +51,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        acc_loader: Self::AccumulatorLoader,
+        acc_loader: Self::AccLoader,
         writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -78,7 +78,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader;
+    ) -> Self::AccLoader;
 
     fn init_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
