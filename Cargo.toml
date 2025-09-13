@@ -114,5 +114,6 @@ ash = "0.38"
 tracel-ash = { git = "https://github.com/tracel-ai/tracel-ash.git", rev = "cedd894bbdb03f0635900e7c0d317020fdd38263" }
 
 [profile.dev]
-debug = 0     # Speed up compilation time and not necessary.
+incremental = true
+debug = true     # Speed up compilation time and not necessary.
 opt-level = 0

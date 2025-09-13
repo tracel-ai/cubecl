@@ -1,3 +1,4 @@
+use crate::compute::CudaStorage;
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::{DataTransferService, IoError},
@@ -22,7 +23,7 @@ use crate::compute::{DataTransferItem, DataTransferRuntime};
 use crate::{CudaCompiler, WmmaCompiler};
 
 use super::CudaResource;
-use super::storage::CudaStorage;
+
 use super::sync::{Fence, SyncStream};
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
@@ -53,9 +54,9 @@ use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
 
+//use crate::compute::CudaStorageType;
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
-
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -66,7 +67,7 @@ pub struct CudaServer {
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorage>,
+    memory_management: MemoryManagement<CudaStorage>, // Set this to allow dispatching on the storage at runtime based on device properties and configuration.
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
