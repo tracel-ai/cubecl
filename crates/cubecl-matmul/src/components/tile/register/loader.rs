@@ -83,15 +83,13 @@ impl TileRegisterLoader for RegisterLoader<Filled> {
         #[comptime] config: RegisterConfig,
     ) {
         let size = config.tile_size();
-        let line_size = config.stage_line_size(ident);
-
         let size = match ident {
             StageIdent::Lhs => size.mk(),
             StageIdent::Rhs => size.nk(),
             StageIdent::Acc => size.mn(),
         };
 
-        for i in 0..size / line_size {
+        for i in 0..size {
             fragment[i] = E::cast_from(value);
         }
     }
