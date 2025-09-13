@@ -53,7 +53,7 @@ impl MatmulPrecision for f16 {
     #[cfg(target_os = "macos")]
     type Acc = (f16, f16);
     #[cfg(not(target_os = "macos"))]
-    type Acc = (f32, f16);
+    type Acc = (f16, f32);
 }
 
 impl MatmulPrecision for flex32 {
@@ -68,7 +68,7 @@ impl MatmulPrecision for bf16 {
     #[cfg(target_os = "macos")]
     type Acc = (bf16, bf16);
     #[cfg(not(target_os = "macos"))]
-    type Acc = (f32, bf16);
+    type Acc = (bf16, f32);
 }
 
 impl MatmulPrecision for f32 {
@@ -80,7 +80,7 @@ impl MatmulPrecision for f32 {
 impl MatmulPrecision for f64 {
     type Lhs = (f64, f32);
     type Rhs = (f64, f32);
-    type Acc = (f32, f64);
+    type Acc = (f64, f32);
 }
 
 impl MatmulPrecision for u8 {
