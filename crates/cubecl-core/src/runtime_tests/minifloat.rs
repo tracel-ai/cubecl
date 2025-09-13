@@ -141,7 +141,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
     vectorization: u8,
 ) {
-    if !e2m1x2::is_supported(&client) {
+    if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
