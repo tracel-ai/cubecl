@@ -9,11 +9,13 @@ use crate::{
     },
     shared::{
         Architecture, DialectWmmaCompiler, Flags, Fragment, FragmentIdent, FragmentLayout,
-        ManualMma, SupportedMmaCombinations, SupportedScaledMmaCombinations,
-        SupportedWmmaCombinations, Variable, WmmaInstruction, wmma_api_base,
+        ManualMma, SupportedMmaCombinations, SupportedScaledMmaCombinations, Variable,
+        WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
+use cubecl_runtime::MmaConfig;
+use itertools::Itertools;
 
 use super::{WMMA_MINIMUM_VERSION, WMMA_NAMESPACE};
 
@@ -77,8 +79,8 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
         compile_scaled_mma(f, mma, scales_a, scales_b, scales_factor)
     }
 
-    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedWmmaCombinations {
-        let mut result: SupportedWmmaCombinations = vec![];
+    fn supported_wmma_combinations(arch: &CudaArchitecture) -> SupportedMmaCombinations {
+        let mut result: SupportedMmaCombinations = vec![];
         if arch.get_version() >= WMMA_MINIMUM_VERSION {
             let tdims = vec![(16, 16, 16), (32, 8, 16), (8, 32, 16)];
             // Types fully supported.
@@ -109,21 +111,28 @@ impl DialectWmmaCompiler<CudaDialect<Self>> for CudaWmmaCompiler {
                     gpu::ElemType::Int(gpu::IntKind::I32),
                 ),
             ];
-            let combinations: SupportedWmmaCombinations = types
+            let combinations: SupportedMmaCombinations = types
                 .into_iter()
-                .map(|(m, n, k)| {
-                    let dimensions = tdims.clone();
-                    (m.into(), n.into(), k.into(), dimensions)
+                .cartesian_product(tdims)
+                .map(|((a, b, c), (m, n, k))| MmaConfig {
+                    a_type: a.into(),
+                    b_type: b.into(),
+                    cd_type: c.into(),
+                    m,
+                    n,
+                    k,
                 })
                 .collect();
             result.extend(combinations);
             if arch.get_version() >= 80 {
-                result.push((
-                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                    gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
-                    gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                    vec![(16, 16, 8)],
-                ));
+                result.push(MmaConfig {
+                    a_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    b_type: gpu::ElemType::Float(gpu::FloatKind::TF32).into(),
+                    cd_type: gpu::ElemType::Float(gpu::FloatKind::F32).into(),
+                    m: 16,
+                    n: 16,
+                    k: 8,
+                });
             }
         }
         result

@@ -2,6 +2,7 @@ use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
+use cubecl_runtime::TypeUsage;
 
 #[cube(launch_unchecked)]
 pub fn kernel_fp8<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
@@ -50,7 +51,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
     vectorization: u8,
 ) {
-    if !e4m3::is_supported(&client) {
+    if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
@@ -95,7 +96,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
     vectorization: u8,
 ) {
-    if !e2m3::is_supported(&client) {
+    if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }
@@ -178,7 +179,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vectorization: u8) {
-    if !ue8m0::is_supported(&client) {
+    if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
     }

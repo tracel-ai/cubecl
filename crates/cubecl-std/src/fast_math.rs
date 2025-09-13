@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_runtime::TypeUsage;
 
 /// Create a fast-divmod object if supported, or a regular fallback if not.
 /// This precalculates certain values on the host, in exchange for making division and modulo
@@ -42,7 +43,7 @@ impl<R: Runtime> FastDivmodArgs<'_, R> {
             };
         }
 
-        if !u64::is_supported(client) {
+        if !u64::supported_uses(client).contains(TypeUsage::Arithmetic) {
             return FastDivmodArgs::Fallback {
                 divisor: ScalarArg::new(divisor),
             };
