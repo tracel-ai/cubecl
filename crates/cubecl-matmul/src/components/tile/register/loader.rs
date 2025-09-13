@@ -35,41 +35,97 @@ pub(super) trait TileRegisterLoader: Loader {
 impl TileRegisterLoader for RegisterLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
-        fragment: &mut Array<E>,
+        frag: &mut Array<E>,
         #[comptime] ident: StageIdent,
         #[comptime] config: RegisterConfig,
     ) {
-        let size = config.tile_size();
-        let line_size = config.stage_line_size(ident);
-        let layout = config.matrix_layout(ident);
+        // Could these be unified somehow?
+        match ident {
+            StageIdent::Lhs => fill_lhs(&tile, frag, config),
+            StageIdent::Rhs => fill_rhs(&tile, frag, config),
+            StageIdent::Acc => fill_acc(&tile, frag, config),
+        }
+    }
+}
 
-        let (row, col) = match ident {
-            StageIdent::Lhs => (size.m(), size.k()),
-            StageIdent::Rhs => (size.k(), size.n()),
-            StageIdent::Acc => (size.m(), size.n()),
-        };
+type MM = RegisterMatmul<Strided>;
 
-        match config.product_type() {
-            ProductType::Inner => match layout {
-                MatrixLayout::RowMajor => {
-                    RegisterMatmul::<Strided>::fill_transposed(
-                        &tile, fragment, row, col, line_size,
-                    );
-                }
-                MatrixLayout::ColMajor => {
-                    RegisterMatmul::<Strided>::fill_plain(&tile, fragment, col, row, line_size);
-                }
-            },
-            ProductType::Outer => match layout {
-                MatrixLayout::RowMajor => {
-                    RegisterMatmul::<Strided>::fill_plain(&tile, fragment, row, col, line_size);
-                }
-                MatrixLayout::ColMajor => {
-                    RegisterMatmul::<Strided>::fill_transposed(
-                        &tile, fragment, col, row, line_size,
-                    );
-                }
-            },
+#[cube]
+fn fill_lhs<E: Numeric, V: Numeric>(
+    tile: &Tile<V>,
+    frag: &mut Array<E>,
+    #[comptime] config: RegisterConfig,
+) {
+    let size = config.tile_size();
+    let line_size = config.stage_line_size(StageIdent::Lhs);
+    let layout = config.matrix_layout(StageIdent::Lhs);
+
+    match config.product_type() {
+        ProductType::Inner => match layout {
+            MatrixLayout::RowMajor => {
+                MM::fill_plain(tile, frag, size.m(), size.k(), line_size);
+            }
+            MatrixLayout::ColMajor => {
+                MM::fill_transposed(tile, frag, size.k(), size.m(), line_size);
+            }
+        },
+        ProductType::Outer => match layout {
+            MatrixLayout::RowMajor => {
+                MM::fill_transposed(tile, frag, size.m(), size.k(), line_size);
+            }
+            MatrixLayout::ColMajor => {
+                MM::fill_plain(tile, frag, size.k(), size.m(), line_size);
+            }
+        },
+    }
+}
+
+#[cube]
+fn fill_rhs<E: Numeric, V: Numeric>(
+    tile: &Tile<V>,
+    frag: &mut Array<E>,
+    #[comptime] config: RegisterConfig,
+) {
+    let size = config.tile_size();
+    let line_size = config.stage_line_size(StageIdent::Rhs);
+    let layout = config.matrix_layout(StageIdent::Rhs);
+
+    match config.product_type() {
+        ProductType::Inner => match layout {
+            MatrixLayout::RowMajor => {
+                MM::fill_transposed(tile, frag, size.k(), size.n(), line_size);
+            }
+            MatrixLayout::ColMajor => {
+                MM::fill_plain(tile, frag, size.n(), size.k(), line_size);
+            }
+        },
+        ProductType::Outer => match layout {
+            MatrixLayout::RowMajor => {
+                MM::fill_plain(tile, frag, size.k(), size.n(), line_size);
+            }
+            MatrixLayout::ColMajor => {
+                MM::fill_transposed(tile, frag, size.n(), size.k(), line_size);
+            }
+        },
+    }
+}
+
+#[cube]
+fn fill_acc<E: Numeric, V: Numeric>(
+    tile: &Tile<V>,
+    frag: &mut Array<E>,
+    #[comptime] config: RegisterConfig,
+) {
+    let size = config.tile_size();
+    let line_size = config.stage_line_size(StageIdent::Acc);
+    let layout = config.matrix_layout(StageIdent::Acc);
+
+    match layout {
+        MatrixLayout::RowMajor => {
+            MM::fill_plain(tile, frag, size.m(), size.n(), line_size);
+        }
+        MatrixLayout::ColMajor => {
+            MM::fill_transposed(tile, frag, size.n(), size.m(), line_size);
         }
     }
 }
