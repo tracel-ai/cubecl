@@ -1,4 +1,5 @@
-use cubecl_core::{Feature, prelude::*};
+use cubecl_core::prelude::*;
+use cubecl_runtime::Plane;
 use serde::{Deserialize, Serialize};
 
 use crate::ReduceError;
@@ -41,7 +42,7 @@ impl ReduceStrategy {
 }
 
 fn support_plane<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
-    client.properties().feature_enabled(Feature::Plane)
+    client.properties().features.plane.contains(Plane::Ops)
 }
 
 fn precise_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {

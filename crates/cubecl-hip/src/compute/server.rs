@@ -7,11 +7,11 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
+use cubecl_core::server::Bindings;
 use cubecl_core::server::{
     Allocation, AllocationKind, CopyDescriptor, DataTransferService, IoError, ProfileError,
     ProfilingToken,
 };
-use cubecl_core::{Feature, server::Bindings};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{
@@ -159,7 +159,6 @@ impl HipServer {
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = HipStorage;
-    type Feature = Feature;
     type Info = ();
 
     fn create(

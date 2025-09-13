@@ -5,14 +5,14 @@ use cubecl_core::CubeDim;
 use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
-    Compiler, Feature,
+    Compiler,
     ir::{self as gpu},
 };
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
 
@@ -1613,7 +1613,7 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
     )
 }
 
-pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_supported_types(props: &mut DeviceProperties) {
     let supported_types = [
         gpu::ElemType::UInt(gpu::UIntKind::U8),
         gpu::ElemType::UInt(gpu::UIntKind::U16),
@@ -1641,10 +1641,13 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     ];
 
     for ty in supported_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Scalar(ty)));
+        props.register_type_usage(ty, TypeUsage::all_scalar());
     }
 
     for ty in supported_atomic_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Atomic(ty)));
+        props.register_type_usage(
+            gpu::StorageType::Atomic(ty),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
     }
 }

@@ -2,6 +2,7 @@ use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use cubecl_matmul::MatmulInputHandleRef;
+use cubecl_runtime::TypeUsage;
 use half::f16;
 
 use crate::{
@@ -140,7 +141,7 @@ where
     let rhs_is_f32 = TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>();
 
     let launch = if lhs_is_f32 || rhs_is_f32 {
-        if tf32::is_supported(client) {
+        if tf32::supported_uses(client).contains(TypeUsage::Conversion) {
             if lhs_is_f32 && rhs_is_f32 {
                 launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, tf32, f32, MP::EO), Alg>
             } else if lhs_is_f32 {

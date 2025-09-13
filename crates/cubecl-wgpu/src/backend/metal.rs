@@ -1,10 +1,10 @@
-use cubecl_core::{Feature, WgpuCompilationOptions, ir::UIntKind};
+use cubecl_core::{WgpuCompilationOptions, ir::UIntKind};
 use cubecl_cpp::{
     DialectWmmaCompiler,
     metal::{MslDialect, arch::MetalArchitecture},
     shared::register_wmma_features,
 };
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, EnumSet, Plane, TypeUsage};
 use wgpu::{
     DeviceDescriptor, Features, Limits,
     hal::{self, Adapter, metal},
@@ -54,7 +54,7 @@ fn request_device(
 
 pub fn register_metal_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    props: &mut cubecl_runtime::DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     let features = adapter.features();
@@ -67,20 +67,21 @@ pub fn register_metal_features(
 
 fn register_features(
     _adapter: &metal::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    props: &mut cubecl_runtime::DeviceProperties,
     _features: Features,
     _comp_options: &mut WgpuCompilationOptions,
 ) {
     register_types(props);
     register_cmma(props);
-    props.register_feature(Feature::SyncPlane);
+    props.features.plane.insert(Plane::Ops);
+    props.features.plane.insert(Plane::Sync);
 }
 
-fn register_types(props: &mut DeviceProperties<Feature>) {
+fn register_types(props: &mut DeviceProperties) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
-    let mut register = |elem: StorageType| {
-        props.register_feature(Feature::Type(elem));
+    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
+        props.register_type_usage(elem, usage);
     };
 
     let types = [
@@ -105,15 +106,18 @@ fn register_types(props: &mut DeviceProperties<Feature>) {
     ];
 
     for ty in types {
-        register(ty.into());
+        register(ty.into(), TypeUsage::all_scalar());
     }
 
     for ty in atomic_types {
-        register(StorageType::Atomic(ty))
+        register(
+            StorageType::Atomic(ty),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        )
     }
 }
 
-fn register_cmma(props: &mut DeviceProperties<Feature>) {
+fn register_cmma(props: &mut DeviceProperties) {
     let combinations = MslDialect::supported_wmma_combinations(&MetalArchitecture::Metal3);
     register_wmma_features(combinations, props);
 }

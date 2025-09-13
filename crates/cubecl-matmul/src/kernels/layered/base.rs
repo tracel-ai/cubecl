@@ -9,8 +9,9 @@ use crate::components::{global::args::TensorMapArgs, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::launch_kernel_concrete;
 use crate::{MatmulInputHandle, MatmulInputHandleRef};
 use core::any::TypeId;
-use cubecl_core::{Feature, prelude::*, try_tensor_line_size_parallel};
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
+use cubecl_core::{prelude::*, try_tensor_line_size_parallel};
+use cubecl_runtime::TypeUsage;
 use cubecl_std::tensor::{
     MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
 };
@@ -146,8 +147,9 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let rhs_elem = RhsG::<MP>::as_type_native().expect("To be a native type");
     let eo_elem = MP::EO::as_type_native().expect("To be a native type");
 
-    if !client.properties().feature_enabled(Feature::Type(lhs_elem))
-        || !client.properties().feature_enabled(Feature::Type(eo_elem))
+    if !LhsG::<MP>::supported_uses(client).contains(TypeUsage::Conversion)
+        || !RhsG::<MP>::supported_uses(client).contains(TypeUsage::Conversion)
+        || !MP::EO::supported_uses(client).contains(TypeUsage::Conversion)
     {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::TypesUnavailable {
@@ -217,7 +219,9 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
-    if <A::TileMatmul as TileMatmulFamily>::requires_accelerator() && tf32::is_supported(client) {
+    if <A::TileMatmul as TileMatmulFamily>::requires_accelerator()
+        && tf32::supported_uses(client).contains(TypeUsage::Conversion)
+    {
         match (
             TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>(),
             TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>(),
@@ -317,7 +321,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         }
     };
 
-    if tf32::is_supported(client) {
+    if tf32::supported_uses(client).contains(TypeUsage::Conversion) {
         match (
             TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>(),
             TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>(),

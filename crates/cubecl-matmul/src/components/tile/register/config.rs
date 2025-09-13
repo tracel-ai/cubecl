@@ -2,6 +2,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::StorageType};
+use cubecl_runtime::TypeUsage;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -187,7 +188,10 @@ impl RegisterConfig {
             _ => acc,
         };
 
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
+        if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
+        {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));
