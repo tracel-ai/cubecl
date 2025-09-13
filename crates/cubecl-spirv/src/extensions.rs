@@ -78,7 +78,7 @@ pub mod glcompute {
         }
 
         fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.tan_id(ty, Some(out), input).unwrap();
+            b.cl_tan_id(ty, Some(out), input).unwrap();
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
@@ -86,47 +86,47 @@ pub mod glcompute {
         }
 
         fn sinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.sinh_id(ty, Some(out), input).unwrap();
+            b.cl_sinh_id(ty, Some(out), input).unwrap();
         }
 
         fn cosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.cosh_id(ty, Some(out), input).unwrap();
+            b.cl_cosh_id(ty, Some(out), input).unwrap();
         }
 
         fn asin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.asin_id(ty, Some(out), input).unwrap();
+            b.cl_asin_id(ty, Some(out), input).unwrap();
         }
 
         fn acos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.acos_id(ty, Some(out), input).unwrap();
+            b.cl_acos_id(ty, Some(out), input).unwrap();
         }
 
         fn atan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.atan_id(ty, Some(out), input).unwrap();
+            b.cl_atan_id(ty, Some(out), input).unwrap();
         }
 
         fn asinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.asinh_id(ty, Some(out), input).unwrap();
+            b.cl_asinh_id(ty, Some(out), input).unwrap();
         }
 
         fn acosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.acosh_id(ty, Some(out), input).unwrap();
+            b.cl_acosh_id(ty, Some(out), input).unwrap();
         }
 
         fn atanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.atanh_id(ty, Some(out), input).unwrap();
+            b.cl_atanh_id(ty, Some(out), input).unwrap();
         }
 
         fn degrees(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.degrees_id(ty, Some(out), input).unwrap();
+            b.cl_degrees_id(ty, Some(out), input).unwrap();
         }
 
         fn radians(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
-            b.radians_id(ty, Some(out), input).unwrap();
+            b.cl_radians_id(ty, Some(out), input).unwrap();
         }
 
         fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
-            b.atan2_id(ty, Some(out), lhs, rhs).unwrap();
+            b.cl_atan2_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
