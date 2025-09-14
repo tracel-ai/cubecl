@@ -29,8 +29,8 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-featur
 half = { workspace = true }
 
 hashbrown = { workspace = true }
-rspirv = "0.12"
-rspirv-ext = "0.1.1"
+
+rspirv = { workspace = true }
 
 # Optimizer
 cubecl-opt = { path = "../cubecl-opt", version = "0.7.0" }

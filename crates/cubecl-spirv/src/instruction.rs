@@ -53,7 +53,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_equal(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_equal(ty, Some(out), lhs, rhs)
@@ -68,7 +68,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_not_equal(ty, Some(out), lhs, rhs)
@@ -83,7 +83,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_less_than(ty, Some(out), lhs, rhs)
@@ -98,7 +98,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
@@ -113,7 +113,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_greater_than(ty, Some(out), lhs, rhs)
@@ -128,7 +128,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(_) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
                             b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)

@@ -1,5 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_runtime::TypeUsage;
 
 use crate::ReduceError;
 
@@ -61,12 +62,8 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     let atomic_elem = Atomic::<N>::as_type_native_unchecked();
     if !client
         .properties()
-        .feature_enabled(cubecl_core::Feature::Type(atomic_elem))
-        || !client
-            .properties()
-            .feature_enabled(cubecl_core::Feature::AtomicFloat(
-                cubecl_core::AtomicFeature::Add,
-            ))
+        .type_usage(atomic_elem)
+        .contains(TypeUsage::AtomicAdd)
     {
         return Err(ReduceError::MissingAtomicAdd(N::as_type_native_unchecked()));
     }

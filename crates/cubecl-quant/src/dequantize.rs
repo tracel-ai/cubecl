@@ -2,6 +2,7 @@
 
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
+use cubecl_runtime::TypeUsage;
 
 use crate::{
     qparams::QParams,
@@ -198,7 +199,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
             store: QuantStore::Native,
             ..
         } => {
-            if !i8::is_supported(client) {
+            if !i8::supported_uses(client).contains(TypeUsage::Conversion) {
                 panic!(
                     "{:?} is not supported for native quantization",
                     scheme.value

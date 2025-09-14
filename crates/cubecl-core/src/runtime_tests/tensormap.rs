@@ -1,12 +1,13 @@
 use std::fmt::Debug;
 
 use crate::{
-    self as cubecl, Feature, TmaFeature,
+    self as cubecl,
     prelude::barrier::{Barrier, BarrierLevel},
 };
 
 use cubecl::prelude::*;
 use cubecl_runtime::{
+    Tma,
     server::{Allocation, ComputeServer},
     storage::ComputeStorage,
 };
@@ -110,10 +111,7 @@ pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(
 ) where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
+    if !client.properties().features.tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -154,10 +152,7 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
 ) where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
+    if !client.properties().features.tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -205,10 +200,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
 ) where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
+    if !client.properties().features.tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }
@@ -296,10 +288,7 @@ pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(
 ) where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
-    if !client
-        .properties()
-        .feature_enabled(Feature::Tma(TmaFeature::Base))
-    {
+    if !client.properties().features.tma.contains(Tma::Base) {
         println!("Skipped test_tensormap_load due to unavailability");
         return;
     }

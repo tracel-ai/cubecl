@@ -1,4 +1,4 @@
-use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient, ir::SemanticType};
 
 use crate::components::{
     LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
@@ -154,7 +154,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        if !client.properties().feature_enabled(Feature::Barrier) {
+        if !client.properties().supports_type(SemanticType::Barrier) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::BarrierUnavailable,
             ));

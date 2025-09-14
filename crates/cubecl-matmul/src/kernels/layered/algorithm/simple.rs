@@ -1,4 +1,5 @@
-use cubecl_core::{Feature, Runtime, client::ComputeClient};
+use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_runtime::MmaConfig;
 use std::marker::PhantomData;
 
 use crate::{
@@ -87,11 +88,11 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     plane_dim: u32,
     elems: MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    let supported = |m: u8, n: u8, k: u8| {
-        client.properties().feature_enabled(Feature::Cmma {
-            a: elems.lhs_register,
-            b: elems.rhs_register,
-            c: elems.acc,
+    let supported = |m: u32, n: u32, k: u32| {
+        client.properties().features.cmma.contains(&MmaConfig {
+            a_type: elems.lhs_register,
+            b_type: elems.rhs_register,
+            cd_type: elems.acc,
             m,
             n,
             k,

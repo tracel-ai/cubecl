@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::{
-    CubeCount, ExecutionMode, Feature, MemoryUsage,
+    CubeCount, ExecutionMode, MemoryUsage,
     compute::CubeTask,
     future::DynFut,
     server::{
@@ -88,7 +88,6 @@ impl CpuServer {
 impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
     type Storage = BytesStorage;
-    type Feature = Feature;
     type Info = ();
 
     fn create(
