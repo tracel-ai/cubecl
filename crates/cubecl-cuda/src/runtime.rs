@@ -28,19 +28,19 @@ use cubecl_runtime::{
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
-
-use cudarc::driver::sys::CUmemAllocationProp;
-use cudarc::driver::sys::CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED;
-use cudarc::driver::sys::CUmemLocation;
-use cudarc::driver::sys::CUmemLocationType_enum::CU_MEM_LOCATION_TYPE_DEVICE;
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::CUmemAllocationGranularity_flags;
+
+use cudarc::driver::sys::{CUmemLocation, CUmemLocationType};
+use cudarc::driver::sys::CUmemAllocationProp;
 use cudarc::driver::sys::cuMemGetAllocationGranularity;
+use cudarc::driver::sys::CUmemAllocationHandleType_enum;
 use std::mem::MaybeUninit;
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
-    expandable_storage_enabled: bool, // ¿Does the runtime want to use expandable storage?
+
     pub memory_config: MemoryConfiguration,
 }
 
@@ -85,6 +85,57 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
      ), Ok(1))
     };
 
+    let granularity = if vmm_supported {
+
+        let handle_type = {
+            #[cfg(unix)]
+            {
+                CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+            }
+            #[cfg(target_os = "windows")]
+            {
+                CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
+            }
+        };
+
+         // Define allocation properties
+        let prop = CUmemAllocationProp {
+            type_: cudarc::driver::sys::CUmemAllocationType::CU_MEM_ALLOCATION_TYPE_PINNED,
+            location: CUmemLocation {
+                type_: CUmemLocationType::CU_MEM_LOCATION_TYPE_DEVICE,
+                id: device_ptr,
+            },
+            requestedHandleTypes: handle_type,
+            // Still not sure how to properly set this flag which is apparently windows-specific.
+            win32HandleMetaData: std::ptr::null_mut(),
+            allocFlags: cudarc::driver::sys::CUmemAllocationProp_st__bindgen_ty_1 {
+                compressionType: 0, // 0 -> No memory compression
+                gpuDirectRDMACapable: 0, // 0 -> No RDMA capabilities. Probably may want to change in the future for sharing pinned memory accross different devices.
+                usage: 0, // Must be 0
+                reserved: [0; 4], // Must be always zero.
+            },
+
+        };
+
+        let mut granularity: usize = 0;
+        if unsafe {
+            cuMemGetAllocationGranularity(
+                &mut granularity as *mut usize,
+                &prop,
+                CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+            ).result()
+        }.is_ok(){
+            granularity
+
+        } else{
+            0usize
+        }
+
+
+    } else {
+        0 // default granularity.
+    };
+
     // 32 bytes is enough to handle a double4 worth of alignment.
     // NB: cudamalloc and co. actually align to _256_ bytes. Worth
     // trying this in the future to see if it reduces memory coalescing.
@@ -116,72 +167,13 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         bytes.assume_init() as u64
     };
 
-    //let (mem_properties, storage) = if !vmm_supported || !options.expandable_storage_enabled {
     let storage = CudaStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
         data_transfer_async: true,
     };
-    /*     (mem_properties, CudaStorageType::Regular(storage))
-    } else {
-        let mut granularity: usize = 0;
 
-        // Handle type will differ by platform
-        let handle_type = {
-            #[cfg(unix)]
-            {
-                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
-            }
-            #[cfg(target_os = "windows")]
-            {
-                cudarc::driver::sys::CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
-            }
-        };
-
-        // Define CUDA allocation properties for pinned, device-local memory.
-        // Sharing mappings accross devices is still not implemented on [`VirtualStorage`].
-        let prop = CUmemAllocationProp {
-            type_: CU_MEM_ALLOCATION_TYPE_PINNED,
-            requestedHandleTypes: handle_type,
-            location: CUmemLocation {
-                type_: CU_MEM_LOCATION_TYPE_DEVICE,
-                id: device_ptr,
-            },
-            win32HandleMetaData: std::ptr::null_mut(),
-            allocFlags: Default::default(),
-        };
-
-        // Query allocation granularity (GPU page size)
-        unsafe {
-            cuMemGetAllocationGranularity(
-                &mut granularity,
-                &prop,
-                cudarc::driver::sys::CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
-            )
-        };
-        // For virtual storage, the memory should be aligned to the minumim allocation granularity.
-        // Therefore here there is a straightforward way to configure the memory alignment.
-        let mem_properties = MemoryDeviceProperties {
-            max_page_size: max_memory / 4,
-            alignment: granularity as u64,
-            data_transfer_async: true,
-             // TODO: We should have a fallback when peer access isn't supported.
-        };
-        // For safety, reserve only 3/4 of the GPU memory
-        let virtual_size = 3 * (max_memory / 4); // Avoid reserving all the mmeory in the gpu
-        let storage = VirtualStorage::new(
-            device.index.try_into().unwrap(), // Note that this storage type needs an associated device  to perform allocations in order to properly set device permissions.
-            stream,
-            virtual_size,       // Reserve only a percentage of the gpu memory for safety
-            granularity as u64, // Alignment is set to the granularity value.
-            granularity as u64, // Handle size is best set to 1 * GPU PAGE SIZE, as it allows for finer-grained allocations. The main advantage of this type of storage allows to allocate variable-sized blocks of multiples of granularity, allowing to reuse fragments of each block, and ensuring memory is always contiguous thanks to block map/unmap.
-        );
-
-        (mem_properties, CudaStorageType::Expandable(storage))
-
-
-    };*/
 
     let mut comp_opts = CompilationOptions::default();
 
