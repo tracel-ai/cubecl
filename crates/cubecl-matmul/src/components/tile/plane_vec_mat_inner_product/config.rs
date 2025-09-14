@@ -20,6 +20,7 @@ pub struct PlaneVecMatInnerProductConfig {
     out_global_line_size: u32,
     lhs_stage_line_size: u32,
     rhs_stage_line_size: u32,
+    sum_precision: SumPrecision,
 }
 
 impl TileConfig for PlaneVecMatInnerProductConfig {
@@ -56,6 +57,17 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+/// Specifies the precision used for the sum reduction.
+pub enum SumPrecision {
+    /// Performs the sum in the accumulator precision.
+    /// Registers are cast to the accumulator type if needed before summation.
+    Accumulator,
+    /// Performs the sum in half-precision (f16).
+    /// Registers are cast to `f16` if needed before summation.
+    F16,
+}
+
 impl PlaneVecMatInnerProductConfig {
     pub fn reduce_line_size(&self) -> u32 {
         self.lhs_stage_line_size
@@ -63,6 +75,10 @@ impl PlaneVecMatInnerProductConfig {
 
     pub fn n(&self) -> u32 {
         self.tile_size().n()
+    }
+
+    pub fn sum_precision(&self) -> SumPrecision {
+        self.sum_precision
     }
 }
 
@@ -84,6 +100,7 @@ impl PlaneVecMatInnerProductConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        sum_precision: SumPrecision,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tiling_scheme,
@@ -95,6 +112,7 @@ impl PlaneVecMatInnerProductConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
+            sum_precision,
         }
         .validate()?
         .check_availability::<Lhs, Rhs, Acc, R>(client)
@@ -190,6 +208,16 @@ impl PlaneVecMatInnerProductConfig {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));
+        }
+
+        if let SumPrecision::F16 = self.sum_precision
+            && !client
+                .properties()
+                .feature_enabled(Feature::Type(Elem::Float(FloatKind::F16)))
+        {
+            return Err(MatmulSetupError::InvalidConfig(Box::new(
+                " Sum Precision is f16 but f16 is not available.  ",
+            )));
         }
 
         Ok(self)
