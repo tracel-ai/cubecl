@@ -7,7 +7,9 @@ use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryLoader;
-use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
+use crate::components::stage::dummy::{
+    Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
+};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
@@ -68,9 +70,13 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..head_dim {
                 let key_tile =
-                    <R as StageToTileReader<AP::ES>>::read_tile::<
-                        <Self::Config as StageAttentionConfig>::ScoreStageMemoryConfig,
-                    >(key_reader, hd, kv, config.score_stage_memory_config()); // TODO maybe transpose the indexes?
+                    <R as StageToTileReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
+                        key_reader,
+                        // TODO maybe transpose the indexes?
+                        kv,
+                        hd,
+                        config.score_stage_memory_config(),
+                    );
 
                 TA::fill_key(
                     &key_tile,
@@ -88,11 +94,10 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..seq_q {
-                TA::zero_score(&mut score_prob.get_at_mut(q), config.tile_config());
+                let score_frag = score_prob.get_at_mut(q);
+                TA::zero_score(score_frag, config.tile_config());
 
                 let mut hd = comptime![0u32];
-
-                let score_frag = score_prob.get_at_mut(q);
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
@@ -121,10 +126,11 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..val_dim {
-                let value_tile =
-                    <R as StageToTileReader<AP::ES>>::read_tile::<
-                        <Self::Config as StageAttentionConfig>::ValueStageMemoryConfig,
-                    >(value_reader, kv, vd, config.value_stage_memory_config());
+                let value_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
+                    AttentionStageMemoryConfig,
+                >(
+                    value_reader, kv, vd, config.value_stage_memory_config()
+                );
 
                 TA::fill_value(
                     &value_tile,

@@ -1,4 +1,4 @@
-use cubecl_matmul::components::TileSize;
+use cubecl_matmul::components::{PartitionSize, TileSize};
 
 use crate::components::FlashIdent;
 
@@ -80,7 +80,7 @@ impl AttentionTileSize {
         }
     }
 
-    pub fn to_score_matmul(&self) -> TileSize {
+    pub fn to_score_matmul_tile_size(&self) -> TileSize {
         TileSize {
             m: self.seq_q,
             n: self.seq_kv,
@@ -88,7 +88,7 @@ impl AttentionTileSize {
         }
     }
 
-    pub fn to_value_matmul(&self) -> TileSize {
+    pub fn to_value_matmul_tile_size(&self) -> TileSize {
         TileSize {
             m: self.seq_q,
             n: self.val_dim,
@@ -107,6 +107,45 @@ pub struct AttentionPartitionSize {
     pub head_dim: u32,
     pub seq_kv: u32,
     pub val_dim: u32,
+}
+impl AttentionPartitionSize {
+    pub(crate) fn num_rows(&self, ident: FlashIdent) -> u32 {
+        match ident {
+            FlashIdent::Query => self.seq_q,
+            FlashIdent::Key => self.seq_kv,
+            FlashIdent::ScoreProb => self.seq_q,
+            FlashIdent::Value => self.seq_kv,
+            FlashIdent::Mask => todo!(),
+            FlashIdent::Out => self.seq_q,
+        }
+    }
+
+    pub(crate) fn num_cols(&self, ident: FlashIdent) -> u32 {
+        match ident {
+            FlashIdent::Query => self.head_dim,
+            FlashIdent::Key => self.head_dim,
+            FlashIdent::ScoreProb => self.seq_kv,
+            FlashIdent::Value => self.val_dim,
+            FlashIdent::Mask => todo!(),
+            FlashIdent::Out => self.val_dim,
+        }
+    }
+
+    pub fn to_score_matmul_partition_size(&self) -> PartitionSize {
+        PartitionSize {
+            m: self.seq_q as u8,
+            n: self.seq_kv as u8,
+            k: self.head_dim as u8,
+        }
+    }
+
+    pub fn to_value_matmul_partition_size(&self) -> PartitionSize {
+        PartitionSize {
+            m: self.seq_q as u8,
+            n: self.val_dim as u8,
+            k: self.seq_kv as u8,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

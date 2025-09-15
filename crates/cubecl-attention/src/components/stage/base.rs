@@ -1,12 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
+use cubecl_matmul::components::stage::ReaderFamily;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::AttentionTilingScheme;
 use crate::components::global::dummy::QueryLoader;
+use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -108,15 +109,13 @@ pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     type FlashMatmulConfig: FlashMatmulConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
     fn tile_config(&self) -> Self::FlashMatmulConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
 }

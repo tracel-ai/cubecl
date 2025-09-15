@@ -25,7 +25,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul().into(); (m, n, k)};
+            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
                 for j in 0..n {
@@ -50,7 +50,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul().into(); (m, n, k)};
+            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
                 for j in 0..n {

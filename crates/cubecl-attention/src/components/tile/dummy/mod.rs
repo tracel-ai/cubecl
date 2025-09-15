@@ -6,7 +6,7 @@ mod setup;
 mod writer;
 
 pub use attention::*;
-pub use config::AttentionStageMemoryConfig;
+// pub use config::AttentionStageMemoryConfig;
 pub use flash_matmul::*;
 pub use fragment::*;
 pub use setup::DummyTileAttentionFamily;

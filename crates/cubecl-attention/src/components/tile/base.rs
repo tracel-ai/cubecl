@@ -58,18 +58,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
-    fn execute(
-        key_tile: &Tile<AP::ES>,
-        value_tile: &Tile<AP::ES>,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score: &mut Self::ScoreProb,
-        accumulator: &mut Self::Accumulator,
-        state: &mut Self::State,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
-        #[comptime] config: Self::Config,
-    );
-
     fn rescale(
         acc: &mut Self::Accumulator,
         prev_state: &Self::State,

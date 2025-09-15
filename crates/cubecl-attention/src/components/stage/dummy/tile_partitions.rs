@@ -1,3 +1,4 @@
+use std::cmp::max;
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
@@ -155,7 +156,7 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(partition_size.head_dim) {
+        for _ in 0..comptime!(max(partition_size.head_dim, partition_size.val_dim)) {
             sequence.push(TA::init_key_value(config.tile_config()));
         }
 
@@ -197,7 +198,7 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(partition_size.head_dim) {
+        for _ in 0..comptime!(partition_size.seq_q) {
             sequence.push(TA::init_score(config.tile_config()));
         }
 

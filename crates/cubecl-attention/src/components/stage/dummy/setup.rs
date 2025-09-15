@@ -1,19 +1,16 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::stage::ReaderFamily;
+use cubecl_matmul::components::{GlobalPartitionSize, TilingScheme, stage::ReaderFamily};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError,
     stage::{
         StageAttentionFamily,
-        dummy::{DummyStageAttention, DummyStageConfig},
+        dummy::{AttentionStageMemoryConfig, DummyStageAttention, DummyStageConfig},
     },
-    tile::{
-        AttentionTilingLayout, TileAttentionFamily,
-        dummy::{AttentionStageMemoryConfig, FlashMatmulConfig as _},
-    },
+    tile::{AttentionTilingLayout, TileAttentionFamily},
 };
 
 pub struct DummyStageAttentionFamily<TA: TileAttentionFamily, RF: ReaderFamily> {
@@ -37,18 +34,49 @@ impl<TA: TileAttentionFamily, RF: ReaderFamily> StageAttentionFamily
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let tile_config = TA::setup::<AP, R>(
-            client,
-            problem,
-            selection,
-            line_sizes,
-        )?;
+        let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes)?;
 
         DummyStageConfig::new(
             tile_config,
-            AttentionStageMemoryConfig::new(tile_config.score_config()),
-            AttentionStageMemoryConfig::new(tile_config.value_config()),
-            selection.tiling_scheme
+            score_attention_stage_memory_config(selection),
+            value_attention_stage_memory_config(selection),
+            selection.tiling_scheme,
         )
+    }
+}
+
+fn score_attention_stage_memory_config(
+    selection: &AttentionSelection,
+) -> AttentionStageMemoryConfig {
+    let att_tile_size = selection.tiling_scheme.tile_size;
+    let att_partition_size = selection.tiling_scheme.partition_size;
+    let att_stage_size = selection.tiling_scheme.stage_size;
+
+    let matmul_tiling_scheme = TilingScheme {
+        tile_size: att_tile_size.to_score_matmul_tile_size(),
+        partition_size: att_partition_size.to_score_matmul_partition_size(),
+        stage_size: (att_stage_size.seq_q, 1, 1).into(),
+        global_partition_size: GlobalPartitionSize::new(1, 1, 1),
+    };
+    AttentionStageMemoryConfig {
+        matmul_tiling_scheme,
+    }
+}
+
+fn value_attention_stage_memory_config(
+    selection: &AttentionSelection,
+) -> AttentionStageMemoryConfig {
+    let att_tile_size = selection.tiling_scheme.tile_size;
+    let att_partition_size = selection.tiling_scheme.partition_size;
+    let att_stage_size = selection.tiling_scheme.stage_size;
+
+    let matmul_tiling_scheme = TilingScheme {
+        tile_size: att_tile_size.to_value_matmul_tile_size(),
+        partition_size: att_partition_size.to_value_matmul_partition_size(),
+        stage_size: (att_stage_size.seq_q, 1, 1).into(),
+        global_partition_size: GlobalPartitionSize::new(1, 1, 1),
+    };
+    AttentionStageMemoryConfig {
+        matmul_tiling_scheme,
     }
 }

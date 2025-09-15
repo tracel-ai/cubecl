@@ -89,17 +89,6 @@ impl TileConfig for ValueConfig {
 }
 
 impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
-    type ScoreConfig = ScoreConfig;
-    type ValueConfig = ValueConfig;
-
-    fn score_config(&self) -> Self::ScoreConfig {
-        self.score_config
-    }
-
-    fn value_config(&self) -> Self::ValueConfig {
-        self.value_config
-    }
-
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -157,13 +146,13 @@ impl AcceleratedFlashMatmulConfig {
     ) -> Result<Self, AttentionSetupError> {
         let score_config = ScoreConfig {
             plane_dim,
-            tile_size: attention_tile_size.to_score_matmul(),
+            tile_size: attention_tile_size.to_score_matmul_tile_size(),
             query_stage_line_size,
             key_value_stage_line_size,
         };
         let value_config = ValueConfig {
             plane_dim,
-            tile_size: attention_tile_size.to_value_matmul(),
+            tile_size: attention_tile_size.to_value_matmul_tile_size(),
             key_value_stage_line_size,
         };
 
