@@ -9,12 +9,17 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 
 /// A virtual memory pool that leverages automatic merge/split behavior.
-///
-/// Key insights:
-/// - Merge happens automatically when we free slices: unmap + release virtual space
-/// - Split happens automatically when we allocate: just create new virtual spaces
-/// - Minimum allocation granularity is block_size (physical blocks are never split)
-/// - Physical blocks are never freed, only reused
+/// The main advantage of using virtual memory is that it allows to merge/split pages without
+/// any additional overhead other than releasing the mapped address space back to the device
+/// and unmapping the mapped physical blocks.
+/// It is preferred that blocks are fixed size for this, ideally of equal size as that of the
+/// minimum allocation granularity of the target device.
+/// This allows [`VirtualSlices`] to be split and merged back automatically once they are freed with no overhead (This is why you do not see any) split_block or try_merge functions here.
+/// The workflow is the following:
+/// [`VirtualSlices`] represent mapped virtual memory regions.
+/// When a [`VirtualSlice`] is freed, its physical blocks are unmapped and virtual memory is released.
+/// The physical blocks go to the [`free_list`] so that they can be remapped later to build a new [`VirtualSlice`].
+/// As we are working with virtual memory, virtual address spaces stay always contiguous, no matter the physical blocks are not contiguous in physical memory.
 pub(crate) struct VirtualStaticPool<Storage: VirtualStorage> {
     // Virtual memory management
     storage: Storage,
@@ -27,9 +32,9 @@ pub(crate) struct VirtualStaticPool<Storage: VirtualStorage> {
     active_slices: HashMap<SliceId, VirtualSlice>,
 
     // Pool configuration
-    block_size: u64,
+    block_size: u64, // Fixed block size is preferred when working with virtual memory
     max_alloc_size: u64,
-    alignment: u64,
+    alignment: u64, // minimum granularity.
 }
 
 /// Represents an active allocation in virtual memory.
@@ -40,14 +45,14 @@ struct VirtualSlice {
     handle: SliceHandle,
     /// Storage handle for the mapped virtual space
     storage_handle: StorageHandle,
-    /// Virtual space ID (for cleanup)
+    /// Virtual space ID
     virtual_space_id: VirtualSpaceId,
-    /// Physical blocks backing this allocation (indices into physical_blocks)
+    /// Physical blocks backing this allocation (indices into the physical block Vec)
     physical_block_indices: Vec<usize>,
     /// User-requested size (may be less than total virtual space)
     requested_size: u64,
     /// Padding added for alignment
-    padding: u64,
+    padding: u64, // We need to ensure total slice size is aligned to the pool's block_size.
 }
 
 impl VirtualSlice {
@@ -69,9 +74,6 @@ impl VirtualSlice {
         }
     }
 
-    fn is_free(&self) -> bool {
-        self.handle.is_free()
-    }
 
     fn id(&self) -> SliceId {
         *self.handle.id()
@@ -86,6 +88,10 @@ impl VirtualSlice {
         self.requested_size + self.padding
     }
 
+    fn is_free(&self) -> bool {
+        self.handle.is_free()
+    }
+
     // Helper to get block size
     fn get_block_size(&self) -> u64 {
         let total_size = self.requested_size + self.padding;
@@ -96,7 +102,7 @@ impl VirtualSlice {
 impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
     pub(crate) fn new(storage: Storage, block_size: u64, max_alloc_size: u64) -> Self {
         let alignment = storage.alignment() as u64;
-        assert_eq!(block_size % alignment, 0);
+        let block_size = block_size.next_multiple_of(alignment);
 
         Self {
             storage,
@@ -118,7 +124,7 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
             if let Some(free_index) = self.free_block_indices.pop() {
                 block_indices.push(free_index);
             } else {
-                // Allocate new physical block
+                // Allocate new physical block.
                 let physical_handle = self.storage.alloc(self.block_size)?;
                 self.physical_blocks.push(physical_handle);
                 block_indices.push(self.physical_blocks.len() - 1);
@@ -129,9 +135,9 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
     }
 
     /// Create a new allocation by mapping physical blocks to a fresh virtual space
-    ///
-    /// This is where the "automatic split" happens - each allocation gets its own
-    /// virtual address space, so there's no need to explicitly split existing ones.
+    /// Blocks can be either freshly allocated or reused from the freelist.
+    /// The logic to determine where do blocks come from is determined by the function
+    /// [`get_physical_blocks`]
     fn create_allocation(&mut self, size: u64) -> Result<VirtualSlice, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let total_size = size + padding;
@@ -170,10 +176,8 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
 
     /// Free an allocation by unmapping and releasing virtual space
     ///
-    /// This is where "automatic merge" happens - by releasing the virtual space,
-    /// we make the physical blocks available for any future allocation regardless
-    /// of size. There's no fragmentation in virtual space since each allocation
-    /// gets a fresh virtual address range.
+    /// Here, by unmapping and then releasing the virtual space,
+    /// we make physical blocks available for reuse.
     fn free_allocation(&mut self, slice: VirtualSlice) -> Result<(), IoError> {
         // Unmap the virtual-to-physical mapping
         self.storage.try_unmap(slice.storage_handle.id)?;
@@ -182,7 +186,6 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
         self.storage.try_release(slice.virtual_space_id)?;
 
         // Mark physical blocks as free for reuse
-        // This is the key: physical blocks become available for ANY future allocation
         self.free_block_indices
             .extend(&slice.physical_block_indices);
 
@@ -203,31 +206,15 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
 
     /// Try to reuse existing free slices or create new allocation
     ///
-    /// Note: Since minimum granularity is block_size, we can only reuse slices
-    /// that are exactly the right size or larger by full block increments.
+    /// This is a statically sized virtual pool.
+    /// Although Virtual Slices are dynamically sized, physical blocks are always the same size.
+    /// Idea for the future is to add a [`SlicedVirtualPool`] that allows to use dynamically-sized physical blocks.
+    /// For now, I am following the pattern in `StaticPool`.
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
-        let padding = calculate_padding(size, self.alignment);
-        let total_size = size + padding;
-        let blocks_needed = total_size.div_ceil(self.block_size) as usize;
-        let required_virtual_size = blocks_needed as u64 * self.block_size;
-
-        // Look for a free slice that's exactly the right size
-        // (We can't split since minimum granularity is block_size)
-        for (slice_id, slice) in &self.active_slices {
-            if slice.is_free() && slice.virtual_size() == required_virtual_size {
-                return Some(slice.handle.clone());
-            }
-        }
-
-        // No exact match found - would need to allocate new
-        None
+       None
     }
 
     /// Create new allocation with fresh virtual address space
-    ///
-    /// This demonstrates the "automatic split" behavior - instead of splitting
-    /// existing allocations, we just create new ones. Each gets its own virtual
-    /// address space, so there's no fragmentation.
     fn alloc<ComputeStorage: crate::storage::ComputeStorage>(
         &mut self,
         _storage: &mut ComputeStorage, // Not used, we use inner VirtualStorage instead
@@ -261,7 +248,7 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
         }
     }
 
-    /// Cleanup by freeing virtual address spaces (automatic merge behavior)
+    /// Cleanup by freeing virtual address spaces
     ///
     /// When we free allocations, their physical blocks become available for
     /// any future allocation of any size. This is the "automatic merge" -
@@ -289,7 +276,6 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
                 }
             }
 
-            self.storage.flush();
-        }
+          }
     }
 }
