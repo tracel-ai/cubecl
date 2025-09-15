@@ -24,6 +24,7 @@ impl StreamBackend for CudaStreamBackend {
     type Event = Fence;
 
     fn init_stream(id: StreamId) -> Self::Stream {
+        println!("Init new stream ...");
         let stream = cudarc::driver::result::stream::create(
             cudarc::driver::result::stream::StreamKind::NonBlocking,
         )

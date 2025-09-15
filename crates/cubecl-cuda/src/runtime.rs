@@ -97,10 +97,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         ctx
     };
 
-    let stream = cudarc::driver::result::stream::create(
-        cudarc::driver::result::stream::StreamKind::NonBlocking,
-    )
-    .unwrap();
+    let stream =
+        cudarc::driver::result::stream::create(cudarc::driver::result::stream::StreamKind::Default)
+            .unwrap();
+    println!("Created first stream.");
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
