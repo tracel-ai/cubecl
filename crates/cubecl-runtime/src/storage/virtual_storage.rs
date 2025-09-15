@@ -7,6 +7,7 @@
 //! - Fine-grained control over memory mapping and unmapping
 //! - Efficient handling of fragmented physical memory
 use crate::server::IoError;
+use crate::storage::ComputeStorage;
 use crate::{
     storage::{StorageHandle, StorageId, StorageUtilization},
     storage_id_type,
@@ -339,3 +340,128 @@ pub trait VirtualStorage: Send {
     /// - Perform any necessary cleanup operations
     fn flush(&mut self);
 }
+
+/// A ComputeStorage adapter that wraps any VirtualStorage implementation.
+///
+/// This adapter allows VirtualStorage implementations to be used as traditional
+/// ComputeStorage, making them compatible with existing memory pools and systems.
+pub struct VirtualComputeStorage<V: VirtualStorage> {
+    /// The underlying virtual storage implementation
+    virtual_storage: V,
+    /// Minimum allocation size
+    granularity: u64,
+}
+
+impl<V: VirtualStorage> VirtualComputeStorage<V> {
+    /// Creates a new ComputeStorage adapter for the given VirtualStorage.
+    ///
+    /// # Arguments
+    /// * `virtual_storage` - The VirtualStorage implementation to wrap
+    /// * `min_alloc_size` - Minimum allocation granularity (should match virtual storage alignment)
+    pub fn new(virtual_storage: V, granularity: u64) -> Self {
+        Self {
+            virtual_storage,
+            granularity,
+        }
+    }
+
+    /// Unwraps the adapter to get the underlying VirtualStorage
+    pub fn into_inner(self) -> V {
+        self.virtual_storage
+    }
+
+    /// Gets a reference to the underlying VirtualStorage
+    pub fn inner(&self) -> &V {
+        &self.virtual_storage
+    }
+
+    /// Gets a mutable reference to the underlying VirtualStorage
+    pub fn inner_mut(&mut self) -> &mut V {
+        &mut self.virtual_storage
+    }
+
+    /// Allocates and immediately maps memory using virtual storage.
+    ///
+    /// This is the core operation that bridges ComputeStorage semantics
+    /// with VirtualStorage capabilities. Each allocation:
+    /// 1. Reserves virtual address space
+    /// 2. Allocates physical memory
+    /// 3. Maps physical to virtual
+    /// 4. Returns a handle to the mapped memory.
+    ///
+    /// NOTES and concerns:
+    /// - This allocation method is less flexible than using the inner virtual storage for allocations and deallocations.
+    /// - This allocation behaviour is exactly the same as the standard Compute Storage and probably will not yield any benefits.
+    fn allocate_and_map(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        // Align size to minimum allocation boundary
+        let aligned_size = size.next_multiple_of(self.granularity);
+
+        // Reserve virtual address space
+        let virtual_handle = self.virtual_storage.try_reserve(aligned_size as usize)?;
+
+        // Allocate physical memory
+        let physical_handle = self.virtual_storage.alloc(aligned_size)?;
+
+        // Map physical memory to virtual address space
+        let storage_handle = self
+            .virtual_storage
+            .try_map(virtual_handle, vec![physical_handle])?;
+
+        // Adjust the handle to reflect the actual requested size
+        Ok(StorageHandle::new(
+            storage_handle.id,
+            StorageUtilization { offset: 0, size },
+        ))
+    }
+}
+
+impl<V: VirtualStorage> ComputeStorage for VirtualComputeStorage<V> {
+    type Resource = V::Resource;
+
+    fn alignment(&self) -> usize {
+        self.virtual_storage.alignment()
+    }
+
+    /// Gets a resource for the given storage handle.
+    ///
+    /// This delegates directly to the VirtualStorage, which handles
+    /// the translation from storage handles to actual memory resources.
+    fn get(&mut self, handle: &StorageHandle) -> V::Resource {
+        self.virtual_storage.get(handle)
+    }
+
+    /// Allocates memory using virtual storage with automatic mapping.
+    ///
+    /// Unlike raw VirtualStorage, this provides the simplified ComputeStorage
+    /// interface where allocation immediately returns usable memory.
+    fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+        self.allocate_and_map(size)
+    }
+
+    /// Marks memory for deallocation.
+    ///
+    /// Defers to the underlying virtual storage
+    fn dealloc(&mut self, id: StorageId) {
+        self.virtual_storage.dealloc(id)
+    }
+
+    /// Processes all pending deallocations.
+    fn flush(&mut self) {
+        self.virtual_storage.flush();
+    }
+}
+
+/// Helper trait to easily convert VirtualStorage into ComputeStorage
+pub trait IntoComputeStorage<V: VirtualStorage> {
+    /// Converts a VirtualStorage into a ComputeStorage adapter
+    fn into_compute_storage(self, min_alloc_size: u64) -> VirtualComputeStorage<V>;
+}
+
+impl<V: VirtualStorage> IntoComputeStorage<V> for V {
+    fn into_compute_storage(self, min_alloc_size: u64) -> VirtualComputeStorage<V> {
+        VirtualComputeStorage::new(self, min_alloc_size)
+    }
+}
+
+// Implement Send if the underlying VirtualStorage is Send
+unsafe impl<V: VirtualStorage> Send for VirtualComputeStorage<V> {}

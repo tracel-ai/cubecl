@@ -1,15 +1,14 @@
 use super::{MemoryPool, SliceBinding, SliceHandle, SliceId, calculate_padding};
 use crate::memory_management::MemoryUsage;
-use crate::storage::{
-    VirtualStorage, VirtualAddressSpaceHandle, PhysicalStorageHandle,
-    StorageHandle, StorageId, StorageUtilization,
-    VirtualSpaceId, PhysicalStorageId
-};
 use crate::server::IoError;
+use crate::storage::{
+    PhysicalStorageHandle, PhysicalStorageId, StorageHandle, StorageId, StorageUtilization,
+    VirtualAddressSpaceHandle, VirtualSpaceId, VirtualStorage,
+};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-/// A simplified virtual memory pool that leverages automatic merge/split behavior.
+/// A virtual memory pool that leverages automatic merge/split behavior.
 ///
 /// Key insights:
 /// - Merge happens automatically when we free slices: unmap + release virtual space
@@ -89,18 +88,13 @@ impl VirtualSlice {
 
     // Helper to get block size
     fn get_block_size(&self) -> u64 {
-
         let total_size = self.requested_size + self.padding;
         total_size.div_ceil(self.physical_block_indices.len() as u64)
     }
 }
 
 impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
-    pub(crate) fn new(
-        storage: Storage,
-        block_size: u64,
-        max_alloc_size: u64,
-    ) -> Self {
+    pub(crate) fn new(storage: Storage, block_size: u64, max_alloc_size: u64) -> Self {
         let alignment = storage.alignment() as u64;
         assert_eq!(block_size % alignment, 0);
 
@@ -141,7 +135,7 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
     fn create_allocation(&mut self, size: u64) -> Result<VirtualSlice, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let total_size = size + padding;
-        let blocks_needed = ((total_size + self.block_size - 1) / self.block_size) as usize;
+        let blocks_needed = total_size.div_ceil(self.block_size) as usize;
 
         // Get physical blocks (reuse existing or allocate new)
         let physical_block_indices = self.get_physical_blocks(blocks_needed)?;
@@ -189,7 +183,8 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
 
         // Mark physical blocks as free for reuse
         // This is the key: physical blocks become available for ANY future allocation
-        self.free_block_indices.extend(&slice.physical_block_indices);
+        self.free_block_indices
+            .extend(&slice.physical_block_indices);
 
         Ok(())
     }
@@ -213,7 +208,7 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let total_size = size + padding;
-        let blocks_needed = ((total_size + self.block_size - 1) / self.block_size) as usize;
+        let blocks_needed = total_size.div_ceil(self.block_size) as usize;
         let required_virtual_size = blocks_needed as u64 * self.block_size;
 
         // Look for a free slice that's exactly the right size
@@ -235,7 +230,7 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
     /// address space, so there's no fragmentation.
     fn alloc<ComputeStorage: crate::storage::ComputeStorage>(
         &mut self,
-        _storage: &mut ComputeStorage, // Not used, we use VirtualStorage instead
+        _storage: &mut ComputeStorage, // Not used, we use inner VirtualStorage instead
         size: u64,
     ) -> Result<SliceHandle, IoError> {
         if size > self.max_alloc_size {
@@ -290,8 +285,6 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
             // Free them (automatic merge happens here)
             for slice_id in slices_to_free {
                 if let Some(slice) = self.active_slices.remove(&slice_id) {
-                    // This is where the magic happens: unmapping + releasing virtual space
-                    // makes all physical blocks available for any future allocation
                     self.free_allocation(slice).ok();
                 }
             }

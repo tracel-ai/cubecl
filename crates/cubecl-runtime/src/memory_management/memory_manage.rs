@@ -83,6 +83,7 @@ pub enum MemoryAllocationMode {
     /// Use a static memory management strategy, meaning that all allocations are for data that is
     /// never going to be freed.
     Static,
+   
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.

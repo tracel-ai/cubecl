@@ -741,11 +741,7 @@ impl VirtualStorage for CudaVirtualStorage {
                             .get(prev_id)
                             .ok_or(IoError::InvalidHandle)?;
 
-                        if let Err(e) = cuMemUnmap(
-                            rollback_address,
-                            prev.size() as usize
-                        )
-                        .result()
+                        if let Err(e) = cuMemUnmap(rollback_address, prev.size() as usize).result()
                         {
                             panic!("Rollback failed in try_map operation: {}.", e)
                         }
@@ -816,7 +812,7 @@ impl VirtualStorage for CudaVirtualStorage {
             let mut unmapped_track: Vec<PhysicalStorageId> =
                 Vec::with_capacity(mapping.physical_ids.len());
 
-            for (i, handle_id) in mapping.physical_ids.iter().enumerate() {
+            for handle_id in mapping.physical_ids.iter() {
                 let handle = self
                     .physical_handles
                     .get_mut(handle_id)
@@ -832,10 +828,13 @@ impl VirtualStorage for CudaVirtualStorage {
                                 .get_mut(prev_id)
                                 .ok_or(IoError::InvalidHandle)?;
 
-                            if let Err(e) = cuMemMap(rollback_addr, prev.size() as usize, 0, prev.handle, 0).result(){
+                            if let Err(e) =
+                                cuMemMap(rollback_addr, prev.size() as usize, 0, prev.handle, 0)
+                                    .result()
+                            {
                                 panic!("Rollback cuMemMap failed: {}", e);
                             }
-                            
+
                             rollback_addr += prev.size();
                         }
 
