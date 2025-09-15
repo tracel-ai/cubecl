@@ -10,12 +10,12 @@ use crate::{
     kernels::layered::selector::RuntimeArgs,
 };
 use cubecl_matmul::components::stage::{
-    ColMajorTilingOrder, ContiguousTilingLayout, FullStageToTileReader, StageMemory,
+    ColMajorTilingOrder, ContiguousTilingLayout, FullStageReader, StageMemory,
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
 pub type TmaIm2colReader<IP> =
-    FullStageToTileReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
+    FullStageReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]

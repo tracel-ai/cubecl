@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
-use cubecl_matmul::components::stage::FullStageToTileReader;
+use cubecl_matmul::components::stage::FullStageReader;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
@@ -25,8 +25,8 @@ pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> 
 impl<
     SA: StageAttention<
             AP,
-            KeyReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
-            ValueReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
+            KeyReader = FullStageReader<AP::ES, AttentionTilingLayout>,
+            ValueReader = FullStageReader<AP::ES, AttentionTilingLayout>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>

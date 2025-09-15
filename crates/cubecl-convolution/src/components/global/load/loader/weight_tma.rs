@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{InputPrecision, MatmulIdent, StageIdent};
 use cubecl_std::FastDivmod;
 
-use cubecl_matmul::components::stage::FullStageToTileReader;
+use cubecl_matmul::components::stage::FullStageReader;
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
 use cubecl_matmul::components::{
     global::{self, memory::MappedTensorReader},
@@ -16,7 +16,7 @@ use crate::kernels::layered::selector::RuntimeArgs;
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 pub type TmaWeightReader<IP> =
-    FullStageToTileReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
+    FullStageReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightLoader<IP: InputPrecision, S: StageConfig> {

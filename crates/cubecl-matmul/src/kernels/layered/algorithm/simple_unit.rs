@@ -11,7 +11,7 @@ use crate::{
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FillReaderFamily, FullReaderFamily, RowMajorTilingOrder,
+            ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily, RowMajorTilingOrder,
             UnitMatmulFamily,
         },
         tile::{loader::Filled, register::RegisterMatmul},
@@ -47,7 +47,7 @@ where
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul<Filled>;
-    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily, FillReaderFamily>;
+    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullStageReaderFamily, FillStageReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul =

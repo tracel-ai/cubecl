@@ -11,7 +11,7 @@ use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::FullStageReader as FullStageReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
@@ -44,7 +44,7 @@ pub trait SyncFullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
+pub struct SyncFullStageLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
     tensor_reader: TensorReader<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
@@ -55,7 +55,9 @@ pub struct SyncFullLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadin
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLoader<IP, G, L> {
+impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
+    SyncFullStageLoader<IP, G, L>
+{
     /// Create a new SyncFullLoader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords3d>,
@@ -77,7 +79,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             false => CubeOption::new_None(),
         };
 
-        SyncFullLoader::<IP, G, L> {
+        SyncFullStageLoader::<IP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -87,8 +89,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(&self) -> FullStageToTileReader<IP::Stage, L::TilingLayout> {
-        FullStageToTileReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
+    pub fn reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
+        FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
@@ -97,8 +99,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             .update_view(k_offset, comptime!(self.ident.view_direction()));
     }
 
-    /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(&mut self, #[comptime] config: G) {
+    /// Accomplish the entire job of loading data into the stage memory
+    pub fn load_stage(&mut self, #[comptime] config: G) {
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => L::new_job::<IP, G>(self.ident, config),
@@ -124,7 +126,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
-    for SyncFullLoader<IP, G, L>
+    for SyncFullStageLoader<IP, G, L>
 {
     type JobIterator = SyncFullLoaderJobIterator<IP, L>;
 

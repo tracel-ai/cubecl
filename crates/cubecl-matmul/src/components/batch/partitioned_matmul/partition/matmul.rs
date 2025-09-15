@@ -176,10 +176,10 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     }
 
     GMM::execute(
-        GMM::init_lhs_loader(a, m_offset, k_range.0, nth_batch, batch_a, config),
-        GMM::init_rhs_loader(b, k_range.0, n_offset, nth_batch, batch_b, config),
-        GMM::init_acc_loader(c, m_offset, n_offset, nth_batch, batch_out, config),
-        GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
+        GMM::init_lhs_stage_loader(a, m_offset, k_range.0, nth_batch, batch_a, config),
+        GMM::init_rhs_stage_loader(b, k_range.0, n_offset, nth_batch, batch_b, config),
+        GMM::init_acc_stage_loader(c, m_offset, n_offset, nth_batch, batch_out, config),
+        GMM::init_stage_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
         acc,
         k_range,
         config,

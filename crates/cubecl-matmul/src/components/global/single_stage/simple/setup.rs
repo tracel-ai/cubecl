@@ -5,7 +5,7 @@ use crate::components::{
         load::SyncFullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
-    stage::{FillReaderFamily, NoTilingLayout, StageConfig},
+    stage::{FillStageReaderFamily, NoTilingLayout, StageConfig},
 };
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords3d;
@@ -14,7 +14,7 @@ use std::marker::PhantomData;
 use crate::components::{
     MatmulProblem,
     global::GlobalMatmulFamily,
-    stage::{self, FullReaderFamily},
+    stage::{self, FullStageReaderFamily},
 };
 
 /// Simple matmul family for any precision
@@ -31,9 +31,9 @@ pub struct SimpleMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            AccReader = FillReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = FillStageReaderFamily,
             WriteCoords = Coords3d,
         >,
     LL: SyncFullLoadingStrategy,
