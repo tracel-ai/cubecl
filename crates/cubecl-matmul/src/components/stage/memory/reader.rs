@@ -123,7 +123,7 @@ impl StageReaderFamily for FillReaderFamily {
 
 #[cube]
 impl<ES: Numeric> FillReader<ES> {
-    /// Create a new PartialStageToTileReader
+    /// Create a new [`FillReader`]
     pub fn new(value: ES) -> FillReader<ES> {
         FillReader::<ES> { value }
     }

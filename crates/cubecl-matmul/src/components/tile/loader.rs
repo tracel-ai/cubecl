@@ -5,7 +5,9 @@ use cubecl_std::CubeOption;
 
 use crate::components::tile::Tile;
 
+/// Kind (family) of the tiles returned by a tile reader and ingested by a tile matmul loader
 pub trait TileKind: CubeType + Send + Sync + 'static {
+    /// Concrete tile instantiated with the element type
     type Tile<E: Numeric>: CubeType;
 }
 
@@ -29,9 +31,13 @@ impl<Inner: TileKind> TileKind for CubeOption<Inner> {
     type Tile<E: Numeric> = CubeOption<Inner::Tile<E>>;
 }
 
+/// A tile matmul loader, with a specific tile kind
 pub trait Loader {
+    /// The kind of the tile used as an input for the tile loader
     type TileKind: TileKind;
 }
 
+/// The concrete tile type for a given loader and element type
 pub type LoaderTile<L, E> = <<L as Loader>::TileKind as TileKind>::Tile<E>;
+/// The tile kind of a given loader
 pub type LoaderKind<L> = <L as Loader>::TileKind;

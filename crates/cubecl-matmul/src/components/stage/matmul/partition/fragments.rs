@@ -34,6 +34,7 @@ impl<
     S: StageConfig<TileConfig = TM::Config>,
 > Accumulators<MP, TM, S>
 {
+    /// Create a new accumulators sequence from the provided configuration
     pub fn new(#[comptime] config: S) -> Accumulators<MP, TM, S> {
         let partition_size = config.tiling_scheme().partition_size;
         let mut accumulators = Sequence::new();
@@ -49,22 +50,19 @@ impl<
         }
     }
 
+    /// Fill all accumulators from the specified reader
     pub fn fill<R: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccLoader>>>(
         &mut self,
         reader: &R,
         #[comptime] config: S,
     ) {
-        let size_m = comptime![config.tiling_scheme().partition_size.m()];
-        let size_n = comptime![config.tiling_scheme().partition_size.n()];
+        let size_m = comptime![config.tiling_scheme().tiles_in_stage_partition_m()];
+        let size_n = comptime![config.tiling_scheme().tiles_in_stage_partition_n()];
         #[unroll]
         for m in 0..size_m {
-            let m = unwrap(m);
             #[unroll]
             for n in 0..size_n {
-                let n = unwrap(n);
-                let i = comptime![m * size_n + n];
-
-                let acc = self.sequence.index_mut(i);
+                let acc = self.get_at_mut(unwrap(m), unwrap(n), config);
                 let tile = R::read_tile::<S::StageMemoryConfig>(
                     reader,
                     m,
@@ -76,25 +74,27 @@ impl<
         }
     }
 
+    /// Fetch a reference to the accumulator at (`m`, `n`)
     pub fn get_at(
-        this: &Accumulators<MP, TM, S>,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+        &self,
+        #[comptime] m: u32,
+        #[comptime] n: u32,
         #[comptime] config: S,
     ) -> &TM::Accumulator {
-        this.sequence.index(comptime!(
-            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
+        self.sequence.index(comptime!(
+            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
     }
 
+    /// Fetch a mutable reference to the accumulator at (`m`, `n`)
     pub fn get_at_mut(
-        this: &mut Accumulators<MP, TM, S>,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+        &mut self,
+        #[comptime] m: u32,
+        #[comptime] n: u32,
         #[comptime] config: S,
     ) -> &mut TM::Accumulator {
-        this.sequence.index_mut(comptime!(
-            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
+        self.sequence.index_mut(comptime!(
+            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
     }
 }

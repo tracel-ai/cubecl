@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaStrided};
+use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaTileLoader};
 use crate::components::tile::{
     accelerated::{config::AcceleratedConfig, loader::CmmaLoader},
     loader::{Strided, TileKind},
@@ -20,7 +20,7 @@ pub struct AcceleratedMatmul<Acc: TileKind> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for AcceleratedMatmul<Acc>
 where
-    CmmaLoader<Acc>: CmmaStrided<TileKind = Acc>,
+    CmmaLoader<Acc>: CmmaTileLoader<TileKind = Acc>,
 {
     type Config = AcceleratedConfig;
     type Lhs = cmma::Matrix<L>;

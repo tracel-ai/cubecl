@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::StageIdent;
-use crate::components::tile::{TileConfig, TileMatmul, register::loader::TileRegisterLoader};
+use crate::components::tile::{TileConfig, TileMatmul, register::loader::RegisterTileLoader};
 use crate::components::tile::{
     loader::Strided,
     register::{
@@ -26,7 +26,7 @@ static UNROLL: bool = false;
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
 where
-    RegisterLoader<Acc>: TileRegisterLoader<TileKind = Acc>,
+    RegisterLoader<Acc>: RegisterTileLoader<TileKind = Acc>,
 {
     type Config = RegisterConfig;
     type Lhs = Array<L>;

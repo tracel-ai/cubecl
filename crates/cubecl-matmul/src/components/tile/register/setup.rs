@@ -7,13 +7,13 @@ use crate::components::{
 use crate::components::{error::MatmulSetupError, tile::loader::TileKind};
 use crate::components::{
     resource::ComputeResources,
-    tile::register::loader::{RegisterLoader, TileRegisterLoader},
+    tile::register::loader::{RegisterLoader, RegisterTileLoader},
 };
 use cubecl_core::prelude::*;
 
 impl<AccTile: TileKind> TileMatmulFamily for RegisterMatmul<AccTile>
 where
-    RegisterLoader<AccTile>: TileRegisterLoader<TileKind = AccTile>,
+    RegisterLoader<AccTile>: RegisterTileLoader<TileKind = AccTile>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = RegisterMatmul<AccTile>;
     type Config = RegisterConfig;

@@ -226,10 +226,14 @@ pub enum PartitionBuffering {
     Double,
 }
 
+/// Reader used to load the stage memory (if applicable) into tiles, with the same kind used by the
+/// tile matmul loaders.
 #[cube]
 pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
+    /// The kind (or family) of the tiles being returned by this reader
     type TileKind: TileKind;
 
+    /// Slices a tile with offset (`row`, `col`) from the stage and returns it
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
         row: u32,
@@ -240,7 +244,9 @@ pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
 
 /// Reader family for any precision
 pub trait StageReaderFamily: Send + Sync + 'static {
+    /// The tile kind (family) returned by the reader
     type TileKind: TileKind;
+    /// The concrete reader type of this family, instantiated with the type and layout
     type Reader<ES: Numeric, T: TilingLayout>: StageReader<ES, TileKind = Self::TileKind>;
 }
 

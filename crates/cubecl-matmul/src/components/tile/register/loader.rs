@@ -15,14 +15,17 @@ use crate::components::{
     },
 };
 
+/// Loader for the register matmul fragments. Implementation depends on the tile kind.
 #[derive(CubeType)]
 pub struct RegisterLoader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
+/// Generic register loader over any tile kind
 #[cube]
-pub(super) trait TileRegisterLoader: Loader {
+pub(super) trait RegisterTileLoader: Loader {
+    /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
         fragment: &mut Array<E>,
@@ -32,7 +35,7 @@ pub(super) trait TileRegisterLoader: Loader {
 }
 
 #[cube]
-impl TileRegisterLoader for RegisterLoader<Strided> {
+impl RegisterTileLoader for RegisterLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Array<E>,
@@ -131,7 +134,7 @@ fn fill_acc<E: Numeric, V: Numeric>(
 }
 
 #[cube]
-impl TileRegisterLoader for RegisterLoader<Filled> {
+impl RegisterTileLoader for RegisterLoader<Filled> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut Array<E>,
@@ -152,9 +155,9 @@ impl TileRegisterLoader for RegisterLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> TileRegisterLoader for RegisterLoader<CubeOption<Inner>>
+impl<Inner: TileKind> RegisterTileLoader for RegisterLoader<CubeOption<Inner>>
 where
-    RegisterLoader<Inner>: TileRegisterLoader<TileKind = Inner>,
+    RegisterLoader<Inner>: RegisterTileLoader<TileKind = Inner>,
 {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,

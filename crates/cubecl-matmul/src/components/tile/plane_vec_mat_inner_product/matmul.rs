@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::StageIdent;
 use crate::components::tile::{
-    TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::TileMatrixLoader,
+    TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::MatrixTileLoader,
 };
 use crate::components::tile::{
     loader::Strided, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
@@ -37,7 +37,7 @@ impl<E: Numeric> LineContainer<E> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for PlaneVecMatInnerProduct<Acc>
 where
-    MatrixLoader<Acc>: TileMatrixLoader<TileKind = Acc>,
+    MatrixLoader<Acc>: MatrixTileLoader<TileKind = Acc>,
 {
     type Config = PlaneVecMatInnerProductConfig;
 

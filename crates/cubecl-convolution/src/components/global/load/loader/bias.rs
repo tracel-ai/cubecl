@@ -20,10 +20,13 @@ pub enum BiasLoader<IP: InputPrecision> {
     None,
 }
 
+/// Type of the stage reader for the bias loader
 pub type BiasStageReader<E> = CubeOption<FullStageToTileReader<E, BiasTilingLayout>>;
 
 #[cube]
 impl<IP: InputPrecision> BiasLoader<IP> {
+    /// Fill the stage with all bias tiles. Unlike normal loaders, bias only loads a 1D vector along
+    /// the `n` dimension.
     pub fn fill_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
         match self {
             BiasLoader::Some { tensor_view, stage } => {
@@ -44,6 +47,8 @@ impl<IP: InputPrecision> BiasLoader<IP> {
         }
     }
 
+    /// Create a reader for the stage contained in this loader. It will use custom tiling with
+    /// a stride of `0`.
     pub fn reader(&self) -> BiasStageReader<IP::Stage> {
         match self {
             BiasLoader::Some { stage, .. } => {
@@ -56,6 +61,7 @@ impl<IP: InputPrecision> BiasLoader<IP> {
 
 #[cube]
 impl<IP: InputPrecision> BiasLoader<IP> {
+    /// Create a new bias loader from the bias tensor and a global offset `n_offset`.
     pub fn new<G: GlobalConfig>(
         tensor: CubeOption<VirtualTensor<IP::Global>>,
         n_offset: u32,
@@ -74,6 +80,7 @@ impl<IP: InputPrecision> BiasLoader<IP> {
     }
 }
 
+/// Create a new 1D bias stage of size `stage_size_n`.
 #[cube]
 fn init_stage<ES: Numeric, G: GlobalConfig>(
     #[comptime] config: G,

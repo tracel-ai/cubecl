@@ -14,11 +14,14 @@ use crate::components::{
     },
 };
 
+/// Loader for the vector side of the VecMat operation
 #[derive(CubeType)]
 pub struct VectorLoader {}
 
+/// Generic matrix loader over any tile type
 #[cube]
-pub(super) trait TileMatrixLoader: Loader {
+pub(super) trait MatrixTileLoader: Loader {
+    /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
         frag: &mut Sequence<LineContainer<E>>,
@@ -26,6 +29,7 @@ pub(super) trait TileMatrixLoader: Loader {
     );
 }
 
+/// Loader for the matrix side of the VecMat operation. Implementation depends on the tile kind.
 #[derive(CubeType)]
 pub struct MatrixLoader<Kind: TileKind> {
     #[cube(comptime)]
@@ -46,7 +50,7 @@ impl Loader for VectorLoader {
 }
 
 #[cube]
-impl TileMatrixLoader for MatrixLoader<Strided> {
+impl MatrixTileLoader for MatrixLoader<Strided> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Sequence<LineContainer<E>>,
@@ -68,7 +72,7 @@ impl TileMatrixLoader for MatrixLoader<Strided> {
 }
 
 #[cube]
-impl TileMatrixLoader for MatrixLoader<Filled> {
+impl MatrixTileLoader for MatrixLoader<Filled> {
     fn fill_fragment<E: Numeric, V: Numeric>(
         value: V,
         frag: &mut Sequence<LineContainer<E>>,
@@ -88,9 +92,9 @@ impl TileMatrixLoader for MatrixLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> TileMatrixLoader for MatrixLoader<CubeOption<Inner>>
+impl<Inner: TileKind> MatrixTileLoader for MatrixLoader<CubeOption<Inner>>
 where
-    MatrixLoader<Inner>: TileMatrixLoader<TileKind = Inner>,
+    MatrixLoader<Inner>: MatrixTileLoader<TileKind = Inner>,
 {
     fn fill_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,

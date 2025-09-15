@@ -22,12 +22,11 @@ use crate::{
             GlobalConvolution,
             layout::{NhwcLayout, OutLayout},
             load::{
-                bias::BiasLoader,
+                bias::{BiasLoader, BiasStageReader},
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
                 weight_tma::{TmaWeightLoader, TmaWeightTiling},
             },
         },
-        stage::reader::BiasTilingLayout,
     },
     kernels::layered::selector::RuntimeArgs,
 };
@@ -60,7 +59,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
-            AccReader = CubeOption<FullStageToTileReader<AccS<MP>, BiasTilingLayout>>,
+            AccReader = BiasStageReader<AccS<MP>>,
             WriteCoords = Coords3d,
         >,
 {
