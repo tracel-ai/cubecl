@@ -267,7 +267,7 @@ impl ComputeServer for CudaServer {
             self.resolve_context_bindings(stream_id, bindings.buffers.iter());
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(stream, &kernel_id, kernel, mode, logger);
+            ctx.compile_kernel(&kernel_id, kernel, mode, logger);
         }
 
         let tensor_maps: Vec<_> = bindings
@@ -472,52 +472,53 @@ impl ComputeServer for CudaServer {
 
 impl DataTransferService for CudaServer {
     fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
-        // let (src_ctx, stream, _cursor) =
-        //     self.resolve_context_bindings(stream_id, [&src.binding].into_iter());
+        let (src_ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, [&src.binding].into_iter());
 
-        // let src_resource = src_ctx
-        //     .memory_management_gpu
-        //     .get_resource(
-        //         src.binding.memory,
-        //         src.binding.offset_start,
-        //         src.binding.offset_end,
-        //     )
-        //     .ok_or(IoError::InvalidHandle)
-        //     .unwrap();
+        let src_resource = src_ctx
+            .memory_management_gpu
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
 
-        // let client = DataTransferRuntime::client();
+        let client = DataTransferRuntime::client();
 
-        // let handle = DataTransferItem {
-        //     context: self.ctx.context,
-        //     stream: self.ctx.stream,
-        //     resource: src_resource,
-        // };
-        // let fence = Fence::new(self.ctx.stream);
+        let handle = DataTransferItem {
+            stream: stream.sys,
+            context: src_ctx.context,
+            resource: src_resource,
+        };
+        let fence = Fence::new(stream.sys);
 
-        // client.register_src(id, handle, fence);
+        client.register_src(id, handle, fence);
     }
 
     fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        // let dst_ctx = self.get_context();
-        // let dst_resource = dst_ctx
-        //     .memory_management_gpu
-        //     .get_resource(
-        //         dst.binding.memory,
-        //         dst.binding.offset_start,
-        //         dst.binding.offset_end,
-        //     )
-        //     .ok_or(IoError::InvalidHandle)
-        //     .unwrap();
+        let (dst_ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, [&dst.binding].into_iter());
+        let dst_resource = dst_ctx
+            .memory_management_gpu
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
 
-        // let client = DataTransferRuntime::client();
+        let client = DataTransferRuntime::client();
 
-        // let call = DataTransferItem {
-        //     context: self.ctx.context,
-        //     stream: self.ctx.stream,
-        //     resource: dst_resource,
-        // };
+        let call = DataTransferItem {
+            context: dst_ctx.context,
+            stream: stream.sys,
+            resource: dst_resource,
+        };
 
-        // client.register_dest(id, call);
+        client.register_dest(id, call);
     }
 }
 

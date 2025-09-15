@@ -1,60 +1,25 @@
-use cubecl_core::{
-    compute::{CubeTask, DebugInformation},
-    server::{DataTransferService, IoError},
-};
-use cubecl_core::{
-    future::{self, DynFut},
-    server::AllocationKind,
-};
-use cubecl_core::{
-    ir::StorageType,
-    server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
-};
+use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use super::storage::gpu::{GpuResource, GpuStorage};
-use super::sync::{Fence, SyncStream};
 use crate::{CudaCompiler, WmmaCompiler, compute::stream::Stream};
 use crate::{
-    compute::{
-        DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
-        storage::cpu::PinnedMemoryStorage,
-    },
+    compute::storage::cpu::PinnedMemoryStorage,
     install::{cccl_include_path, include_path},
 };
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
-use cubecl_core::{
-    ir::FloatKind,
-    server::{Bindings, CopyDescriptor, TensorMapBinding},
-};
-use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::MemoryUsage;
-use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{
-    memory_management::MemoryManagement,
-    server::{self, ComputeServer},
-};
-use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
-use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
-    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
-    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
-};
-use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
-#[cfg(feature = "cuda-12080")]
-use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
-use serde::{Deserialize, Serialize};
+use cubecl_runtime::memory_management::MemoryManagement;
+use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cudarc::driver::sys::CUfunc_st;
+use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
 use std::collections::HashMap;
+use std::ffi::CString;
 use std::ffi::c_char;
-use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
-use std::{ffi::CString, mem::MaybeUninit};
 
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
@@ -113,7 +78,6 @@ impl CudaContext {
 
     pub fn compile_kernel(
         &mut self,
-        stream: &mut Stream,
         kernel_id: &KernelId,
         kernel: Box<dyn CubeTask<CudaCompiler>>,
         mode: ExecutionMode,
