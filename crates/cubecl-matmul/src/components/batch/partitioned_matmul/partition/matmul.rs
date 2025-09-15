@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{LhsG, MatmulPrecision, RhsG, global};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use crate::components::{AccG, LhsG, MatmulPrecision, RhsG, global};
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
@@ -25,9 +25,10 @@ pub struct PartitionRangeDim {
 /// Iterates on several global matmul across a global partition
 pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<LhsG<MP>>,
-        rhs: VirtualTensor<RhsG<MP>>,
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        a: VirtualTensor<LhsG<MP>>,
+        b: VirtualTensor<RhsG<MP>>,
+        c: CubeOption<VirtualTensor<AccG<MP>>>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         partition_ranges: PartitionRanges,
         acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -75,9 +76,10 @@ impl PartitionRangeDim {
 #[cube]
 impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<LhsG<MP>>,
-        rhs: VirtualTensor<RhsG<MP>>,
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        a: VirtualTensor<LhsG<MP>>,
+        b: VirtualTensor<RhsG<MP>>,
+        c: CubeOption<VirtualTensor<AccG<MP>>>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -89,20 +91,19 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         let num_steps_col = comptime!(ranges.col.num_steps);
 
         #[unroll(num_steps_batch == 1)]
-        for b in 0..num_steps_batch {
-            let batch_iter = ranges.batch.start + b * ranges.batch.step;
+        for batch in 0..num_steps_batch {
+            let batch_iter = ranges.batch.start + batch * ranges.batch.step;
 
             #[unroll(num_steps_row == 1)]
-            for r in 0..num_steps_row {
-                let row_offset = ranges.row.start + r * ranges.row.step;
+            for row in 0..num_steps_row {
+                let row_offset = ranges.row.start + row * ranges.row.step;
 
                 #[unroll(num_steps_col == 1)]
-                for c in 0..num_steps_col {
-                    let col_offset = ranges.col.start + c * ranges.col.step;
+                for col in 0..num_steps_col {
+                    let col_offset = ranges.col.start + col * ranges.col.step;
 
                     execute_global_matmul::<MP, GMM>(
-                        lhs, rhs, out, row_offset, col_offset, batch_iter, &mut acc, k_range,
-                        config,
+                        a, b, c, out, row_offset, col_offset, batch_iter, &mut acc, k_range, config,
                     );
                 }
             }
@@ -113,9 +114,10 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
 #[cube]
 impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
     fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        lhs: VirtualTensor<LhsG<MP>>,
-        rhs: VirtualTensor<RhsG<MP>>,
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        a: VirtualTensor<LhsG<MP>>,
+        b: VirtualTensor<RhsG<MP>>,
+        c: CubeOption<VirtualTensor<AccG<MP>>>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulator,
         k_range: (u32, u32),
@@ -127,20 +129,19 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         let num_steps_col = comptime!(ranges.col.num_steps);
 
         #[unroll(num_steps_batch == 1)]
-        for b in 0..num_steps_batch {
-            let batch_iter = ranges.batch.start + b * ranges.batch.step;
+        for batch in 0..num_steps_batch {
+            let batch_iter = ranges.batch.start + batch * ranges.batch.step;
 
             #[unroll(num_steps_col == 1)]
-            for c in 0..num_steps_col {
-                let col_offset = ranges.col.start + c * ranges.col.step;
+            for col in 0..num_steps_col {
+                let col_offset = ranges.col.start + col * ranges.col.step;
 
                 #[unroll(num_steps_row == 1)]
-                for r in 0..num_steps_row {
-                    let row_offset = ranges.row.start + r * ranges.row.step;
+                for row in 0..num_steps_row {
+                    let row_offset = ranges.row.start + row * ranges.row.step;
 
                     execute_global_matmul::<MP, GMM>(
-                        lhs, rhs, out, row_offset, col_offset, batch_iter, &mut acc, k_range,
-                        config,
+                        a, b, c, out, row_offset, col_offset, batch_iter, &mut acc, k_range, config,
                     );
                 }
             }
@@ -152,9 +153,10 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
 /// Execute global matmul on lhs, rhs, writing in out.
 /// m and n offsets are absolute rows and columns
 pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    lhs: VirtualTensor<LhsG<MP>>,
-    rhs: VirtualTensor<RhsG<MP>>,
-    out: VirtualTensor<MP::EO, ReadWrite>,
+    a: VirtualTensor<LhsG<MP>>,
+    b: VirtualTensor<RhsG<MP>>,
+    c: CubeOption<VirtualTensor<AccG<MP>>>,
+    out: VirtualTensor<AccG<MP>, ReadWrite>,
     m_offset: u32,
     n_offset: u32,
     nth_batch: u32,
@@ -165,17 +167,18 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     let rank = out.rank();
 
     let batch_out = nth_batch * out.stride(rank - 2) * out.shape(rank - 2);
-    let mut batch_lhs = 0u32.runtime();
-    let mut batch_rhs = 0u32.runtime();
+    let mut batch_a = 0u32.runtime();
+    let mut batch_b = 0u32.runtime();
     for axis in 0..rank - 2 {
         let tmp = batch_out / out.stride(axis);
-        batch_lhs += tmp % lhs.shape(axis) * lhs.stride(axis);
-        batch_rhs += tmp % rhs.shape(axis) * rhs.stride(axis);
+        batch_a += tmp % a.shape(axis) * a.stride(axis);
+        batch_b += tmp % b.shape(axis) * b.stride(axis);
     }
 
     GMM::execute(
-        GMM::init_lhs_loader(lhs, m_offset, k_range.0, nth_batch, batch_lhs, config),
-        GMM::init_rhs_loader(rhs, k_range.0, n_offset, nth_batch, batch_rhs, config),
+        GMM::init_lhs_loader(a, m_offset, k_range.0, nth_batch, batch_a, config),
+        GMM::init_rhs_loader(b, k_range.0, n_offset, nth_batch, batch_b, config),
+        GMM::init_acc_loader(c, m_offset, n_offset, nth_batch, batch_out, config),
         GMM::init_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
         acc,
         k_range,

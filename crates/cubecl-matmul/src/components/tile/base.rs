@@ -1,19 +1,34 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::StageIdent;
-use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
-    resource::ComputeResources, tile::tile_data::Tile,
+    resource::ComputeResources, tile::loader::TileKind,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{StageIdent, tile::loader::Loader};
+use crate::components::{error::MatmulSetupError, tile::loader::LoaderTile};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<L, R, A, Config = Self::Config>;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<
+            L,
+            R,
+            A,
+            Config = Self::Config,
+            LhsLoader: Loader<TileKind = Self::LhsTile>,
+            RhsLoader: Loader<TileKind = Self::RhsTile>,
+            AccLoader: Loader<TileKind = Self::AccTile>,
+        >;
+
+    /// Tile kind for Lhs
+    type LhsTile: TileKind;
+    /// Tile kind for Rhs
+    type RhsTile: TileKind;
+    /// Tile kind for Acc
+    type AccTile: TileKind;
 
     /// The configuration type associated with this matmul family.
     type Config: TileConfig;
@@ -63,6 +78,13 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// Contains and accumulates results of the Tile Matmul execution
     type Accumulator: CubeType;
 
+    /// Loader for the lhs data
+    type LhsLoader: Loader;
+    /// Loader for the rhs data
+    type RhsLoader: Loader;
+    /// Loader for the accumulator data
+    type AccLoader: Loader;
+
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
         lhs: &Self::Lhs,
@@ -80,7 +102,11 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
 
     /// Fill the container of Lhs with tile data
-    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    fn fill_lhs<E: Numeric>(
+        tile: LoaderTile<Self::LhsLoader, E>,
+        lhs: &mut Self::Lhs,
+        #[comptime] config: Self::Config,
+    );
 
     /// Create the container for Rhs
     ///
@@ -91,7 +117,11 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
 
     /// Fill the container of Rhs with tile data
-    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    fn fill_rhs<E: Numeric>(
+        tile: LoaderTile<Self::RhsLoader, E>,
+        rhs: &mut Self::Rhs,
+        #[comptime] config: Self::Config,
+    );
 
     /// Allocate the container to receive the execution output.
     ///
@@ -101,17 +131,14 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// because the execution adds to the already present value.
     /// Make sure to call either [fill_accumulator](TileMatmul::fill_accumulator)
     /// or [zero_accumulator](TileMatmul::zero_accumulator).
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Fill the accumulator with data
-    fn fill_accumulator(
-        tile: &Tile<A>,
+    fn fill_acc<E: Numeric>(
+        tile: LoaderTile<Self::AccLoader, E>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
-
-    /// Fill the accumulator with zeros.
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
     /// Write the content of the output container to the given slice
     fn write_results<E: Numeric>(

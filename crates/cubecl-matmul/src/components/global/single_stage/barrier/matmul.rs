@@ -1,25 +1,24 @@
 use std::marker::PhantomData;
 
-use crate::components::LhsG;
-use crate::components::LhsS;
-use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::RhsG;
 use crate::components::RhsS;
 use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
-use crate::components::global::ZeroAccumulatorLoader;
 use crate::components::global::load::AsyncFullLoader;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::memory::SimpleGlobalLayout;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::stage::FullStageToTileReader;
 use crate::components::stage::StageMatmul;
+use crate::components::{AccG, AccS, LhsS};
+use crate::components::{LhsG, global::load::ZeroLoader};
+use crate::components::{MatmulIdent, stage::FillReader};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords3d};
 
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using asynchronous loading
@@ -42,6 +41,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, LL::TilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, RL::TilingLayout>,
+            AccReader = FillReader<AccS<MP>>,
             WriteCoords = Coords3d,
         >,
     LL: AsyncFullLoadingStrategy,
@@ -50,13 +50,14 @@ where
     type Config = SimpleBarrierConfig<SMM::Config>;
     type LhsLoader = AsyncFullLoader<MP::Lhs, Barrier, SMM::Config, LL, Self::Config>;
     type RhsLoader = AsyncFullLoader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
-    type AccumulatorLoader = ZeroAccumulatorLoader;
+    type AccLoader = ZeroLoader<MP::Acc>;
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
 
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
+        acc_loader: Self::AccLoader,
         mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -68,7 +69,9 @@ where
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
-        SMM::zero_accumulator(acc, config.stage_config());
+
+        let acc_reader = acc_loader.reader();
+        SMM::fill_accumulator(&acc_reader, acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
         let lhs_barrier = Barrier::new(barrier_level);
@@ -90,8 +93,8 @@ where
             Self::LhsLoader::fill_stage(&mut lhs_loader, &lhs_barrier, config);
             Self::RhsLoader::fill_stage(&mut rhs_loader, &rhs_barrier, config);
 
-            let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader);
+            let lhs_stage_reader = &lhs_loader.reader();
+            let rhs_stage_reader = &rhs_loader.reader();
 
             lhs_barrier.arrive_and_wait();
             rhs_barrier.arrive_and_wait();
@@ -157,8 +160,22 @@ where
         )
     }
 
+    fn init_acc_loader(
+        acc: CubeOption<VirtualTensor<AccG<MP>>>,
+        _m_offset: u32,
+        _n_offset: u32,
+        _nth_batch: u32,
+        _batch_offset: u32,
+        #[comptime] _config: Self::Config,
+    ) -> Self::AccLoader {
+        match acc {
+            CubeOption::None => ZeroLoader::new(),
+            CubeOption::Some(_) => panic!("Accumulator loading is not yet supported"),
+        }
+    }
+
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         _nth_batch: u32,

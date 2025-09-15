@@ -1,7 +1,8 @@
-use super::WgpuResource;
-use super::{WgpuStorage, stream::WgpuStream};
+use super::storage::{WgpuResource, WgpuStorage};
+use super::stream::WgpuStream;
 use crate::AutoCompiler;
 use alloc::sync::Arc;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::{DataTransferService, ProfileError, ProfilingToken};
@@ -153,7 +154,7 @@ impl ComputeServer for WgpuServer {
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         for desc in &descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Box::pin(async { Err(IoError::UnsupportedStrides) });

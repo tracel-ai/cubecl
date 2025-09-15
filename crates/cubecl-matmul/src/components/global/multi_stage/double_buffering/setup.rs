@@ -1,5 +1,3 @@
-use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::load::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::double_buffering::{
     DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
@@ -7,7 +5,9 @@ use crate::components::global::multi_stage::double_buffering::{
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{error::MatmulSetupError, stage::FillReaderFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
+use crate::components::{global::MaxLoaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
@@ -28,13 +28,18 @@ where
     SMM: stage::StageMatmulFamily<
             LhsReader = PartialReaderFamily,
             RhsReader = PartialReaderFamily,
+            AccReader = FillReaderFamily,
             WriteCoords = Coords3d,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> =
-        DoubleBufferingMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
+    type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
+        MP,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        LL,
+        RL,
+    >;
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
