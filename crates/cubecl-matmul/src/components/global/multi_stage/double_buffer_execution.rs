@@ -149,7 +149,7 @@ pub fn execute_last_and_write_results<
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
-    out_writer: &mut SMM::StageWriter,
+    out_writer: &mut SMM::GlobalWriter,
     specializer: &Specializer,
     partition_scheduler: &PartitionScheduler,
     #[comptime] config: G,

@@ -4,7 +4,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::{View, layout::Coords3d};
 
-use super::StageWriter;
+use super::GlobalWriter;
 
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
@@ -28,7 +28,7 @@ impl<EG: Numeric> UnitWriter<EG> {
 }
 
 #[cube]
-impl<EG: Numeric> StageWriter<EG> for UnitWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
     type Coordinates = Coords3d;
 
     fn write<G: GlobalConfig>(

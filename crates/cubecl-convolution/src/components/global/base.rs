@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     MatmulSetupError, RhsG,
-    global::StageWriter,
+    global::GlobalWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
@@ -44,7 +44,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
 
     /// The writer used to write the results to the output feature map
-    type StageWriter: StageWriter<AccG<MP>>;
+    type StageWriter: GlobalWriter<AccG<MP>>;
     /// The type of the tile matmul accumulator
     type Accumulators: CubeType;
 
