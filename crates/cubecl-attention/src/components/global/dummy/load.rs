@@ -95,49 +95,6 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    // pub fn load_transposed(&mut self, #[comptime] config: G) {
-    //     // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
-
-    //     comment!("Loading Key");
-    //     let memory_config = config.global_memory_config(FlashIdent::Key);
-    //     let mut slice = self.stage_memory.as_slice_mut(1u32);
-
-    //     let tile_config = config.stage_config().tile_config();
-    //     let num_rows = tile_config.attention_tile_size().num_rows(FlashIdent::Key);
-    //     let num_cols = tile_config.attention_tile_size().num_cols(FlashIdent::Key);
-    //     let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Key);
-    //     let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Key);
-
-    //     let row = UNIT_POS_X / num_units_per_row;
-    //     let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
-
-    //     comptime! {
-    //         println!("num_rows {:?}", num_rows);
-    //         println!("num_cols {:?}", num_cols);
-    //         println!("num_units_per_row {:?}", num_units_per_row);
-    //         println!("num_cols_per_unit {:?}", num_cols_per_unit);
-    //     }
-
-    //     if row < num_rows {
-    //         #[unroll]
-    //         for i in 0..num_cols_per_unit {
-    //             let col = col_start + i;
-
-    //             if col < num_cols {
-    //                 let index_load = row * num_cols + col;
-    //                 let index_store = col * num_rows + row;
-    //                 slice[index_store] =
-    //                     Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
-    //                         0u32,
-    //                         0u32,
-    //                         index_load,
-    //                         memory_config,
-    //                     ));
-    //             }
-    //         }
-    //     }
-    // }
-
     pub fn load_transposed(&mut self, #[comptime] config: G) {
         // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
 
