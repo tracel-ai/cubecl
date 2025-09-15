@@ -1,7 +1,8 @@
 use crate::{
     WmmaCompiler,
     compute::{
-        CudaContext, CudaServer,
+        CudaServer,
+        context::CudaContext,
         storage::{
             cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
             gpu::GpuStorage,
@@ -265,7 +266,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         memory_management_gpu,
         memory_management_cpu,
         comp_opts,
-        stream,
         ctx,
         arch,
     );

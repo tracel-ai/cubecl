@@ -157,7 +157,7 @@ pub trait DataTransferService {
     /// - `id`: A unique id for the transaction
     /// - `src`: The source for the read operation.
     #[allow(unused_variables)]
-    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
         unimplemented!("Data transfer not supported on the current runtime.",);
     }
 
@@ -168,7 +168,7 @@ pub trait DataTransferService {
     /// - `id`: A unique id for the transaction
     /// - `dst`: The destination for the write operation.
     #[allow(unused_variables)]
-    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
         unimplemented!("Data transfer not supported on the current runtime.",);
     }
 }

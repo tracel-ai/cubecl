@@ -120,7 +120,7 @@ impl PtrBindings {
 
 /// The context of GPU allocations.
 pub struct GpuStorageContext {
-    stream: cudarc::driver::sys::CUstream,
+    pub(crate) stream: cudarc::driver::sys::CUstream,
 }
 
 impl ComputeStorage for GpuStorage {

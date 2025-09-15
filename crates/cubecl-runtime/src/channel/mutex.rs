@@ -77,12 +77,12 @@ where
 
     fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
-        server.register_src(id, src);
+        server.register_src(stream_id, id, src);
     }
 
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
-        server.register_dest(id, dst);
+        server.register_dest(stream_id, id, dst);
     }
 
     fn sync(&self, stream_id: StreamId) -> DynFut<()> {

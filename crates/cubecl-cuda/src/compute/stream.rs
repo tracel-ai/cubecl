@@ -1,12 +1,11 @@
 use cubecl_common::stream_id::StreamId;
-use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::stream::StreamBackend;
 
-use crate::compute::fence::Fence;
+use crate::compute::sync::Fence;
 
 #[derive(Debug)]
 pub struct Stream {
-    pub(crate) sys: cubecl_hip_sys::hipStream_t,
+    pub sys: cudarc::driver::sys::CUstream,
     #[allow(unused)] // For debug prints
     pub(crate) id: StreamId,
 }
@@ -14,12 +13,8 @@ pub struct Stream {
 impl Stream {
     pub fn sync(&mut self) {
         unsafe {
-            let status = cubecl_hip_sys::hipStreamSynchronize(self.sys);
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should successfully synchronize stream"
-            );
-        };
+            cudarc::driver::result::stream::synchronize(self.sys).unwrap();
+        }
     }
 
     pub fn fence(&mut self) -> Fence {
@@ -28,19 +23,17 @@ impl Stream {
 }
 
 #[derive(Debug)]
-pub struct HipStreamBackend;
+pub struct CudaStreamBackend;
 
-impl StreamBackend for HipStreamBackend {
+impl StreamBackend for CudaStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
     fn init_stream(id: StreamId) -> Self::Stream {
-        let stream = unsafe {
-            let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-            let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-            assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-            stream
-        };
+        let stream = cudarc::driver::result::stream::create(
+            cudarc::driver::result::stream::StreamKind::NonBlocking,
+        )
+        .unwrap();
 
         Stream { sys: stream, id }
     }

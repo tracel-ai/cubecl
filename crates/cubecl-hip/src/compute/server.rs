@@ -1,10 +1,9 @@
 use super::storage::gpu::GpuStorage;
 use super::{storage::gpu::GpuResource, uninit_vec};
 use crate::compute::context::HipContext;
-use crate::compute::fence::Fence;
 use crate::compute::gpu::GpuStorageContext;
 use crate::compute::io::register_copies_to_bytes;
-use crate::compute::stream::Stream;
+use crate::compute::stream::{HipStreamBackend, Stream};
 use crate::runtime::HipCompiler;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
@@ -23,7 +22,7 @@ use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::{BindingResource, ComputeStorage};
-use cubecl_runtime::stream::{MultiStream, StreamBackend};
+use cubecl_runtime::stream::MultiStream;
 use std::future::Future;
 use std::sync::Arc;
 
@@ -35,33 +34,6 @@ pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
     mem_alignment: usize,
-}
-
-#[derive(Debug)]
-struct HipStreamBackend;
-
-impl StreamBackend for HipStreamBackend {
-    type Stream = Stream;
-    type Event = Fence;
-
-    fn init_stream(id: StreamId) -> Self::Stream {
-        let stream = unsafe {
-            let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-            let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-            assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-            stream
-        };
-
-        Stream { sys: stream, id }
-    }
-
-    fn flush(stream: &mut Self::Stream) -> Self::Event {
-        stream.fence()
-    }
-
-    fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        event.wait_async(stream.sys);
-    }
 }
 
 unsafe impl Send for HipServer {}
@@ -113,14 +85,8 @@ impl ComputeServer for HipServer {
         let (ctx, _stream, cursor) = self.resolve_context_basic(stream_id);
 
         let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
-        let mem_handle = server::Handle::new(
-            handle,
-            None,
-            None,
-            cubecl_common::stream_id::StreamId::current(),
-            cursor,
-            total_size as u64,
-        );
+        let mem_handle =
+            server::Handle::new(handle, None, None, stream_id, cursor, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
         Ok(handles

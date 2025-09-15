@@ -131,8 +131,8 @@ where
         StreamId,
         ProfilingToken,
     ),
-    DataTransferSend(DataTransferId, CopyDescriptorOwned),
-    DataTransferRecv(DataTransferId, CopyDescriptorOwned),
+    DataTransferSend(StreamId, DataTransferId, CopyDescriptorOwned),
+    DataTransferRecv(StreamId, DataTransferId, CopyDescriptorOwned),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -197,11 +197,11 @@ where
                     Message::AllocationMode(mode) => {
                         server.allocation_mode(mode);
                     }
-                    Message::DataTransferSend(id, src) => {
-                        server.register_src(id, src.as_ref());
+                    Message::DataTransferSend(stream, id, src) => {
+                        server.register_src(stream, id, src.as_ref());
                     }
-                    Message::DataTransferRecv(id, dst) => {
-                        server.register_dest(id, dst.as_ref());
+                    Message::DataTransferRecv(stream, id, dst) => {
+                        server.register_dest(stream, id, dst.as_ref());
                     }
                 };
             }
@@ -285,7 +285,7 @@ where
         let src = src.into();
 
         sender
-            .send_blocking(Message::DataTransferSend(id, src))
+            .send_blocking(Message::DataTransferSend(stream_id, id, src))
             .unwrap();
     }
 
@@ -294,7 +294,7 @@ where
         let dst = dst.into();
 
         sender
-            .send_blocking(Message::DataTransferRecv(id, dst))
+            .send_blocking(Message::DataTransferRecv(stream_id, id, dst))
             .unwrap();
     }
 

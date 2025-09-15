@@ -1,5 +1,17 @@
+use super::storage::gpu::{GpuResource, GpuStorage};
+use super::sync::Fence;
+use crate::CudaCompiler;
+use crate::compute::storage::gpu::GpuStorageContext;
+use crate::compute::stream::{CudaStreamBackend, Stream};
+use crate::compute::{
+    DataTransferItem, DataTransferRuntime, context::CudaContext, io::register_copies_to_bytes,
+};
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_core::ir::{ElemType, IntKind, UIntKind};
+use cubecl_core::prelude::*;
+use cubecl_core::server::Binding;
 use cubecl_core::{
-    compute::{CubeTask, DebugInformation},
+    compute::CubeTask,
     server::{DataTransferService, IoError},
 };
 use cubecl_core::{
@@ -7,75 +19,38 @@ use cubecl_core::{
     server::AllocationKind,
 };
 use cubecl_core::{
-    ir::StorageType,
-    server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
-};
-use cubecl_cpp::formatter::format_cpp;
-use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
-
-use super::storage::gpu::{GpuResource, GpuStorage};
-use super::sync::{Fence, SyncStream};
-use crate::compute::{
-    DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
-    storage::cpu::PinnedMemoryStorage,
-};
-use crate::{CudaCompiler, WmmaCompiler};
-use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
-use cubecl_core::ir::{ElemType, IntKind, UIntKind};
-use cubecl_core::prelude::*;
-use cubecl_core::{
     ir::FloatKind,
     server::{Bindings, CopyDescriptor, TensorMapBinding},
+};
+use cubecl_core::{
+    ir::StorageType,
+    server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
-use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::{
-    memory_management::MemoryManagement,
-    server::{self, ComputeServer},
-};
-use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
+use cubecl_runtime::memory_management::offset_handles;
+use cubecl_runtime::server::{self, ComputeServer};
+use cubecl_runtime::storage::{BindingResource, ComputeStorage};
+use cubecl_runtime::stream::MultiStream;
+use cudarc::driver::sys::CUtensorMapInterleave;
 use cudarc::driver::sys::{
-    CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
-    CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
-    cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
+    CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMapDataType, CUtensorMapFloatOOBfill,
+    CUtensorMapL2promotion, CUtensorMapSwizzle, cuMemcpy2DAsync_v2, cuTensorMapEncodeIm2col,
+    cuTensorMapEncodeTiled,
 };
-use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
-#[cfg(feature = "cuda-12080")]
-use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::ffi::c_char;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::ffi::{c_char, c_void};
+use std::mem::MaybeUninit;
 use std::sync::Arc;
-use std::{ffi::CStr, os::raw::c_void};
-use std::{ffi::CString, mem::MaybeUninit};
-
-#[cfg(feature = "compilation-cache")]
-use cubecl_common::cache::{Cache, CacheOption};
 
 pub(crate) const MB: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
+    streams: MultiStream<CudaStreamBackend>,
     mem_alignment: usize,
-}
-
-#[derive(Debug)]
-pub(crate) struct CudaContext {
-    context: *mut CUctx_st,
-    pub(crate) stream: cudarc::driver::sys::CUstream,
-    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage>,
-    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-    module_names: HashMap<KernelId, CompiledKernel>,
-    #[cfg(feature = "compilation-cache")]
-    ptx_cache: Option<Cache<String, PtxCacheEntry>>,
-    timestamps: TimestampProfiler,
-    pub(crate) arch: CudaArchitecture,
-    compilation_options: CompilationOptions,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
@@ -87,42 +62,7 @@ pub struct PtxCacheEntry {
     ptx: Vec<c_char>,
 }
 
-#[derive(Debug)]
-struct CompiledKernel {
-    cube_dim: CubeDim,
-    shared_mem_bytes: usize,
-    func: *mut CUfunc_st,
-}
-
 unsafe impl Send for CudaServer {}
-
-impl CudaServer {
-    fn read_async(
-        &mut self,
-        descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let ctx = self.get_context();
-        let result = register_copies_to_bytes(ctx, descriptors);
-        let fence = ctx.fence();
-
-        async move {
-            fence.wait_sync();
-            result
-        }
-    }
-
-    fn sync_stream_async(&mut self) -> impl Future<Output = ()> + Send + use<> {
-        let ctx = self.get_context();
-        // We can't use a fence here because no action has been recorded on the context.
-        // We need at least one action to be recorded after the context is initialized
-        // with `cudarc::driver::result::ctx::set_current(self.ctx.context)` for the fence
-        // to have any effect. Otherwise, it seems to be ignored.
-        let sync = ctx.lazy_sync_stream();
-        async move {
-            sync.wait();
-        }
-    }
-}
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
@@ -132,8 +72,9 @@ impl ComputeServer for CudaServer {
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        Box::pin(self.read_async(descriptors))
+        Box::pin(self.read_async(descriptors, stream_id))
     }
 
     fn create(
@@ -173,16 +114,11 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
-        let ctx = self.get_context();
+        let (ctx, _stream, cursor) = self.resolve_context_basic(stream_id);
+
         let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
-        let mem_handle = server::Handle::new(
-            handle,
-            None,
-            None,
-            cubecl_common::stream_id::StreamId::current(),
-            total_size as u64,
-            0,
-        );
+        let mem_handle =
+            server::Handle::new(handle, None, None, stream_id, cursor, total_size as u64);
 
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
@@ -193,8 +129,13 @@ impl ComputeServer for CudaServer {
             .collect())
     }
 
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
-        let ctx = self.get_context();
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError> {
+        let (ctx, stream, _cursor) = self
+            .resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
             let CopyDescriptor {
@@ -233,11 +174,11 @@ impl ComputeServer for CudaServer {
                 };
 
                 unsafe {
-                    cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
+                    cuMemcpy2DAsync_v2(&cpy, stream.sys).result().unwrap();
                 }
             } else {
                 unsafe {
-                    cudarc::driver::result::memcpy_htod_async(resource.ptr, data, ctx.stream)
+                    cudarc::driver::result::memcpy_htod_async(resource.ptr, data, stream.sys)
                         .unwrap();
                 }
             }
@@ -255,7 +196,6 @@ impl ComputeServer for CudaServer {
         logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
-        let stream_id = StreamId::current();
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -265,12 +205,9 @@ impl ComputeServer for CudaServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                let data = future::block_on(self.read_async(vec![CopyDescriptor::new(
-                    binding,
-                    &[3],
-                    &[1],
-                    4,
-                )]))
+                let data = future::block_on(
+                    self.read_async(vec![CopyDescriptor::new(binding, &[3], &[1], 4)], stream_id),
+                )
                 .unwrap();
                 let data = bytemuck::cast_slice(&data[0]);
                 assert!(
@@ -326,10 +263,11 @@ impl ComputeServer for CudaServer {
             (Vec::new(), handles)
         };
 
-        let ctx = self.get_context();
+        let (ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, bindings.buffers.iter());
 
         if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+            ctx.compile_kernel(stream, &kernel_id, kernel, mode, logger);
         }
 
         let tensor_maps: Vec<_> = bindings
@@ -473,7 +411,7 @@ impl ComputeServer for CudaServer {
                 .map(|s| find_resource(ctx, s.binding())),
         );
 
-        let result = ctx.execute_task(kernel_id, count, &tensor_maps, &resources, &scalars);
+        let result = ctx.execute_task(stream, kernel_id, count, &tensor_maps, &resources, &scalars);
 
         match result {
             Ok(_) => {}
@@ -484,28 +422,36 @@ impl ComputeServer for CudaServer {
         }
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self) -> DynFut<()> {
-        Box::pin(self.sync_stream_async())
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+        let (_, stream, _) = self.resolve_context_basic(stream_id);
+        let fence = stream.fence();
+
+        Box::pin(async {
+            fence.wait_sync();
+        })
     }
 
-    fn start_profile(&mut self) -> ProfilingToken {
-        // Wait for current work to be done.
-        self.ctx.sync();
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+        cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        self.ctx.sync();
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
+        cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.stop(token)
     }
 
     fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
-        let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management_gpu
+            self.ctx
+                .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Failed to find resource"),
         )
@@ -525,52 +471,53 @@ impl ComputeServer for CudaServer {
 }
 
 impl DataTransferService for CudaServer {
-    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let src_ctx = self.get_context();
+    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
+        // let (src_ctx, stream, _cursor) =
+        //     self.resolve_context_bindings(stream_id, [&src.binding].into_iter());
 
-        let src_resource = src_ctx
-            .memory_management_gpu
-            .get_resource(
-                src.binding.memory,
-                src.binding.offset_start,
-                src.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)
-            .unwrap();
+        // let src_resource = src_ctx
+        //     .memory_management_gpu
+        //     .get_resource(
+        //         src.binding.memory,
+        //         src.binding.offset_start,
+        //         src.binding.offset_end,
+        //     )
+        //     .ok_or(IoError::InvalidHandle)
+        //     .unwrap();
 
-        let client = DataTransferRuntime::client();
+        // let client = DataTransferRuntime::client();
 
-        let handle = DataTransferItem {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: src_resource,
-        };
-        let fence = Fence::new(self.ctx.stream);
+        // let handle = DataTransferItem {
+        //     context: self.ctx.context,
+        //     stream: self.ctx.stream,
+        //     resource: src_resource,
+        // };
+        // let fence = Fence::new(self.ctx.stream);
 
-        client.register_src(id, handle, fence);
+        // client.register_src(id, handle, fence);
     }
 
-    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        let dst_ctx = self.get_context();
-        let dst_resource = dst_ctx
-            .memory_management_gpu
-            .get_resource(
-                dst.binding.memory,
-                dst.binding.offset_start,
-                dst.binding.offset_end,
-            )
-            .ok_or(IoError::InvalidHandle)
-            .unwrap();
+    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        // let dst_ctx = self.get_context();
+        // let dst_resource = dst_ctx
+        //     .memory_management_gpu
+        //     .get_resource(
+        //         dst.binding.memory,
+        //         dst.binding.offset_start,
+        //         dst.binding.offset_end,
+        //     )
+        //     .ok_or(IoError::InvalidHandle)
+        //     .unwrap();
 
-        let client = DataTransferRuntime::client();
+        // let client = DataTransferRuntime::client();
 
-        let call = DataTransferItem {
-            context: self.ctx.context,
-            stream: self.ctx.stream,
-            resource: dst_resource,
-        };
+        // let call = DataTransferItem {
+        //     context: self.ctx.context,
+        //     stream: self.ctx.stream,
+        //     resource: dst_resource,
+        // };
 
-        client.register_dest(id, call);
+        // client.register_dest(id, call);
     }
 }
 
@@ -580,300 +527,65 @@ fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> GpuResource
         .expect("Failed to find resource")
 }
 
-impl CudaContext {
-    pub fn new(
-        memory_management_gpu: MemoryManagement<GpuStorage>,
-        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-        compilation_options: CompilationOptions,
-        stream: cudarc::driver::sys::CUstream,
-        context: *mut CUctx_st,
-        arch: CudaArchitecture,
-    ) -> Self {
-        Self {
-            context,
-            memory_management_gpu,
-            memory_management_cpu,
-            module_names: HashMap::new(),
-            #[cfg(feature = "compilation-cache")]
-            ptx_cache: {
-                let config = cubecl_runtime::config::GlobalConfig::get();
-                if let Some(cache) = &config.compilation.cache {
-                    let root = cache.root();
-                    Some(Cache::new(
-                        "ptx",
-                        CacheOption::default().name("cuda").root(root),
-                    ))
-                } else {
-                    None
-                }
-            },
-            stream,
-            arch,
-            timestamps: TimestampProfiler::default(),
-            compilation_options,
-        }
-    }
-
-    fn fence(&mut self) -> Fence {
-        Fence::new(self.stream)
-    }
-
-    fn lazy_sync_stream(&mut self) -> SyncStream {
-        SyncStream::new(self.stream)
-    }
-
-    fn sync(&mut self) {
-        unsafe {
-            cudarc::driver::result::stream::synchronize(self.stream).unwrap();
-        };
-    }
-
-    fn compile_kernel(
-        &mut self,
-        kernel_id: &KernelId,
-        kernel: Box<dyn CubeTask<CudaCompiler>>,
-        mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
-    ) {
-        #[cfg(feature = "compilation-cache")]
-        let name = if let Some(cache) = &self.ptx_cache {
-            let name = kernel_id.stable_format();
-
-            if let Some(entry) = cache.get(&name) {
-                log::trace!("Using PTX cache");
-                self.load_ptx(
-                    entry.ptx.clone(),
-                    kernel_id.clone(),
-                    entry.entrypoint_name.clone(),
-                    CubeDim {
-                        x: entry.cube_dim.0,
-                        y: entry.cube_dim.1,
-                        z: entry.cube_dim.2,
-                    },
-                    entry.shared_mem_bytes,
-                );
-                return;
-            }
-            Some(name)
-        } else {
-            None
-        };
-
-        log::trace!("Compiling kernel");
-
-        let mut kernel_compiled =
-            kernel.compile(&mut Default::default(), &self.compilation_options, mode);
-
-        if logger.compilation_activated() {
-            kernel_compiled.debug_info = Some(DebugInformation::new("cpp", kernel_id.clone()));
-
-            if let Ok(formatted) = format_cpp(&kernel_compiled.source) {
-                kernel_compiled.source = formatted;
-            }
-        }
-
-        let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
-        let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = compute_kernel.flags.inst_fast_math;
-        let arch = if self.arch.version >= 90 {
-            format!("--gpu-architecture=sm_{}a", self.arch)
-        } else {
-            format!("--gpu-architecture=sm_{}", self.arch)
-        };
-
-        let include_path = include_path();
-        let include_option = format!("--include-path={}", include_path.to_str().unwrap());
-        let cccl_include_path = cccl_include_path();
-        let cccl_include_option = format!("--include-path={}", cccl_include_path.to_str().unwrap());
-        let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
-        if fast_math {
-            options.push("--use_fast_math");
-        }
-        if cccl_include_path.exists() {
-            options.push(&cccl_include_option);
-        }
-
-        #[cfg(feature = "compilation-cache")]
-        let cluster_dim = compute_kernel.cluster_dim;
-
-        logger.log_compilation(&kernel_compiled);
-
-        let ptx = unsafe {
-            // I'd like to set the name to the kernel name, but keep getting UTF-8 errors so let's
-            // leave it `None` for now
-            let source = CString::from_str(&kernel_compiled.source).unwrap();
-            let program = cudarc::nvrtc::result::create_program(source.as_c_str(), None).unwrap();
-            if cudarc::nvrtc::result::compile_program(program, &options).is_err() {
-                let log_raw = cudarc::nvrtc::result::get_program_log(program).unwrap();
-                let log_ptr = log_raw.as_ptr();
-                let log = CStr::from_ptr(log_ptr).to_str().unwrap();
-                let mut message = "[Compilation Error] ".to_string();
-                for line in log.split('\n') {
-                    if !line.is_empty() {
-                        message += format!("\n    {line}").as_str();
-                    }
-                }
-                let source = kernel
-                    .compile(&mut Default::default(), &self.compilation_options, mode)
-                    .source;
-                panic!("{message}\n[Source]  \n{source}");
-            };
-            cudarc::nvrtc::result::get_ptx(program).unwrap()
-        };
-
-        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<WmmaCompiler>> =
-            kernel_compiled.repr.unwrap();
-
-        #[cfg(feature = "compilation-cache")]
-        if let Some(cache) = &mut self.ptx_cache {
-            cache
-                .insert(
-                    name.unwrap(),
-                    PtxCacheEntry {
-                        entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                        cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                        shared_mem_bytes: repr.shared_memory_size(),
-                        cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
-                        ptx: ptx.clone(),
-                    },
-                )
-                .unwrap();
-        }
-
-        self.load_ptx(
-            ptx,
-            kernel_id.clone(),
-            kernel_compiled.entrypoint_name,
-            cube_dim,
-            repr.shared_memory_size(),
-        );
-    }
-
-    fn load_ptx(
-        &mut self,
-        ptx: Vec<c_char>,
-        kernel_id: KernelId,
-        entrypoint_name: String,
-        cube_dim: CubeDim,
-        shared_mem_bytes: usize,
-    ) {
-        let func_name = CString::new(entrypoint_name).unwrap();
-        let func = unsafe {
-            let module =
-                cudarc::driver::result::module::load_data(ptx.as_ptr() as *const _).unwrap();
-            cudarc::driver::result::module::get_function(module, func_name).unwrap()
-        };
-
-        self.module_names.insert(
-            kernel_id.clone(),
-            CompiledKernel {
-                cube_dim,
-                shared_mem_bytes,
-                func,
-            },
-        );
-    }
-
-    fn execute_task(
-        &mut self,
-        kernel_id: KernelId,
-        dispatch_count: (u32, u32, u32),
-        tensor_maps: &[CUtensorMap],
-        resources: &[GpuResource],
-        scalars: &[*mut c_void],
-    ) -> Result<(), String> {
-        let mut bindings = tensor_maps
-            .iter()
-            .map(|map| map as *const _ as *mut c_void)
-            .collect::<Vec<_>>();
-        bindings.extend(resources.iter().map(|memory| memory.binding));
-        bindings.extend(scalars);
-
-        let kernel = self.module_names.get(&kernel_id).unwrap();
-        let cube_dim = kernel.cube_dim;
-        unsafe {
-            cudarc::driver::result::function::set_function_attribute(
-                kernel.func,
-                CUfunction_attribute::CU_FUNC_ATTRIBUTE_MAX_DYNAMIC_SHARED_SIZE_BYTES,
-                kernel.shared_mem_bytes as i32,
-            )
-            .map_err(|err| format!("{err:?}"))?;
-            cudarc::driver::result::launch_kernel(
-                kernel.func,
-                dispatch_count,
-                (cube_dim.x, cube_dim.y, cube_dim.z),
-                // Shared memory is collected into a single buffer, with each shared memory being
-                // an offset pointer
-                kernel.shared_mem_bytes as u32,
-                self.stream,
-                &mut bindings,
-            )
-            .map_err(|err| format!("{err:?}"))?;
-        };
-
-        Ok(())
-    }
-}
-
 impl CudaServer {
     /// Create a new cuda server.
     pub(crate) fn new(mem_alignment: usize, ctx: CudaContext) -> Self {
-        Self { mem_alignment, ctx }
+        Self {
+            mem_alignment,
+            ctx,
+            streams: MultiStream::new(),
+        }
     }
 
-    fn get_context(&mut self) -> &mut CudaContext {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
-        &mut self.ctx
-    }
-}
+    fn resolve_context_basic(
+        &mut self,
+        stream_id: StreamId,
+    ) -> (&mut CudaContext, &mut Stream, u64) {
+        let stream = self.streams.get(stream_id);
 
-fn include_path() -> PathBuf {
-    let mut path = cuda_path().expect("
-        CUDA installation not found.
-        Please ensure that CUDA is installed and the CUDA_PATH environment variable is set correctly.
-        Note: Default paths are used for Linux (/usr/local/cuda) and Windows (C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/), which may not be correct.
-    ");
-    path.push("include");
-    path
-}
+        self.ctx
+            .memory_management_gpu
+            .storage()
+            .context(GpuStorageContext {
+                stream: stream.stream.sys.clone(),
+            });
 
-fn cccl_include_path() -> PathBuf {
-    let mut path = include_path();
-    path.push("cccl");
-    path
-}
-
-fn cuda_path() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CUDA_PATH") {
-        return Some(PathBuf::from(path));
+        (&mut self.ctx, &mut stream.stream, stream.cursor)
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        // If it is installed as part of the distribution
-        return if std::fs::exists("/usr/local/cuda").is_ok_and(|exists| exists) {
-            Some(PathBuf::from("/usr/local/cuda"))
-        } else if std::fs::exists("/opt/cuda").is_ok_and(|exists| exists) {
-            Some(PathBuf::from("/opt/cuda"))
-        } else if std::fs::exists("/usr/bin/nvcc").is_ok_and(|exists| exists) {
-            // Maybe the compiler was installed within the user path.
-            Some(PathBuf::from("/usr"))
-        } else {
-            None
-        };
+    fn resolve_context_bindings<'a>(
+        &mut self,
+        stream_id: StreamId,
+        bindings: impl Iterator<Item = &'a Binding>,
+    ) -> (&mut CudaContext, &mut Stream, u64) {
+        let stream = self.streams.resolve(stream_id, bindings);
+
+        self.ctx
+            .memory_management_gpu
+            .storage()
+            .context(GpuStorageContext {
+                stream: stream.stream.sys.clone(),
+            });
+
+        (&mut self.ctx, &mut stream.stream, stream.cursor)
     }
 
-    #[cfg(target_os = "windows")]
-    {
-        return Some(PathBuf::from(
-            "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/",
-        ));
-    }
+    fn read_async(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let (ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
 
-    #[allow(unreachable_code)]
-    None
+        let result = register_copies_to_bytes(ctx, descriptors);
+        let fence = stream.fence();
+
+        async move {
+            fence.wait_sync();
+            result
+        }
+    }
 }
 
 fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
