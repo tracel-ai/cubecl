@@ -1,6 +1,7 @@
 use std::any::TypeId;
 
-use cubecl_core::{CubeDim, Feature, Runtime, TmaFeature, client::ComputeClient, tf32};
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient, tf32};
+use cubecl_runtime::Tma;
 
 use crate::components::{
     LhsG, LhsS, LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout, RhsG, RhsS,
@@ -170,10 +171,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
             ));
         }
 
-        if !client
-            .properties()
-            .feature_enabled(Feature::Tma(TmaFeature::Base))
-        {
+        if !client.properties().features.tma.contains(Tma::Base) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TmaUnavailable,
             ));

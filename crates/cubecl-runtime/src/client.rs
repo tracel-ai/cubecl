@@ -39,7 +39,7 @@ struct ComputeClientState<Server: ComputeServer> {
     #[cfg(feature = "profile-tracy")]
     gpu_client: tracy_client::GpuContext,
 
-    properties: DeviceProperties<Server::Feature>,
+    properties: DeviceProperties,
     info: Server::Info,
     logger: Arc<ServerLogger>,
 
@@ -71,11 +71,7 @@ where
     }
 
     /// Create a new client.
-    pub fn new(
-        channel: Channel,
-        properties: DeviceProperties<Server::Feature>,
-        info: Server::Info,
-    ) -> Self {
+    pub fn new(channel: Channel, properties: DeviceProperties, info: Server::Info) -> Self {
         let logger = ServerLogger::default();
 
         // Start a tracy client if needed.
@@ -431,14 +427,14 @@ where
     }
 
     /// Get the features supported by the compute server.
-    pub fn properties(&self) -> &DeviceProperties<Server::Feature> {
+    pub fn properties(&self) -> &DeviceProperties {
         &self.state.properties
     }
 
     /// # Warning
     ///
     /// For private use only.
-    pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties<Server::Feature>> {
+    pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
         Arc::get_mut(&mut self.state).map(|state| &mut state.properties)
     }
 

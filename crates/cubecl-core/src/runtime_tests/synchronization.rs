@@ -1,5 +1,7 @@
+use cubecl_runtime::Plane;
+
 use crate::prelude::*;
-use crate::{self as cubecl, Feature};
+use crate::{self as cubecl};
 
 #[cube(launch)]
 /// First 32 elements should be 1, while last 32 elements may or may not be 1
@@ -87,7 +89,7 @@ fn kernel_test_sync_plane<F: Float>(out: &mut Array<F>) {
 }
 
 pub fn test_sync_plane<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    if !client.properties().feature_enabled(Feature::SyncPlane) {
+    if !client.properties().features.plane.contains(Plane::Sync) {
         // We can't execute the test, skip.
         return;
     }

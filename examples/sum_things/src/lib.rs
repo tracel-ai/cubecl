@@ -1,4 +1,4 @@
-use cubecl::{prelude::*, server::Handle};
+use cubecl::{features::Plane, prelude::*, server::Handle};
 use std::marker::PhantomData;
 
 #[cube(launch_unchecked)]
@@ -132,7 +132,7 @@ fn launch_subgroup<R: Runtime>(
             CubeDim::new(len as u32, 1, 1),
             ArrayArg::from_raw_parts::<f32>(input, len, 1),
             ArrayArg::from_raw_parts::<f32>(output, len, 1),
-            client.properties().feature_enabled(cubecl::Feature::Plane),
+            client.properties().features.plane.contains(Plane::Ops),
             Some(len as u32),
         );
     }
@@ -202,14 +202,14 @@ pub fn launch<R: Runtime>(device: &R::Device) {
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.
-                if client.properties().feature_enabled(cubecl::Feature::Plane) {
+                if client.properties().features.plane.contains(Plane::Ops) {
                     launch_trait::<R, SumPlane>(&client, &input, &output, len)
                 } else {
                     launch_trait::<R, SumBasic>(&client, &input, &output, len)
                 }
             }
             KernelKind::SeriesSumThenMul => {
-                if client.properties().feature_enabled(cubecl::Feature::Plane) {
+                if client.properties().features.plane.contains(Plane::Ops) {
                     launch_series::<R, SumThenMul<SumPlane>>(&client, &input, &output, len)
                 } else {
                     launch_series::<R, SumThenMul<SumBasic>>(&client, &input, &output, len)

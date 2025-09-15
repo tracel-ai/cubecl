@@ -7,7 +7,7 @@ use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_core::future::DynFut;
 use cubecl_core::server::{DataTransferService, ProfileError, ProfilingToken};
 use cubecl_core::{
-    Feature, MemoryConfiguration, WgpuCompilationOptions,
+    MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{Binding, Bindings, CopyDescriptor},
 };
@@ -121,7 +121,6 @@ impl DataTransferService for WgpuServer {}
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
-    type Feature = Feature;
     type Info = wgpu::Backend;
 
     fn create(

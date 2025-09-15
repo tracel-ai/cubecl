@@ -24,7 +24,6 @@ use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Feature,
     ir::FloatKind,
     server::{Bindings, CopyDescriptor, TensorMapBinding},
 };
@@ -128,7 +127,6 @@ impl CudaServer {
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
-    type Feature = Feature;
     type Info = ();
 
     fn read(

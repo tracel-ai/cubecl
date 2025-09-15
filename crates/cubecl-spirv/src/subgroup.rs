@@ -138,7 +138,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_min(
+                        Elem::Float(..) | Elem::Relaxed => b.group_non_uniform_f_min(
                             ty,
                             Some(out),
                             subgroup,
@@ -170,7 +170,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             input,
                             None,
                         ),
-                        Elem::Float(_) | Elem::Relaxed => b.group_non_uniform_f_max(
+                        Elem::Float(..) | Elem::Relaxed => b.group_non_uniform_f_max(
                             ty,
                             Some(out),
                             subgroup,
@@ -199,7 +199,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Elem::Int(_, _) => {
                     b.group_non_uniform_i_add(ty, Some(out), subgroup, action, input, None)
                 }
-                Elem::Float(_) | Elem::Relaxed => {
+                Elem::Float(..) | Elem::Relaxed => {
                     b.group_non_uniform_f_add(ty, Some(out), subgroup, action, input, None)
                 }
                 elem => unreachable!("{elem}"),
@@ -221,7 +221,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 Elem::Int(_, _) => {
                     b.group_non_uniform_i_mul(ty, Some(out), subgroup, action, input, None)
                 }
-                Elem::Float(_) | Elem::Relaxed => {
+                Elem::Float(..) | Elem::Relaxed => {
                     b.group_non_uniform_f_mul(ty, Some(out), subgroup, action, input, None)
                 }
                 _ => unreachable!(),

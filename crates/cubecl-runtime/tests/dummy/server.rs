@@ -65,7 +65,6 @@ impl ComputeServer for DummyServer {
     type Kernel = KernelTask;
     type Storage = BytesStorage;
     type Info = ();
-    type Feature = ();
 
     fn create(
         &mut self,
