@@ -16,7 +16,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, profile::ProfileDuration};
+use cubecl_common::{ExecutionMode, bytes::Bytes, profile::ProfileDuration};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -106,14 +106,14 @@ where
         }
     }
 
-    async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Vec<u8>>, IoError> {
+    async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
         self.profile_guard();
 
         self.channel.read(descriptors).await
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_async(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
+    pub async fn read_async(&self, handles: Vec<Handle>) -> Vec<Bytes> {
         let strides = [1];
         let shapes = handles
             .iter()
@@ -137,7 +137,7 @@ where
     /// # Remarks
     ///
     /// Panics if the read operation fails.
-    pub fn read(&self, handles: Vec<Handle>) -> Vec<Vec<u8>> {
+    pub fn read(&self, handles: Vec<Handle>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_async(handles))
     }
 
@@ -145,12 +145,12 @@ where
     ///
     /// # Remarks
     /// Panics if the read operation fails.
-    pub fn read_one(&self, handle: Handle) -> Vec<u8> {
+    pub fn read_one(&self, handle: Handle) -> Bytes {
         cubecl_common::reader::read_sync(self.read_async(vec![handle])).remove(0)
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Vec<u8>> {
+    pub async fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
         self.do_read(descriptors).await.unwrap()
     }
 
@@ -166,13 +166,13 @@ where
     /// stride compatibility on the runtime will be added in the future.
     ///
     /// Also see [ComputeClient::create_tensor].
-    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Vec<u8>> {
+    pub fn read_tensor(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
         cubecl_common::reader::read_sync(self.read_tensor_async(descriptors))
     }
 
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
-    pub async fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> Vec<u8> {
+    pub async fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> Bytes {
         self.read_tensor_async(vec![descriptor]).await.remove(0)
     }
 
@@ -181,7 +181,7 @@ where
     /// # Remarks
     /// Panics if the read operation fails.
     /// See [ComputeClient::read_tensor]
-    pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Vec<u8> {
+    pub fn read_one_tensor(&self, descriptor: CopyDescriptor) -> Bytes {
         self.read_tensor(vec![descriptor]).remove(0)
     }
 

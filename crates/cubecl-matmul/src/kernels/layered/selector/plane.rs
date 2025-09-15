@@ -46,7 +46,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         if TMM::requires_accelerator() {
             Some((
                 client.properties(),
-                (elems.lhs_register, elems.rhs_register, elems.acc),
+                (elems.lhs_register, elems.rhs_register, elems.acc_register),
             ))
         } else {
             None

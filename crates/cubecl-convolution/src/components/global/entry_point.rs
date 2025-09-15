@@ -47,70 +47,68 @@ pub(crate) fn implicit_conv<
     Args: MatmulArgs,
     LhsG: Numeric,
     RhsG: Numeric,
+    AccG: Numeric,
     LhsS: Numeric,
     RhsS: Numeric,
-    EA: Numeric,
-    EO: Numeric,
+    AccS: Numeric,
     GMM: GlobalConvolutionFamily,
 >(
-    inputs: &Input<Args, LhsG, RhsG, EO>,
-    output: &mut Output<Args, EO>,
+    inputs: &Input<Args, LhsG, RhsG, AccG>,
+    output: &mut Output<Args, AccG>,
     runtime_args: RuntimeArgs,
     #[comptime] config: GMM::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorLhs::<LhsG, RhsG, EO, Args>::new(&state);
-    let rhs = TensorRhs::<LhsG, RhsG, EO, Args>::new(&state);
-    let mut out = TensorOutput::<LhsG, RhsG, EO, Args>::new(&mut state);
+    let lhs = TensorLhs::<LhsG, RhsG, AccG, Args>::new(&state);
+    let rhs = TensorRhs::<LhsG, RhsG, AccG, Args>::new(&state);
+    let mut out = TensorOutput::<LhsG, RhsG, AccG, Args>::new(&mut state);
 
     let has_acc = Args::has_acc(&state);
-    let bias: CubeOption<TensorAcc<LhsG, RhsG, EO, Args>> = match has_acc {
-        CubeOption::Some(_) => CubeOption::new_Some(TensorAcc::<LhsG, RhsG, EO, Args>::new(&state)),
+    let bias: CubeOption<VirtualTensor<AccG>> = match has_acc {
+        CubeOption::Some(_) => {
+            let bias = TensorAcc::<LhsG, RhsG, AccG, Args>::new(&state);
+            let bias = VirtualTensor::<AccG>::new::<TensorAcc<LhsG, RhsG, AccG, Args>>(&bias);
+            CubeOption::new_Some(bias)
+        }
         CubeOption::None => CubeOption::new_None(),
     };
 
-    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, EO, Args>>(&lhs);
-    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, EO, Args>>(&rhs);
-    let out = VirtualTensor::<EO, ReadWrite>::new::<TensorOutput<LhsG, RhsG, EO, Args>>(&mut out);
-
-    let bias = match &bias {
-        CubeOption::Some(bias) => CubeOption::new_Some(VirtualTensor::<EO>::new::<
-            TensorAcc<LhsG, RhsG, EO, Args>,
-        >(bias)),
-        CubeOption::None => CubeOption::new_None(),
-    };
+    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, AccG, Args>>(&lhs);
+    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, AccG, Args>>(&rhs);
+    let out =
+        VirtualTensor::<AccG, ReadWrite>::new::<TensorOutput<LhsG, RhsG, AccG, Args>>(&mut out);
 
     let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
     let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
     let k_range = (0, runtime_args.shape_k);
 
-    GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::execute(
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_lhs_loader(
+    GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_loader(
             lhs,
             x_offset,
             k_range.0,
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_rhs_loader(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_loader(
             rhs,
             k_range.0,
             y_offset,
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_bias_loader(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_loader(
             bias, y_offset, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_writer(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_writer(
             out,
             x_offset,
             y_offset,
             &runtime_args,
             config,
         ),
-        &mut GMM::Convolution::<(LhsG, RhsG, LhsS, RhsS, EA, EO)>::init_accumulator(config),
+        &mut GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_accumulator(config),
         k_range,
         config,
     );

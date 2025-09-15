@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::stage::ReaderFamily;
+use cubecl_matmul::components::{stage::StageReaderFamily, tile::loader::Strided};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -16,11 +16,11 @@ use crate::components::{
     },
 };
 
-pub struct DummyStageAttentionFamily<TA: TileAttentionFamily, RF: ReaderFamily> {
+pub struct DummyStageAttentionFamily<TA: TileAttentionFamily, RF: StageReaderFamily> {
     _phantom: PhantomData<(TA, RF)>,
 }
 
-impl<TA: TileAttentionFamily, RF: ReaderFamily> StageAttentionFamily
+impl<TA: TileAttentionFamily, RF: StageReaderFamily<TileKind = Strided>> StageAttentionFamily
     for DummyStageAttentionFamily<TA, RF>
 {
     type Attention<AP: AttentionPrecision> =

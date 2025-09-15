@@ -91,7 +91,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
                 (
                     matmul_elems.lhs_register,
                     matmul_elems.rhs_register,
-                    matmul_elems.acc,
+                    matmul_elems.acc_register,
                 ),
             ))
         } else {

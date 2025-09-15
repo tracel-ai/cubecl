@@ -15,10 +15,13 @@ use crate::{
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
-            RowMajorTilingOrder,
+            ColMajorTilingOrder, FillReaderFamily, FullReaderFamily, PartitionBuffering,
+            PlaneMatmulFamily, RowMajorTilingOrder,
         },
-        tile::TileMatmulFamily,
+        tile::{
+            TileMatmulFamily,
+            loader::{Filled, Strided},
+        },
     },
     kernels::layered::{
         Algorithm,
@@ -45,13 +48,14 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily,
+    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type StageMatmul =
+        PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily, FillReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -92,7 +96,7 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
         client.properties().features.cmma.contains(&MmaConfig {
             a_type: elems.lhs_register,
             b_type: elems.rhs_register,
-            cd_type: elems.acc,
+            cd_type: elems.acc_register,
             m,
             n,
             k,

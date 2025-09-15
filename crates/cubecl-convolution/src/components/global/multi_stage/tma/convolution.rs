@@ -6,10 +6,8 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
-    global::{
-        AccumulatorLoader, GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig,
-    },
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    global::{GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig},
     stage::{FullStageToTileReader, StageMatmul},
 };
 use cubecl_std::{
@@ -24,7 +22,7 @@ use crate::{
             GlobalConvolution,
             layout::{NhwcLayout, OutLayout},
             load::{
-                bias::BiasLoader,
+                bias::{BiasLoader, BiasStageReader},
                 im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
                 weight_tma::{TmaWeightLoader, TmaWeightTiling},
             },
@@ -61,13 +59,14 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
             RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
+            AccReader = BiasStageReader<AccS<MP>>,
             WriteCoords = Coords3d,
         >,
 {
     type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
     type RhsLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
-    type AccumulatorLoader = BiasLoader<MP>;
+    type AccLoader = BiasLoader<MP::Acc>;
 
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -75,7 +74,7 @@ where
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut acc_loader: Self::AccumulatorLoader,
+        mut acc_loader: Self::AccLoader,
         mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -101,11 +100,11 @@ where
             comptime![config.tiling_scheme().elements_in_stage_nk() * rhs_elem_size];
         let stages_bytes = stage_bytes_lhs + stage_bytes_rhs;
 
-        Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
+        Self::AccLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
 
         sync_cube();
 
-        SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, stage_config);
+        SMM::fill_accumulator(&acc_loader.reader(), acc, stage_config);
 
         let mut barriers = Sequence::<Barrier>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
@@ -229,15 +228,15 @@ where
     }
 
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader {
-        Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
+    ) -> Self::AccLoader {
+        Self::AccLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,

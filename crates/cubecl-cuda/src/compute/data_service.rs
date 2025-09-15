@@ -1,4 +1,4 @@
-use crate::compute::{CudaResource, sync::Fence};
+use crate::compute::{storage::gpu::GpuResource, sync::Fence};
 use cubecl_common::stub::Mutex;
 use cubecl_core::server::IoError;
 use cubecl_runtime::data_service::DataTransferId;
@@ -21,7 +21,7 @@ pub(crate) struct DataTransferRuntime {
 pub struct DataTransferItem {
     pub context: sys::CUcontext,
     pub stream: sys::CUstream,
-    pub resource: CudaResource,
+    pub resource: GpuResource,
 }
 
 unsafe impl Send for DataTransferItem {}
@@ -193,7 +193,7 @@ impl DataTransferInfo {
             cudarc::driver::result::ctx::set_current(info_dest.item.context).unwrap();
 
             info_src.fence.wait_async(info_dest.item.stream);
-            let num_bytes = info_dest.item.resource.size() as usize;
+            let num_bytes = info_dest.item.resource.size as usize;
 
             let result = sys::cuMemcpyPeerAsync(
                 info_dest.item.resource.ptr,

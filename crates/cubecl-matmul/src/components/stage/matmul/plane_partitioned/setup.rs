@@ -1,4 +1,3 @@
-use crate::components::ComputeResources;
 use crate::components::InputPrecision;
 use crate::components::LhsR;
 use crate::components::LhsS;
@@ -12,37 +11,50 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxLoaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
-use crate::components::stage::ReaderFamily;
+use crate::components::stage::StageReaderFamily;
 use crate::components::stage::matmul::plane_partitioned::PlaneMatmul;
 use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageConfig;
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
+use crate::components::{AccR, AccS, ComputeResources};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::layout::Coords3d;
 
 /// Plane Matmul family for any precision
-pub struct PlaneMatmulFamily<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> {
-    _phantom: PhantomData<(TM, LRF, RRF)>,
+pub struct PlaneMatmulFamily<
+    TM: TileMatmulFamily,
+    LRF: StageReaderFamily,
+    RRF: StageReaderFamily,
+    RRA: StageReaderFamily,
+> {
+    _phantom: PhantomData<(TM, LRF, RRF, RRA)>,
 }
 
-impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFamily
-    for PlaneMatmulFamily<TM, LRF, RRF>
+impl<
+    TM: TileMatmulFamily,
+    LRF: StageReaderFamily<TileKind = TM::LhsTile>,
+    RRF: StageReaderFamily<TileKind = TM::RhsTile>,
+    RRA: StageReaderFamily<TileKind = TM::AccTile>,
+> StageMatmulFamily for PlaneMatmulFamily<TM, LRF, RRF, RRA>
 {
     type LhsReader = LRF;
     type RhsReader = RRF;
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout> = PlaneMatmul<
-        MP,
-        TM::Matmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            MP::EA,
-        >,
-        LRF::Reader<LhsS<MP>, TL>,
-        RRF::Reader<RhsS<MP>, TR>,
-    >;
+    type AccReader = RRA;
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
+        PlaneMatmul<
+            MP,
+            TM::Matmul<
+                <MP::Lhs as InputPrecision>::Register,
+                <MP::Rhs as InputPrecision>::Register,
+                <MP::Acc as InputPrecision>::Register,
+            >,
+            LRF::Reader<LhsS<MP>, TL>,
+            RRF::Reader<RhsS<MP>, TR>,
+            RRA::Reader<AccS<MP>, TA>,
+        >;
     type Config = PlanePartitionedStageConfig<TM::Config>;
     type WriteCoords = Coords3d;
 
@@ -56,7 +68,7 @@ impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFami
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config =
-            TM::setup::<LhsR<MP>, RhsR<MP>, MP::EA, R>(client, problem, selection, line_sizes)?;
+            TM::setup::<LhsR<MP>, RhsR<MP>, AccR<MP>, R>(client, problem, selection, line_sizes)?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TM::computation_resources()? {
@@ -86,7 +98,7 @@ impl<TM: TileMatmulFamily, LRF: ReaderFamily, RRF: ReaderFamily> StageMatmulFami
             plane_role_config,
             LhsS::<MP>::elem_size(),
             RhsS::<MP>::elem_size(),
-            MP::EO::elem_size(),
+            AccS::<MP>::elem_size(),
             client.properties().hardware.max_shared_memory_size as u32,
             ordered,
         )

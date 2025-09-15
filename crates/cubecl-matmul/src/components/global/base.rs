@@ -1,17 +1,17 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
 use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::stage::StageMemoryConfig;
+use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
 use super::{GlobalWriter, load::LoaderMode};
@@ -65,8 +65,8 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
     type LhsLoader: CubeType;
     type RhsLoader: CubeType;
-    type AccumulatorLoader: CubeType;
-    type Writer: GlobalWriter<MP::EO>;
+    type AccLoader: CubeType;
+    type Writer: GlobalWriter<AccG<MP>>;
     type Accumulator: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
@@ -78,6 +78,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
+        acc_loader: Self::AccLoader,
         writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -104,12 +105,22 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
+    /// Initialize the loader for Rhs, starting at row k and column n
+    fn init_acc_loader(
+        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
+        m_offset: u32,
+        n_offset: u32,
+        nth_batch: u32,
+        batch_offset: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccLoader;
+
     /// Initialize the accumulator without data
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     /// Initialize the writer at row m and column n
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
         nth_batch: u32,
