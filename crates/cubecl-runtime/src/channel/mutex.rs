@@ -96,11 +96,12 @@ where
         handles: Bindings,
         kind: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         unsafe {
             self.server
                 .lock()
-                .execute(kernel, count, handles, kind, logger)
+                .execute(kernel, count, handles, kind, logger, stream_id)
         }
     }
 

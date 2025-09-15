@@ -148,6 +148,7 @@ impl ComputeServer for CpuServer {
         bindings: Bindings,
         kind: ExecutionMode,
         _logger: Arc<ServerLogger>,
+        _stream_id: StreamId,
     ) {
         let cube_count = match count {
             CubeCount::Static(x, y, z) => [x, y, z],

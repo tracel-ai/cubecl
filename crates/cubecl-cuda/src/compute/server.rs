@@ -253,7 +253,9 @@ impl ComputeServer for CudaServer {
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
+        let stream_id = StreamId::current();
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
 
@@ -301,7 +303,7 @@ impl ComputeServer for CudaServer {
             if bindings.metadata.static_len > 0 {
                 let dyn_meta = &bindings.metadata.data[bindings.metadata.static_len..];
                 handles.push(
-                    self.create_with_data(bytemuck::cast_slice(dyn_meta))
+                    self.create_with_data(bytemuck::cast_slice(dyn_meta), stream_id)
                         .unwrap(),
                 );
             }
@@ -311,7 +313,7 @@ impl ComputeServer for CudaServer {
             let mut handles = Vec::new();
             if !bindings.metadata.data.is_empty() {
                 handles.push(
-                    self.create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+                    self.create_with_data(bytemuck::cast_slice(&bindings.metadata.data), stream_id)
                         .unwrap(),
                 )
             }
@@ -319,7 +321,7 @@ impl ComputeServer for CudaServer {
                 bindings
                     .scalars
                     .values()
-                    .map(|scalar| self.create_with_data(scalar.data()).unwrap()),
+                    .map(|scalar| self.create_with_data(scalar.data(), stream_id).unwrap()),
             );
             (Vec::new(), handles)
         };

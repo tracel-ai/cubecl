@@ -102,11 +102,17 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         unsafe {
-            self.server
-                .borrow_mut()
-                .execute(kernel_description, count, bindings, kind, logger)
+            self.server.borrow_mut().execute(
+                kernel_description,
+                count,
+                bindings,
+                kind,
+                logger,
+                stream_id,
+            )
         }
     }
 

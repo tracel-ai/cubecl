@@ -240,6 +240,7 @@ impl ComputeServer for HipServer {
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
@@ -269,11 +270,11 @@ impl ComputeServer for HipServer {
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
         let info = self
-            .create_with_data(bytemuck::cast_slice(&metadata.data))
+            .create_with_data(bytemuck::cast_slice(&metadata.data), stream_id)
             .unwrap();
         let scalars: Vec<_> = scalars
             .values()
-            .map(|s| self.create_with_data(s.data()).unwrap())
+            .map(|s| self.create_with_data(s.data(), stream_id).unwrap())
             .collect();
 
         let ctx = self.get_context();

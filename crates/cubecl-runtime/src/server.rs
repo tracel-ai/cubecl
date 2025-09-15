@@ -109,6 +109,7 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     );
 
     /// Flush all outstanding tasks in the server.

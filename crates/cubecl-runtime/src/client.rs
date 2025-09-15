@@ -337,6 +337,7 @@ where
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
+        stream_id: StreamId,
     ) {
         let level = self.state.logger.profile_level();
 
@@ -347,8 +348,14 @@ where
                 let name = kernel.name();
 
                 unsafe {
-                    self.channel
-                        .execute(kernel, count, bindings, mode, self.state.logger.clone())
+                    self.channel.execute(
+                        kernel,
+                        count,
+                        bindings,
+                        mode,
+                        self.state.logger.clone(),
+                        stream_id,
+                    )
                 };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -368,6 +375,7 @@ where
                                 bindings,
                                 mode,
                                 self.state.logger.clone(),
+                                stream_id,
                             )
                         },
                         name,
@@ -389,7 +397,13 @@ where
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
         // SAFETY: Using checked execution mode.
         unsafe {
-            self.execute_inner(kernel, count, bindings, ExecutionMode::Checked);
+            self.execute_inner(
+                kernel,
+                count,
+                bindings,
+                ExecutionMode::Checked,
+                StreamId::current(),
+            );
         }
     }
 
@@ -409,7 +423,13 @@ where
     ) {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.execute_inner(kernel, count, bindings, ExecutionMode::Unchecked);
+            self.execute_inner(
+                kernel,
+                count,
+                bindings,
+                ExecutionMode::Unchecked,
+                StreamId::current(),
+            );
         }
     }
 

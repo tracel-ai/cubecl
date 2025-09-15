@@ -2,6 +2,7 @@ use cubecl_common::ExecutionMode;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_common::stream_id::StreamId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{
     Bindings, CopyDescriptor, DataTransferService, ProfileError, ProfilingToken,
@@ -69,6 +70,7 @@ impl ComputeServer for DummyServer {
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         descriptors
             .into_iter()
@@ -83,7 +85,9 @@ impl ComputeServer for DummyServer {
                     self.memory_management.reserve(size as u64)?,
                     None,
                     None,
+                    stream_id,
                     size as u64,
+                    0,
                 );
                 Ok(Allocation::new(handle, strides))
             })
@@ -135,6 +139,7 @@ impl ComputeServer for DummyServer {
         bindings: Bindings,
         _mode: ExecutionMode,
         _logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
             .buffers
@@ -142,14 +147,14 @@ impl ComputeServer for DummyServer {
             .map(|b| self.get_resource(b))
             .collect();
         let metadata = self
-            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data), stream_id)
             .unwrap();
         resources.push(self.get_resource(metadata.binding()));
 
         let scalars = bindings
             .scalars
             .into_values()
-            .map(|s| self.create_with_data(s.data()).unwrap())
+            .map(|s| self.create_with_data(s.data(), stream_id).unwrap())
             .collect::<Vec<_>>();
         resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
 

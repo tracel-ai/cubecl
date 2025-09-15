@@ -59,6 +59,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     );
 
     /// Flush outstanding work of the server.

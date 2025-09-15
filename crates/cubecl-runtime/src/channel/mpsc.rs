@@ -113,7 +113,7 @@ where
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
     ExecuteKernel(
-        (Server::Kernel, CubeCount, ExecutionMode),
+        (Server::Kernel, CubeCount, ExecutionMode, StreamId),
         Bindings,
         Arc<ServerLogger>,
     ),
@@ -165,7 +165,7 @@ where
                         callback.send(data).await.unwrap();
                     }
                     Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
-                        server.execute(kernel.0, kernel.1, bindings, kernel.2, logger);
+                        server.execute(kernel.0, kernel.1, bindings, kernel.2, logger, kernel.3);
                     },
                     Message::Sync(callback) => {
                         server.sync().await;
@@ -304,11 +304,12 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         self.state
             .sender
             .send_blocking(Message::ExecuteKernel(
-                (kernel, count, kind),
+                (kernel, count, kind, stream_id),
                 bindings,
                 logger,
             ))

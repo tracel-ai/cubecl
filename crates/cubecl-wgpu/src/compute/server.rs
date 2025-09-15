@@ -187,6 +187,7 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         let pipeline = self.pipeline(kernel, mode, logger);
         self.stream.register(pipeline, bindings, &count);
