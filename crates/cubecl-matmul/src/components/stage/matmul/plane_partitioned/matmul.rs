@@ -18,15 +18,17 @@ pub type PlaneMatmul<
     TMM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            <MP as MatmulPrecision>::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     RL,
     RR,
+    RA,
 > = PartitionedStageMatmul<
     MP,
     TMM,
     RL,
     RR,
+    RA,
     PlanePartitioner,
     PlanePartitionedStageConfig<TMM::Config>,
 >;

@@ -1,5 +1,5 @@
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_matmul::components::{LhsS, MatmulPrecision, RhsS, TilingScheme};
+use cubecl_matmul::components::{AccS, LhsS, MatmulPrecision, RhsS, TilingScheme};
 
 use crate::components::ConvolutionProblem;
 
@@ -24,7 +24,7 @@ pub(crate) fn num_stages<R: Runtime, MP: MatmulPrecision>(
         + rhs_stage_size * size_of::<RhsS<MP>>() as u32
         + 2 * size_of::<u64>() as u32;
     let output_stage_size = tiling_scheme.elements_in_tile_mn() * num_planes;
-    let output_stage_size_bytes = output_stage_size * size_of::<MP::EA>() as u32;
+    let output_stage_size_bytes = output_stage_size * size_of::<AccS<MP>>() as u32;
 
     let max_smem = client.properties().hardware.max_shared_memory_size;
 

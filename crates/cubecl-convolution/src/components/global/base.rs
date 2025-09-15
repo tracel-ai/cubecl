@@ -1,9 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    RhsG,
-    global::{AccumulatorLoader, GlobalWriter},
+    AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulSetupError, RhsG,
+    global::GlobalWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
@@ -34,12 +34,18 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
 
 #[cube]
 pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
+    /// The loader for the Lhs (input feature map) tensor
     type LhsLoader: CubeType;
+    /// The loader for the Rhs (weight) tensor
     type RhsLoader: CubeType;
+    /// The loader for the accumulator (bias) tensor
+    type AccLoader: CubeType;
+    /// The config type of the convolution
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Writer: GlobalWriter<MP::EO>;
+    /// The writer used to write the results to the output feature map
+    type Writer: GlobalWriter<AccG<MP>>;
+    /// The type of the tile matmul accumulator
     type Accumulator: CubeType;
 
     /// Performs the convolution over data loaded by the
@@ -51,13 +57,14 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     fn execute(
         lhs_loader: Self::LhsLoader,
         rhs_loader: Self::RhsLoader,
-        acc_loader: Self::AccumulatorLoader,
+        acc_loader: Self::AccLoader,
         writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
+    /// Initializes the loader for the input feature map with an appropriate layout
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
@@ -66,6 +73,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::LhsLoader;
 
+    /// Initializes the loader for the weights with an appropriate layout
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
@@ -74,19 +82,22 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     ) -> Self::RhsLoader;
 
+    /// Initializes the loader for the bias with an appropriate layout
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader;
+    ) -> Self::AccLoader;
 
+    /// Initializes the output feature map loader with an appropriate layout
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::Writer;
 
+    /// Initializes a new accumulator for the tile matmul
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 }

@@ -429,3 +429,22 @@ impl TilingLayout for StridedTilingLayout {
         }
     }
 }
+
+#[derive(Clone, Copy)]
+/// Dummy tiling layout that panics if it's used. Can be used when the reader is known to be a
+/// `FillReader`
+pub struct NoTilingLayout {}
+
+#[cube]
+impl TilingLayout for NoTilingLayout {
+    fn get_tile<ES: Numeric, S: StageMemoryConfig>(
+        _stage: &StageMemory<ES, Self>,
+        _row: u32,
+        _col: u32,
+        #[comptime] _buffer_index: u32,
+        #[comptime] _ident: StageIdent,
+        #[comptime] _config: S,
+    ) -> Tile<ES> {
+        panic!("Can't get tile of layoutless tiling!")
+    }
+}

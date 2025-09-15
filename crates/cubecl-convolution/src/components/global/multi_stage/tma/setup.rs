@@ -16,6 +16,7 @@ use crate::{
             load::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
             multi_stage::tma::{MultiStageTmaConvolution, num_stages},
         },
+        stage::reader::BiasTilingLayout,
     },
     kernels::layered::algorithm::simple_tma::check_problem_tma,
 };
@@ -29,11 +30,14 @@ where
     SMM: StageMatmulFamily<
             LhsReader = FullReaderFamily,
             RhsReader = FullReaderFamily,
+            AccReader = Option<FullReaderFamily>,
             WriteCoords = Coords3d,
         >,
 {
-    type Convolution<MP: MatmulPrecision> =
-        MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+    type Convolution<MP: MatmulPrecision> = MultiStageTmaConvolution<
+        MP,
+        SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout>,
+    >;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

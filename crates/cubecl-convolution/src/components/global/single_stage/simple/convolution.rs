@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        AccumulatorLoader, GlobalConfig as _,
+        GlobalConfig as _,
         load::{SyncFullLoader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
@@ -22,7 +22,7 @@ use crate::{
         global::{
             ConvTilingLayout, GlobalConvolution,
             layout::{Im2colLayout, NhwcLayout, OutLayout, WeightLayout},
-            load::bias::BiasLoader,
+            load::bias::{BiasLoader, BiasStageReader},
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -43,6 +43,7 @@ where
             MP,
             LhsReader = FullStageToTileReader<LhsS<MP>, ConvTilingLayout>,
             RhsReader = FullStageToTileReader<RhsS<MP>, ConvTilingLayout>,
+            AccReader = BiasStageReader<AccS<MP>>,
             WriteCoords = Coords3d,
         >,
 {
@@ -57,7 +58,7 @@ where
         Self::Config,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
-    type AccumulatorLoader = BiasLoader<MP>;
+    type AccLoader = BiasLoader<MP::Acc>;
 
     type Writer = SMM::Writer;
     type Accumulator = SMM::Accumulator;
@@ -65,7 +66,7 @@ where
     fn execute(
         mut lhs_loader: Self::LhsLoader,
         mut rhs_loader: Self::RhsLoader,
-        mut acc_loader: Self::AccumulatorLoader,
+        mut acc_loader: Self::AccLoader,
         mut out_writer: Self::Writer,
         acc: &mut Self::Accumulator,
         k_range: (u32, u32),
@@ -77,17 +78,13 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
+        Self::AccLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         sync_cube();
 
-        SMM::fill_accumulator::<Self::AccumulatorLoader>(
-            &mut acc_loader,
-            acc,
-            config.stage_config(),
-        );
+        SMM::fill_accumulator(&acc_loader.reader(), acc, config.stage_config());
 
         for _ in 0..num_loops {
             sync_cube();
@@ -165,15 +162,15 @@ where
     }
 
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader {
-        Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
+    ) -> Self::AccLoader {
+        Self::AccLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,

@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::StageToTileReader;
+use cubecl_matmul::components::{stage::StageReader, tile::loader::Strided};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
@@ -17,8 +17,8 @@ pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>>
 }
 
 #[cube]
-impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>> StageAttention<AP>
-    for DummyStageAttention<AP, R, TA>
+impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
+    StageAttention<AP> for DummyStageAttention<AP, R, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
@@ -43,10 +43,10 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
-        let key_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
+        let key_tile = <R as StageReader<AP::ES>>::read_tile::<
             <Self::Config as StageAttentionConfig>::ScoreStageMemoryConfig,
         >(key_reader, 0, 0, config.score_stage_memory_config());
-        let value_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
+        let value_tile = <R as StageReader<AP::ES>>::read_tile::<
             <Self::Config as StageAttentionConfig>::ValueStageMemoryConfig,
         >(value_reader, 0, 0, config.value_stage_memory_config());
 
