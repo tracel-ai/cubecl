@@ -1,4 +1,4 @@
-use crate::compute::uninit_vec;
+use crate::compute::{sync::Fence, uninit_vec};
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cudarc::driver::{DriverError, sys::CUstream};
@@ -163,6 +163,9 @@ impl ComputeStorage for GpuStorage {
                 )));
             }
         };
+        // TODO: Remove
+        let fence = Fence::new(self.stream);
+        fence.wait_sync();
         self.memory.insert(id, ptr);
         Ok(StorageHandle::new(
             id,
