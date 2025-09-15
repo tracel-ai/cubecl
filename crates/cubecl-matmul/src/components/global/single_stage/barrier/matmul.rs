@@ -52,14 +52,14 @@ where
     type RhsStageLoader = AsyncFullStageLoader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
     type AccStageLoader = ZeroStageLoader<MP::Acc>;
     type GlobalWriter = SMM::GlobalWriter;
-    type Accumulator = SMM::Accumulators;
+    type Accumulators = SMM::Accumulators;
 
     fn execute(
         mut lhs_loader: Self::LhsStageLoader,
         mut rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
         mut out_writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -174,7 +174,7 @@ where
         }
     }
 
-    fn init_stage_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
@@ -186,7 +186,7 @@ where
         SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
     }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         SMM::init_accumulators(config.stage_config())
     }
 }

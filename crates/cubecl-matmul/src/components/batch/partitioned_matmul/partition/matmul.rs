@@ -30,7 +30,7 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
         c: CubeOption<VirtualTensor<AccG<MP>>>,
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         partition_ranges: PartitionRanges,
-        acc: GMM::Accumulator,
+        acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     );
@@ -81,7 +81,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
         c: CubeOption<VirtualTensor<AccG<MP>>>,
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulator,
+        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -119,7 +119,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
         c: CubeOption<VirtualTensor<AccG<MP>>>,
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulator,
+        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -160,7 +160,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     m_offset: u32,
     n_offset: u32,
     nth_batch: u32,
-    acc: &mut GMM::Accumulator,
+    acc: &mut GMM::Accumulators,
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
@@ -179,7 +179,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
         GMM::init_lhs_stage_loader(a, m_offset, k_range.0, nth_batch, batch_a, config),
         GMM::init_rhs_stage_loader(b, k_range.0, n_offset, nth_batch, batch_b, config),
         GMM::init_acc_stage_loader(c, m_offset, n_offset, nth_batch, batch_out, config),
-        GMM::init_stage_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
+        GMM::init_global_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
         acc,
         k_range,
         config,

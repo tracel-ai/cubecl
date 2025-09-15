@@ -72,7 +72,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Writer to store the output stage into global memory
     type GlobalWriter: GlobalWriter<AccG<MP>>;
     /// The accumulator type for the tile matmul
-    type Accumulator: CubeType;
+    type Accumulators: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// Lhs and Rhs loaders, over the range given for K, and stores with
@@ -85,7 +85,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
         writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
@@ -121,10 +121,10 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::AccStageLoader;
 
     /// Initialize the accumulator without data
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators;
 
     /// Initialize the writer at row m and column n
-    fn init_stage_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         m_offset: u32,
         n_offset: u32,
