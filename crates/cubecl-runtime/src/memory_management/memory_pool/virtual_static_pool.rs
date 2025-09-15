@@ -9,22 +9,22 @@ use crate::server::IoError;
 use alloc::vec::Vec;
 use hashbrown::HashMap;
 
-/// A memory pool that manages fixed-size physical blocks using virtual memory mapping.
+/// A simplified virtual memory pool that leverages automatic merge/split behavior.
 ///
-/// Key principles:
-/// - Physical memory blocks are never freed, only reused
-/// - All allocations appear contiguous in virtual address space
-/// - Physical blocks are of uniform size for efficient merging
-/// - Virtual mappings are created/destroyed during split/merge operations
+/// Key insights:
+/// - Merge happens automatically when we free slices: unmap + release virtual space
+/// - Split happens automatically when we allocate: just create new virtual spaces
+/// - Minimum allocation granularity is block_size (physical blocks are never split)
+/// - Physical blocks are never freed, only reused
 pub(crate) struct VirtualStaticPool<Storage: VirtualStorage> {
     // Virtual memory management
     storage: Storage,
 
-    // Physical block management
-    physical_blocks: Vec<PhysicalBlock>,
-    free_blocks: Vec<usize>, // Indices of free physical blocks in physical_blocks
+    // Physical block tracking (never freed, only reused)
+    physical_blocks: Vec<PhysicalStorageHandle>,
+    free_block_indices: Vec<usize>, // Indices into physical_blocks that are free
 
-    // Active virtual slices
+    // Active allocations (each allocation gets its own virtual space)
     active_slices: HashMap<SliceId, VirtualSlice>,
 
     // Pool configuration
@@ -33,97 +33,39 @@ pub(crate) struct VirtualStaticPool<Storage: VirtualStorage> {
     alignment: u64,
 }
 
-/// Represents a physical memory block that can be mapped to virtual address spaces
-#[derive(Debug)]
-struct PhysicalBlock {
-    /// Physical memory handle
-    physical_handle: PhysicalStorageHandle,
-    /// Whether this block is currently free for allocation
-    is_free: bool,
-    /// Current virtual mapping (if any)
-    current_mapping: Option<VirtualMapping>,
-}
-
-/// Information about a virtual memory mapping
-#[derive(Debug, Clone)]
-struct VirtualMapping {
-    /// Virtual address space handle
-    virtual_handle: VirtualAddressSpaceHandle,
-    /// Storage handle returned by map operation
-    storage_handle: StorageHandle,
-}
-
-/// Represents an active slice that may span multiple physical blocks
+/// Represents an active allocation in virtual memory.
+/// Each slice corresponds to one virtual address space mapping multiple physical blocks.
 #[derive(Debug)]
 struct VirtualSlice {
     /// Handle for external reference
     handle: SliceHandle,
-    /// Physical blocks that back this slice (by index)
+    /// Storage handle for the mapped virtual space
+    storage_handle: StorageHandle,
+    /// Virtual space ID (for cleanup)
+    virtual_space_id: VirtualSpaceId,
+    /// Physical blocks backing this allocation (indices into physical_blocks)
     physical_block_indices: Vec<usize>,
-    /// Actual size requested by user
+    /// User-requested size (may be less than total virtual space)
     requested_size: u64,
-    /// Total size including padding
-    total_size: u64,
-    /// Padding for alignment
+    /// Padding added for alignment
     padding: u64,
-}
-
-impl PhysicalBlock {
-    fn new(physical_handle: PhysicalStorageHandle) -> Self {
-        Self {
-            physical_handle,
-            is_free: true,
-            current_mapping: None,
-        }
-    }
-
-    /// Map this physical block to a virtual address space
-    fn map_to_virtual<Storage: VirtualStorage>(
-        &mut self,
-        storage: &mut Storage,
-        virtual_handle: VirtualAddressSpaceHandle,
-    ) -> Result<StorageHandle, IoError> {
-        if self.current_mapping.is_some() {
-            return Err(IoError::InvalidHandle);
-        }
-
-        let storage_handle = storage.try_map(virtual_handle.clone(), self.physical_handle.clone())?;
-
-        self.current_mapping = Some(VirtualMapping {
-            virtual_handle,
-            storage_handle: storage_handle.clone(),
-        });
-
-        Ok(storage_handle)
-    }
-
-    /// Unmap this physical block from virtual address space
-    fn unmap_from_virtual<Storage: VirtualStorage>(
-        &mut self,
-        storage: &mut Storage,
-    ) -> Result<(), IoError> {
-        if let Some(mapping) = &self.current_mapping {
-            storage.try_unmap(mapping.storage_handle.id)?;
-            storage.try_release(mapping.virtual_handle.id())?;
-            self.current_mapping = None;
-        }
-        Ok(())
-    }
 }
 
 impl VirtualSlice {
     fn new(
         handle: SliceHandle,
+        storage_handle: StorageHandle,
+        virtual_space_id: VirtualSpaceId,
         physical_block_indices: Vec<usize>,
         requested_size: u64,
         padding: u64,
     ) -> Self {
-        let total_size = requested_size + padding;
         Self {
             handle,
+            storage_handle,
+            virtual_space_id,
             physical_block_indices,
             requested_size,
-            total_size,
             padding,
         }
     }
@@ -136,15 +78,20 @@ impl VirtualSlice {
         *self.handle.id()
     }
 
-    /// Calculate total virtual size needed for this slice
-    fn virtual_size(&self) -> u64 {
-        self.total_size
+    fn storage_handle(&self) -> &StorageHandle {
+        &self.storage_handle
     }
 
-    /// Check if this slice can be merged with adjacent slices
-    /// The main advantage of using virtual memory is that we can always merge two slices even if they are not adjacent
-    fn can_merge_with(&self, other: &VirtualSlice) -> bool {
-       self.is_free && other.is_free
+    /// Total virtual size (always multiple of block_size)
+    fn virtual_size(&self) -> u64 {
+        self.requested_size + self.padding
+    }
+
+    // Helper to get block size
+    fn get_block_size(&self) -> u64 {
+
+        let total_size = self.requested_size + self.padding;
+        total_size.div_ceil(self.physical_block_indices.len() as u64)
     }
 }
 
@@ -160,7 +107,7 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
         Self {
             storage,
             physical_blocks: Vec::new(),
-            free_blocks: VecDeque::new(),
+            free_block_indices: Vec::new(),
             active_slices: HashMap::new(),
             block_size,
             max_alloc_size,
@@ -168,129 +115,83 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
         }
     }
 
-    /// Allocate a new physical block and add it to the pool
-    fn allocate_physical_block(&mut self) -> Result<usize, IoError> {
-        let physical_handle = self.storage.alloc(self.block_size)?;
-        let block = PhysicalBlock::new(physical_handle);
+    /// Get or allocate physical blocks
+    fn get_physical_blocks(&mut self, count: usize) -> Result<Vec<usize>, IoError> {
+        let mut block_indices = Vec::new();
 
-        self.physical_blocks.push(block);
-        let block_index = self.physical_blocks.len() - 1;
-
-        Ok(block_index)
-    }
-
-    /// Get a free physical block, allocating if necessary
-    fn get_free_block(&mut self) -> Result<usize, IoError> {
-        if let Some(block_index) = self.free_blocks.pop_front() {
-            Ok(block_index)
-        } else {
-            self.allocate_physical_block()
-        }
-    }
-
-    /// Get consecutive free blocks for large allocations
-    fn get_consecutive_blocks(&mut self, num_blocks: usize) -> Result<Vec<usize>, IoError> {
-        let mut blocks = Vec::new();
-
-        for _ in 0..num_blocks {
-            blocks.push(self.get_free_block()?);
+        // First try to reuse existing free blocks
+        for _ in 0..count {
+            if let Some(free_index) = self.free_block_indices.pop() {
+                block_indices.push(free_index);
+            } else {
+                // Allocate new physical block
+                let physical_handle = self.storage.alloc(self.block_size)?;
+                self.physical_blocks.push(physical_handle);
+                block_indices.push(self.physical_blocks.len() - 1);
+            }
         }
 
-        Ok(blocks)
+        Ok(block_indices)
     }
 
-    /// Create virtual address space for given size
-    fn create_virtual_space(&mut self, size: u64) -> Result<VirtualAddressSpaceHandle, IoError> {
-        self.storage.try_reserve(size as usize)
-    }
+    /// Create a new allocation by mapping physical blocks to a fresh virtual space
+    ///
+    /// This is where the "automatic split" happens - each allocation gets its own
+    /// virtual address space, so there's no need to explicitly split existing ones.
+    fn create_allocation(&mut self, size: u64) -> Result<VirtualSlice, IoError> {
+        let padding = calculate_padding(size, self.alignment);
+        let total_size = size + padding;
+        let blocks_needed = ((total_size + self.block_size - 1) / self.block_size) as usize;
 
-    /// Create a mapped slice from physical blocks
-    fn create_mapped_slice(
-        &mut self,
-        physical_block_indices: Vec<usize>,
-        requested_size: u64,
-    ) -> Result<VirtualSlice, IoError> {
-        let total_virtual_size = physical_block_indices.len() as u64 * self.block_size;
-        let virtual_handle = self.create_virtual_space(total_virtual_size)?;
+        // Get physical blocks (reuse existing or allocate new)
+        let physical_block_indices = self.get_physical_blocks(blocks_needed)?;
 
-        // Map the first physical block to get the base storage handle
-        let first_block_index = physical_block_indices[0];
-        let first_block = &mut self.physical_blocks[first_block_index];
-        first_block.is_free = false;
+        // Create fresh virtual address space
+        let virtual_size = blocks_needed as u64 * self.block_size;
+        let virtual_handle = self.storage.try_reserve(virtual_size as usize)?;
+        let virtual_space_id = virtual_handle.id();
 
-        let base_storage_handle = first_block.map_to_virtual(&mut self.storage, virtual_handle.clone())?;
+        // Collect physical handles for mapping
+        let physical_handles: Vec<_> = physical_block_indices
+            .iter()
+            .map(|&index| self.physical_blocks[index].clone())
+            .collect();
 
-        // For multi-block allocations, we would need to map additional blocks
-        // This is a simplified version - full implementation would handle multiple physical blocks
-        for &block_index in &physical_block_indices[1..] {
-            let block = &mut self.physical_blocks[block_index];
-            block.is_free = false;
-            // In a full implementation, we'd map each block to consecutive virtual addresses
-        }
+        // Map all physical blocks to the virtual space (1:N mapping)
+        let storage_handle = self.storage.try_map(virtual_handle, physical_handles)?;
 
-        let virtual_mapping = VirtualMapping {
-            virtual_handle,
-            storage_handle: base_storage_handle,
-        };
-
-        let padding = calculate_padding(requested_size, self.alignment);
+        // Create slice
         let handle = SliceHandle::new();
-
         let slice = VirtualSlice::new(
             handle,
+            storage_handle,
+            virtual_space_id,
             physical_block_indices,
-            virtual_mapping,
-            requested_size,
+            size,
             padding,
         );
 
         Ok(slice)
     }
 
-    /// Try to merge adjacent free slices
-    fn try_merge_slices(&mut self, slice_id: SliceId) -> bool {
-        // Implementation would check for adjacent slices and merge them
-        // This is a simplified version
-        if let Some(slice) = self.active_slices.get(&slice_id) {
-            if slice.is_free() && slice.physical_block_indices.len() == 1 {
-                // Look for adjacent free slices to merge with
-                let block_index = slice.physical_block_indices[0];
+    /// Free an allocation by unmapping and releasing virtual space
+    ///
+    /// This is where "automatic merge" happens - by releasing the virtual space,
+    /// we make the physical blocks available for any future allocation regardless
+    /// of size. There's no fragmentation in virtual space since each allocation
+    /// gets a fresh virtual address range.
+    fn free_allocation(&mut self, slice: VirtualSlice) -> Result<(), IoError> {
+        // Unmap the virtual-to-physical mapping
+        self.storage.try_unmap(slice.storage_handle.id)?;
 
-                // Check if we can merge with next block
-                if block_index + 1 < self.physical_blocks.len() {
-                    if let Some(adjacent_slice) = self.find_slice_with_block(block_index + 1) {
-                        if self.active_slices.get(&adjacent_slice).unwrap().is_free() {
-                            // Merge logic would go here
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        false
-    }
+        // Release the virtual address space back to the system
+        self.storage.try_release(slice.virtual_space_id)?;
 
-    /// Find slice that uses a specific physical block
-    fn find_slice_with_block(&self, block_index: usize) -> Option<SliceId> {
-        for (slice_id, slice) in &self.active_slices {
-            if slice.physical_block_indices.contains(&block_index) {
-                return Some(*slice_id);
-            }
-        }
-        None
-    }
+        // Mark physical blocks as free for reuse
+        // This is the key: physical blocks become available for ANY future allocation
+        self.free_block_indices.extend(&slice.physical_block_indices);
 
-    /// Split a slice if it's larger than needed
-    fn try_split_slice(&mut self, slice_id: SliceId, needed_size: u64) -> Option<SliceId> {
-        // Implementation would split large slices into smaller ones
-        // This is a simplified version
-        if let Some(slice) = self.active_slices.get(&slice_id) {
-            if slice.virtual_size() > needed_size + self.alignment {
-                // Split logic would go here
-                // Return the ID of the new slice created from the remainder
-            }
-        }
-        None
+        Ok(())
     }
 }
 
@@ -305,70 +206,43 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
             .map(|slice| slice.storage_handle())
     }
 
+    /// Try to reuse existing free slices or create new allocation
+    ///
+    /// Note: Since minimum granularity is block_size, we can only reuse slices
+    /// that are exactly the right size or larger by full block increments.
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let total_size = size + padding;
         let blocks_needed = ((total_size + self.block_size - 1) / self.block_size) as usize;
+        let required_virtual_size = blocks_needed as u64 * self.block_size;
 
-        // Look for existing free slice that fits
+        // Look for a free slice that's exactly the right size
+        // (We can't split since minimum granularity is block_size)
         for (slice_id, slice) in &self.active_slices {
-            if slice.is_free() && slice.virtual_size() >= total_size {
-                // Try to split if slice is much larger than needed
-                self.try_split_slice(*slice_id, total_size);
-
+            if slice.is_free() && slice.virtual_size() == required_virtual_size {
                 return Some(slice.handle.clone());
             }
         }
 
-        // Try to merge compatible free slices
-        let free_slice_ids: Vec<_> = self.active_slices
-            .iter()
-            .filter(|(_, slice)| slice.is_free())
-            .map(|(id, _)| *id)
-            .collect();
-
-        for i in 0..free_slice_ids.len() {
-            for j in i+1..free_slice_ids.len() {
-                let slice1_id = free_slice_ids[i];
-                let slice2_id = free_slice_ids[j];
-
-                let slice1 = self.active_slices.get(&slice1_id).unwrap();
-                let slice2 = self.active_slices.get(&slice2_id).unwrap();
-
-                if slice1.can_merge_with(slice2) {
-                    // Try to merge if the combined size would be useful
-                    let combined_size = slice1.requested_size + slice2.requested_size;
-                    if combined_size >= total_size {
-                        if let Ok(merged_id) = self.merge_slices(slice1_id, slice2_id) {
-                            // Retry reservation with merged slice
-                            return self.try_reserve(size);
-                        }
-                    }
-                }
-            }
-        }
-
+        // No exact match found - would need to allocate new
         None
     }
 
+    /// Create new allocation with fresh virtual address space
+    ///
+    /// This demonstrates the "automatic split" behavior - instead of splitting
+    /// existing allocations, we just create new ones. Each gets its own virtual
+    /// address space, so there's no fragmentation.
     fn alloc<ComputeStorage: crate::storage::ComputeStorage>(
         &mut self,
-        _storage: &mut ComputeStorage, // Not used, we use VirtualStorage
+        _storage: &mut ComputeStorage, // Not used, we use VirtualStorage instead
         size: u64,
     ) -> Result<SliceHandle, IoError> {
         if size > self.max_alloc_size {
             return Err(IoError::BufferTooBig(size as usize));
         }
 
-        let padding = calculate_padding(size, self.alignment);
-        let total_size = size + padding;
-        let blocks_needed = ((total_size + self.block_size - 1) / self.block_size) as usize;
-
-        // Get the required physical blocks
-        let physical_block_indices = self.get_consecutive_blocks(blocks_needed)?;
-
-        // Create mapped slice
-        let slice = self.create_mapped_slice(physical_block_indices, size)?;
+        let slice = self.create_allocation(size)?;
         let handle = slice.handle.clone();
         let slice_id = slice.id();
 
@@ -392,6 +266,11 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
         }
     }
 
+    /// Cleanup by freeing virtual address spaces (automatic merge behavior)
+    ///
+    /// When we free allocations, their physical blocks become available for
+    /// any future allocation of any size. This is the "automatic merge" -
+    /// there's no need to track adjacency or explicitly merge ranges.
     fn cleanup<ComputeStorage: crate::storage::ComputeStorage>(
         &mut self,
         _storage: &mut ComputeStorage, // Not used
@@ -399,26 +278,21 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
         explicit: bool,
     ) {
         if explicit {
-            // Mark free slices for virtual unmapping, but keep physical blocks
-            let mut slices_to_unmap = Vec::new();
+            let mut slices_to_free = Vec::new();
 
+            // Collect free slices
             for (slice_id, slice) in &self.active_slices {
                 if slice.is_free() {
-                    slices_to_unmap.push(*slice_id);
+                    slices_to_free.push(*slice_id);
                 }
             }
 
-            for slice_id in slices_to_unmap {
+            // Free them (automatic merge happens here)
+            for slice_id in slices_to_free {
                 if let Some(slice) = self.active_slices.remove(&slice_id) {
-                    // Unmap each virtual space and mark physical blocks as free
-                    for mapping in slice.virtual_mappings {
-                        let block_index = mapping.physical_block_index;
-                        if let Some(block) = self.physical_blocks.get_mut(block_index) {
-                            block.unmap_from_virtual(&mut self.storage).ok();
-                            block.is_free = true;
-                            self.free_blocks.push(block_index);
-                        }
-                    }
+                    // This is where the magic happens: unmapping + releasing virtual space
+                    // makes all physical blocks available for any future allocation
+                    self.free_allocation(slice).ok();
                 }
             }
 
