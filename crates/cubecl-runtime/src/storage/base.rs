@@ -73,6 +73,8 @@ pub trait ComputeStorage: Send {
     /// The resource associated type determines the way data is implemented and how
     /// it can be accessed by kernels.
     type Resource: Send;
+    /// The context in which the allocation is performed.
+    type Context: Send;
 
     /// The alignment memory is allocated with in this storage.
     fn alignment(&self) -> usize;
@@ -90,6 +92,9 @@ pub trait ComputeStorage: Send {
 
     /// Flush deallocations when required.
     fn flush(&mut self) {}
+
+    /// Set the context for the following allocations.
+    fn context(&mut self, context: Self::Context);
 }
 
 /// Access to the underlying resource for a given binding.

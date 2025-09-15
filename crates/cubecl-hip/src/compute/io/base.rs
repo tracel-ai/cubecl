@@ -1,5 +1,5 @@
 use super::controller::PinnedMemoryManagedAllocController;
-use crate::compute::{HipContext, MB, valid_strides};
+use crate::compute::{MB, context::HipContext, stream::Stream, valid_strides};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::server::{CopyDescriptor, IoError};
 use cubecl_hip_sys::{HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost};
@@ -17,12 +17,13 @@ use cubecl_runtime::memory_management::MemoryHandle;
 /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
 pub fn register_copies_to_bytes(
     ctx: &mut HipContext,
+    stream: &mut Stream,
     descriptors: Vec<CopyDescriptor<'_>>,
 ) -> Result<Vec<Bytes>, IoError> {
     let mut result = Vec::with_capacity(descriptors.len());
 
     for descriptor in descriptors {
-        result.push(register_copy_to_bytes(ctx, descriptor, false)?);
+        result.push(register_copy_to_bytes(ctx, stream, descriptor, false)?);
     }
 
     Ok(result)
@@ -41,6 +42,7 @@ pub fn register_copies_to_bytes(
 /// A [Result] containing the copied data as [Bytes], or an [IoError] if the copy fails.
 pub fn register_copy_to_bytes(
     ctx: &mut HipContext,
+    stream: &mut Stream,
     descriptor: CopyDescriptor<'_>,
     marked_pinned: bool,
 ) -> Result<Bytes, IoError> {
@@ -71,7 +73,7 @@ pub fn register_copy_to_bytes(
                 bytes.as_mut_ptr() as *mut _,
                 resource.ptr,
                 bytes.len(),
-                ctx.stream,
+                stream.sys,
             );
 
             if status != HIP_SUCCESS {
@@ -95,7 +97,7 @@ pub fn register_copy_to_bytes(
             width_bytes,
             dim_y,
             hipMemcpyKind_hipMemcpyDeviceToHost,
-            ctx.stream,
+            stream.sys,
         );
 
         // Fallback, sometimes the copy doesn't work.
@@ -104,7 +106,7 @@ pub fn register_copy_to_bytes(
                 bytes.as_mut_ptr() as *mut _,
                 resource.ptr,
                 bytes.len(),
-                ctx.stream,
+                stream.sys,
             );
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }

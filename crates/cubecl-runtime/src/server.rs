@@ -64,15 +64,18 @@ where
                 stream_id,
             )?
             .remove(0);
-        self.write(vec![(
-            CopyDescriptor::new(
-                alloc.handle.clone().binding(),
-                &[data.len()],
-                &alloc.strides,
-                1,
-            ),
-            data,
-        )])?;
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                data,
+            )],
+            stream_id,
+        )?;
         Ok(alloc.handle)
     }
 
@@ -80,13 +83,18 @@ where
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
@@ -113,7 +121,7 @@ where
     );
 
     /// Flush all outstanding tasks in the server.
-    fn flush(&mut self);
+    fn flush(&mut self, stream_id: StreamId);
 
     /// The current memory usage of the server.
     fn memory_usage(&self) -> MemoryUsage;
@@ -122,10 +130,14 @@ where
     fn memory_cleanup(&mut self);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self) -> ProfilingToken;
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError>;
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode);

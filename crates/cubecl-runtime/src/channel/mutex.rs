@@ -57,34 +57,43 @@ where
         server.create(descriptors, stream_id)
     }
 
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn read(
+        &self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut server = self.server.lock();
-        server.read(descriptors)
+        server.read(descriptors, stream_id)
     }
 
-    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError> {
         let mut server = self.server.lock();
-        server.write(descriptors)
+        server.write(descriptors, stream_id)
     }
 
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
         server.register_src(id, src);
     }
 
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
         server.register_dest(id, dst);
     }
 
-    fn sync(&self) -> DynFut<()> {
+    fn sync(&self, stream_id: StreamId) -> DynFut<()> {
         let mut server = self.server.lock();
-        server.sync()
+        server.sync(stream_id)
     }
 
     fn get_resource(
         &self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.server.lock().get_resource(binding)
     }
@@ -105,8 +114,8 @@ where
         }
     }
 
-    fn flush(&self) {
-        self.server.lock().flush();
+    fn flush(&self, stream_id: StreamId) {
+        self.server.lock().flush(stream_id);
     }
 
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
@@ -117,12 +126,16 @@ where
         self.server.lock().memory_cleanup();
     }
 
-    fn start_profile(&self) -> ProfilingToken {
-        self.server.lock().start_profile()
+    fn start_profile(&self, stream_id: StreamId) -> ProfilingToken {
+        self.server.lock().start_profile(stream_id)
     }
 
-    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        self.server.lock().end_profile(token)
+    fn end_profile(
+        &self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
+        self.server.lock().end_profile(stream_id, token)
     }
 
     fn allocation_mode(&self, mode: MemoryAllocationMode) {

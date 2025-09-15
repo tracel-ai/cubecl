@@ -51,6 +51,7 @@ unsafe impl Send for PinnedMemoryStorage {}
 
 impl ComputeStorage for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
+    type Context = ();
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -105,5 +106,9 @@ impl ComputeStorage for PinnedMemoryStorage {
                 cudarc::driver::sys::cuMemFreeHost(resource.ptr);
             }
         }
+    }
+
+    fn context(&mut self, _context: Self::Context) {
+        // Nothing to do
     }
 }

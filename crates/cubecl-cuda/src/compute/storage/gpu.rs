@@ -67,6 +67,7 @@ impl GpuStorage {
 
 unsafe impl Send for GpuResource {}
 unsafe impl Send for GpuStorage {}
+unsafe impl Send for GpuStorageContext {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -117,8 +118,14 @@ impl PtrBindings {
     }
 }
 
+/// The context of GPU allocations.
+pub struct GpuStorageContext {
+    stream: cudarc::driver::sys::CUstream,
+}
+
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
+    type Context = GpuStorageContext;
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -169,5 +176,9 @@ impl ComputeStorage for GpuStorage {
 
     fn flush(&mut self) {
         self.perform_deallocations();
+    }
+
+    fn context(&mut self, context: Self::Context) {
+        self.stream = context.stream;
     }
 }

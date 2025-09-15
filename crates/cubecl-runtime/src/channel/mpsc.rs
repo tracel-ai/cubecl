@@ -102,14 +102,17 @@ where
     ),
     Read(
         Vec<CopyDescriptorOwned>,
+        StreamId,
         Callback<Result<Vec<Bytes>, IoError>>,
     ),
     Write(
         Vec<(CopyDescriptorOwned, Vec<u8>)>,
+        StreamId,
         Callback<Result<(), IoError>>,
     ),
     GetResource(
         Binding,
+        StreamId,
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
     ExecuteKernel(
@@ -117,14 +120,15 @@ where
         Bindings,
         Arc<ServerLogger>,
     ),
-    Flush,
-    Sync(Callback<()>),
+    Flush(StreamId),
+    Sync(StreamId, Callback<()>),
     MemoryUsage(Callback<MemoryUsage>),
     MemoryCleanup,
     AllocationMode(MemoryAllocationMode),
-    StartProfile(Callback<ProfilingToken>),
+    StartProfile(StreamId, Callback<ProfilingToken>),
     StopMeasure(
         Callback<Result<ProfileDuration, ProfileError>>,
+        StreamId,
         ProfilingToken,
     ),
     DataTransferSend(DataTransferId, CopyDescriptorOwned),
@@ -147,32 +151,32 @@ where
                         let data = server.create(descriptors, stream_id);
                         callback.send(data).await.unwrap();
                     }
-                    Message::Read(descriptors, callback) => {
+                    Message::Read(descriptors, stream, callback) => {
                         let descriptors = descriptors.iter().map(|it| it.as_ref()).collect();
-                        let data = server.read(descriptors).await;
+                        let data = server.read(descriptors, stream).await;
                         callback.send(data).await.unwrap();
                     }
-                    Message::Write(descriptors, callback) => {
+                    Message::Write(descriptors, stream, callback) => {
                         let descriptors = descriptors
                             .iter()
                             .map(|(desc, data)| (desc.as_ref(), data.as_slice()))
                             .collect();
-                        let data = server.write(descriptors);
+                        let data = server.write(descriptors, stream);
                         callback.send(data).await.unwrap();
                     }
-                    Message::GetResource(binding, callback) => {
+                    Message::GetResource(binding, strean, callback) => {
                         let data = server.get_resource(binding);
                         callback.send(data).await.unwrap();
                     }
                     Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
                         server.execute(kernel.0, kernel.1, bindings, kernel.2, logger, kernel.3);
                     },
-                    Message::Sync(callback) => {
-                        server.sync().await;
+                    Message::Sync(stream, callback) => {
+                        server.sync(stream).await;
                         callback.send(()).await.unwrap();
                     }
-                    Message::Flush => {
-                        server.flush();
+                    Message::Flush(stream) => {
+                        server.flush(stream);
                     }
                     Message::MemoryUsage(callback) => {
                         callback.send(server.memory_usage()).await.unwrap();
@@ -180,12 +184,15 @@ where
                     Message::MemoryCleanup => {
                         server.memory_cleanup();
                     }
-                    Message::StartProfile(callback) => {
-                        let token = server.start_profile();
+                    Message::StartProfile(stream_id, callback) => {
+                        let token = server.start_profile(stream_id);
                         callback.send(token).await.unwrap();
                     }
-                    Message::StopMeasure(callback, token) => {
-                        callback.send(server.end_profile(token)).await.unwrap();
+                    Message::StopMeasure(callback, stream_id, token) => {
+                        callback
+                            .send(server.end_profile(stream_id, token))
+                            .await
+                            .unwrap();
                     }
                     Message::AllocationMode(mode) => {
                         server.allocation_mode(mode);
@@ -235,21 +242,29 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn read(
+        &self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let sender = self.state.sender.clone();
         let descriptors = descriptors.into_iter().map(|it| it.into()).collect();
 
         Box::pin(async move {
             let (callback, response) = async_channel::unbounded();
             sender
-                .send(Message::Read(descriptors, callback))
+                .send(Message::Read(descriptors, stream_id, callback))
                 .await
                 .unwrap();
             handle_response(response.recv().await)
         })
     }
 
-    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError> {
         let descriptors = descriptors
             .into_iter()
             .map(|(desc, data)| (desc.into(), data.to_vec()))
@@ -259,13 +274,13 @@ where
 
         self.state
             .sender
-            .send_blocking(Message::Write(descriptors, callback))
+            .send_blocking(Message::Write(descriptors, stream_id, callback))
             .unwrap();
 
         handle_response(response.recv_blocking())
     }
 
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
         let sender = self.state.sender.clone();
         let src = src.into();
 
@@ -274,7 +289,7 @@ where
             .unwrap();
     }
 
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
         let sender = self.state.sender.clone();
         let dst = dst.into();
 
@@ -286,12 +301,13 @@ where
     fn get_resource(
         &self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         let (callback, response) = async_channel::unbounded();
 
         self.state
             .sender
-            .send_blocking(Message::GetResource(binding, callback))
+            .send_blocking(Message::GetResource(binding, stream_id, callback))
             .unwrap();
 
         handle_response(response.recv_blocking())
@@ -316,16 +332,22 @@ where
             .unwrap();
     }
 
-    fn flush(&self) {
-        self.state.sender.send_blocking(Message::Flush).unwrap()
+    fn flush(&self, stream_id: StreamId) {
+        self.state
+            .sender
+            .send_blocking(Message::Flush(stream_id))
+            .unwrap()
     }
 
-    fn sync(&self) -> DynFut<()> {
+    fn sync(&self, stream_id: StreamId) -> DynFut<()> {
         let sender = self.state.sender.clone();
 
         Box::pin(async move {
             let (callback, response) = async_channel::unbounded();
-            sender.send(Message::Sync(callback)).await.unwrap();
+            sender
+                .send(Message::Sync(stream_id, callback))
+                .await
+                .unwrap();
             handle_response(response.recv().await)
         })
     }
@@ -346,22 +368,26 @@ where
             .unwrap()
     }
 
-    fn start_profile(&self) -> ProfilingToken {
+    fn start_profile(&self, stream_id: StreamId) -> ProfilingToken {
         let (callback, response) = async_channel::unbounded();
 
         self.state
             .sender
-            .send_blocking(Message::StartProfile(callback))
+            .send_blocking(Message::StartProfile(stream_id, callback))
             .unwrap();
 
         handle_response(response.recv_blocking())
     }
 
-    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    fn end_profile(
+        &self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::StopMeasure(callback, token))
+            .send_blocking(Message::StopMeasure(callback, stream_id, token))
             .unwrap();
         handle_response(response.recv_blocking())
     }

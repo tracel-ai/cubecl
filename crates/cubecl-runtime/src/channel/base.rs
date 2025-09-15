@@ -26,24 +26,33 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     ) -> Result<Vec<Allocation>, IoError>;
 
     /// Given bindings, returns owned resources as bytes
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>>;
+    fn read(
+        &self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Write bytes to each binding
-    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+    fn write(
+        &self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError>;
 
     /// Send data to another server.
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>);
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId);
 
     /// Receive data from another server. Returns when the transfer has been registered.
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>);
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId);
 
     /// Wait for the completion of every task in the server.
-    fn sync(&self) -> DynFut<()>;
+    fn sync(&self, stream_id: StreamId) -> DynFut<()>;
 
     /// Given a resource handle, return the storage resource.
     fn get_resource(
         &self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource>;
 
     /// Executes the `kernel` over the given `bindings`.
@@ -63,7 +72,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     );
 
     /// Flush outstanding work of the server.
-    fn flush(&self);
+    fn flush(&self, stream_id: StreamId);
 
     /// Get the current memory usage of the server.
     fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
@@ -79,10 +88,14 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     /// This will measure execution time either by measuring the 'full' execution time by synchronizing
     /// the execution at the start and the end of the profile, or 'device' time by using device timestamps.
     /// This function will handle any required synchronization.
-    fn start_profile(&self) -> ProfilingToken;
+    fn start_profile(&self, stream_id: StreamId) -> ProfilingToken;
 
     /// End the profile and return a [`ProfileDuration`].
     ///
     /// You can retrieve the Duration of the client profile asynchronously. This function will handle any required synchronization.
-    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
+    fn end_profile(
+        &self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError>;
 }

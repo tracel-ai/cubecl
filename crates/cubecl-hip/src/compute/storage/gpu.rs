@@ -99,8 +99,14 @@ impl PtrBindings {
     }
 }
 
+/// The context of GPU allocations.
+pub struct GpuStorageContext {
+    pub(crate) stream: cubecl_hip_sys::hipStream_t,
+}
+
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
+    type Context = GpuStorageContext;
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -143,10 +149,15 @@ impl ComputeStorage for GpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
+
+    fn context(&mut self, context: Self::Context) {
+        self.stream = context.stream;
+    }
 }
 
 unsafe impl Send for GpuStorage {}
 unsafe impl Send for GpuResource {}
+unsafe impl Send for GpuStorageContext {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

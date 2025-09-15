@@ -25,7 +25,9 @@ use cubecl_runtime::{
 use crate::{
     HipWmmaCompiler,
     compute::{
-        HipContext, HipServer, contiguous_strides,
+        HipServer,
+        context::HipContext,
+        contiguous_strides,
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
         storage::gpu::GpuStorage,
     },
@@ -193,12 +195,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         grid_constants: false,
         supports_clusters: false,
     };
-    let hip_ctx = HipContext::new(
-        memory_management_gpu,
-        memory_management_cpu,
-        comp_opts,
-        stream,
-    );
+    let hip_ctx = HipContext::new(memory_management_gpu, memory_management_cpu, comp_opts);
     let server = HipServer::new(mem_alignment, hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }

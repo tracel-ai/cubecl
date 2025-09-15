@@ -60,6 +60,7 @@ impl BytesResource {
 
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
+    type Context = ();
 
     fn alignment(&self) -> usize {
         4
@@ -102,6 +103,10 @@ impl ComputeStorage for BytesStorage {
                 dealloc(memory.ptr, memory.layout);
             }
         }
+    }
+
+    fn context(&mut self, _context: Self::Context) {
+        // Nothing to do
     }
 }
 

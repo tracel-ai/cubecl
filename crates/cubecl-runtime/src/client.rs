@@ -109,7 +109,8 @@ where
     async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
         self.profile_guard();
 
-        self.channel.read(descriptors).await
+        let stream_id = StreamId::current();
+        self.channel.read(descriptors, stream_id).await
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -192,7 +193,8 @@ where
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.profile_guard();
 
-        self.channel.get_resource(binding)
+        let stream_id = StreamId::current();
+        self.channel.get_resource(binding, stream_id)
     }
 
     fn do_create(
@@ -221,7 +223,8 @@ where
                 )
             })
             .collect();
-        self.channel.write(descriptors)?;
+        let stream_id = StreamId::current();
+        self.channel.write(descriptors, stream_id)?;
         Ok(allocations)
     }
 
@@ -437,14 +440,16 @@ where
     pub fn flush(&self) {
         self.profile_guard();
 
-        self.channel.flush();
+        let stream_id = StreamId::current();
+        self.channel.flush(stream_id);
     }
 
     /// Wait for the completion of every task in the server.
     pub async fn sync(&self) {
         self.profile_guard();
 
-        self.channel.sync().await;
+        let stream_id = StreamId::current();
+        self.channel.sync(stream_id).await;
         self.state.logger.profile_summary();
     }
 
@@ -554,12 +559,12 @@ where
             None
         };
 
-        let token = self.channel.start_profile();
+        let token = self.channel.start_profile(StreamId::current());
 
         let out = func();
 
         #[allow(unused_mut)]
-        let mut result = self.channel.end_profile(token);
+        let mut result = self.channel.end_profile(StreamId::current(), token);
 
         core::mem::drop(out);
 
@@ -599,6 +604,7 @@ where
         let strides = src_descriptor.strides;
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
+        let stream_id = StreamId::current();
 
         // Allocate destination
         let alloc = dst_server
@@ -611,11 +617,12 @@ where
         let id = DataTransferId::new();
 
         // Send with source server
-        self.channel.data_transfer_send(id, src_descriptor);
+        self.channel
+            .data_transfer_send(id, src_descriptor, stream_id);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
-        dst_server.channel.data_transfer_recv(id, desc);
+        dst_server.channel.data_transfer_recv(id, desc, stream_id);
 
         alloc
     }
@@ -629,6 +636,7 @@ where
     ) -> Allocation {
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
+        let stream_id = StreamId::current();
 
         // Allocate destination
         let alloc = dst_server
@@ -637,7 +645,7 @@ where
             .unwrap()
             .remove(0);
 
-        let read = self.channel.read(vec![src_descriptor]);
+        let read = self.channel.read(vec![src_descriptor], stream_id);
         let data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
@@ -649,7 +657,7 @@ where
 
         dst_server
             .channel
-            .write(vec![(desc_descriptor, &data[0])])
+            .write(vec![(desc_descriptor, &data[0])], stream_id)
             .unwrap();
 
         alloc
