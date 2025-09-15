@@ -1,4 +1,6 @@
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{
+    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+};
 
 use crate::{
     data_service::DataTransferId,
@@ -24,7 +26,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     ) -> Result<Vec<Allocation>, IoError>;
 
     /// Given bindings, returns owned resources as bytes
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>>;
+    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Write bytes to each binding
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;

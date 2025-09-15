@@ -11,15 +11,12 @@ use cubecl_cpp::{
 
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{
-        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
-        UIntKind,
-    },
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    ir::{MatrixLayout, MmaProperties, TargetProperties},
 };
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
+    ComputeRuntime, DeviceProperties, Plane,
     channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
@@ -27,7 +24,11 @@ use cubecl_runtime::{
 
 use crate::{
     HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
+    compute::{
+        HipContext, HipServer, contiguous_strides,
+        cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
+        storage::gpu::GpuStorage,
+    },
     device::AmdDevice,
 };
 
@@ -124,7 +125,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = HipStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
@@ -138,9 +139,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
-        // This is a guess - not clear if ROCM has a limit on the number of bindings,
-        // but it's dubious it's more than this.
-        max_bindings: 1024,
+        max_bindings: crate::device::AMD_MAX_BINDINGS,
         max_shared_memory_size: prop_max_shared_memory_size,
         max_cube_count,
         max_units_per_cube: prop_max_threads,
@@ -153,40 +152,37 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             Some(16)
         },
     };
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+    let memory_management_gpu = MemoryManagement::from_configuration(
+        storage,
+        &mem_properties,
+        options.memory_config.clone(),
+    );
+    // We use the same page size and memory pools configuration for CPU pinned memory, since we
+    // expect the CPU to have at least the same amount of RAM as GPU memory.
+    let memory_management_cpu = MemoryManagement::from_configuration(
+        PinnedMemoryStorage::new(),
+        &MemoryDeviceProperties {
+            max_page_size: mem_properties.max_page_size,
+            alignment: PINNED_MEMORY_ALIGNMENT as u64,
+            data_transfer_async: false,
+        },
+        options.memory_config,
+    );
+
     let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
+        Default::default(),
         mem_properties,
         topology,
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    // Not sure if there's a good way to check for support on HIP
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-        FloatKind::F32,
-    ))));
+
     // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-
-    // Supported by all architectures
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-        IntKind::I32,
-    ))));
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-        UIntKind::U32,
-    ))));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-
-    device_props.register_feature(Feature::DynamicLineSize);
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.dynamic_line_size = true;
+    device_props.features.plane.insert(Plane::Ops);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);
@@ -197,7 +193,12 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         grid_constants: false,
         supports_clusters: false,
     };
-    let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
+    let hip_ctx = HipContext::new(
+        memory_management_gpu,
+        memory_management_cpu,
+        comp_opts,
+        stream,
+    );
     let server = HipServer::new(mem_alignment, hip_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }

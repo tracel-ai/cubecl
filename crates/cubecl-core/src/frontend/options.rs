@@ -1,34 +1,40 @@
+use enumset::{EnumSet, EnumSetType};
 use serde::{Deserialize, Serialize};
 
-bitflags::bitflags! {
-    /// Unchecked optimizations for float operations. May cause precision differences, or undefined
-    /// behaviour if the relevant conditions are not followed.
-    #[derive(Default, Clone, Debug, Hash, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct FastMath: u32 {
-        /// Disable unsafe optimizations
-        const None = 0;
-        /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
-        const NotNaN = 1;
-        /// Assume values are never `Inf`/`-Inf`. If they are, the result is considered undefined
-        /// behaviour.
-        const NotInf = 1 << 1;
-        /// Ignore sign on zero values.
-        const UnsignedZero = 1 << 2;
-        /// Allow swapping float division with a reciprocal, even if that swap would change precision.
-        const AllowReciprocal = 1 << 3;
-        /// Allow contracting float operations into fewer operations, even if the precision could
-        /// change.
-        const AllowContraction = 1 << 4;
-        /// Allow reassociation for float operations, even if the precision could change.
-        const AllowReassociation = 1 << 5;
-        /// Allow all mathematical transformations for float operations, including contraction and
-        /// reassociation, even if the precision could change.
-        const AllowTransform = 1 << 6;
-        /// Allow using lower precision intrinsics (CUDA `--use_fast_math`)
-        /// Also impacts `NaN`, `Inf` and signed zero handling, as well as subnormals and rounding.
-        ///
-        /// Notable edge case:
-        /// powf - Returns `NaN` for negative bases
-        const ReducedPrecision = 1 << 7;
+/// Unchecked optimizations for float operations. May cause precision differences, or undefined
+/// behaviour if the relevant conditions are not followed.
+#[derive(Default, Debug, Hash, Serialize, Deserialize, EnumSetType)]
+pub enum FastMath {
+    /// Disable unsafe optimizations
+    #[default]
+    None,
+    /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
+    NotNaN,
+    /// Assume values are never `Inf`/`-Inf`. If they are, the result is considered undefined
+    /// behaviour.
+    NotInf,
+    /// Ignore sign on zero values.
+    UnsignedZero,
+    /// Allow swapping float division with a reciprocal, even if that swap would change precision.
+    AllowReciprocal,
+    /// Allow contracting float operations into fewer operations, even if the precision could
+    /// change.
+    AllowContraction,
+    /// Allow reassociation for float operations, even if the precision could change.
+    AllowReassociation,
+    /// Allow all mathematical transformations for float operations, including contraction and
+    /// reassociation, even if the precision could change.
+    AllowTransform,
+    /// Allow using lower precision intrinsics (CUDA `--use_fast_math`)
+    /// Also impacts `NaN`, `Inf` and signed zero handling, as well as subnormals and rounding.
+    ///
+    /// Notable edge case:
+    /// powf - Returns `NaN` for negative bases
+    ReducedPrecision,
+}
+
+impl FastMath {
+    pub fn all() -> EnumSet<FastMath> {
+        EnumSet::all()
     }
 }

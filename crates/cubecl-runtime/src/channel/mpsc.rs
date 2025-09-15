@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use cubecl_common::{
     ExecutionMode,
+    bytes::Bytes,
     future::{DynFut, spawn_detached_fut},
     profile::ProfileDuration,
     stream_id::StreamId,
@@ -101,7 +102,7 @@ where
     ),
     Read(
         Vec<CopyDescriptorOwned>,
-        Callback<Result<Vec<Vec<u8>>, IoError>>,
+        Callback<Result<Vec<Bytes>, IoError>>,
     ),
     Write(
         Vec<(CopyDescriptorOwned, Vec<u8>)>,
@@ -234,7 +235,7 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let sender = self.state.sender.clone();
         let descriptors = descriptors.into_iter().map(|it| it.into()).collect();
 

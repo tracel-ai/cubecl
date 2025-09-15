@@ -1,7 +1,8 @@
+use cubecl_core::Runtime;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
-use cubecl_core::{Feature, Runtime};
 use cubecl_core::{client::ComputeClient, ir::StorageType};
+use cubecl_runtime::MmaConfig;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -117,13 +118,13 @@ impl AcceleratedConfig {
         };
 
         let size = self.tile_size();
-        if !client.properties().feature_enabled(Feature::Cmma {
-            a: lhs,
-            b: rhs,
-            c: ea,
-            m: size.m() as u8,
-            k: size.k() as u8,
-            n: size.n() as u8,
+        if !client.properties().features.cmma.contains(&MmaConfig {
+            a_type: lhs,
+            b_type: rhs,
+            cd_type: ea,
+            m: size.m(),
+            k: size.k(),
+            n: size.n(),
         }) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::CmmaInstructionUnavailable {
@@ -131,16 +132,6 @@ impl AcceleratedConfig {
                     rhs,
                     output: ea,
                     size: Some(TileSize::new(size.m(), size.n(), size.k())),
-                },
-            ));
-        }
-
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable {
-                    lhs,
-                    rhs,
-                    output: ea,
                 },
             ));
         }

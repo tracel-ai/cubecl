@@ -15,7 +15,9 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration, stream_id::StreamId};
+use cubecl_common::{
+    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+};
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
@@ -42,8 +44,6 @@ where
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
-    /// The type of the features supported by the server.
-    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn create(
@@ -80,7 +80,7 @@ where
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>>;
+    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
@@ -239,6 +239,9 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
+    /// Unknown error happened during execution
+    #[error("Unknown error happened during execution")]
+    Unknown(String),
 }
 
 impl Handle {

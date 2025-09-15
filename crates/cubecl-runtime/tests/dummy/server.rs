@@ -1,4 +1,5 @@
 use cubecl_common::ExecutionMode;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_runtime::logging::ServerLogger;
@@ -64,7 +65,6 @@ impl ComputeServer for DummyServer {
     type Kernel = KernelTask;
     type Storage = BytesStorage;
     type Info = ();
-    type Feature = ();
 
     fn create(
         &mut self,
@@ -90,7 +90,7 @@ impl ComputeServer for DummyServer {
             .collect()
     }
 
-    fn read(&mut self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    fn read(&mut self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
@@ -99,7 +99,15 @@ impl ComputeServer for DummyServer {
             })
             .collect();
 
-        Box::pin(async move { Ok(bytes.into_iter().map(|b| b.read().to_vec()).collect()) })
+        Box::pin(async move {
+            Ok(bytes
+                .into_iter()
+                .map(|b| {
+                    let bytes = b.read();
+                    Bytes::from_bytes_vec(bytes.to_vec())
+                })
+                .collect())
+        })
     }
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {

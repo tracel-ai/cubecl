@@ -38,6 +38,7 @@ derive_more = { workspace = true, features = [
     "mul_assign",
     "display",
 ] }
+enumset = { workspace = true }
 half = { workspace = true, features = ["bytemuck"] }
 hashbrown = { workspace = true }
 log = { workspace = true }

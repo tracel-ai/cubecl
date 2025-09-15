@@ -1,7 +1,7 @@
-use crate::WgpuResource;
-
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
+use crate::{WgpuResource, controller::WgpuAllocController};
 use cubecl_common::{
+    bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
     stream_id::StreamId,
 };
@@ -170,18 +170,28 @@ impl WgpuStream {
             }
             CubeCount::Dynamic(binding) => {
                 let res = self.mem_manage.get_resource(binding);
-                pass.dispatch_workgroups_indirect(res.buffer(), res.offset());
+                pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
             }
         }
         self.flush_if_needed();
     }
 
+    /// Read multiple buffers lazily to [Bytes], potentially using pinned memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The current stream.
+    /// * `descriptors` - A vector of copy descriptors specifying the source data.
+    ///
+    /// # Returns
+    ///
+    /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
     pub fn read_buffers(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
-        let mut staging_buffers = Vec::with_capacity(descriptors.len());
+        let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
@@ -191,30 +201,27 @@ impl WgpuStream {
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
             let resource = self.mem_manage.get_resource(binding);
-            let aligned_len = resource.size().div_ceil(align) * align;
-            let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: None,
-                size: aligned_len,
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
+            let aligned_len = resource.size.div_ceil(align) * align;
+            let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
+
             self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
-                resource.buffer(),
-                resource.offset(),
-                &staging_buffer,
+                &resource.buffer,
+                resource.offset,
+                &staging.buffer,
                 0,
                 aligned_len,
             );
-            staging_buffers.push((staging_buffer, size));
+            staging_info.push((staging, binding, size));
         }
 
         // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
         self.flush();
 
-        for (staging_buffer, _size) in staging_buffers.iter() {
+        for (staging, _binding, _size) in staging_info.iter() {
             let (sender, receiver) = async_channel::bounded(1);
-            staging_buffer
+            staging
+                .buffer
                 .slice(..)
                 .map_async(wgpu::MapMode::Read, move |v| {
                     // This might fail if the channel is closed (eg. the future is dropped).
@@ -240,23 +247,21 @@ impl WgpuStream {
             core::mem::drop(poll);
 
             let result = {
-                staging_buffers
-                    .iter()
-                    .map(|(staging_buffer, size)| {
-                        let data = staging_buffer.slice(..).get_mapped_range();
-                        bytemuck::cast_slice(&data[0..*size]).to_vec()
+                staging_info
+                    .into_iter()
+                    .map(|(staging, binding, size)| {
+                        let (controller, alloc) =
+                            WgpuAllocController::init(binding, staging.buffer, size);
+                        unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
                     })
                     .collect()
             };
 
-            for (staging_buffer, _size) in staging_buffers {
-                staging_buffer.unmap();
-            }
             Ok(result)
         })
     }
 
-    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Vec<u8>, IoError>> {
+    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Bytes, IoError>> {
         let shape = [binding.size() as usize];
         let data = self.read_buffers(vec![CopyDescriptor::new(binding, &shape, &[1], 1)]);
         Box::pin(async move {
@@ -388,20 +393,20 @@ impl WgpuStream {
         let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
         // memory is 32 bytes aligned (see WgpuStorage).
-        let size = resource.size().next_multiple_of(align as u64);
+        let size = resource.size.next_multiple_of(align as u64);
 
         if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:
             // - On WebGPU, from WASM, this can save a copy to the JS memory.
             // - On devices with unified memory, this could skip the staging buffer entirely.
             self.queue
-                .write_buffer(resource.buffer(), resource.offset(), data);
+                .write_buffer(&resource.buffer, resource.offset, data);
         } else {
             let mut buffer = self
                 .queue
                 .write_buffer_with(
-                    resource.buffer(),
-                    resource.offset(),
+                    &resource.buffer,
+                    resource.offset,
                     NonZero::new(size).unwrap(),
                 )
                 .unwrap();
