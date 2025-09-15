@@ -23,7 +23,7 @@ impl core::fmt::Debug for WgpuStorage {
 pub struct WgpuResource {
     /// The wgpu buffer.
     pub buffer: wgpu::Buffer,
-    /// The size the handle is pointing to in memory.
+    /// The buffer offset.
     pub offset: u64,
     /// The size of the resource.
     ///

@@ -203,12 +203,6 @@ impl WgpuStream {
             let aligned_len = resource.size.div_ceil(align) * align;
             let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
 
-            // let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            //     label: None,
-            //     size: aligned_len,
-            //     usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            //     mapped_at_creation: false,
-            // });
             self.tasks_count += 1;
             self.encoder.copy_buffer_to_buffer(
                 &resource.buffer,
