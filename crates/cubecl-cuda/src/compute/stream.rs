@@ -27,7 +27,7 @@ impl StreamBackend for CudaStreamBackend {
         let stream = cudarc::driver::result::stream::create(
             cudarc::driver::result::stream::StreamKind::NonBlocking,
         )
-        .unwrap();
+        .expect("Can create a new stream.");
 
         Stream { sys: stream, id }
     }
