@@ -142,18 +142,6 @@ impl DummyRegisterFlashMatmulConfig {
         key_value_stage_line_size: u32,
         check_bounds: bool,
     ) -> Result<Self, AttentionSetupError> {
-        let score_config = ScoreConfig {
-            plane_dim,
-            tile_size: attention_tile_size.to_score_matmul_tile_size(),
-            query_stage_line_size,
-            key_value_stage_line_size,
-        };
-        let value_config = ValueConfig {
-            plane_dim,
-            tile_size: attention_tile_size.to_value_matmul_tile_size(),
-            key_value_stage_line_size,
-        };
-
         Self {
             plane_dim,
             attention_tile_size,

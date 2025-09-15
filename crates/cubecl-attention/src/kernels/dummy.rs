@@ -17,8 +17,8 @@ use crate::{
 pub struct DummyAlgorithm {}
 
 impl Algorithm for DummyAlgorithm {
-    type TileAttention = DummyTileAttentionFamily<AcceleratedFlashMatmul>;
-    // type TileAttention = DummyTileAttentionFamily<DummyRegisterFlashMatmul>;
+    // type TileAttention = DummyTileAttentionFamily<AcceleratedFlashMatmul>;
+    type TileAttention = DummyTileAttentionFamily<DummyRegisterFlashMatmul>;
     type StageAttention = DummyStageAttentionFamily<Self::TileAttention, FullReaderFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
