@@ -60,7 +60,7 @@ where
     >;
     type AccStageLoader = BiasStageLoader<MP::Acc>;
 
-    type StageWriter = SMM::GlobalWriter;
+    type StageWriter = SMM::StageUnloader;
     type Accumulators = SMM::Accumulators;
 
     fn execute(

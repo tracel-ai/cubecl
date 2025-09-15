@@ -56,7 +56,7 @@ where
     type RhsStageLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
     type AccStageLoader = BiasStageLoader<MP::Acc>;
 
-    type StageWriter = SMM::GlobalWriter;
+    type StageWriter = SMM::StageUnloader;
     type Accumulators = SMM::Accumulators;
 
     fn execute(

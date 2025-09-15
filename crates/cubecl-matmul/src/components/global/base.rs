@@ -14,7 +14,7 @@ use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, Rhs
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
-use super::{GlobalWriter, load::LoaderMode};
+use super::{StageUnloader, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -70,7 +70,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Stage loader for matrix C (Accumulator/Bias)
     type AccStageLoader: CubeType;
     /// Writer to store the output stage into global memory
-    type GlobalWriter: GlobalWriter<AccG<MP>>;
+    type StageUnloader: StageUnloader<AccG<MP>>;
     /// The accumulator type for the tile matmul
     type Accumulators: CubeType;
 
@@ -84,7 +84,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsStageLoader,
         rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
-        writer: Self::GlobalWriter,
+        writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -131,7 +131,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::GlobalWriter;
+    ) -> Self::StageUnloader;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.

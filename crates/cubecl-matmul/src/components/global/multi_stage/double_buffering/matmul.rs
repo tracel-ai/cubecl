@@ -1,5 +1,5 @@
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::global::{GlobalConfig, StageUnloader};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageReader;
 use crate::components::{
@@ -31,7 +31,7 @@ pub struct DoubleBufferingMatmul<
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 > where
-    SMM::GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Coords3d>,
+    SMM::StageUnloader: StageUnloader<AccG<MP>, Coordinates = Coords3d>,
 {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -57,14 +57,14 @@ where
     type LhsStageLoader = SyncPartialStageLoader<MP::Lhs, Self::Config, LL>;
     type RhsStageLoader = SyncPartialStageLoader<MP::Rhs, Self::Config, RL>;
     type AccStageLoader = ZeroStageLoader<MP::Acc>;
-    type GlobalWriter = SMM::GlobalWriter;
+    type StageUnloader = SMM::StageUnloader;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
         mut lhs_loader: Self::LhsStageLoader,
         mut rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
-        mut out_writer: Self::GlobalWriter,
+        mut out_writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -246,7 +246,7 @@ where
         _nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::GlobalWriter {
+    ) -> Self::StageUnloader {
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
     }

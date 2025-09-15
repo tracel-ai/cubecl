@@ -12,7 +12,7 @@ use crate::components::{
 };
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{self, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
+    global::{self, PlaneRoleConfig, RoleRuleConfig, StageUnloader},
     tile::TileConfig,
 };
 use crate::components::{
@@ -105,7 +105,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type RhsTile: CubeType;
 
     /// How to write to global memory after computation
-    type GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Self::WriteCoords>;
+    type StageUnloader: StageUnloader<AccG<MP>, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -154,12 +154,12 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-    ) -> Self::GlobalWriter;
+    ) -> Self::StageUnloader;
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulators,
-        out: &mut Self::GlobalWriter,
+        out: &mut Self::StageUnloader,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,

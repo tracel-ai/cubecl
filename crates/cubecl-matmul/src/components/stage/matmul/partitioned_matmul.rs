@@ -2,7 +2,7 @@ use crate::components::AccG;
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
-use crate::components::global::GlobalWriter;
+use crate::components::global::StageUnloader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
@@ -21,7 +21,7 @@ use cubecl_std::tensor::{View, layout::Coordinates};
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
+    type Writer<EO: Numeric>: StageUnloader<EO, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -101,7 +101,7 @@ where
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
-    type GlobalWriter = SP::Writer<AccG<MP>>;
+    type StageUnloader = SP::Writer<AccG<MP>>;
     type WriteCoords = SP::WriteCoords;
 
     fn execute(
@@ -165,7 +165,7 @@ where
 
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
-        out: &mut Self::GlobalWriter,
+        out: &mut Self::StageUnloader,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
@@ -214,7 +214,7 @@ where
                 );
 
                 // Write the current tile result to global memory
-                Self::GlobalWriter::write::<G>(
+                Self::StageUnloader::write::<G>(
                     out,
                     smem_slice.to_slice(),
                     m_load_iter,
@@ -233,7 +233,7 @@ where
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-    ) -> Self::GlobalWriter {
+    ) -> Self::StageUnloader {
         SP::init_writer(tensor, x_offset, y_offset, batch_offset)
     }
 
