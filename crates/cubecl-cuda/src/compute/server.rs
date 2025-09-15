@@ -542,6 +542,10 @@ impl CudaServer {
         &mut self,
         stream_id: StreamId,
     ) -> (&mut CudaContext, &mut Stream, u64) {
+        unsafe {
+            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
+        };
+
         let stream = self.streams.get(stream_id);
 
         self.ctx
@@ -559,6 +563,9 @@ impl CudaServer {
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> (&mut CudaContext, &mut Stream, u64) {
+        unsafe {
+            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
+        };
         let stream = self.streams.resolve(stream_id, bindings);
 
         self.ctx

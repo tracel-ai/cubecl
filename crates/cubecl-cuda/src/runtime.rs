@@ -93,7 +93,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 
     let ctx = unsafe {
         let ctx = cudarc::driver::result::primary_ctx::retain(device_ptr).unwrap();
-        // cudarc::driver::result::ctx::set_current(ctx).unwrap();
+        cudarc::driver::result::ctx::set_current(ctx).unwrap();
         ctx
     };
 
