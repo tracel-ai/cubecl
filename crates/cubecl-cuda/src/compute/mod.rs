@@ -1,14 +1,15 @@
+pub(crate) mod io;
+pub(crate) mod storage;
+pub(crate) mod sync;
+
 mod data_service;
 mod server;
-mod storage;
-
-pub mod sync;
 
 pub use data_service::*;
 pub use server::*;
-pub use storage::*;
 
 #[allow(clippy::uninit_vec)]
+/// Initialize a vector without any values written in it.
 pub fn uninit_vec<I>(len: usize) -> Vec<I> {
     let mut data = Vec::with_capacity(len);
 

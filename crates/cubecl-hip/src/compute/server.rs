@@ -1,7 +1,10 @@
 use super::fence::{Fence, SyncStream};
-use super::storage::HipStorage;
-use super::{HipResource, uninit_vec};
+use super::storage::gpu::GpuStorage;
+use super::{storage::gpu::GpuResource, uninit_vec};
+use crate::compute::cpu::PinnedMemoryStorage;
+use crate::compute::io::register_copies_to_bytes;
 use crate::runtime::HipCompiler;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_core::compute::CubeTask;
@@ -15,8 +18,8 @@ use cubecl_core::server::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{
-    HIP_SUCCESS, get_hip_include_path, hipMemcpyKind_hipMemcpyDeviceToHost,
-    hipMemcpyKind_hipMemcpyHostToDevice, hiprtcResult_HIPRTC_SUCCESS,
+    HIP_SUCCESS, get_hip_include_path, hipMemcpyKind_hipMemcpyHostToDevice,
+    hiprtcResult_HIPRTC_SUCCESS,
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
@@ -44,8 +47,9 @@ pub struct HipServer {
 
 #[derive(Debug)]
 pub(crate) struct HipContext {
-    stream: cubecl_hip_sys::hipStream_t,
-    memory_management: MemoryManagement<HipStorage>,
+    pub(crate) stream: cubecl_hip_sys::hipStream_t,
+    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage>,
+    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: TimestampProfiler,
     compilation_options: CompilationOptions,
@@ -75,7 +79,7 @@ impl HipServer {
     fn read_sync(&mut self, binding: server::Binding) -> Vec<u8> {
         let ctx = self.get_context();
         let resource = ctx
-            .memory_management
+            .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .expect("Failed to find resource");
 
@@ -96,48 +100,13 @@ impl HipServer {
     fn read_async(
         &mut self,
         descriptors: Vec<server::CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
-        fn inner(
-            server: &mut HipServer,
-            descriptors: Vec<CopyDescriptor<'_>>,
-        ) -> Result<Vec<Vec<u8>>, IoError> {
-            let mut result = Vec::with_capacity(descriptors.len());
-
-            for descriptor in descriptors {
-                let CopyDescriptor {
-                    binding,
-                    shape,
-                    strides,
-                    elem_size,
-                } = descriptor;
-
-                if !valid_strides(shape, strides) {
-                    return Err(IoError::UnsupportedStrides);
-                }
-
-                let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
-
-                let rank = shape.len();
-                if rank <= 1 {
-                    server.copy_from_binding(binding, &mut data);
-                } else {
-                    let stride = strides[rank - 1];
-
-                    server.copy_from_binding_2d(binding, &mut data, shape, stride, elem_size);
-                }
-
-                result.push(data);
-            }
-
-            Ok(result)
-        }
-
-        let result = inner(self, descriptors);
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let result = register_copies_to_bytes(&mut self.ctx, descriptors);
         let ctx = self.get_context();
         let fence = ctx.fence();
 
         async move {
-            fence.wait();
+            fence.wait_sync();
             result
         }
     }
@@ -158,7 +127,7 @@ impl HipServer {
 
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
-    type Storage = HipStorage;
+    type Storage = GpuStorage;
     type Info = ();
 
     fn create(
@@ -199,7 +168,7 @@ impl ComputeServer for HipServer {
         }
 
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(total_size as u64)?;
+        let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
         let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
@@ -213,7 +182,7 @@ impl ComputeServer for HipServer {
     fn read(
         &mut self,
         descriptors: Vec<server::CopyDescriptor>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 
@@ -252,7 +221,7 @@ impl ComputeServer for HipServer {
 
     fn memory_cleanup(&mut self) {
         let ctx = self.get_context();
-        ctx.memory_management.cleanup(true);
+        ctx.memory_management_gpu.cleanup(true);
     }
 
     unsafe fn execute(
@@ -327,11 +296,11 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<HipResource> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management
+            ctx.memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Can't find resource"),
         )
@@ -339,24 +308,26 @@ impl ComputeServer for HipServer {
 
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
         let ctx = self.get_context();
-        ctx.memory_management.mode(mode);
+        ctx.memory_management_gpu.mode(mode);
     }
 }
 
-fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> HipResource {
-    ctx.memory_management
+fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> GpuResource {
+    ctx.memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
 }
 
 impl HipContext {
     pub fn new(
-        memory_management: MemoryManagement<HipStorage>,
+        memory_management_gpu: MemoryManagement<GpuStorage>,
+        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
         compilation_options: CompilationOptions,
         stream: cubecl_hip_sys::hipStream_t,
     ) -> Self {
         Self {
-            memory_management,
+            memory_management_gpu,
+            memory_management_cpu,
             module_names: HashMap::new(),
             stream,
             timestamps: TimestampProfiler::default(),
@@ -382,11 +353,10 @@ impl HipContext {
                 "Should successfully synchronize stream"
             );
         };
-        self.memory_management.storage().flush();
     }
 
     fn memory_usage(&self) -> MemoryUsage {
-        self.memory_management.memory_usage()
+        self.memory_management_gpu.memory_usage()
     }
 
     fn compile_kernel(
@@ -576,7 +546,7 @@ impl HipContext {
         &mut self,
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
-        resources: Vec<HipResource>,
+        resources: Vec<GpuResource>,
     ) {
         let mut bindings = resources
             .iter()
@@ -637,7 +607,7 @@ impl HipServer {
     fn copy_to_binding(&mut self, binding: server::Binding, data: &[u8]) {
         let ctx = self.get_context();
         let resource = ctx
-            .memory_management
+            .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .unwrap();
 
@@ -645,24 +615,6 @@ impl HipServer {
             let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
                 resource.ptr,
                 data as *const _ as *mut _,
-                data.len(),
-                ctx.stream,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
-    }
-
-    fn copy_from_binding(&mut self, binding: server::Binding, data: &mut [u8]) {
-        let ctx = self.get_context();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                data.as_mut_ptr() as *mut _,
-                resource.ptr,
                 data.len(),
                 ctx.stream,
             );
@@ -680,7 +632,7 @@ impl HipServer {
     ) {
         let ctx = self.get_context();
         let resource = ctx
-            .memory_management
+            .memory_management_gpu
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .unwrap();
 
@@ -701,49 +653,6 @@ impl HipServer {
                 ctx.stream,
             );
             assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
-    }
-
-    fn copy_from_binding_2d(
-        &mut self,
-        binding: server::Binding,
-        data: &mut [u8],
-        shape: &[usize],
-        stride: usize,
-        elem_size: usize,
-    ) {
-        let ctx = self.get_context();
-        let resource = ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        let width = *shape.last().unwrap_or(&1);
-        let height: usize = shape.iter().rev().skip(1).product();
-        let width_bytes = width * elem_size;
-        let stride_bytes = stride * elem_size;
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpy2DAsync(
-                data.as_mut_ptr() as *mut _,
-                width_bytes,
-                resource.ptr,
-                stride_bytes,
-                width_bytes,
-                height.max(1),
-                hipMemcpyKind_hipMemcpyDeviceToHost,
-                ctx.stream,
-            );
-            // Fallback, sometimes the copy doesn't work.
-            if status != HIP_SUCCESS {
-                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                    data.as_mut_ptr() as *mut _,
-                    resource.ptr,
-                    data.len(),
-                    ctx.stream,
-                );
-                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-            }
         }
     }
 }
