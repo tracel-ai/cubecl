@@ -1,7 +1,7 @@
 use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
-use cubecl_common::{e2m3, e3m2, e4m3, e5m2, ue8m0};
+use cubecl_common::{e2m1x2, e2m3, e3m2, e4m3, e5m2, ue8m0};
 use cubecl_runtime::TypeUsage;
 
 #[cube(launch_unchecked)]
@@ -23,6 +23,16 @@ pub fn kernel_fp6<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>
         out[0] = Line::reinterpret(Line::<e2m3>::cast_from(value));
         out[1] = Line::reinterpret(Line::<e3m2>::cast_from(value));
         input[0] = Line::cast_from(Line::<e2m3>::reinterpret(out[0]));
+    }
+}
+
+#[cube(launch_unchecked)]
+pub fn kernel_fp4<F: Float>(input: &mut Array<Line<F>>, out: &mut Array<Line<u8>>) {
+    if ABSOLUTE_POS == 0 {
+        let value = input[0];
+
+        out[0] = Line::reinterpret(Line::<e2m1x2>::cast_from(value));
+        input[0] = Line::cast_from(Line::<e2m1x2>::reinterpret(out[0]));
     }
 }
 
@@ -74,8 +84,11 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
+    // Data rounded to the nearest e4m3 value
+    let expected_data = as_type![F: -2.0, 1.75, 0.40625, 1.25];
+
     assert_eq!(actual, &expected);
-    //assert_eq!(&actual_2[..num_out], &data[..num_out]);
+    assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
@@ -116,8 +129,53 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
     let actual_2 = F::from_bytes(&actual_2);
     println!("actual_2: {actual_2:?}");
 
+    // Data rounded to the nearest e2m3 value
+    let expected_data = as_type![F: -2.0, 1.75, 0.375, 1.25];
+
     assert_eq!(actual, &expected);
-    //assert_eq!(&actual_2[..num_out], &data[..num_out]);
+    assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
+}
+
+#[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
+    client: ComputeClient<R::Server, R::Channel>,
+    vectorization: u8,
+) {
+    if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
+        println!("Unsupported, skipping");
+        return;
+    }
+
+    let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
+    let num_out = vectorization as usize;
+    let handle1 = client.create(F::as_bytes(&data[..num_out]));
+    let handle2 = client.empty(num_out / 2 * size_of::<u8>());
+
+    unsafe {
+        kernel_fp4::launch_unchecked::<F, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim::new(1, 1, 1),
+            ArrayArg::from_raw_parts::<F>(&handle1, num_out, vectorization),
+            ArrayArg::from_raw_parts::<u8>(&handle2, 2 * num_out, vectorization / 2),
+        )
+    };
+
+    let actual = client.read_one(handle2);
+    let actual = u8::from_bytes(&actual);
+    // LITTLE ENDIAN FOR PACKED VALUES
+    let expect_0: Vec<u8> = vec![0b0_10_0__1_10_0, 0b0_01_0__0_00_1];
+    let expected = expect_0[..num_out / 2].to_vec();
+
+    let actual_2 = client.read_one(handle1);
+    let actual_2 = F::from_bytes(&actual_2);
+    println!("actual_2: {actual_2:?}");
+
+    // Data rounded to the nearest e2m1 value
+    let expected_data = as_type![F: -2.0, 2.0, 0.5, 1.0];
+
+    assert_eq!(actual, &expected);
+    assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
 pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vectorization: u8) {
@@ -195,12 +253,18 @@ macro_rules! testgen_minifloat {
             );
         }
 
-        // #[test]
-        // fn test_fp4() {
-        //     let client = TestRuntime::client(&Default::default());
-        //     cubecl_core::runtime_tests::minifloat::test_fp4::<TestRuntime>(client.clone(), 2);
-        //     cubecl_core::runtime_tests::minifloat::test_fp4::<TestRuntime>(client.clone(), 4);
-        // }
+        #[test]
+        fn test_fp4() {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::minifloat::test_fp4::<TestRuntime, FloatType>(
+                client.clone(),
+                2,
+            );
+            cubecl_core::runtime_tests::minifloat::test_fp4::<TestRuntime, FloatType>(
+                client.clone(),
+                4,
+            );
+        }
 
         #[test]
         fn test_scale() {
