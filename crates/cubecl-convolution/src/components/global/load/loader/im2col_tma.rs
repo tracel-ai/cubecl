@@ -14,8 +14,7 @@ use cubecl_matmul::components::stage::{
 };
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colReader<IP> =
-    FullStageReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
+pub type TmaIm2colReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
 
 /// Loader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]

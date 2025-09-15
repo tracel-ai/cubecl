@@ -11,7 +11,7 @@ use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::stage::FullStageReader as FullStageReader;
+use crate::components::stage::FullStageReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;

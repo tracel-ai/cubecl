@@ -15,8 +15,7 @@ use cubecl_matmul::components::{
 use crate::kernels::layered::selector::RuntimeArgs;
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightReader<IP> =
-    FullStageReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
+pub type TmaWeightReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightLoader<IP: InputPrecision, S: StageConfig> {

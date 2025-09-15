@@ -47,7 +47,8 @@ where
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul<Filled>;
-    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullStageReaderFamily, FillStageReaderFamily>;
+    type StageMatmul =
+        UnitMatmulFamily<Self::TileMatmul, FullStageReaderFamily, FillStageReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul =
