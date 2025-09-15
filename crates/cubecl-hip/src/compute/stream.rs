@@ -1,12 +1,12 @@
 use cubecl_common::stream_id::StreamId;
 use cubecl_hip_sys::HIP_SUCCESS;
-use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 
 use crate::compute::fence::Fence;
 
 #[derive(Debug)]
 pub struct Stream {
     pub(crate) sys: cubecl_hip_sys::hipStream_t,
+    #[allow(unused)] // For debug prints
     pub(crate) id: StreamId,
 }
 

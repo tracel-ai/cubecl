@@ -14,7 +14,6 @@ use cubecl_hip_sys::hipMemcpyKind_hipMemcpyHostToDevice;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryManagement;
-use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -39,6 +38,14 @@ pub struct HipCompiledKernel {
     cube_dim: CubeDim,
 }
 
+#[cfg(feature = "compilation-cache")]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+pub struct CompilationCacheEntry {
+    entrypoint_name: String,
+    cube_dim: (u32, u32, u32),
+    binary: Vec<i8>,
+}
+
 impl HipContext {
     pub fn new(
         memory_management_gpu: MemoryManagement<GpuStorage>,
@@ -56,20 +63,7 @@ impl HipContext {
         }
     }
 
-    pub fn sync(&mut self, stream: &Stream) {
-        unsafe {
-            let status = cubecl_hip_sys::hipStreamSynchronize(stream.sys);
-            assert_eq!(
-                status, HIP_SUCCESS,
-                "Should successfully synchronize stream"
-            );
-        };
-    }
-
-    pub fn memory_usage(&self) -> MemoryUsage {
-        self.memory_management_gpu.memory_usage()
-    }
-
+    /// Compiles a kernel.
     pub fn compile_kernel(
         &mut self,
         kernel_id: &KernelId,
@@ -253,6 +247,7 @@ impl HipContext {
         );
     }
 
+    /// Executes a task on the given stream.
     pub fn execute_task(
         &mut self,
         stream: &mut Stream,

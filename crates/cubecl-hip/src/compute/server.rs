@@ -64,58 +64,8 @@ impl StreamBackend for HipStreamBackend {
     }
 }
 
-#[cfg(feature = "compilation-cache")]
-#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
-pub struct CompilationCacheEntry {
-    entrypoint_name: String,
-    cube_dim: (u32, u32, u32),
-    binary: Vec<i8>,
-}
-
 unsafe impl Send for HipServer {}
 impl DataTransferService for HipServer {}
-
-impl HipServer {
-    fn read_sync(&mut self, binding: server::Binding, stream_id: StreamId) -> Vec<u8> {
-        let (ctx, stream, _cursor) =
-            self.resolve_context_bindings(stream_id, [&binding].into_iter());
-
-        let resource = ctx
-            .memory_management_gpu
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
-
-        let mut data = uninit_vec(resource.size as usize);
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                data.as_mut_ptr() as *mut _,
-                resource.ptr,
-                resource.size as usize,
-                stream.sys,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
-        };
-        stream.sync();
-        data
-    }
-
-    fn read_async(
-        &mut self,
-        descriptors: Vec<server::CopyDescriptor>,
-        stream_id: StreamId,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let (ctx, stream, _cursor) =
-            self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
-
-        let result = register_copies_to_bytes(ctx, stream, descriptors);
-        let fence = stream.fence();
-
-        async move {
-            fence.wait_sync();
-            result
-        }
-    }
-}
 
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
@@ -222,7 +172,7 @@ impl ComputeServer for HipServer {
     }
 
     fn memory_usage(&self) -> MemoryUsage {
-        self.ctx.memory_usage()
+        self.ctx.memory_management_gpu.memory_usage()
     }
 
     fn memory_cleanup(&mut self) {
@@ -373,6 +323,46 @@ impl HipServer {
             });
 
         (&mut self.ctx, &mut stream.stream, stream.cursor)
+    }
+
+    fn read_sync(&mut self, binding: server::Binding, stream_id: StreamId) -> Vec<u8> {
+        let (ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, [&binding].into_iter());
+
+        let resource = ctx
+            .memory_management_gpu
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .expect("Failed to find resource");
+
+        let mut data = uninit_vec(resource.size as usize);
+        unsafe {
+            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                data.as_mut_ptr() as *mut _,
+                resource.ptr,
+                resource.size as usize,
+                stream.sys,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
+        };
+        stream.sync();
+        data
+    }
+
+    fn read_async(
+        &mut self,
+        descriptors: Vec<server::CopyDescriptor>,
+        stream_id: StreamId,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let (ctx, stream, _cursor) =
+            self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
+
+        let result = register_copies_to_bytes(ctx, stream, descriptors);
+        let fence = stream.fence();
+
+        async move {
+            fence.wait_sync();
+            result
+        }
     }
 }
 

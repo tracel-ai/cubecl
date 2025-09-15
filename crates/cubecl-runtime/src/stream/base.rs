@@ -56,6 +56,7 @@ impl<B: StreamBackend> MultiStream<B> {
     pub fn get(&mut self, stream_id: StreamId) -> &mut StreamWrapper<B> {
         if !self.streams.contains_key(&stream_id) {
             let stream = B::init_stream(stream_id);
+            log::info!("Initialize a new stream {stream:?}");
             let stream = StreamWrapper {
                 stream,
                 cursor: 0,
@@ -107,6 +108,7 @@ impl<B: StreamBackend> MultiStream<B> {
         if analyses.is_empty() {
             return;
         }
+        log::info!("Analyzes {analyses:?}");
 
         let mut events = Vec::with_capacity(analyses.len());
 
@@ -120,6 +122,11 @@ impl<B: StreamBackend> MultiStream<B> {
         let stream = self.streams.get_mut(&stream_id).unwrap();
 
         for ((stream_origin, cursor_origin), event) in events {
+            log::info!(
+                "Align stream {:?}[{:?}] with {stream_origin:?}[{cursor_origin:?}]",
+                stream.stream,
+                stream.cursor
+            );
             stream.last_synced.insert(stream_origin, cursor_origin);
 
             B::wait_event(&mut stream.stream, event);
@@ -140,6 +147,10 @@ impl<B: StreamBackend> MultiStream<B> {
 
         for binding in bindings {
             if stream_id != binding.stream {
+                if to_align.contains(&binding.stream) {
+                    continue;
+                }
+
                 if let Some(last_synced) = current.last_synced.get(&binding.stream) {
                     if *last_synced < binding.cursor {
                         to_align.push(binding.stream);
