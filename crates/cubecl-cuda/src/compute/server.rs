@@ -579,7 +579,7 @@ impl CudaServer {
         let (ctx, stream, _cursor) =
             self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
 
-        let result = register_copies_to_bytes(ctx, descriptors);
+        let result = register_copies_to_bytes(ctx, stream, descriptors);
         let fence = stream.fence();
 
         async move {

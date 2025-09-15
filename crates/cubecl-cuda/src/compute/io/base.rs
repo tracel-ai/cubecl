@@ -1,5 +1,5 @@
 use super::controller::PinnedMemoryManagedAllocController;
-use crate::compute::{CudaContext, MB, valid_strides};
+use crate::compute::{MB, context::CudaContext, stream::Stream, valid_strides};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::server::{CopyDescriptor, IoError};
 use cubecl_runtime::memory_management::MemoryHandle;
@@ -18,12 +18,13 @@ use std::{ffi::c_void, ops::DerefMut};
 /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
 pub fn register_copies_to_bytes(
     ctx: &mut CudaContext,
+    stream: &mut Stream,
     descriptors: Vec<CopyDescriptor<'_>>,
 ) -> Result<Vec<Bytes>, IoError> {
     let mut result = Vec::with_capacity(descriptors.len());
 
     for descriptor in descriptors {
-        result.push(register_copy_to_bytes(ctx, descriptor, false)?);
+        result.push(register_copy_to_bytes(ctx, stream, descriptor, false)?);
     }
 
     Ok(result)
@@ -42,6 +43,7 @@ pub fn register_copies_to_bytes(
 /// A [Result] containing the copied data as [Bytes], or an [IoError] if the copy fails.
 pub fn register_copy_to_bytes(
     ctx: &mut CudaContext,
+    stream: &mut Stream,
     descriptor: CopyDescriptor<'_>,
     marked_pinned: bool,
 ) -> Result<Bytes, IoError> {
@@ -68,7 +70,7 @@ pub fn register_copy_to_bytes(
     let rank = shape.len();
     if rank <= 1 {
         unsafe {
-            cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource.ptr, ctx.stream)
+            cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource.ptr, stream.sys)
                 .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
         }
         return Ok(bytes);
@@ -93,7 +95,7 @@ pub fn register_copy_to_bytes(
     };
 
     unsafe {
-        cuMemcpy2DAsync_v2(&cpy, ctx.stream)
+        cuMemcpy2DAsync_v2(&cpy, stream.sys)
             .result()
             .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
     }

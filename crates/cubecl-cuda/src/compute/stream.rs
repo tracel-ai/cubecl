@@ -11,12 +11,6 @@ pub struct Stream {
 }
 
 impl Stream {
-    pub fn sync(&mut self) {
-        unsafe {
-            cudarc::driver::result::stream::synchronize(self.sys).unwrap();
-        }
-    }
-
     pub fn fence(&mut self) -> Fence {
         Fence::new(self.sys)
     }
