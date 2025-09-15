@@ -213,14 +213,14 @@ where
     }
 
     fn init_acc_loader(
-        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
+        acc: CubeOption<VirtualTensor<AccG<MP>>>,
         _m_offset: u32,
         _n_offset: u32,
         _nth_batch: u32,
         _batch_offset: u32,
         #[comptime] _config: Self::Config,
     ) -> Self::AccLoader {
-        match rhs {
+        match acc {
             CubeOption::None => ZeroLoader::new(),
             CubeOption::Some(_) => panic!("Accumulator loading is not yet supported"),
         }
