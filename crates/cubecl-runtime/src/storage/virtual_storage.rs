@@ -1,4 +1,3 @@
-
 //! Virtual Memory Management System
 //!
 //! This module implements a virtual memory abstraction layer that decouples virtual address spaces
@@ -8,9 +7,10 @@
 //! - Fine-grained control over memory mapping and unmapping
 //! - Efficient handling of fragmented physical memory
 use crate::server::IoError;
-use crate::{storage_id_type, storage::{StorageHandle, StorageId, StorageUtilization}};
-
-
+use crate::{
+    storage::{StorageHandle, StorageId, StorageUtilization},
+    storage_id_type,
+};
 
 // Unique identifier for virtual address spaces.
 //
@@ -42,7 +42,6 @@ pub struct VirtualAddressSpaceHandle {
     id: VirtualSpaceId,
     /// Size and offset information for the virtual address range
     utilization: StorageUtilization,
-
 }
 
 impl VirtualAddressSpaceHandle {
@@ -52,10 +51,7 @@ impl VirtualAddressSpaceHandle {
     /// * `id` - Unique identifier for this virtual space
     /// * `utilization` - Size and offset information
     pub fn new(id: VirtualSpaceId, utilization: StorageUtilization) -> Self {
-        Self {
-            id,
-            utilization,
-        }
+        Self { id, utilization }
     }
 
     /// Returns the unique identifier for this virtual address space.
@@ -72,7 +68,6 @@ impl VirtualAddressSpaceHandle {
     pub fn offset(&self) -> u64 {
         self.utilization.offset
     }
-
 }
 
 /// Represents the relationship between virtual address spaces and physical memory.
@@ -81,8 +76,8 @@ impl VirtualAddressSpaceHandle {
 /// and physical memory allocations. It serves as the core data structure for tracking
 /// active memory mappings in the virtual memory system.
 pub struct VirtualMapping {
-    /// Physical memory allocation backing this mapping
-    pub physical_id: PhysicalStorageId,
+    /// Physical memory allocations backing this mapping
+    pub physical_ids: Vec<PhysicalStorageId>,
     /// Virtual address space where the physical memory is mapped
     pub virtual_id: VirtualSpaceId,
 }
@@ -93,14 +88,12 @@ impl VirtualMapping {
     /// # Arguments
     /// * `physical_id` - The physical memory allocation
     /// * `virtual_id` - The virtual address space where it's mapped
-    pub fn new(physical_id: PhysicalStorageId, virtual_id: VirtualSpaceId) -> Self {
+    pub fn new(physical_ids: Vec<PhysicalStorageId>, virtual_id: VirtualSpaceId) -> Self {
         Self {
-            physical_id,
+            physical_ids,
             virtual_id,
         }
     }
-
-
 }
 
 /// Handle representing a physical memory allocation.
@@ -122,7 +115,6 @@ pub struct PhysicalStorageHandle {
     id: PhysicalStorageId,
     /// Size and offset information for the physical memory block
     utilization: StorageUtilization,
-
 }
 
 impl PhysicalStorageHandle {
@@ -132,11 +124,7 @@ impl PhysicalStorageHandle {
     /// * `id` - Unique identifier for this physical allocation
     /// * `utilization` - Size and offset information
     pub fn new(id: PhysicalStorageId, utilization: StorageUtilization) -> Self {
-        Self {
-            id,
-            utilization,
-
-        }
+        Self { id, utilization }
     }
 
     /// Returns the unique identifier for this physical memory allocation.
@@ -153,8 +141,6 @@ impl PhysicalStorageHandle {
     pub fn offset(&self) -> u64 {
         self.utilization.offset
     }
-
-
 }
 
 /// Virtual Memory Storage System
@@ -294,7 +280,7 @@ pub trait VirtualStorage: Send {
     fn try_map(
         &mut self,
         virtual_addr: VirtualAddressSpaceHandle,
-        handle: PhysicalStorageHandle,
+        handle: Vec<PhysicalStorageHandle>,
     ) -> Result<StorageHandle, IoError>;
 
     /// Unmaps memory from a virtual address space.

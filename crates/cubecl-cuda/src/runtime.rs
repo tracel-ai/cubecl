@@ -28,19 +28,18 @@ use cubecl_runtime::{
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use cudarc::driver::sys::CUmemAllocationGranularity_flags;
+use cudarc::driver::sys::cuDeviceTotalMem_v2;
 
-use cudarc::driver::sys::{CUmemLocation, CUmemLocationType};
+use cudarc::driver::sys::CUmemAllocationHandleType_enum;
 use cudarc::driver::sys::CUmemAllocationProp;
 use cudarc::driver::sys::cuMemGetAllocationGranularity;
-use cudarc::driver::sys::CUmemAllocationHandleType_enum;
+use cudarc::driver::sys::{CUmemLocation, CUmemLocationType};
 use std::mem::MaybeUninit;
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
-
     pub memory_config: MemoryConfiguration,
 }
 
@@ -86,7 +85,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     };
 
     let granularity = if vmm_supported {
-
         let handle_type = {
             #[cfg(unix)]
             {
@@ -98,7 +96,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             }
         };
 
-         // Define allocation properties
+        // Define allocation properties
         let prop = CUmemAllocationProp {
             type_: cudarc::driver::sys::CUmemAllocationType::CU_MEM_ALLOCATION_TYPE_PINNED,
             location: CUmemLocation {
@@ -109,12 +107,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             // Still not sure how to properly set this flag which is apparently windows-specific.
             win32HandleMetaData: std::ptr::null_mut(),
             allocFlags: cudarc::driver::sys::CUmemAllocationProp_st__bindgen_ty_1 {
-                compressionType: 0, // 0 -> No memory compression
+                compressionType: 0,      // 0 -> No memory compression
                 gpuDirectRDMACapable: 0, // 0 -> No RDMA capabilities. Probably may want to change in the future for sharing pinned memory accross different devices.
-                usage: 0, // Must be 0
-                reserved: [0; 4], // Must be always zero.
+                usage: 0,                // Must be 0
+                reserved: [0; 4],        // Must be always zero.
             },
-
         };
 
         let mut granularity: usize = 0;
@@ -123,15 +120,15 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
                 &mut granularity as *mut usize,
                 &prop,
                 CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
-            ).result()
-        }.is_ok(){
+            )
+            .result()
+        }
+        .is_ok()
+        {
             granularity
-
-        } else{
+        } else {
             0usize
         }
-
-
     } else {
         0 // default granularity.
     };
@@ -173,7 +170,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         alignment: mem_alignment as u64,
         data_transfer_async: true,
     };
-
 
     let mut comp_opts = CompilationOptions::default();
 

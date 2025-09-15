@@ -7,14 +7,13 @@ use cubecl_runtime::storage::{
 };
 use cudarc::driver::DriverError;
 
-
 use cudarc::driver::sys::{
     CUdeviceptr, CUmemAccess_flags_enum::CU_MEM_ACCESS_FLAGS_PROT_READWRITE, CUmemAccessDesc,
     CUmemAllocationHandleType_enum, CUmemAllocationProp,
     CUmemAllocationType_enum::CU_MEM_ALLOCATION_TYPE_PINNED, CUmemGenericAllocationHandle,
     CUmemLocation, CUmemLocationType_enum::CU_MEM_LOCATION_TYPE_DEVICE, CUstream, cuMemAddressFree,
-    cuMemAddressReserve, cuMemCreate,cuMemMap, cuMemRelease, cuMemSetAccess,
-    cuMemUnmap, cudaError_enum::CUDA_SUCCESS,
+    cuMemAddressReserve, cuMemCreate, cuMemMap, cuMemRelease, cuMemSetAccess, cuMemUnmap,
+    cudaError_enum::CUDA_SUCCESS,
 };
 use std::collections::HashMap;
 
@@ -173,7 +172,6 @@ impl ComputeStorage for CudaStorage {
     }
 }
 
-
 /// Internal representation of a CUDA virtual memory range.
 ///
 /// This structure tracks a contiguous virtual address space that has been reserved
@@ -262,7 +260,7 @@ impl CudaPhysicalHandle {
             is_mapped: false,
         }
     }
-    
+
     fn size(&self) -> u64 {
         self.size
     }
@@ -283,8 +281,6 @@ impl CudaPhysicalHandle {
         self.is_mapped = false;
     }
 }
-
-
 
 /// CUDA implementation of virtual memory storage.
 ///
@@ -649,11 +645,12 @@ impl VirtualStorage for CudaVirtualStorage {
                         cuMemAddressFree(virtual_space.start, virtual_space.size as usize);
                     }
                 }
-
-                // Release physical memory
-                if let Some(physical) = self.physical_handles.remove(&mapping.physical_id) {
-                    unsafe {
-                        cuMemRelease(physical.handle);
+                for physical_id in &mapping.physical_ids {
+                    // Release physical memory
+                    if let Some(physical) = self.physical_handles.remove(physical_id) {
+                        unsafe {
+                            cuMemRelease(physical.handle);
+                        }
                     }
                 }
             }
@@ -686,20 +683,14 @@ impl VirtualStorage for CudaVirtualStorage {
     fn try_map(
         &mut self,
         virtual_addr: VirtualAddressSpaceHandle,
-        handle: PhysicalStorageHandle,
+        handles: Vec<PhysicalStorageHandle>,
     ) -> Result<StorageHandle, IoError> {
         let virtual_id = virtual_addr.id();
-        let physical_id = handle.id();
 
         // Get mutable references to both the virtual space and physical handle
         let virtual_space = self
             .reserved_spaces
-            .get_mut(&virtual_id)
-            .ok_or(IoError::InvalidHandle)?;
-
-        let cuda_handle = self
-            .physical_handles
-            .get_mut(&physical_id)
+            .get(&virtual_id)
             .ok_or(IoError::InvalidHandle)?;
 
         // Validate that neither resource is already mapped
@@ -707,49 +698,70 @@ impl VirtualStorage for CudaVirtualStorage {
             !virtual_space.is_mapped,
             "Try map function received an invalid virtual space: This address space is already mapped. Cannot remap without previous unmapping"
         );
-        assert!(
-            !cuda_handle.is_mapped,
-            "Try map function received an invalid physical memory handle. This physical handle is already mapped. Cannot remap without previous unmapping"
-        );
-        assert_eq!(cuda_handle.size(), virtual_space.size(), "Try map function received invalid parameters: Handle size and virtual space size must match, but handle size is {} and virtual space size is {}.", cuda_handle.size(), virtual_space.size());
 
-        // Perform the CUDA mapping operation
-        unsafe {
-            let result = cuMemMap(
-                virtual_space.start,
-                handle.size() as usize,
-                0, // offset in the handle
-                cuda_handle.handle,
-                0, // flags
+        let mut address = virtual_space.start;
+        let mut size = 0;
+        let physical_ids = Vec::with_capacity(handles.len());
+        for handle in &handles {
+            let physical_id = handle.id();
+
+            let cuda_handle = self
+                .physical_handles
+                .get_mut(&physical_id)
+                .ok_or(IoError::InvalidHandle)?;
+
+            size += cuda_handle.size();
+
+            assert!(
+                !cuda_handle.is_mapped,
+                "Try map function received an invalid physical memory handle. This physical handle is already mapped. Cannot remap without previous unmapping"
             );
-            if result != CUDA_SUCCESS {
-                return Err(IoError::InvalidHandle);
+
+            assert!(
+                size <= virtual_space.size(),
+                "Try map function received invalid parameters: Handle size cannot be bigger than total reserved address space, but total handle size is {} and virtual space size is {}.",
+                size,
+                virtual_space.size()
+            );
+
+            // Perform the CUDA mapping operation
+            unsafe {
+                let result = cuMemMap(
+                    address,
+                    handle.size() as usize,
+                    0, // offset in the handle
+                    cuda_handle.handle,
+                    0, // flags
+                );
+                if result != CUDA_SUCCESS {
+                    return Err(IoError::InvalidHandle);
+                }
             }
+
+            // Update state tracking
+            cuda_handle.set_mapped();
+
+            // Set memory access permissions for the device
+            self.set_access_permissions(address, handle.size(), self.device_id);
+            address += handle.size();
         }
 
-         // Update state tracking
-        cuda_handle.set_mapped();
-        virtual_space.set_mapped();
-        let start = virtual_space.start;
-        let size = handle.size();
-
-
-
-        // Set memory access permissions for the device
-        self.set_access_permissions(start, size, self.device_id);
-
-
+        let virtual_space_mut = self
+            .reserved_spaces
+            .get_mut(&virtual_id)
+            .ok_or(IoError::InvalidHandle)?;
+        virtual_space_mut.set_mapped();
 
         // Create storage handle for the new mapping
         let storage_id = StorageId::new();
-        let mapping = VirtualMapping::new(physical_id, virtual_id);
+        let mapping = VirtualMapping::new(physical_ids, virtual_id);
         self.active_mappings.insert(storage_id, mapping);
 
         Ok(StorageHandle::new(
             storage_id,
             StorageUtilization {
                 offset: 0,
-                size: handle.size(),
+                size: virtual_space_mut.size(),
             },
         ))
     }
@@ -782,25 +794,49 @@ impl VirtualStorage for CudaVirtualStorage {
                 .reserved_spaces
                 .get_mut(&mapping.virtual_id)
                 .ok_or(IoError::InvalidHandle)?;
-            let physical = self
-                .physical_handles
-                .get_mut(&mapping.physical_id)
-                .ok_or(IoError::InvalidHandle)?;
 
-            unsafe {
-                let result = cuMemUnmap(virtual_space.start, physical.size as usize);
-                if result != CUDA_SUCCESS {
-                    // Re-insert the mapping if unmap failed
-                    self.active_mappings.insert(id, mapping);
-                    return Err(IoError::InvalidHandle);
+            let mut address = virtual_space.start;
+
+            // In memory rollback journal in case of failure
+            let mut unmapped_track: Vec<PhysicalStorageId> =
+                Vec::with_capacity(mapping.physical_ids.len());
+
+            for (i, handle_id) in mapping.physical_ids.iter().enumerate() {
+                let handle = self
+                    .physical_handles
+                    .get_mut(handle_id)
+                    .ok_or(IoError::InvalidHandle)?;
+                unsafe {
+                    let result = cuMemUnmap(address, handle.size() as usize);
+                    if result != CUDA_SUCCESS {
+                        // rollback mapped handles in case of failure
+                        let mut rollback_addr = virtual_space.start;
+                        for prev_id in unmapped_track.iter() {
+                            let prev = self
+                                .physical_handles
+                                .get_mut(prev_id)
+                                .ok_or(IoError::InvalidHandle)?;
+
+                            let r =
+                                cuMemMap(rollback_addr, prev.size() as usize, 0, prev.handle, 0);
+                            if r != CUDA_SUCCESS {
+                                panic!("Rollback cuMemMap failed: {:?}", r);
+                            }
+                            rollback_addr += prev.size();
+                        }
+
+                        // Re-insert mapping into active_mappings
+                        self.active_mappings.insert(id, mapping);
+                        return Err(IoError::InvalidHandle);
+                    }
+                    unmapped_track.push(*handle_id);
                 }
+
+                // Update state
+                address += handle.size();
+                handle.set_unmapped();
             }
-
-            // Update state tracking
-            physical.set_unmapped();
-            virtual_space.set_unmapped();
         }
-
         Ok(())
     }
 
