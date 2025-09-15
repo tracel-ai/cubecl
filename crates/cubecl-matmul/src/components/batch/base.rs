@@ -1,13 +1,13 @@
 use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, LhsG, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSpec, OutputRuntimeArg, RhsG, TilingScheme,
+    AccG, AvailableLineSizes, InputRuntimeArg, LhsG, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, RhsG, TilingScheme,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
     global::{self, GlobalConfig as _},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
@@ -74,9 +74,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        lhs: VirtualTensor<LhsG<MP>>,
-        rhs: VirtualTensor<RhsG<MP>>,
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        a: VirtualTensor<LhsG<MP>>,
+        b: VirtualTensor<RhsG<MP>>,
+        c: CubeOption<VirtualTensor<AccG<MP>>>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );

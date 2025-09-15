@@ -87,21 +87,21 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(this: &Self) -> FullStageToTileReader<IP::Stage, L::TilingLayout> {
-        FullStageToTileReader::new(this.stage_memory, comptime!(this.ident.into_stage()))
+    pub fn reader(&self) -> FullStageToTileReader<IP::Stage, L::TilingLayout> {
+        FullStageToTileReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
-    pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader
-            .update_view(k_offset, comptime!(this.ident.view_direction()));
+    pub fn advance_view(&mut self, k_offset: u32) {
+        self.tensor_reader
+            .update_view(k_offset, comptime!(self.ident.view_direction()));
     }
 
     /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(this: &mut Self, #[comptime] config: G) {
-        let mut loading_job = match this.loading_job {
+    pub fn fill_stage(&mut self, #[comptime] config: G) {
+        let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(this.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(self.ident, config),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -113,8 +113,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> SyncFullLo
             L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
-                &this.tensor_reader,
-                &mut this.stage_memory,
+                &self.tensor_reader,
+                &mut self.stage_memory,
                 config,
             );
             comptime![task_id += 1];

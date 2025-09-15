@@ -3,9 +3,6 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::sync_partial_cyclic::SyncPartialCyclicLoading;
-use crate::components::global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily;
 use crate::components::stage::{
     FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
@@ -13,6 +10,16 @@ use crate::components::{
     MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
 };
 use crate::components::{MultiRowStrategy, tile};
+use crate::components::{
+    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+    stage::FillReaderFamily,
+};
+use crate::components::{
+    global::load::sync_partial_cyclic::SyncPartialCyclicLoading, tile::loader::Strided,
+};
+use crate::components::{
+    global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::loader::Filled,
+};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
@@ -30,11 +37,16 @@ pub struct OrderedSelectionArgs {
 
 impl<TMM> Algorithm for OrderedDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
 {
     type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, PartialReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullReaderFamily,
+        PartialReaderFamily,
+        FillReaderFamily,
+    >;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,

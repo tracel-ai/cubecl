@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
 use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
 use crate::components::global::{self, GlobalMatmul};
+use crate::components::{AccG, batch::partitioned_matmul::config::PartitionedBatchConfig};
 use crate::components::{LhsG, MatmulPrecision, RhsG};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.
@@ -33,15 +33,16 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
     type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
-        lhs: VirtualTensor<LhsG<MP>>,
-        rhs: VirtualTensor<RhsG<MP>>,
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        a: VirtualTensor<LhsG<MP>>,
+        b: VirtualTensor<RhsG<MP>>,
+        c: CubeOption<VirtualTensor<AccG<MP>>>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        let lhs_rank = lhs.rank();
+        let lhs_rank = a.rank();
 
-        let problem_k = lhs.shape(lhs_rank - 1);
+        let problem_k = a.shape(lhs_rank - 1);
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();
@@ -69,6 +70,6 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
         let global_config = config.global_config();
         let acc = GMM::init_accumulator(global_config);
 
-        GPMM::execute::<MP, GMM>(lhs, rhs, out, ranges, acc, k_range, global_config);
+        GPMM::execute::<MP, GMM>(a, b, c, out, ranges, acc, k_range, global_config);
     }
 }

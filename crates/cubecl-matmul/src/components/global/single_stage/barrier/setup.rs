@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
@@ -9,6 +8,10 @@ use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
 use crate::components::stage::FullReaderFamily;
 use crate::components::stage::StageConfig;
+use crate::components::{
+    MatmulLineSizes,
+    stage::{FillReaderFamily, NoTilingLayout},
+};
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_std::tensor::layout::Coords3d;
@@ -29,13 +32,18 @@ where
     SMM: stage::StageMatmulFamily<
             LhsReader = FullReaderFamily,
             RhsReader = FullReaderFamily,
+            AccReader = FillReaderFamily,
             WriteCoords = Coords3d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
 {
-    type Matmul<MP: MatmulPrecision> =
-        SimpleBarrierMatmul<MP, SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout>, LL, RL>;
+    type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
+        MP,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        LL,
+        RL,
+    >;
     type Config = SimpleBarrierConfig<SMM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
