@@ -11,7 +11,7 @@ use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::stage::PartialStageToTileReader;
+use crate::components::stage::PartialStageReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
@@ -45,7 +45,11 @@ pub trait SyncPartialLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncPartialLoader<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> {
+pub struct SyncPartialStageLoader<
+    IP: InputPrecision,
+    G: GlobalConfig,
+    L: SyncPartialLoadingStrategy,
+> {
     tensor_reader: TensorReader<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
@@ -57,7 +61,7 @@ pub struct SyncPartialLoader<IP: InputPrecision, G: GlobalConfig, L: SyncPartial
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
-    SyncPartialLoader<IP, G, L>
+    SyncPartialStageLoader<IP, G, L>
 {
     /// Create a new SyncPartialLoader
     pub fn new(
@@ -83,7 +87,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             false => CubeOption::new_None(),
         };
 
-        SyncPartialLoader::<IP, G, L> {
+        SyncPartialStageLoader::<IP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -96,8 +100,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     pub fn reader(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
-    ) -> PartialStageToTileReader<IP::Stage, L::TilingLayout> {
-        PartialStageToTileReader::new(
+    ) -> PartialStageReader<IP::Stage, L::TilingLayout> {
+        PartialStageReader::new(
             this.stage_memory,
             stage_buffer,
             comptime!(this.ident.into_stage()),
@@ -110,8 +114,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             .update_view(k_offset, comptime!(this.ident.view_direction()));
     }
 
-    /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(
+    /// Accomplish the entire job of loading data into the stage memory
+    pub fn load_stage(
         this: &mut Self,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
@@ -148,7 +152,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
-    for SyncPartialLoader<IP, G, L>
+    for SyncPartialStageLoader<IP, G, L>
 {
     type JobIterator = SyncPartialLoaderJobIterator<IP, L>;
 

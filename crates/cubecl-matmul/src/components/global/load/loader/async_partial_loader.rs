@@ -4,7 +4,7 @@ use crate::components::global::base::GlobalConfig;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::TensorReader;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::stage::PartialStageToTileReader;
+use crate::components::stage::PartialStageReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputPrecision, MatmulIdent, StageIdent};
@@ -42,7 +42,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct AsyncBufferLoader<
+pub struct AsyncBufferStageLoader<
     IP: InputPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism,
@@ -59,7 +59,7 @@ pub struct AsyncBufferLoader<
 
 #[cube]
 impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
-    AsyncBufferLoader<IP, S, CM, L>
+    AsyncBufferStageLoader<IP, S, CM, L>
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
@@ -85,7 +85,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             false => CubeOption::new_None(),
         };
 
-        AsyncBufferLoader::<IP, S, CM, L> {
+        AsyncBufferStageLoader::<IP, S, CM, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -98,8 +98,8 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
     pub fn reader(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
-    ) -> PartialStageToTileReader<IP::Stage, L::TilingLayout> {
-        PartialStageToTileReader::new(
+    ) -> PartialStageReader<IP::Stage, L::TilingLayout> {
+        PartialStageReader::new(
             this.stage_memory,
             stage_buffer,
             comptime! {
@@ -115,8 +115,8 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             .update_view(k_offset, comptime!(this.ident.view_direction()));
     }
 
-    /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(
+    /// Accomplish the entire job of loading data into the stage memory
+    pub fn load_stage(
         this: &mut Self,
         mechanism: &CM,
         #[comptime] stage_buffer: StageBuffer,

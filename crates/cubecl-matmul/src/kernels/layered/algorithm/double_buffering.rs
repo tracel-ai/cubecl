@@ -6,7 +6,7 @@ use cubecl_core::client::ComputeClient;
 use crate::components::global::load::sync_partial_tilewise::SyncPartialTilewiseLoading;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingMatmulFamily;
 use crate::components::stage::{
-    ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
+    ColMajorTilingOrder, PartialStageReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
@@ -15,7 +15,7 @@ use crate::components::{
     tile::loader::{Filled, Strided},
 };
 use crate::components::{
-    global::load::sync_partial_cyclic::SyncPartialCyclicLoading, stage::FillReaderFamily,
+    global::load::sync_partial_cyclic::SyncPartialCyclicLoading, stage::FillStageReaderFamily,
 };
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
@@ -49,9 +49,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialReaderFamily,
-        PartialReaderFamily,
-        FillReaderFamily,
+        PartialStageReaderFamily,
+        PartialStageReaderFamily,
+        FillStageReaderFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
@@ -93,9 +93,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialReaderFamily,
-        PartialReaderFamily,
-        FillReaderFamily,
+        PartialStageReaderFamily,
+        PartialStageReaderFamily,
+        FillStageReaderFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
@@ -138,9 +138,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialReaderFamily,
-        PartialReaderFamily,
-        FillReaderFamily,
+        PartialStageReaderFamily,
+        PartialStageReaderFamily,
+        FillStageReaderFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,

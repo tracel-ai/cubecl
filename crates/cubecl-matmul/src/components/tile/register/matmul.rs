@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
 use crate::components::StageIdent;
-use crate::components::tile::{TileConfig, TileMatmul, register::loader::RegisterTileLoader};
+use crate::components::tile::{TileConfig, TileMatmul, register::loader::RegisterFragmentLoader};
 use crate::components::tile::{
     loader::Strided,
     register::{
         config::{ProductType, RegisterConfig},
-        loader::RegisterLoader,
+        loader::RegisterTileLoader,
     },
 };
 use crate::components::tile::{loader::TileKind, tile_data::Tile};
@@ -26,21 +26,21 @@ static UNROLL: bool = false;
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
 where
-    RegisterLoader<Acc>: RegisterTileLoader<TileKind = Acc>,
+    RegisterTileLoader<Acc>: RegisterFragmentLoader<TileKind = Acc>,
 {
     type Config = RegisterConfig;
-    type Lhs = Array<L>;
-    type Rhs = Array<R>;
-    type Accumulator = Array<A>;
+    type LhsFragment = Array<L>;
+    type RhsFragment = Array<R>;
+    type AccFragment = Array<A>;
 
-    type LhsLoader = RegisterLoader<Strided>;
-    type RhsLoader = RegisterLoader<Strided>;
-    type AccLoader = RegisterLoader<Acc>;
+    type LhsTileLoader = RegisterTileLoader<Strided>;
+    type RhsTileLoader = RegisterTileLoader<Strided>;
+    type AccTileLoader = RegisterTileLoader<Acc>;
 
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        acc: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         match config.product_type() {
@@ -49,36 +49,44 @@ where
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         Array::new(config.tile_size().mk())
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         Array::new(config.tile_size().nk())
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         Array::new(config.tile_size().mn())
     }
 
-    fn fill_lhs<E: Numeric>(tile: Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
-        Self::LhsLoader::fill_fragment(tile, lhs, StageIdent::Lhs, config)
-    }
-
-    fn fill_rhs<E: Numeric>(tile: Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        Self::RhsLoader::fill_fragment(tile, rhs, StageIdent::Rhs, config)
-    }
-
-    fn fill_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
-        acc: &mut Self::Accumulator,
+    fn load_lhs<E: Numeric>(
+        tile: Tile<E>,
+        lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccLoader::fill_fragment(tile, acc, StageIdent::Acc, config);
+        Self::LhsTileLoader::load_fragment(tile, lhs, StageIdent::Lhs, config)
+    }
+
+    fn load_rhs<E: Numeric>(
+        tile: Tile<E>,
+        rhs: &mut Self::RhsFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::RhsTileLoader::load_fragment(tile, rhs, StageIdent::Rhs, config)
+    }
+
+    fn load_acc<E: Numeric>(
+        tile: Acc::Tile<E>,
+        acc: &mut Self::AccFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::AccTileLoader::load_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(
-        acc: &Self::Accumulator,
+        acc: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
@@ -143,7 +151,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
         }
     }
 
-    pub fn fill_plain<ES: Numeric, ER: Numeric>(
+    pub fn load_plain<ES: Numeric, ER: Numeric>(
         tile: &Tile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,
@@ -167,7 +175,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
         }
     }
 
-    pub fn fill_transposed<ES: Numeric, ER: Numeric>(
+    pub fn load_transposed<ES: Numeric, ER: Numeric>(
         tile: &Tile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,

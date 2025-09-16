@@ -7,7 +7,7 @@ use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
 use crate::components::{AvailableLineSizes, stage::NoTilingLayout};
-use crate::components::{MatmulLineSizes, stage::FillReaderFamily};
+use crate::components::{MatmulLineSizes, stage::FillStageReaderFamily};
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
@@ -17,7 +17,7 @@ use cubecl_std::tensor::layout::Coords3d;
 use crate::components::{
     MatmulProblem,
     global::GlobalMatmulFamily,
-    stage::{self, FullReaderFamily},
+    stage::{self, FullStageReaderFamily},
 };
 
 /// Simple TMA matmul family for any precision
@@ -28,9 +28,9 @@ pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
 impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
 where
     SMM: stage::StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            AccReader = FillReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = FillStageReaderFamily,
             WriteCoords = Coords3d,
         >,
 {

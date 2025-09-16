@@ -6,11 +6,11 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::load::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
-use crate::components::stage::FullReaderFamily;
+use crate::components::stage::FullStageReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{
     MatmulLineSizes,
-    stage::{FillReaderFamily, NoTilingLayout},
+    stage::{FillStageReaderFamily, NoTilingLayout},
 };
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use cubecl_core::{Runtime, client::ComputeClient};
@@ -30,9 +30,9 @@ pub struct SimpleBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            AccReader = FillReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = FillStageReaderFamily,
             WriteCoords = Coords3d,
         >,
     LL: AsyncFullLoadingStrategy,

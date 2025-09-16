@@ -40,9 +40,9 @@ impl<
     RRA: StageReaderFamily<TileKind = TM::AccTile>,
 > StageMatmulFamily for PlaneMatmulFamily<TM, LRF, RRF, RRA>
 {
-    type LhsReader = LRF;
-    type RhsReader = RRF;
-    type AccReader = RRA;
+    type LhsStageReader = LRF;
+    type RhsStageReader = RRF;
+    type AccStageReader = RRA;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
         PlaneMatmul<
             MP,

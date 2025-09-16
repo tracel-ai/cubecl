@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaTileLoader};
+use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaFragmentLoader};
 use crate::components::tile::{
-    accelerated::{config::AcceleratedConfig, loader::CmmaLoader},
+    accelerated::{config::AcceleratedConfig, loader::CmmaTileLoader},
     loader::{Strided, TileKind},
 };
 use crate::components::{StageIdent, as_cmma_layout};
@@ -20,27 +20,27 @@ pub struct AcceleratedMatmul<Acc: TileKind> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for AcceleratedMatmul<Acc>
 where
-    CmmaLoader<Acc>: CmmaTileLoader<TileKind = Acc>,
+    CmmaTileLoader<Acc>: CmmaFragmentLoader<TileKind = Acc>,
 {
     type Config = AcceleratedConfig;
-    type Lhs = cmma::Matrix<L>;
-    type Rhs = cmma::Matrix<R>;
-    type Accumulator = cmma::Matrix<A>;
+    type LhsFragment = cmma::Matrix<L>;
+    type RhsFragment = cmma::Matrix<R>;
+    type AccFragment = cmma::Matrix<A>;
 
-    type LhsLoader = CmmaLoader<Strided>;
-    type RhsLoader = CmmaLoader<Strided>;
-    type AccLoader = CmmaLoader<Acc>;
+    type LhsTileLoader = CmmaTileLoader<Strided>;
+    type RhsTileLoader = CmmaTileLoader<Strided>;
+    type AccTileLoader = CmmaTileLoader<Acc>;
 
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        out: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        out: &mut Self::AccFragment,
         #[comptime] _config: Self::Config,
     ) {
         cmma::execute::<L, R, A, A>(lhs, rhs, out, out);
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Lhs);
         unsafe {
@@ -54,7 +54,7 @@ where
         }
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Rhs);
         unsafe {
@@ -68,8 +68,12 @@ where
         }
     }
 
-    fn fill_lhs<E: Numeric>(tile: Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
-        Self::LhsLoader::fill_fragment(
+    fn load_lhs<E: Numeric>(
+        tile: Tile<E>,
+        lhs: &mut Self::LhsFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::LhsTileLoader::load_fragment(
             tile,
             lhs,
             CubeOption::new_None(),
@@ -77,8 +81,12 @@ where
         );
     }
 
-    fn fill_rhs<E: Numeric>(tile: Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        Self::RhsLoader::fill_fragment(
+    fn load_rhs<E: Numeric>(
+        tile: Tile<E>,
+        rhs: &mut Self::RhsFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::RhsTileLoader::load_fragment(
             tile,
             rhs,
             CubeOption::new_None(),
@@ -86,13 +94,13 @@ where
         );
     }
 
-    fn fill_acc<E: Numeric>(
+    fn load_acc<E: Numeric>(
         tile: Acc::Tile<E>,
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        Self::AccLoader::fill_fragment(
+        Self::AccTileLoader::load_fragment(
             tile,
             acc,
             CubeOption::new_Some(layout),
@@ -101,7 +109,7 @@ where
     }
 
     fn write_results<E: Numeric>(
-        out: &Self::Accumulator,
+        out: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
@@ -114,7 +122,7 @@ where
         );
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         let size = config.tile_size();
         unsafe {
             cmma::Matrix::<A>::uninitialized(

@@ -68,7 +68,7 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
         );
 
         let global_config = config.global_config();
-        let acc = GMM::init_accumulator(global_config);
+        let acc = GMM::init_accumulators(global_config);
 
         GPMM::execute::<MP, GMM>(a, b, c, out, ranges, acc, k_range, global_config);
     }
