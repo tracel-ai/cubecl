@@ -195,12 +195,11 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
+        let stage_shape = config.stage_shape(MatmulIdent::Lhs).runtime();
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         SyncPartialStageLoader::<MP::Lhs, Self::Config, LL>::new(
-            lhs.view(layout),
-            x_offset,
-            y_offset,
-            batch_offset,
+            lhs.view(layout)
+                .slice((batch_offset, x_offset, y_offset), stage_shape),
             MatmulIdent::Lhs,
             config,
         )
@@ -214,12 +213,11 @@ where
         batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
+        let stage_shape = config.stage_shape(MatmulIdent::Rhs).runtime();
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         SyncPartialStageLoader::<MP::Rhs, Self::Config, RL>::new(
-            rhs.view(layout),
-            x_offset,
-            y_offset,
-            batch_offset,
+            rhs.view(layout)
+                .slice((batch_offset, x_offset, y_offset), stage_shape),
             MatmulIdent::Rhs,
             config,
         )

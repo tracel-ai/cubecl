@@ -66,9 +66,6 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     /// Create a new SyncPartialLoader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords3d>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -77,7 +74,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, (batch_offset, x_offset, y_offset));
+        let tensor_reader = TensorReader::new(tensor);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((

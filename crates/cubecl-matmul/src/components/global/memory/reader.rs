@@ -12,7 +12,6 @@ pub struct TensorReader<EI: Numeric> {
     pub view: View<Line<EI>, Coords3d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
-    pub batch_offset: u32,
 }
 
 unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
@@ -36,13 +35,11 @@ pub enum ViewDirection {
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: View<Line<EG>, Coords3d>, offset_global: Coords3d) -> Self {
-        let (b, row, col) = offset_global;
+    pub fn new(view: View<Line<EG>, Coords3d>) -> Self {
         TensorReader::<EG> {
             view,
-            row_offset: RuntimeCell::new(row),
-            col_offset: RuntimeCell::new(col),
-            batch_offset: b,
+            row_offset: RuntimeCell::new(0),
+            col_offset: RuntimeCell::new(0),
         }
     }
 
@@ -190,7 +187,7 @@ impl<EG: Numeric> TensorReader<EG> {
         Window::<EG> {
             slice: self
                 .view
-                .slice((self.batch_offset, view_row, view_col), (1, size_h, size_w))
+                .slice((0, view_row, view_col), (1, size_h, size_w))
                 .to_linear_slice(),
             size,
         }
@@ -256,7 +253,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        self.view.read_checked((self.batch_offset, view_x, view_y))
+        self.view.read_checked((0, view_x, view_y))
     }
 }
 

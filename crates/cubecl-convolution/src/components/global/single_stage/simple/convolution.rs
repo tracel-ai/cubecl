@@ -129,14 +129,13 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
+        let stage_shape = config.stage_shape(MatmulIdent::Lhs).runtime();
         let check_spatial = comptime![config.check_spatial_bounds()];
         let layout_global = NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial);
         let layout_im2col = Im2colLayout::new(runtime_args, config);
+        let lhs = lhs.view(layout_global).view(layout_im2col);
         Self::LhsStageLoader::new(
-            lhs.view(layout_global).view(layout_im2col),
-            x_offset,
-            y_offset,
-            0,
+            lhs.slice((0, x_offset, y_offset), stage_shape),
             MatmulIdent::Lhs,
             config,
         )
@@ -149,13 +148,12 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
+        let stage_shape = config.stage_shape(MatmulIdent::Rhs).runtime();
         let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false);
         let layout_weight = WeightLayout::new(&rhs, runtime_args, config);
+        let rhs = rhs.view(layout_global).view(layout_weight);
         Self::RhsStageLoader::new(
-            rhs.view(layout_global).view(layout_weight),
-            x_offset,
-            y_offset,
-            0,
+            rhs.slice((0, x_offset, y_offset), stage_shape),
             MatmulIdent::Rhs,
             config,
         )

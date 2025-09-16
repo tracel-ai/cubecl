@@ -145,6 +145,17 @@ pub trait GlobalConfig:
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
 
+    /// Shape of the stage in terms of (batches, rows, columns).
+    /// Can be used to slice the global memory.
+    fn stage_shape(&self, ident: MatmulIdent) -> (u32, u32, u32) {
+        let stage = self.stage_config().tiling_scheme();
+        (
+            1,
+            stage.elements_in_stage_row(ident),
+            stage.elements_in_stage_col(ident),
+        )
+    }
+
     fn stage_memory_config(&self) -> Self::StageMemoryConfig;
 
     fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
