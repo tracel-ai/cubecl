@@ -21,6 +21,8 @@ pub struct PermutedLayout {
 }
 
 impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
+    /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
+    /// broadcast to.
     pub fn from_shape_strides(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
@@ -45,6 +47,8 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         Self::new(shape, strides, ScalarArg::new(len as u32), line_size)
     }
 
+    /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
+    /// broadcast to.
     pub fn from_shapes_strides_ref(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
