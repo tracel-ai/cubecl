@@ -9,7 +9,7 @@ use cubecl_core::{
 use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
-    stage::{FullReaderFamily, NumStages, PlaneMatmulFamily},
+    stage::{FullStageReaderFamily, NumStages, PlaneMatmulFamily},
     tile::{TileMatmulFamily, loader::Strided},
 };
 
@@ -35,9 +35,9 @@ impl<TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeO
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullReaderFamily,
-        FullReaderFamily,
-        Option<FullReaderFamily>,
+        FullStageReaderFamily,
+        FullStageReaderFamily,
+        Option<FullStageReaderFamily>,
     >;
     type GlobalConvolution = MultiStageTmaConvolutionFamily<Self::StageMatmul>;
 

@@ -9,11 +9,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 /// Full reader family for any precision
-pub struct FullReaderFamily;
+pub struct FullStageReaderFamily;
 
 #[derive(CubeType)]
 /// Reads any tile from the stage memory
-pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
+pub struct FullStageReader<ES: Numeric, T: TilingLayout> {
     /// Stage memory from which to read
     pub stage_memory: StageMemory<ES, T>,
 
@@ -22,16 +22,16 @@ pub struct FullStageToTileReader<ES: Numeric, T: TilingLayout> {
     pub stage_ident: StageIdent,
 }
 
-impl StageReaderFamily for FullReaderFamily {
+impl StageReaderFamily for FullStageReaderFamily {
     type TileKind = Strided;
-    type Reader<ES: Numeric, T: TilingLayout> = FullStageToTileReader<ES, T>;
+    type Reader<ES: Numeric, T: TilingLayout> = FullStageReader<ES, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> FullStageReader<ES, T> {
     /// Create a new FullStageToTileReader
     pub fn new(stage_memory: StageMemory<ES, T>, #[comptime] stage_ident: StageIdent) -> Self {
-        FullStageToTileReader::<ES, T> {
+        FullStageReader::<ES, T> {
             stage_memory,
             stage_ident,
         }
@@ -39,7 +39,7 @@ impl<ES: Numeric, T: TilingLayout> FullStageToTileReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> StageReader<ES> for FullStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StageReader<ES> for FullStageReader<ES, T> {
     type TileKind = Strided;
 
     fn read_tile<S: StageMemoryConfig>(
@@ -54,11 +54,11 @@ impl<ES: Numeric, T: TilingLayout> StageReader<ES> for FullStageToTileReader<ES,
 }
 
 /// Partial reader family for any precision
-pub struct PartialReaderFamily;
+pub struct PartialStageReaderFamily;
 
 #[derive(CubeType)]
 /// Reads tile from the stage memory for the specified stage ident only
-pub struct PartialStageToTileReader<ES: Numeric, T: TilingLayout> {
+pub struct PartialStageReader<ES: Numeric, T: TilingLayout> {
     pub stage_memory: StageMemory<ES, T>,
     #[cube(comptime)]
     pub stage_buffer: StageBuffer,
@@ -66,20 +66,20 @@ pub struct PartialStageToTileReader<ES: Numeric, T: TilingLayout> {
     stage_ident: StageIdent,
 }
 
-impl StageReaderFamily for PartialReaderFamily {
+impl StageReaderFamily for PartialStageReaderFamily {
     type TileKind = Strided;
-    type Reader<I: Numeric, T: TilingLayout> = PartialStageToTileReader<I, T>;
+    type Reader<I: Numeric, T: TilingLayout> = PartialStageReader<I, T>;
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> PartialStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> PartialStageReader<ES, T> {
     /// Create a new PartialStageToTileReader
     pub fn new(
         stage_memory: StageMemory<ES, T>,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] stage_ident: StageIdent,
-    ) -> PartialStageToTileReader<ES, T> {
-        PartialStageToTileReader::<ES, T> {
+    ) -> PartialStageReader<ES, T> {
+        PartialStageReader::<ES, T> {
             stage_memory,
             stage_buffer,
             stage_ident,
@@ -88,7 +88,7 @@ impl<ES: Numeric, T: TilingLayout> PartialStageToTileReader<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> StageReader<ES> for PartialStageToTileReader<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StageReader<ES> for PartialStageReader<ES, T> {
     type TileKind = Strided;
 
     fn read_tile<S: StageMemoryConfig>(
@@ -108,29 +108,29 @@ impl<ES: Numeric, T: TilingLayout> StageReader<ES> for PartialStageToTileReader<
 }
 
 /// Constant value fill reader
-pub struct FillReaderFamily;
+pub struct FillStageReaderFamily;
 
 #[derive(CubeType)]
 /// Fills tile with a single value
-pub struct FillReader<ES: Numeric> {
+pub struct FillStageReader<ES: Numeric> {
     value: ES,
 }
 
-impl StageReaderFamily for FillReaderFamily {
+impl StageReaderFamily for FillStageReaderFamily {
     type TileKind = Filled;
-    type Reader<I: Numeric, T: TilingLayout> = FillReader<I>;
+    type Reader<I: Numeric, T: TilingLayout> = FillStageReader<I>;
 }
 
 #[cube]
-impl<ES: Numeric> FillReader<ES> {
+impl<ES: Numeric> FillStageReader<ES> {
     /// Create a new [`FillReader`]
-    pub fn new(value: ES) -> FillReader<ES> {
-        FillReader::<ES> { value }
+    pub fn new(value: ES) -> FillStageReader<ES> {
+        FillStageReader::<ES> { value }
     }
 }
 
 #[cube]
-impl<ES: Numeric> StageReader<ES> for FillReader<ES> {
+impl<ES: Numeric> StageReader<ES> for FillStageReader<ES> {
     type TileKind = Filled;
 
     fn read_tile<S: StageMemoryConfig>(

@@ -2,7 +2,7 @@ use crate::components::AccG;
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
-use crate::components::global::GlobalWriter;
+use crate::components::global::StageUnloader;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
@@ -21,7 +21,7 @@ use cubecl_std::tensor::{View, layout::Coordinates};
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
+    type Writer<EO: Numeric>: StageUnloader<EO, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -52,15 +52,15 @@ pub struct PartitionedStageMatmul<
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsLoader>,
+            TileKind = LoaderKind<TM::LhsTileLoader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsLoader>,
+            TileKind = LoaderKind<TM::RhsTileLoader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccLoader>,
+            TileKind = LoaderKind<TM::AccTileLoader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -80,28 +80,28 @@ where
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsLoader>,
+            TileKind = LoaderKind<TM::LhsTileLoader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsLoader>,
+            TileKind = LoaderKind<TM::RhsTileLoader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccLoader>,
+            TileKind = LoaderKind<TM::AccTileLoader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
 
-    type LhsReader = RL;
-    type RhsReader = RR;
-    type AccReader = RA;
-    type Accumulator = Accumulators<MP, TM, S>;
-    type LhsTile = Sequence<TM::Lhs>;
-    type RhsTile = RhsTile<TM::Rhs>;
-    type Writer = SP::Writer<AccG<MP>>;
+    type LhsStageReader = RL;
+    type RhsStageReader = RR;
+    type AccStageReader = RA;
+    type Accumulators = Accumulators<MP, TM, S>;
+    type LhsTile = Sequence<TM::LhsFragment>;
+    type RhsTile = RhsTile<TM::RhsFragment>;
+    type StageUnloader = SP::Writer<AccG<MP>>;
     type WriteCoords = SP::WriteCoords;
 
     fn execute(
@@ -109,7 +109,7 @@ where
         rhs_reader: &RR,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
         partition_scheduler: &PartitionScheduler,
     ) {
@@ -130,7 +130,7 @@ where
         rhs_reader: &RR,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
         listener: SEL,
         partition_scheduler: &PartitionScheduler,
@@ -151,21 +151,21 @@ where
         PartitionMatmul::<MP, TM, RL, RR, RA, S>::init_tile_inputs(config)
     }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         PartitionMatmul::<MP, TM, RL, RR, RA, S>::init_accumulator(config)
     }
 
-    fn fill_accumulator(
-        reader: &Self::AccReader,
-        acc: &mut Self::Accumulator,
+    fn load_accumulators(
+        reader: &Self::AccStageReader,
+        acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     ) {
-        PartitionMatmul::<MP, TM, RL, RR, RA, S>::fill_accumulator(reader, acc, config);
+        PartitionMatmul::<MP, TM, RL, RR, RA, S>::load_accumulator(reader, acc, config);
     }
 
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
-        out: &mut Self::Writer,
+        out: &mut Self::StageUnloader,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
@@ -214,7 +214,7 @@ where
                 );
 
                 // Write the current tile result to global memory
-                Self::Writer::write::<G>(
+                Self::StageUnloader::write::<G>(
                     out,
                     smem_slice.to_slice(),
                     m_load_iter,
@@ -233,7 +233,7 @@ where
         x_offset: u32,
         y_offset: u32,
         batch_offset: u32,
-    ) -> Self::Writer {
+    ) -> Self::StageUnloader {
         SP::init_writer(tensor, x_offset, y_offset, batch_offset)
     }
 

@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::TensorReader;
 use crate::components::global::{CopyMechanism, GlobalConfig};
-use crate::components::stage::FullStageToTileReader;
+use crate::components::stage::FullStageReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
 use crate::components::{InputPrecision, MatmulIdent};
@@ -39,7 +39,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct AsyncFullLoader<
+pub struct AsyncFullStageLoader<
     IP: InputPrecision,
     CM: CopyMechanism,
     S: stage::StageConfig,
@@ -62,7 +62,7 @@ impl<
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
-> AsyncFullLoader<IP, CM, S, L, G>
+> AsyncFullStageLoader<IP, CM, S, L, G>
 {
     /// Create a new AsyncFullLoader
     pub fn new(
@@ -112,7 +112,7 @@ impl<
             MatmulIdent::Out => comptime!(unreachable!()),
         }
 
-        AsyncFullLoader::<IP, CM, S, L, G> {
+        AsyncFullStageLoader::<IP, CM, S, L, G> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -121,8 +121,8 @@ impl<
         }
     }
 
-    /// Accomplish the entire job of filling the stage memory
-    pub fn fill_stage(&mut self, mechanism: &CM, #[comptime] config: G) {
+    /// Accomplish the entire job of loading data into the stage memory
+    pub fn load_stage(&mut self, mechanism: &CM, #[comptime] config: G) {
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => L::new_job::<IP, G>(self.ident, config),
@@ -147,8 +147,8 @@ impl<
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(&self) -> FullStageToTileReader<IP::Stage, L::TilingLayout> {
-        FullStageToTileReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
+    pub fn reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
+        FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
