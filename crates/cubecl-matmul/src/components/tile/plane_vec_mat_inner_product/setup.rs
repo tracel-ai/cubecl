@@ -5,13 +5,13 @@ use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, Matm
 use crate::components::{error::MatmulSetupError, tile::loader::TileKind};
 use crate::components::{
     resource::ComputeResources,
-    tile::plane_vec_mat_inner_product::loader::{MatrixLoader, MatrixTileLoader},
+    tile::plane_vec_mat_inner_product::loader::{MatrixFragmentLoader, MatrixTileLoader},
 };
 use cubecl_core::prelude::*;
 
 impl<Kind: TileKind> TileMatmulFamily for PlaneVecMatInnerProduct<Kind>
 where
-    MatrixLoader<Kind>: MatrixTileLoader<TileKind = Kind>,
+    MatrixTileLoader<Kind>: MatrixFragmentLoader<TileKind = Kind>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;

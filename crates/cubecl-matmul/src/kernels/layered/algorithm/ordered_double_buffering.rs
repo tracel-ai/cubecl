@@ -4,7 +4,7 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::stage::{
-    FullReaderFamily, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
+    FullStageReaderFamily, PartialStageReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
 use crate::components::{
     MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
@@ -12,7 +12,7 @@ use crate::components::{
 use crate::components::{MultiRowStrategy, tile};
 use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    stage::FillReaderFamily,
+    stage::FillStageReaderFamily,
 };
 use crate::components::{
     global::load::sync_partial_cyclic::SyncPartialCyclicLoading, tile::loader::Strided,
@@ -43,9 +43,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullReaderFamily,
-        PartialReaderFamily,
-        FillReaderFamily,
+        FullStageReaderFamily,
+        PartialStageReaderFamily,
+        FillStageReaderFamily,
     >;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,

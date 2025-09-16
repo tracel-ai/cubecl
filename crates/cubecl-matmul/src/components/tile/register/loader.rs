@@ -7,7 +7,7 @@ use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
         Tile, TileConfig,
-        loader::{Filled, Loader, Strided, TileKind},
+        loader::{Filled, Strided, TileKind, TileLoader},
         register::{
             RegisterMatmul,
             config::{ProductType, RegisterConfig},
@@ -17,16 +17,16 @@ use crate::components::{
 
 /// Loader for the register matmul fragments. Implementation depends on the tile kind.
 #[derive(CubeType)]
-pub struct RegisterLoader<Kind: TileKind> {
+pub struct RegisterTileLoader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
 /// Generic register loader over any tile kind
 #[cube]
-pub(super) trait RegisterTileLoader: Loader {
+pub(super) trait RegisterFragmentLoader: TileLoader {
     /// Fill a fragment with data, with the implementation depending on the tile kind.
-    fn fill_fragment<E: Numeric, V: Numeric>(
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
@@ -35,8 +35,8 @@ pub(super) trait RegisterTileLoader: Loader {
 }
 
 #[cube]
-impl RegisterTileLoader for RegisterLoader<Strided> {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+impl RegisterFragmentLoader for RegisterTileLoader<Strided> {
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Array<E>,
         #[comptime] ident: StageIdent,
@@ -44,9 +44,9 @@ impl RegisterTileLoader for RegisterLoader<Strided> {
     ) {
         // Could these be unified somehow?
         match ident {
-            StageIdent::Lhs => fill_lhs(&tile, frag, config),
-            StageIdent::Rhs => fill_rhs(&tile, frag, config),
-            StageIdent::Acc => fill_acc(&tile, frag, config),
+            StageIdent::Lhs => load_lhs(&tile, frag, config),
+            StageIdent::Rhs => load_rhs(&tile, frag, config),
+            StageIdent::Acc => load_acc(&tile, frag, config),
         }
     }
 }
@@ -54,7 +54,7 @@ impl RegisterTileLoader for RegisterLoader<Strided> {
 type MM = RegisterMatmul<Strided>;
 
 #[cube]
-fn fill_lhs<E: Numeric, V: Numeric>(
+fn load_lhs<E: Numeric, V: Numeric>(
     tile: &Tile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
@@ -66,25 +66,25 @@ fn fill_lhs<E: Numeric, V: Numeric>(
     match config.product_type() {
         ProductType::Inner => match layout {
             MatrixLayout::RowMajor => {
-                MM::fill_plain(tile, frag, size.m(), size.k(), line_size);
+                MM::load_plain(tile, frag, size.m(), size.k(), line_size);
             }
             MatrixLayout::ColMajor => {
-                MM::fill_transposed(tile, frag, size.k(), size.m(), line_size);
+                MM::load_transposed(tile, frag, size.k(), size.m(), line_size);
             }
         },
         ProductType::Outer => match layout {
             MatrixLayout::RowMajor => {
-                MM::fill_transposed(tile, frag, size.m(), size.k(), line_size);
+                MM::load_transposed(tile, frag, size.m(), size.k(), line_size);
             }
             MatrixLayout::ColMajor => {
-                MM::fill_plain(tile, frag, size.k(), size.m(), line_size);
+                MM::load_plain(tile, frag, size.k(), size.m(), line_size);
             }
         },
     }
 }
 
 #[cube]
-fn fill_rhs<E: Numeric, V: Numeric>(
+fn load_rhs<E: Numeric, V: Numeric>(
     tile: &Tile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
@@ -96,25 +96,25 @@ fn fill_rhs<E: Numeric, V: Numeric>(
     match config.product_type() {
         ProductType::Inner => match layout {
             MatrixLayout::RowMajor => {
-                MM::fill_transposed(tile, frag, size.k(), size.n(), line_size);
+                MM::load_transposed(tile, frag, size.k(), size.n(), line_size);
             }
             MatrixLayout::ColMajor => {
-                MM::fill_plain(tile, frag, size.n(), size.k(), line_size);
+                MM::load_plain(tile, frag, size.n(), size.k(), line_size);
             }
         },
         ProductType::Outer => match layout {
             MatrixLayout::RowMajor => {
-                MM::fill_plain(tile, frag, size.k(), size.n(), line_size);
+                MM::load_plain(tile, frag, size.k(), size.n(), line_size);
             }
             MatrixLayout::ColMajor => {
-                MM::fill_transposed(tile, frag, size.n(), size.k(), line_size);
+                MM::load_transposed(tile, frag, size.n(), size.k(), line_size);
             }
         },
     }
 }
 
 #[cube]
-fn fill_acc<E: Numeric, V: Numeric>(
+fn load_acc<E: Numeric, V: Numeric>(
     tile: &Tile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
@@ -125,17 +125,17 @@ fn fill_acc<E: Numeric, V: Numeric>(
 
     match layout {
         MatrixLayout::RowMajor => {
-            MM::fill_plain(tile, frag, size.m(), size.n(), line_size);
+            MM::load_plain(tile, frag, size.m(), size.n(), line_size);
         }
         MatrixLayout::ColMajor => {
-            MM::fill_transposed(tile, frag, size.n(), size.m(), line_size);
+            MM::load_transposed(tile, frag, size.n(), size.m(), line_size);
         }
     }
 }
 
 #[cube]
-impl RegisterTileLoader for RegisterLoader<Filled> {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+impl RegisterFragmentLoader for RegisterTileLoader<Filled> {
+    fn load_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
@@ -155,11 +155,11 @@ impl RegisterTileLoader for RegisterLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> RegisterTileLoader for RegisterLoader<CubeOption<Inner>>
+impl<Inner: TileKind> RegisterFragmentLoader for RegisterTileLoader<CubeOption<Inner>>
 where
-    RegisterLoader<Inner>: RegisterTileLoader<TileKind = Inner>,
+    RegisterTileLoader<Inner>: RegisterFragmentLoader<TileKind = Inner>,
 {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
@@ -167,9 +167,9 @@ where
     ) {
         match tile {
             CubeOption::Some(tile) => {
-                RegisterLoader::<Inner>::fill_fragment(tile, fragment, ident, config)
+                RegisterTileLoader::<Inner>::load_fragment(tile, fragment, ident, config)
             }
-            CubeOption::None => RegisterLoader::<Filled>::fill_fragment::<E, V>(
+            CubeOption::None => RegisterTileLoader::<Filled>::load_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 ident,
@@ -179,6 +179,6 @@ where
     }
 }
 
-impl<Kind: TileKind> Loader for RegisterLoader<Kind> {
+impl<Kind: TileKind> TileLoader for RegisterTileLoader<Kind> {
     type TileKind = Kind;
 }
