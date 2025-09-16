@@ -52,4 +52,8 @@ impl StreamBackend for HipStreamBackend {
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
         event.wait_async(stream.sys);
     }
+
+    fn wait_event_sync(event: Self::Event) {
+        event.wait_sync();
+    }
 }
