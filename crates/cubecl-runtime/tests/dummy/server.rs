@@ -94,7 +94,11 @@ impl ComputeServer for DummyServer {
             .collect()
     }
 
-    fn read(&mut self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn read(
+        &mut self,
+        descriptors: Vec<CopyDescriptor>,
+        _stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
@@ -114,7 +118,11 @@ impl ComputeServer for DummyServer {
         })
     }
 
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        _stream_id: StreamId,
+    ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
             let resource = self.get_resource(descriptor.binding);
             let bytes = resource.resource().write();
@@ -123,7 +131,7 @@ impl ComputeServer for DummyServer {
         Ok(())
     }
 
-    fn sync(&mut self) -> DynFut<()> {
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
         Box::pin(async move {})
     }
 
@@ -163,7 +171,7 @@ impl ComputeServer for DummyServer {
         kernel.compute(&mut resources);
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, _stream_id: StreamId) {
         // Nothing to do with dummy backend.
     }
 
@@ -175,11 +183,15 @@ impl ComputeServer for DummyServer {
         self.memory_management.cleanup(true);
     }
 
-    fn start_profile(&mut self) -> ProfilingToken {
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
         self.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
         self.timestamps.stop(token)
     }
 

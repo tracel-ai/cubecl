@@ -1,4 +1,7 @@
-use crate::{memory_management::SliceBinding, server::Binding};
+use crate::{
+    memory_management::{SliceBinding, SliceId},
+    server::Binding,
+};
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 
@@ -56,7 +59,7 @@ struct SharedBindings<B: StreamBackend> {
     /// All the bindings shared in a single execution.
     ///
     /// We keep the binding alive so it won't be allocated in other concurrent streams.
-    _batch: Vec<SliceBinding>,
+    _batch: Vec<SliceId>,
     /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
     event: Option<B::Event>,
 }
@@ -159,7 +162,7 @@ impl<B: StreamBackend> MultiStream<B> {
     ///
     /// This checks for shared bindings from other streams and determines if synchronization is needed
     /// based on cursor positions.
-    fn update_shared_bindings<'a>(
+    pub(crate) fn update_shared_bindings<'a>(
         &mut self,
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
@@ -172,10 +175,10 @@ impl<B: StreamBackend> MultiStream<B> {
             if stream_id != binding.stream {
                 if let Some(last_synced) = current.last_synced.get(&binding.stream) {
                     if *last_synced < binding.cursor {
-                        analysis.shared(&stream_id, binding);
+                        analysis.shared(binding);
                     }
                 } else {
-                    analysis.shared(&stream_id, binding);
+                    analysis.shared(binding);
                 }
             }
         }
@@ -240,19 +243,70 @@ impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
     }
 }
 
-#[derive(Default)]
-struct SharedBindingAnalysis {
-    bindings: HashMap<StreamId, Vec<SliceBinding>>,
+#[derive(Default, Debug, PartialEq, Eq)]
+pub(crate) struct SharedBindingAnalysis {
+    bindings: HashMap<StreamId, Vec<SliceId>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, stream_id: &StreamId, binding: &Binding) {
-        match self.bindings.get_mut(stream_id) {
-            Some(bindings) => bindings.push(binding.memory.clone()),
+    fn shared(&mut self, binding: &Binding) {
+        match self.bindings.get_mut(&binding.stream) {
+            Some(bindings) => bindings.push(binding.memory.id().clone()),
             None => {
                 self.bindings
-                    .insert(*stream_id, vec![binding.memory.clone()]);
+                    .insert(binding.stream.clone(), vec![binding.memory.id().clone()]);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{memory_management::SliceHandle, server::Handle};
+
+    struct TestBackend;
+
+    #[derive(Debug)]
+    struct TestStream {}
+
+    #[derive(Debug)]
+    struct TestEvent {}
+
+    impl StreamBackend for TestBackend {
+        type Stream = TestStream;
+        type Event = TestEvent;
+
+        fn init_stream(_stream_id: StreamId) -> Self::Stream {
+            TestStream {}
+        }
+
+        fn flush(_stream: &mut Self::Stream) -> Self::Event {
+            TestEvent {}
+        }
+
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+
+        fn wait_event_sync(_event: Self::Event) {}
+    }
+
+    #[test]
+    fn test_analysis() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = Handle::new(SliceHandle::new(), None, None, stream_1, 0, 10).binding();
+        let binding_2 = Handle::new(SliceHandle::new(), None, None, stream_2, 0, 10).binding();
+
+        let mut ms = MultiStream::<TestBackend>::new();
+        ms.get(stream_1);
+        ms.get(stream_2);
+
+        let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
+
+        let mut expected = SharedBindingAnalysis::default();
+        expected.shared(&binding_2);
+
+        assert_eq!(analysis, expected);
     }
 }
