@@ -203,7 +203,7 @@ impl<B: StreamBackend> StreamWrapper<B> {
         let should_run_time = frequency >= self.cursor - self.last_gc;
         let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
 
-        if should_run_time | should_run_batch {
+        if should_run_time || should_run_batch {
             self.last_gc = self.cursor;
             let batch_size = match should_run_batch {
                 true => GC_MAX_QUEUED_FACTOR * GC_BATCH_SIZE,
