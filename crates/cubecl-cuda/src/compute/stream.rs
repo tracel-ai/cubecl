@@ -1,7 +1,6 @@
+use crate::compute::sync::Fence;
 use cubecl_common::stream_id::StreamId;
 use cubecl_runtime::stream::StreamBackend;
-
-use crate::compute::sync::Fence;
 
 #[derive(Debug)]
 pub struct Stream {
@@ -38,5 +37,9 @@ impl StreamBackend for CudaStreamBackend {
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
         event.wait_async(stream.sys);
+    }
+
+    fn wait_event_sync(event: Self::Event) {
+        event.wait_sync();
     }
 }
