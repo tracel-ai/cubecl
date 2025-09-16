@@ -1,10 +1,13 @@
 use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::impl_virtual_storage;
+use crate::storage::{
+    PhysicalStorageHandle, PhysicalStorageId, VirtualAddressSpaceHandle, VirtualSpaceId,
+    VirtualStorage,
+};
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
-use crate::storage::{VirtualStorage, VirtualAddressSpaceHandle, PhysicalStorageHandle, PhysicalStorageId, VirtualSpaceId};
-use crate::impl_virtual_storage;
 /// The bytes storage maps ids to pointers of bytes in a contiguous layout.
 #[derive(Default)]
 pub struct BytesStorage {

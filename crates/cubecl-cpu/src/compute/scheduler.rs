@@ -5,13 +5,13 @@ use std::{collections::HashMap, sync::mpsc};
 use cubecl_core::{ExecutionMode, compute::CubeTask, prelude::CompiledKernel, server::Bindings};
 use cubecl_runtime::{id::KernelId, memory_management::MemoryManagement, storage::BytesStorage};
 
+use super::compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, STOPPED_COUNTER};
+use super::{compute_task::ComputeTask, worker::Worker};
 use crate::{
     CpuCompiler,
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData},
 };
 use cubecl_runtime::storage::BytesVirtualStorage;
-use super::compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, STOPPED_COUNTER};
-use super::{compute_task::ComputeTask, worker::Worker};
 
 pub struct Scheduler {
     workers: Vec<Worker>,

@@ -8,7 +8,6 @@ use crate::{
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
 
-
 /// Defines if data uses a full memory chunk or a slice of it.
 #[derive(Clone, Debug)]
 pub struct StorageUtilization {

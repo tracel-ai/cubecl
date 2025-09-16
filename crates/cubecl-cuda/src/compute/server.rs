@@ -15,6 +15,8 @@ use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use super::storage::gpu::{GpuResource, GpuStorage};
 use super::sync::{Fence, SyncStream};
+use crate::compute::storage::cpu::CpuVirtualStorage;
+use crate::compute::storage::gpu::GpuVirtualStorage;
 use crate::compute::{
     DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
     storage::cpu::PinnedMemoryStorage,
@@ -52,8 +54,6 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 use std::{ffi::CString, mem::MaybeUninit};
-use crate::compute::storage::gpu::GpuVirtualStorage;
-use crate::compute::storage::cpu::CpuVirtualStorage;
 //use crate::compute::CudaStorageType;
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
@@ -71,7 +71,7 @@ pub(crate) struct CudaContext {
     context: *mut CUctx_st,
     pub(crate) stream: cudarc::driver::sys::CUstream,
     pub(crate) memory_management_gpu: MemoryManagement<GpuStorage, GpuVirtualStorage>,
-    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage,CpuVirtualStorage>,
+    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage, CpuVirtualStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,

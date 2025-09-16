@@ -12,6 +12,7 @@ use crate::{
     },
     device::CudaDevice,
 };
+use crate::compute::storage::gpu::GpuVirtualStorage;
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
@@ -176,8 +177,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         alignment: mem_alignment as u64,
         data_transfer_async: true,
         virtual_memory: vmm_supported,
-        min_granularity: granularity // When virtual memory is false, this is unused
-
+        min_granularity: granularity, // When virtual memory is false, this is unused
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -229,9 +229,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
+    let virtual_storage_gpu = GpuVirtualStorage::new(device_ptr, granularity);
     let memory_management_gpu = MemoryManagement::from_configuration(
         storage,
-         None, // PLACEHOLDER. NEED TO SET THIS
+        None, // PLACEHOLDER. NEED TO SET THIS
         &mem_properties,
         options.memory_config.clone(),
     );
@@ -245,7 +246,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             alignment: PINNED_MEMORY_ALIGNMENT as u64,
             data_transfer_async: false,
             virtual_memory: false,
-            min_granularity: 0 // When virtual memory is false, this is unused
+            min_granularity: 0, // When virtual memory is false, this is unused
         },
         options.memory_config,
     );

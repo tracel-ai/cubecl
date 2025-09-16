@@ -13,14 +13,13 @@ use cubecl_core::{
 use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{MemoryManagement, offset_handles},
-    storage::{BindingResource, BytesStorage,BytesVirtualStorage, ComputeStorage},
+    storage::{BindingResource, BytesStorage, BytesVirtualStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
 
 use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
 
 use super::scheduler::Scheduler;
-
 
 #[derive(Debug)]
 pub struct CpuServer {

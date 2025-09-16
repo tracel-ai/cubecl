@@ -1,10 +1,10 @@
 use super::{SliceBinding, SliceHandle, SliceId};
+use crate::storage::VirtualStorage;
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
-use crate::storage::VirtualStorage;
 #[derive(new, Debug)]
 pub(crate) struct Slice {
     pub storage: StorageHandle,
@@ -58,11 +58,6 @@ pub trait MemoryPool {
     );
 }
 
-
-
-
-
-
 /// Trait for memory pools that use virtual memory storages.
 /// It may look similar to existing memory pool.
 /// However, I think for scalability is better to have a separate trait, as actual implementations may differ.
@@ -72,7 +67,11 @@ pub trait VirtualMemoryPool {
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn try_reserve<Storage: VirtualStorage>(&mut self,storage: &mut Storage, size: u64) -> Option<SliceHandle>;
+    fn try_reserve<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Option<SliceHandle>;
 
     fn alloc<Storage: VirtualStorage>(
         &mut self,

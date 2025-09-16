@@ -221,7 +221,7 @@ pub(crate) fn create_client_on_setup(
         alignment: limits.min_storage_buffer_offset_alignment as u64,
         data_transfer_async: false,
         virtual_memory: false,
-        min_granularity: 0 // When virtual memory is false, this is unused
+        min_granularity: 0, // When virtual memory is false, this is unused
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {

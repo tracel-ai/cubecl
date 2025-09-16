@@ -1,8 +1,8 @@
 use cubecl_common::bytes::{Allocation, AllocationController};
 use cubecl_core::server::{Binding, IoError};
+use cubecl_runtime::storage::BytesVirtualStorage;
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 use std::{alloc::Layout, ptr::NonNull};
-use cubecl_runtime::storage::BytesVirtualStorage;
 pub struct CpuAllocController {
     binding: Option<Binding>,
 }

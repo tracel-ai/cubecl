@@ -340,8 +340,6 @@ pub trait VirtualStorage: Send {
     fn flush(&mut self);
 }
 
-
-
 /// This macro allows to automatically implement this trait for any backend.
 /// Virtual Storage use is optional. I created this macro that creates a placeholder implementation so that [`MemoryManager`] can be created for any backend
 /// Note that the resulting implementation will be a placeholder, but the virtual storage will not be usable.

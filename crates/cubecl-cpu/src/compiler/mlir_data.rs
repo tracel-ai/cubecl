@@ -3,9 +3,9 @@ use std::sync::Arc;
 use cubecl_core::server::{Bindings, Handle, ScalarBinding};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
+use super::passes::shared_memories::SharedMemories;
 use crate::compiler::{builtin::BuiltinArray, memref::LineMemRef};
 use cubecl_runtime::storage::BytesVirtualStorage;
-use super::passes::shared_memories::SharedMemories;
 
 pub struct SharedMlirData {
     pub args_zero_indirection: Vec<LineMemRef>,

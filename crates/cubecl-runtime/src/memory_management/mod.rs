@@ -87,7 +87,7 @@ pub struct MemoryDeviceProperties {
     /// Whether this device supports virtual memory
     pub virtual_memory: bool,
     // Minimum allocation granularity of the target device (will be 0 if it is not supported.)
-    pub min_granularity: usize
+    pub min_granularity: usize,
 }
 
 /// Properties of the device related to the accelerator hardware.

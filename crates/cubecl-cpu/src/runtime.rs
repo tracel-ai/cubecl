@@ -64,7 +64,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         alignment: ALIGNMENT,
         data_transfer_async: false,
         virtual_memory: false,
-        min_granularity: 0 // When virtual memory is false, this is unused
+        min_granularity: 0, // When virtual memory is false, this is unused
     };
 
     let memory_management =

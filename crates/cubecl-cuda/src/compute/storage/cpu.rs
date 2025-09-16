@@ -1,5 +1,11 @@
 use cubecl_core::server::IoError;
-use cubecl_runtime::{impl_virtual_storage, storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization,  VirtualStorage, VirtualAddressSpaceHandle, VirtualSpaceId, PhysicalStorageId,PhysicalStorageHandle }};
+use cubecl_runtime::{
+    impl_virtual_storage,
+    storage::{
+        ComputeStorage, PhysicalStorageHandle, PhysicalStorageId, StorageHandle, StorageId,
+        StorageUtilization, VirtualAddressSpaceHandle, VirtualSpaceId, VirtualStorage,
+    },
+};
 use std::{collections::HashMap, ffi::c_void};
 
 /// Memory alignment for pinned host memory, set to the size of `u128` for optimal performance.

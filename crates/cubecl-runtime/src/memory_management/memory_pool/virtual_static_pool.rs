@@ -1,14 +1,10 @@
 use super::{SliceBinding, SliceHandle, SliceId, calculate_padding};
 use crate::memory_management::MemoryUsage;
+use crate::memory_management::memory_pool::VirtualMemoryPool;
 use crate::server::IoError;
-use crate::storage::{
-    PhysicalStorageHandle,  StorageHandle,
-    VirtualSpaceId, VirtualStorage,
-};
+use crate::storage::{PhysicalStorageHandle, StorageHandle, VirtualSpaceId, VirtualStorage};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
-use crate::memory_management::memory_pool::VirtualMemoryPool;
-
 
 /// A virtual memory pool that leverages automatic merge/split behavior.
 /// The main advantage of using virtual memory is that it allows to merge/split pages without
@@ -22,9 +18,7 @@ use crate::memory_management::memory_pool::VirtualMemoryPool;
 /// When a [`VirtualSlice`] is freed, its physical blocks are unmapped and virtual memory is released.
 /// The physical blocks go to the [`free_list`] so that they can be remapped later to build a new [`VirtualSlice`].
 /// As we are working with virtual memory, virtual address spaces stay always contiguous, no matter the physical blocks are not contiguous in physical memory.
-pub(crate) struct VirtualStaticPool{
-
-
+pub(crate) struct VirtualStaticPool {
     // Physical block tracking (never freed, only reused)
     physical_blocks: Vec<PhysicalStorageHandle>,
     free_block_indices: Vec<usize>, // Indices into physical_blocks that are free
@@ -76,7 +70,6 @@ impl VirtualSlice {
         }
     }
 
-
     fn id(&self) -> SliceId {
         *self.handle.id()
     }
@@ -102,7 +95,11 @@ impl VirtualSlice {
 }
 
 impl VirtualStaticPool {
-    pub(crate) fn new<Storage: VirtualStorage>(storage: &Storage, block_size: u64, max_alloc_size: u64) -> Self {
+    pub(crate) fn new<Storage: VirtualStorage>(
+        storage: &Storage,
+        block_size: u64,
+        max_alloc_size: u64,
+    ) -> Self {
         let alignment = storage.alignment() as u64;
         let block_size = block_size.next_multiple_of(alignment);
 
@@ -117,7 +114,11 @@ impl VirtualStaticPool {
     }
 
     /// Get or allocate physical blocks
-    fn get_physical_blocks<Storage: VirtualStorage>(&mut self, storage: &mut Storage, count: usize) -> Result<Vec<usize>, IoError> {
+    fn get_physical_blocks<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        count: usize,
+    ) -> Result<Vec<usize>, IoError> {
         let mut block_indices = Vec::new();
 
         // First try to reuse existing free blocks
@@ -139,8 +140,11 @@ impl VirtualStaticPool {
     /// Blocks can be either freshly allocated or reused from the freelist.
     /// The logic to determine where do blocks come from is determined by the function
     /// [`get_physical_blocks`]
-    fn create_allocation<Storage: VirtualStorage>(&mut self, storage: &mut Storage, size: u64) -> Result<VirtualSlice, IoError> {
-
+    fn create_allocation<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<VirtualSlice, IoError> {
         let padding = calculate_padding(size, self.alignment);
         let total_size = size + padding;
         let blocks_needed = total_size.div_ceil(self.block_size) as usize;
@@ -180,7 +184,11 @@ impl VirtualStaticPool {
     ///
     /// Here, by unmapping and then releasing the virtual space,
     /// we make physical blocks available for reuse.
-    fn free_allocation<Storage: VirtualStorage>(&mut self,storage: &mut Storage,slice: VirtualSlice) -> Result<(), IoError> {
+    fn free_allocation<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        slice: VirtualSlice,
+    ) -> Result<(), IoError> {
         // Unmap the virtual-to-physical mapping
         storage.try_unmap(slice.storage_handle.id)?;
 
@@ -212,8 +220,12 @@ impl VirtualMemoryPool for VirtualStaticPool {
     /// Although Virtual Slices are dynamically sized, physical blocks are always the same size.
     /// Idea for the future is to add a [`SlicedVirtualPool`] that allows to use dynamically-sized physical blocks.
     /// For now, I am following the pattern in `StaticPool`.
-    fn try_reserve<Storage: VirtualStorage>(&mut self, _storage: &mut Storage, _size: u64) -> Option<SliceHandle> {
-       None
+    fn try_reserve<Storage: VirtualStorage>(
+        &mut self,
+        _storage: &mut Storage,
+        _size: u64,
+    ) -> Option<SliceHandle> {
+        None
     }
 
     /// Create new allocation with fresh virtual address space
@@ -277,7 +289,6 @@ impl VirtualMemoryPool for VirtualStaticPool {
                     self.free_allocation(storage, slice).ok();
                 }
             }
-
-          }
+        }
     }
 }

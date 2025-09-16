@@ -3,7 +3,7 @@ use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cubecl_runtime::storage::{
     PhysicalStorageHandle, PhysicalStorageId, VirtualAddressSpaceHandle, VirtualMapping,
-    VirtualSpaceId, VirtualStorage
+    VirtualSpaceId, VirtualStorage,
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::{
@@ -132,7 +132,6 @@ impl PtrBindings {
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
 
-
     fn alignment(&self) -> usize {
         self.mem_alignment
     }
@@ -184,7 +183,6 @@ impl ComputeStorage for GpuStorage {
         self.perform_deallocations();
     }
 }
-
 
 /// Internal representation of a CUDA virtual memory range.
 ///
@@ -352,7 +350,7 @@ impl GpuVirtualStorage {
     /// # Notes
     /// The granularity should be obtained by querying the device properties at runtime
     /// using `cuMemGetAllocationGranularity` to ensure optimal performance.
-    fn new(device_id: i32, granularity: usize) -> Self {
+    pub fn new(device_id: i32, granularity: usize) -> Self {
         Self {
             device_id,
             reserved_spaces: HashMap::new(),

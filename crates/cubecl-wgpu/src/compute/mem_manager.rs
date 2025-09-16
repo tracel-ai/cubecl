@@ -1,3 +1,4 @@
+use crate::WgpuVirtualStorage;
 use crate::{WgpuResource, WgpuStorage};
 use cubecl_core::{
     MemoryConfiguration,
@@ -10,7 +11,6 @@ use cubecl_runtime::{
     storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
-use crate::WgpuVirtualStorage;
 
 #[derive(Debug)]
 pub(crate) struct WgpuMemManager {
@@ -19,7 +19,6 @@ pub(crate) struct WgpuMemManager {
     memory_pool_staging: MemoryManagement<WgpuStorage, WgpuVirtualStorage>,
     uniforms: Vec<SliceHandle>,
 }
-
 
 impl WgpuMemManager {
     pub(crate) fn new(
@@ -39,7 +38,7 @@ impl WgpuMemManager {
                     | BufferUsages::COPY_DST
                     | BufferUsages::INDIRECT,
             ),
-            None,  // Virtual Storage is set to none as it is not implemented yet for this backend.
+            None, // Virtual Storage is set to none as it is not implemented yet for this backend.
             &memory_properties,
             memory_config,
         );
