@@ -6,7 +6,7 @@ use cubecl_core::{self as cubecl, unexpanded};
 use crate::tensor::{
     ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
     VirtualViewMut,
-    layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand},
+    layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
 };
 
 /// A conceptual view of an underlying linear storage.
@@ -228,9 +228,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    /// Create a slice starting from `pos`, with `size`.
-    /// The layout handles translation into concrete indices.
-    pub fn slice(&self, pos: C, size: u32) -> Slice<E, ReadOnly> {
+    pub fn to_linear_slice(&self) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
 
@@ -267,16 +265,6 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_checked_method(scope, pos)
     }
 
-    /// Expand method for [TensorView::slice]
-    pub fn __expand_slice_method(
-        self,
-        scope: &mut Scope,
-        pos: C::ExpandType,
-        size: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadOnly> {
-        self.inner.read().__expand_slice_method(scope, pos, size)
-    }
-
     /// Expand method for [TensorView::line_size]
     pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
         self.inner.read().line_size()
@@ -284,6 +272,35 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
 
     pub fn line_size(&self) -> u32 {
         self.inner.read().line_size()
+    }
+
+    pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
+        let shape = self.inner.read().__expand_shape_method(scope);
+        let origin = C::__expand_origin(scope, shape.clone());
+        self.inner
+            .read()
+            .__expand_to_linear_slice_method(scope, origin, shape)
+    }
+
+    pub(super) fn __expand_to_linear_slice_inner_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> SliceExpand<E, ReadOnly> {
+        self.inner
+            .read()
+            .__expand_to_linear_slice_method(scope, pos, size)
+    }
+}
+
+#[cube]
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {
+    /// Create a slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    pub fn slice(&self, pos: C, size: C) -> View<E, C, ReadOnly> {
+        let layout = SliceLayout::new(pos, size);
+        self.view(layout)
     }
 }
 

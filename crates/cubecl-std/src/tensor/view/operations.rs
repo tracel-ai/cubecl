@@ -28,7 +28,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     /// Create a slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused)]
-    fn slice(&self, pos: C, size: u32) -> Slice<T, ReadOnly> {
+    fn to_linear_slice(&self, pos: C, size: C) -> Slice<T, ReadOnly> {
         unexpanded!()
     }
 
@@ -167,7 +167,7 @@ macro_rules! impl_operations_1d {
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
             }
 
-            fn __expand_slice_method(
+            fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
@@ -257,7 +257,7 @@ mod slice {
             <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
@@ -342,7 +342,7 @@ mod virtual_tensor {
             <Self as ListExpand<Line<T>>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
@@ -533,17 +533,21 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_slice_method(
+            fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
                 pos: <C>::ExpandType,
-                size: ExpandElementTyped<u32>,
+                size: <C>::ExpandType,
             ) -> SliceExpand<T, ReadOnly> {
                 let pos = self
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, pos);
-                self.view.__expand_slice_method(scope, pos, size)
+                let size = self
+                    .layout
+                    .clone()
+                    .__expand_to_source_pos_method(scope, size);
+                self.view.__expand_to_linear_slice_method(scope, pos, size)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
@@ -641,13 +645,13 @@ mod view {
             ViewExpand::__expand_read_unchecked_method(self.clone(), scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: <C>::ExpandType,
-            size: ExpandElementTyped<u32>,
+            size: <C>::ExpandType,
         ) -> SliceExpand<T, ReadOnly> {
-            ViewExpand::__expand_slice_method(self.clone(), scope, pos, size)
+            ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, size)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {

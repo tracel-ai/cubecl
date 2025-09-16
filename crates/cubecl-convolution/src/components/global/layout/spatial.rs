@@ -24,7 +24,49 @@ impl NhwcCoordsExpand {
     }
 }
 
-impl Coordinates for NhwcCoords {}
+#[cube]
+impl Coordinates for NhwcCoords {
+    fn add(this: Self, other: Self) -> Self {
+        let mut spatial = Sequence::new();
+
+        #[unroll]
+        for i in 0..comptime![this.spatial.len()] {
+            spatial.push(*this.spatial.index(i) + *other.spatial.index(i));
+        }
+
+        NhwcCoords {
+            batch: this.batch + other.batch,
+            spatial,
+            channel: this.channel + other.channel,
+        }
+    }
+
+    fn is_in_bounds(pos: Self, bounds: Self) -> bool {
+        let mut out = pos.batch < bounds.batch && pos.channel < bounds.channel;
+
+        #[unroll]
+        for i in 0..comptime![pos.spatial.len()] {
+            out &= *pos.spatial.index(i) < *bounds.spatial.index(i);
+        }
+
+        out
+    }
+
+    fn origin(this: &Self) -> Self {
+        let spatial_len = comptime![this.spatial.len()];
+        let mut spatial = Sequence::new();
+
+        for _ in 0..spatial_len {
+            spatial.push(0i32.runtime());
+        }
+
+        NhwcCoords {
+            batch: 0u32,
+            spatial,
+            channel: 0u32,
+        }
+    }
+}
 
 /// Layout for a spatial (i.e. NHWC) tensor. Bounds check only applies to spatial dimensions, not
 /// channel or batch (because these are implicitly checked in the layouts used with spatial tensors).

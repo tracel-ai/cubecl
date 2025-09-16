@@ -182,10 +182,16 @@ impl<EG: Numeric> TensorReader<EG> {
             max_lines_in_window
         };
 
+        let (size_h, size_w) = match config.matrix_layout {
+            MatrixLayout::RowMajor => (1, size * line_size),
+            MatrixLayout::ColMajor => (size * line_size, 1),
+        };
+
         Window::<EG> {
             slice: self
                 .view
-                .slice((self.batch_offset, view_row, view_col), size),
+                .slice((self.batch_offset, view_row, view_col), (1, size_h, size_w))
+                .to_linear_slice(),
             size,
         }
     }

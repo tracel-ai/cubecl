@@ -55,14 +55,18 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
 
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let tile = Tile::<AP::EI> {
-            slice: self.tensor_reader.view.slice(
-                (
-                    self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
-                    0u32.runtime(),
-                    0u32.runtime(),
-                ),
-                attention_tile_size.query_size(),
-            ),
+            slice: self
+                .tensor_reader
+                .view
+                .slice(
+                    (
+                        self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
+                        0u32.runtime(),
+                        0u32.runtime(),
+                    ),
+                    (1u32, 1u32, attention_tile_size.query_size()).runtime(),
+                )
+                .to_linear_slice(),
             stride: attention_tile_size.num_cols(FlashIdent::Query),
             layout: MatrixLayout::RowMajor,
         };
