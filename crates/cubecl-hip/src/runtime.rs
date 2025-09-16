@@ -156,6 +156,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     };
     let memory_management_gpu = MemoryManagement::from_configuration(
         storage,
+         None, // Virtual storage set to none for HIP (NOT IMPLEMENTED YET)
         &mem_properties,
         options.memory_config.clone(),
     );
@@ -163,6 +164,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     // expect the CPU to have at least the same amount of RAM as GPU memory.
     let memory_management_cpu = MemoryManagement::from_configuration(
         PinnedMemoryStorage::new(),
+        None, // Virtual storage set to none for HIP (NOT IMPLEMENTED YET)
         &MemoryDeviceProperties {
             max_page_size: mem_properties.max_page_size,
             alignment: PINNED_MEMORY_ALIGNMENT as u64,

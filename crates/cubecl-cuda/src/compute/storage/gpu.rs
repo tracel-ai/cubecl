@@ -137,14 +137,6 @@ impl ComputeStorage for GpuStorage {
         self.mem_alignment
     }
 
-    fn supports_virtual(&self) -> bool {
-        true
-    }
-
-    fn as_virtual(&mut self, device_id) -> Option<Box<dyn VirtualStorage>> {
-        Some(Box::new(GpuVirtualStorage::new(device_id, self.mem_alignment)))
-    }
-
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = self
             .memory

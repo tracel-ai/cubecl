@@ -1,5 +1,5 @@
 use cubecl_core::server::IoError;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::{impl_virtual_storage, storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization,  VirtualStorage, VirtualAddressSpaceHandle, VirtualSpaceId, PhysicalStorageId,PhysicalStorageHandle }};
 use std::{collections::HashMap, ffi::c_void};
 
 /// Memory alignment for pinned host memory, set to the size of `u128` for optimal performance.
@@ -51,16 +51,6 @@ unsafe impl Send for PinnedMemoryStorage {}
 
 impl ComputeStorage for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
-
-
-    fn as_virtual(&mut self, _device_id: i32) -> Option<Box<dyn VirtualStorage>>{
-        None
-    }
-
-
-    fn supports_virtual(&self) -> bool{
-        false
-    }
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -117,3 +107,6 @@ impl ComputeStorage for PinnedMemoryStorage {
         }
     }
 }
+
+// Dummy impl CpuVirtualStorage.
+impl_virtual_storage!(CpuVirtualStorage, PinnedMemoryResource);

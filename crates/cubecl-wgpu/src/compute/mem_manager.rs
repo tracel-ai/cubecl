@@ -10,14 +10,16 @@ use cubecl_runtime::{
     storage::ComputeStorage,
 };
 use wgpu::BufferUsages;
+use crate::WgpuVirtualStorage;
 
 #[derive(Debug)]
 pub(crate) struct WgpuMemManager {
-    memory_pool: MemoryManagement<WgpuStorage>,
-    memory_uniforms: MemoryManagement<WgpuStorage>,
-    memory_pool_staging: MemoryManagement<WgpuStorage>,
+    memory_pool: MemoryManagement<WgpuStorage, WgpuVirtualStorage>,
+    memory_uniforms: MemoryManagement<WgpuStorage, WgpuVirtualStorage>,
+    memory_pool_staging: MemoryManagement<WgpuStorage, WgpuVirtualStorage>,
     uniforms: Vec<SliceHandle>,
 }
+
 
 impl WgpuMemManager {
     pub(crate) fn new(
@@ -37,6 +39,7 @@ impl WgpuMemManager {
                     | BufferUsages::COPY_DST
                     | BufferUsages::INDIRECT,
             ),
+            None,  // Virtual Storage is set to none as it is not implemented yet for this backend.
             &memory_properties,
             memory_config,
         );
@@ -47,6 +50,7 @@ impl WgpuMemManager {
                 device.clone(),
                 wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
             ),
+            None,
             &memory_properties,
             // Unfortunately, we can't reuse a different part of a buffer for different reads, so we
             // can't have a single binding with multiple slices allocated.
@@ -61,6 +65,7 @@ impl WgpuMemManager {
                 device.clone(),
                 BufferUsages::UNIFORM | BufferUsages::STORAGE | BufferUsages::COPY_DST,
             ),
+            None,
             &memory_properties,
             MemoryConfiguration::ExclusivePages,
         );

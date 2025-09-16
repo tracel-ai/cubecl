@@ -63,23 +63,28 @@ pub trait MemoryPool {
 
 
 
-
+/// Trait for memory pools that use virtual memory storages.
+/// It may look similar to existing memory pool.
+/// However, I think for scalability is better to have a separate trait, as actual implementations may differ.
+/// For example, you may want to add an [`unmap`] method here that releases a single page without deallocating memory, which probably would facilitate memory reuse and prevent OOM errors.
 pub trait VirtualMemoryPool {
     fn max_alloc_size(&self) -> u64;
 
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
 
-    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
+    fn try_reserve<Storage: VirtualStorage>(&mut self,storage: &mut Storage, size: u64) -> Option<SliceHandle>;
 
-    fn alloc(
+    fn alloc<Storage: VirtualStorage>(
         &mut self,
+        storage: &mut Storage,
         size: u64,
     ) -> Result<SliceHandle, IoError>;
 
     fn get_memory_usage(&self) -> MemoryUsage;
 
-    fn cleanup(
+    fn cleanup<Storage: VirtualStorage>(
         &mut self,
+        storage: &mut Storage,
         alloc_nr: u64,
         explicit: bool,
     );

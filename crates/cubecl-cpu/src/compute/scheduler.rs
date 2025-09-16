@@ -9,7 +9,7 @@ use crate::{
     CpuCompiler,
     compiler::{MlirCompiler, MlirCompilerOptions, mlir_data::MlirData},
 };
-
+use cubecl_runtime::storage::BytesVirtualStorage;
 use super::compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, STOPPED_COUNTER};
 use super::{compute_task::ComputeTask, worker::Worker};
 
@@ -48,7 +48,7 @@ impl Scheduler {
         cube_count: [u32; 3],
         bindings: Bindings,
         kind: ExecutionMode,
-        memory_management: &mut MemoryManagement<BytesStorage>,
+        memory_management: &mut MemoryManagement<BytesStorage, BytesVirtualStorage>,
     ) {
         let kernel = self
             .compilation_cache

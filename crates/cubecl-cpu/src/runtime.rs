@@ -68,7 +68,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     };
 
     let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+        MemoryManagement::from_configuration(storage, None, &mem_properties, options.memory_config);
     let mut device_props = DeviceProperties::new(
         Default::default(),
         mem_properties,

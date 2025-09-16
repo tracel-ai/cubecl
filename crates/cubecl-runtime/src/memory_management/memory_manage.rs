@@ -90,12 +90,13 @@ pub enum MemoryAllocationMode {
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
-pub struct MemoryManagement<Storage> {
+pub struct MemoryManagement<Storage, Virtual> {
     static_pool: StaticPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
     virtual_pool: Option<VirtualStaticPool>,
+    virtual_storage: Option<Virtual>,
     mode: MemoryAllocationMode,
 }
 
@@ -127,10 +128,11 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage, Virtual> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
+        virtual_storage: Option<Virtual>,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
@@ -252,12 +254,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
-
-        let (virtual_pool, virtual_storage) = if properties.virtual_memory && storage.supports_virtual() {
-            let virtual_storage = storage.as_virtual();
-            (Some(VirtualStaticPool::new(&virtual_storage,properties.min_granularity as u64, properties.max_page_size)), virtual_storage)
+        let virtual_pool = if properties.virtual_memory && virtual_storage.is_some() {
+            let virtual_ref = virtual_storage.as_ref().expect("This is unreachable, as virtual storage must be defined at this point.");
+            Some(VirtualStaticPool::new(virtual_ref, properties.min_granularity as u64, properties.max_page_size))
         } else {
-            (None, None)
+            None
         };
 
         Self {
@@ -265,7 +266,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             pools,
             storage,
             virtual_pool,
-
+            virtual_storage,
             alloc_reserve_count: 0,
             mode: MemoryAllocationMode::Auto,
         }
@@ -376,7 +377,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 }
 
-impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
+impl<Storage, Virtual> core::fmt::Debug for MemoryManagement<Storage, Virtual> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(
             alloc::format!(

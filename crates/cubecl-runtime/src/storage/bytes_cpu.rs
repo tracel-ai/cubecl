@@ -3,7 +3,8 @@ use crate::server::IoError;
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
-use crate::storage::VirtualStorage;
+use crate::storage::{VirtualStorage, VirtualAddressSpaceHandle, PhysicalStorageHandle, PhysicalStorageId, VirtualSpaceId};
+use crate::impl_virtual_storage;
 /// The bytes storage maps ids to pointers of bytes in a contiguous layout.
 #[derive(Default)]
 pub struct BytesStorage {
@@ -61,16 +62,6 @@ impl BytesResource {
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;
 
-
-    fn as_virtual(&mut self) -> Option<Box<dyn VirtualStorage>>
-    {
-        None
-    }
-
-    fn supports_virtual(&self) -> bool{
-        false
-    }
-
     fn alignment(&self) -> usize {
         4
     }
@@ -114,6 +105,8 @@ impl ComputeStorage for BytesStorage {
         }
     }
 }
+
+impl_virtual_storage!(BytesVirtualStorage, BytesResource);
 
 #[cfg(test)]
 mod tests {

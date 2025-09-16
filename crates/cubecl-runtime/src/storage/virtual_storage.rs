@@ -7,7 +7,6 @@
 //! - Fine-grained control over memory mapping and unmapping
 //! - Efficient handling of fragmented physical memory
 use crate::server::IoError;
-use crate::storage::ComputeStorage;
 use crate::{
     storage::{StorageHandle, StorageId, StorageUtilization},
     storage_id_type,
@@ -342,3 +341,70 @@ pub trait VirtualStorage: Send {
 }
 
 
+
+/// This macro allows to automatically implement this trait for any backend.
+/// Virtual Storage use is optional. I created this macro that creates a placeholder implementation so that [`MemoryManager`] can be created for any backend
+/// Note that the resulting implementation will be a placeholder, but the virtual storage will not be usable.
+/// Manual custom implementation is necessary.
+#[macro_export]
+macro_rules! impl_virtual_storage {
+    ($storage_name:ident, $resource_name:ty) => {
+        pub struct $storage_name {
+            // Minimim granularity of the virtual storage
+            pub granularity: usize,
+        }
+
+        impl VirtualStorage for $storage_name {
+            type Resource = $resource_name;
+
+            fn alignment(&self) -> usize {
+                self.granularity
+            }
+
+            fn try_reserve(
+                &mut self,
+                _total_size: usize,
+            ) -> Result<VirtualAddressSpaceHandle, IoError> {
+                unimplemented!()
+            }
+
+            fn try_release(&mut self, _id: VirtualSpaceId) -> Result<(), IoError> {
+                Ok(())
+            }
+
+            fn get(&mut self, _handle: &StorageHandle) -> Self::Resource {
+                unimplemented!()
+            }
+
+            fn alloc(&mut self, _size: u64) -> Result<PhysicalStorageHandle, IoError> {
+                unimplemented!()
+            }
+
+            fn try_map(
+                &mut self,
+                _virtual_addr: VirtualAddressSpaceHandle,
+                _handles: Vec<PhysicalStorageHandle>,
+            ) -> Result<StorageHandle, IoError> {
+                unimplemented!()
+            }
+
+            fn try_unmap(&mut self, _id: StorageId) -> Result<(), IoError> {
+                Ok(())
+            }
+
+            fn try_free(&mut self, _id: PhysicalStorageId) -> Result<(), IoError> {
+                Ok(())
+            }
+
+            fn dealloc(&mut self, _id: StorageId) {
+                // no-op
+            }
+
+            fn flush(&mut self) {
+                // no-op
+            }
+        }
+
+        unsafe impl Send for $storage_name {}
+    };
+}
