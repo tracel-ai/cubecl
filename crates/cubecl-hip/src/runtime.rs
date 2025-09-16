@@ -107,13 +107,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
     }
 
-    let stream = unsafe {
-        let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-        let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-        assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-        stream
-    };
-
     let max_memory = unsafe {
         let free: usize = 0;
         let total: usize = 0;
@@ -127,7 +120,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = GpuStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,

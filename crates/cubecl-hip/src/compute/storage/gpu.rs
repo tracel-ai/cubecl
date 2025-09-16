@@ -12,7 +12,6 @@ pub struct GpuStorage {
     mem_alignment: usize,
     memory: HashMap<StorageId, cubecl_hip_sys::hipDeviceptr_t>,
     deallocations: Vec<StorageId>,
-    stream: cubecl_hip_sys::hipStream_t,
     ptr_bindings: PtrBindings,
 }
 
@@ -33,13 +32,11 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    /// * `stream` - The HIP stream for asynchronous memory operations.
-    pub fn new(mem_alignment: usize, stream: cubecl_hip_sys::hipStream_t) -> Self {
+    pub fn new(mem_alignment: usize) -> Self {
         Self {
             mem_alignment,
             memory: HashMap::new(),
             deallocations: Vec::new(),
-            stream,
             ptr_bindings: PtrBindings::new(),
         }
     }
@@ -51,7 +48,7 @@ impl GpuStorage {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
                 unsafe {
-                    cubecl_hip_sys::hipFreeAsync(ptr, self.stream);
+                    cubecl_hip_sys::hipFree(ptr);
                 }
             }
         }
@@ -99,14 +96,8 @@ impl PtrBindings {
     }
 }
 
-/// The context of GPU allocations.
-pub struct GpuStorageContext {
-    pub(crate) stream: cubecl_hip_sys::hipStream_t,
-}
-
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
-    type Context = GpuStorageContext;
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -130,7 +121,7 @@ impl ComputeStorage for GpuStorage {
         let id = StorageId::new();
         unsafe {
             let mut dptr: *mut ::std::os::raw::c_void = std::ptr::null_mut();
-            let status = cubecl_hip_sys::hipMallocAsync(&mut dptr, size as usize, self.stream);
+            let status = cubecl_hip_sys::hipMalloc(&mut dptr, size as usize);
 
             match status {
                 HIP_SUCCESS => {}
@@ -149,18 +140,13 @@ impl ComputeStorage for GpuStorage {
     fn dealloc(&mut self, id: StorageId) {
         self.deallocations.push(id);
     }
-
-    fn context(&mut self, context: Self::Context) {
-        self.stream = context.stream;
-    }
 }
 
 unsafe impl Send for GpuStorage {}
 unsafe impl Send for GpuResource {}
-unsafe impl Send for GpuStorageContext {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("GpuStorage {{ stream: {:?} }}", self.stream).as_str())
+        f.write_str(format!("GpuStorage").as_str())
     }
 }

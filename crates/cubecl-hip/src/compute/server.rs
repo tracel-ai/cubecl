@@ -1,7 +1,6 @@
 use super::storage::gpu::GpuStorage;
 use super::{storage::gpu::GpuResource, uninit_vec};
 use crate::compute::context::HipContext;
-use crate::compute::gpu::GpuStorageContext;
 use crate::compute::io::register_copies_to_bytes;
 use crate::compute::stream::{HipStreamBackend, Stream};
 use crate::runtime::HipCompiler;
@@ -21,7 +20,7 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::server::{self, ComputeServer};
-use cubecl_runtime::storage::{BindingResource, ComputeStorage};
+use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
 use std::future::Future;
 use std::sync::Arc;
@@ -264,13 +263,6 @@ impl HipServer {
     ) -> (&mut HipContext, &mut Stream, u64) {
         let stream = self.streams.get(stream_id);
 
-        self.ctx
-            .memory_management_gpu
-            .storage()
-            .context(GpuStorageContext {
-                stream: stream.stream.sys.clone(),
-            });
-
         (&mut self.ctx, &mut stream.stream, stream.cursor)
     }
 
@@ -280,13 +272,6 @@ impl HipServer {
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> (&mut HipContext, &mut Stream, u64) {
         let stream = self.streams.resolve(stream_id, bindings);
-
-        self.ctx
-            .memory_management_gpu
-            .storage()
-            .context(GpuStorageContext {
-                stream: stream.stream.sys.clone(),
-            });
 
         (&mut self.ctx, &mut stream.stream, stream.cursor)
     }

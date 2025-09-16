@@ -1,7 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use super::sync::Fence;
 use crate::CudaCompiler;
-use crate::compute::storage::gpu::GpuStorageContext;
 use crate::compute::stream::{CudaStreamBackend, Stream};
 use crate::compute::{
     DataTransferItem, DataTransferRuntime, context::CudaContext, io::register_copies_to_bytes,
@@ -31,7 +30,7 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::server::{self, ComputeServer};
-use cubecl_runtime::storage::{BindingResource, ComputeStorage};
+use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
 use cudarc::driver::sys::CUtensorMapInterleave;
 use cudarc::driver::sys::{
@@ -548,13 +547,6 @@ impl CudaServer {
 
         let stream = self.streams.get(stream_id);
 
-        self.ctx
-            .memory_management_gpu
-            .storage()
-            .context(GpuStorageContext {
-                stream: stream.stream.sys.clone(),
-            });
-
         (&mut self.ctx, &mut stream.stream, stream.cursor)
     }
 
@@ -567,13 +559,6 @@ impl CudaServer {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
         let stream = self.streams.resolve(stream_id, bindings);
-
-        self.ctx
-            .memory_management_gpu
-            .storage()
-            .context(GpuStorageContext {
-                stream: stream.stream.sys.clone(),
-            });
 
         (&mut self.ctx, &mut stream.stream, stream.cursor)
     }

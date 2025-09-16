@@ -97,15 +97,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         ctx
     };
 
-    let stream =
-        cudarc::driver::result::stream::create(cudarc::driver::result::stream::StreamKind::Default)
-            .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = GpuStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,

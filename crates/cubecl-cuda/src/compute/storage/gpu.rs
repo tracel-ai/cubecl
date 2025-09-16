@@ -1,7 +1,7 @@
-use crate::compute::{sync::Fence, uninit_vec};
+use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
-use cudarc::driver::{DriverError, sys::CUstream};
+use cudarc::driver::DriverError;
 use std::collections::HashMap;
 
 /// Buffer storage for NVIDIA GPUs.
@@ -11,7 +11,6 @@ use std::collections::HashMap;
 pub struct GpuStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
-    stream: cudarc::driver::sys::CUstream,
     ptr_bindings: PtrBindings,
     mem_alignment: usize,
 }
@@ -40,12 +39,10 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    /// * `stream` - The CUDA stream for asynchronous memory operations.
-    pub fn new(mem_alignment: usize, stream: CUstream) -> Self {
+    pub fn new(mem_alignment: usize) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
-            stream,
             ptr_bindings: PtrBindings::new(),
             mem_alignment,
         }
@@ -58,7 +55,7 @@ impl GpuStorage {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
                 unsafe {
-                    cudarc::driver::result::free_async(ptr, self.stream).unwrap();
+                    cudarc::driver::result::free_sync(ptr).unwrap();
                 }
             }
         }
@@ -67,13 +64,10 @@ impl GpuStorage {
 
 unsafe impl Send for GpuResource {}
 unsafe impl Send for GpuStorage {}
-unsafe impl Send for GpuStorageContext {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("GpuStorage")
-            .field("stream", &self.stream)
-            .finish()
+        f.debug_struct("GpuStorage").finish()
     }
 }
 
@@ -118,14 +112,8 @@ impl PtrBindings {
     }
 }
 
-/// The context of GPU allocations.
-pub struct GpuStorageContext {
-    pub(crate) stream: cudarc::driver::sys::CUstream,
-}
-
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
-    type Context = GpuStorageContext;
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -150,7 +138,7 @@ impl ComputeStorage for GpuStorage {
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
+        let ptr = unsafe { cudarc::driver::result::malloc_sync(size as usize) };
         let ptr = match ptr {
             Ok(ptr) => ptr,
             Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
@@ -163,9 +151,7 @@ impl ComputeStorage for GpuStorage {
                 )));
             }
         };
-        // TODO: Remove
-        let fence = Fence::new(self.stream);
-        fence.wait_sync();
+
         self.memory.insert(id, ptr);
         Ok(StorageHandle::new(
             id,
@@ -179,9 +165,5 @@ impl ComputeStorage for GpuStorage {
 
     fn flush(&mut self) {
         self.perform_deallocations();
-    }
-
-    fn context(&mut self, context: Self::Context) {
-        self.stream = context.stream;
     }
 }
