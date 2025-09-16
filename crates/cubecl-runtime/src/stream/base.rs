@@ -191,7 +191,7 @@ const GC_MAX_QUEUED_FACTOR: usize = 2;
 impl<B: StreamBackend> StreamWrapper<B> {
     /// Maybe run garbage collector on the current stream.
     fn maybe_run_gc(&mut self) {
-        let frequency = self.cursor / self.num_shared;
+        let frequency = self.cursor / (self.num_shared + 1);
 
         let should_run_time = frequency >= self.cursor - self.last_gc;
         let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
