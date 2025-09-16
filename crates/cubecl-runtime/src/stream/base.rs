@@ -179,9 +179,11 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
 
-            B::wait_event(&mut stream.stream, event);
-            // B::wait_event_sync(event);
+            // B::wait_event(&mut stream.stream, event);
+            B::wait_event_sync(event);
         }
+        let event = B::flush(&mut stream.stream);
+        B::wait_event_sync(event);
     }
 }
 
