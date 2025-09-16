@@ -175,6 +175,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
         data_transfer_async: true,
+        virtual_memory: vmm_supported,
+        min_granularity: granularity // When virtual memory is false, this is unused
+
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -239,6 +242,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
             max_page_size: mem_properties.max_page_size,
             alignment: PINNED_MEMORY_ALIGNMENT as u64,
             data_transfer_async: false,
+            virtual_memory: false,
+            min_granularity: 0 // When virtual memory is false, this is unused
         },
         options.memory_config,
     );

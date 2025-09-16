@@ -130,6 +130,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
         data_transfer_async: false,
+        virtual_memory: false,
+        min_granularity: 0 // When virtual memory is false, this is unused
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
@@ -165,6 +167,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             max_page_size: mem_properties.max_page_size,
             alignment: PINNED_MEMORY_ALIGNMENT as u64,
             data_transfer_async: false,
+            virtual_memory: false,
+            min_granularity: 0 // When virtual memory is false, this is unused
         },
         options.memory_config,
     );

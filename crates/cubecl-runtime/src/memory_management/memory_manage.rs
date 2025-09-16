@@ -1,11 +1,14 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualStaticPool},
 };
 use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
+use crate::storage::VirtualStorage;
+
+
 
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
@@ -83,7 +86,7 @@ pub enum MemoryAllocationMode {
     /// Use a static memory management strategy, meaning that all allocations are for data that is
     /// never going to be freed.
     Static,
-   
+
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
@@ -92,6 +95,7 @@ pub struct MemoryManagement<Storage> {
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
+    virtual_pool: Option<VirtualStaticPool>,
     mode: MemoryAllocationMode,
 }
 
@@ -248,10 +252,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
+
+        let (virtual_pool, virtual_storage) = if properties.virtual_memory && storage.supports_virtual() {
+            let virtual_storage = storage.as_virtual();
+            (Some(VirtualStaticPool::new(&virtual_storage,properties.min_granularity as u64, properties.max_page_size)), virtual_storage)
+        } else {
+            (None, None)
+        };
+
         Self {
             static_pool: StaticPool::new(properties.max_page_size),
             pools,
             storage,
+            virtual_pool,
+
             alloc_reserve_count: 0,
             mode: MemoryAllocationMode::Auto,
         }

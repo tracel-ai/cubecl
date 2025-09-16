@@ -1,4 +1,3 @@
-use crate::compute::CudaStorage;
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::{DataTransferService, IoError},

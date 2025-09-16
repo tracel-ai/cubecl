@@ -7,6 +7,8 @@ use crate::storage::{
 };
 use alloc::vec::Vec;
 use hashbrown::HashMap;
+use crate::memory_management::memory_pool::VirtualMemoryPool;
+use std::any::Any;
 
 /// A virtual memory pool that leverages automatic merge/split behavior.
 /// The main advantage of using virtual memory is that it allows to merge/split pages without
@@ -20,9 +22,9 @@ use hashbrown::HashMap;
 /// When a [`VirtualSlice`] is freed, its physical blocks are unmapped and virtual memory is released.
 /// The physical blocks go to the [`free_list`] so that they can be remapped later to build a new [`VirtualSlice`].
 /// As we are working with virtual memory, virtual address spaces stay always contiguous, no matter the physical blocks are not contiguous in physical memory.
-pub(crate) struct VirtualStaticPool<Storage: VirtualStorage> {
+pub(crate) struct VirtualStaticPool{
     // Virtual memory management
-    storage: Storage,
+    storage: Box<dyn VirtualStorage>,
 
     // Physical block tracking (never freed, only reused)
     physical_blocks: Vec<PhysicalStorageHandle>,
@@ -58,6 +60,7 @@ struct VirtualSlice {
 impl VirtualSlice {
     fn new(
         handle: SliceHandle,
+
         storage_handle: StorageHandle,
         virtual_space_id: VirtualSpaceId,
         physical_block_indices: Vec<usize>,
@@ -99,8 +102,8 @@ impl VirtualSlice {
     }
 }
 
-impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
-    pub(crate) fn new(storage: Storage, block_size: u64, max_alloc_size: u64) -> Self {
+impl VirtualStaticPool {
+    pub(crate) fn new(storage: Box<dyn VirtualStorage>, block_size: u64, max_alloc_size: u64) -> Self {
         let alignment = storage.alignment() as u64;
         let block_size = block_size.next_multiple_of(alignment);
 
@@ -193,7 +196,7 @@ impl<Storage: VirtualStorage> VirtualStaticPool<Storage> {
     }
 }
 
-impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
+impl VirtualMemoryPool for VirtualStaticPool {
     fn max_alloc_size(&self) -> u64 {
         self.max_alloc_size
     }
@@ -215,9 +218,8 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
     }
 
     /// Create new allocation with fresh virtual address space
-    fn alloc<ComputeStorage: crate::storage::ComputeStorage>(
+    fn alloc(
         &mut self,
-        _storage: &mut ComputeStorage, // Not used, we use inner VirtualStorage instead
         size: u64,
     ) -> Result<SliceHandle, IoError> {
         if size > self.max_alloc_size {
@@ -253,9 +255,8 @@ impl<Storage: VirtualStorage> MemoryPool for VirtualStaticPool<Storage> {
     /// When we free allocations, their physical blocks become available for
     /// any future allocation of any size. This is the "automatic merge" -
     /// there's no need to track adjacency or explicitly merge ranges.
-    fn cleanup<ComputeStorage: crate::storage::ComputeStorage>(
+    fn cleanup(
         &mut self,
-        _storage: &mut ComputeStorage, // Not used
         _alloc_nr: u64,
         explicit: bool,
     ) {

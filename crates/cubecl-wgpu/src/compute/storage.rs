@@ -63,6 +63,15 @@ impl WgpuStorage {
 impl ComputeStorage for WgpuStorage {
     type Resource = WgpuResource;
 
+
+    fn as_virtual(&mut self, _device_id: i32) -> Option<Box<dyn VirtualStorage>>{
+        None
+    }
+
+    fn supports_virtual(&self) -> bool {
+        false
+    }
+
     fn alignment(&self) -> usize {
         self.mem_alignment
     }

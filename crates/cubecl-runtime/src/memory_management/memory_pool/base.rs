@@ -4,7 +4,7 @@ use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
-
+use crate::storage::VirtualStorage;
 #[derive(new, Debug)]
 pub(crate) struct Slice {
     pub storage: StorageHandle,
@@ -53,6 +53,33 @@ pub trait MemoryPool {
     fn cleanup<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
+        alloc_nr: u64,
+        explicit: bool,
+    );
+}
+
+
+
+
+
+
+
+pub trait VirtualMemoryPool {
+    fn max_alloc_size(&self) -> u64;
+
+    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
+
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
+
+    fn alloc(
+        &mut self,
+        size: u64,
+    ) -> Result<SliceHandle, IoError>;
+
+    fn get_memory_usage(&self) -> MemoryUsage;
+
+    fn cleanup(
+        &mut self,
         alloc_nr: u64,
         explicit: bool,
     );

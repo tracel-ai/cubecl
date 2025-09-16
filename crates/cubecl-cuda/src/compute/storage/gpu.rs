@@ -3,7 +3,7 @@ use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use cubecl_runtime::storage::{
     PhysicalStorageHandle, PhysicalStorageId, VirtualAddressSpaceHandle, VirtualMapping,
-    VirtualSpaceId, VirtualStorage,
+    VirtualSpaceId, VirtualStorage
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::{
@@ -58,7 +58,7 @@ impl GpuStorage {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             stream,
-            ptr_bindings: PtrBindings::new(None),
+            ptr_bindings: PtrBindings::new(),
             mem_alignment,
         }
     }
@@ -132,8 +132,17 @@ impl PtrBindings {
 impl ComputeStorage for GpuStorage {
     type Resource = GpuResource;
 
+
     fn alignment(&self) -> usize {
         self.mem_alignment
+    }
+
+    fn supports_virtual(&self) -> bool {
+        true
+    }
+
+    fn as_virtual(&mut self, device_id) -> Option<Box<dyn VirtualStorage>> {
+        Some(Box::new(GpuVirtualStorage::new(device_id, self.mem_alignment)))
     }
 
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
@@ -196,7 +205,7 @@ impl ComputeStorage for GpuStorage {
 /// The `is_mapped` field prevents double-mapping errors and ensures proper
 /// resource lifecycle management. Virtual spaces must be unmapped before they
 /// can be released.
-struct CudaMemoryRange {
+struct GpuMemoryRange {
     /// Base virtual address of the reserved memory range
     start: CUdeviceptr,
     /// Size of the virtual address range in bytes
@@ -205,7 +214,7 @@ struct CudaMemoryRange {
     is_mapped: bool,
 }
 
-impl CudaMemoryRange {
+impl GpuMemoryRange {
     /// Creates a new virtual memory range in the unmapped state.
     ///
     /// # Arguments
@@ -251,7 +260,7 @@ impl CudaMemoryRange {
 /// Physical handles maintain their own mapping state independently of virtual
 /// spaces. This allows for validation that prevents resource leaks and ensures
 /// proper cleanup ordering.
-struct CudaPhysicalHandle {
+struct GpuPhysicalHandle {
     /// CUDA generic allocation handle for the physical memory
     handle: CUmemGenericAllocationHandle,
     /// Size of the physical allocation in bytes
@@ -260,7 +269,7 @@ struct CudaPhysicalHandle {
     is_mapped: bool,
 }
 
-impl CudaPhysicalHandle {
+impl GpuPhysicalHandle {
     /// Creates a new physical memory handle in the unmapped state.
     ///
     /// # Arguments
@@ -321,15 +330,15 @@ impl CudaPhysicalHandle {
 /// This implementation is marked as `Send` because CUDA handles and addresses
 /// are thread-safe from the CUDA runtime's perspective. However, users must
 /// ensure proper CUDA context management across threads.
-pub struct CudaVirtualStorage {
+pub struct GpuVirtualStorage {
     /// CUDA device ID where all memory operations are performed
     device_id: i32,
     /// Reserved virtual address spaces indexed by their unique identifiers
     /// These represent address ranges that have been reserved but may not be mapped
-    reserved_spaces: HashMap<VirtualSpaceId, CudaMemoryRange>,
+    reserved_spaces: HashMap<VirtualSpaceId, GpuMemoryRange>,
     /// Physical memory allocations indexed by their unique identifiers
     /// These represent actual GPU memory that may or may not be mapped
-    physical_handles: HashMap<PhysicalStorageId, CudaPhysicalHandle>,
+    physical_handles: HashMap<PhysicalStorageId, GpuPhysicalHandle>,
     /// Active mappings between virtual and physical memory
     /// These represent the connections that make memory accessible to kernels
     active_mappings: HashMap<StorageId, VirtualMapping>,
@@ -341,7 +350,7 @@ pub struct CudaVirtualStorage {
     granularity: usize,
 }
 
-impl CudaVirtualStorage {
+impl GpuVirtualStorage {
     /// Creates a new CUDA virtual storage instance for the specified device.
     ///
     /// # Arguments
@@ -395,13 +404,13 @@ impl CudaVirtualStorage {
     /// * `size` - Size in bytes of the physical memory to allocate
     ///
     /// # Returns
-    /// * `Ok(CudaPhysicalHandle)` - Handle to the allocated physical memory
+    /// * `Ok(GpuPhysicalHandle)` - Handle to the allocated physical memory
     /// * `Err(IoError::BufferTooBig)` - If allocation fails due to insufficient memory
     ///
     /// # Error Handling
     /// CUDA allocation failures are converted to `IoError::BufferTooBig` to maintain
     /// consistency with the storage trait interface.
-    fn create_cuda_handle(&self, size: u64) -> Result<CudaPhysicalHandle, IoError> {
+    fn create_cuda_handle(&self, size: u64) -> Result<GpuPhysicalHandle, IoError> {
         let mut handle = 0;
         let handle_type = {
             #[cfg(unix)]
@@ -429,7 +438,7 @@ impl CudaVirtualStorage {
             return Err(IoError::BufferTooBig(size as usize));
         }
 
-        Ok(CudaPhysicalHandle::new(handle, size))
+        Ok(GpuPhysicalHandle::new(handle, size))
     }
 
     /// Immediately releases all allocated resources.
@@ -476,7 +485,7 @@ impl CudaVirtualStorage {
     }
 }
 
-impl Drop for CudaVirtualStorage {
+impl Drop for GpuVirtualStorage {
     /// Automatic resource cleanup when the storage goes out of scope.
     ///
     /// This ensures that all CUDA resources are properly released even if
@@ -487,8 +496,8 @@ impl Drop for CudaVirtualStorage {
     }
 }
 
-impl VirtualStorage for CudaVirtualStorage {
-    type Resource = CudaResource;
+impl VirtualStorage for GpuVirtualStorage {
+    type Resource = GpuResource;
 
     fn alignment(&self) -> usize {
         self.granularity
@@ -529,7 +538,7 @@ impl VirtualStorage for CudaVirtualStorage {
         }
 
         let id = VirtualSpaceId::new();
-        let virtual_range = CudaMemoryRange::new(base_address, virtual_size as u64);
+        let virtual_range = GpuMemoryRange::new(base_address, virtual_size as u64);
 
         self.reserved_spaces.insert(id, virtual_range);
 
@@ -550,7 +559,7 @@ impl VirtualStorage for CudaVirtualStorage {
     /// virtual memory address.
     ///
     /// # Resource Construction
-    /// The returned `CudaResource` follows existing [`CudaStorage`] implementation to make it compatible
+    /// The returned `GpuResource` follows existing [`CudaStorage`] implementation to make it compatible
     /// with he current architecture. It contains:
     /// - The virtual memory pointer adjusted for any offset
     /// - A binding pointer for kernel parameter passing
@@ -572,7 +581,7 @@ impl VirtualStorage for CudaVirtualStorage {
 
         let ptr = virtual_space.start + offset;
 
-        CudaResource::new(ptr, ptr as *mut std::ffi::c_void, offset, size)
+        GpuResource::new(ptr, ptr as *mut std::ffi::c_void, size)
     }
 
     /// Allocates physical memory from the GPU without establishing any mappings.
@@ -947,7 +956,7 @@ impl VirtualStorage for CudaVirtualStorage {
     }
 }
 
-// Safety: CudaVirtualStorage can be safely sent between threads as long as
+// Safety: GpuVirtualStorage can be safely sent between threads as long as
 // CUDA context is properly managed. The handles and addresses are thread-safe
 // from CUDA's perspective, but users must ensure proper CUDA context setup.
-unsafe impl Send for CudaVirtualStorage {}
+unsafe impl Send for GpuVirtualStorage {}

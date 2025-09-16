@@ -59,6 +59,15 @@ unsafe impl Send for PinnedMemoryStorage {}
 impl ComputeStorage for PinnedMemoryStorage {
     type Resource = PinnedMemoryResource;
 
+
+    fn supports_virtual(&self) -> bool {
+        true
+    }
+
+    fn as_virtual(&mut self, _device_id: i32) -> Option<Box<dyn VirtualStorage>> {
+        None
+    }
+
     fn alignment(&self) -> usize {
         self.mem_alignment
     }

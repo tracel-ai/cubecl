@@ -4,9 +4,10 @@ use crate::{
     server::{Binding, IoError},
     storage_id_type,
 };
-
+use crate::storage::VirtualStorage;
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
+
 
 /// Defines if data uses a full memory chunk or a slice of it.
 #[derive(Clone, Debug)]
@@ -73,6 +74,14 @@ pub trait ComputeStorage: Send {
     /// The resource associated type determines the way data is implemented and how
     /// it can be accessed by kernels.
     type Resource: Send;
+
+
+
+    // Returns the associated virtual storage with this compute storage.
+    fn as_virtual(&mut self) -> Option<Box<dyn VirtualStorage>>;
+
+    // Whether the compute storage supports virtual memory
+    fn supports_virtual(&self) -> bool;
 
     /// The alignment memory is allocated with in this storage.
     fn alignment(&self) -> usize;

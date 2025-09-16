@@ -13,5 +13,5 @@ pub(crate) use exclusive_pool::*;
 pub(crate) use ring::*;
 pub(crate) use sliced_pool::*;
 pub(crate) use static_pool::*;
-
+pub(crate) use virtual_static_pool::*;
 pub use handle::*;
