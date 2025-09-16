@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TMM::LhsLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TMM::RhsLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TMM::AccLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TMM::LhsTileLoader>>,
+    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TMM::RhsTileLoader>>,
+    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TMM::AccTileLoader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TM::LhsLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TM::RhsLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TM::LhsTileLoader>>,
+    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TM::RhsTileLoader>>,
+    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccTileLoader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
@@ -48,8 +48,8 @@ where
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TM::Lhs>,
-        rhs_fragments: &mut RhsTile<TM::Rhs>,
+        lhs_fragment: &mut Sequence<TM::LhsFragment>,
+        rhs_fragments: &mut RhsTile<TM::RhsFragment>,
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         listener: SEL,
@@ -84,8 +84,10 @@ where
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to fill inputs before execution.
-    pub fn init_tile_inputs(#[comptime] config: S) -> (Sequence<TM::Lhs>, RhsTile<TM::Rhs>) {
+    /// Make sure to load inputs before execution.
+    pub fn init_tile_inputs(
+        #[comptime] config: S,
+    ) -> (Sequence<TM::LhsFragment>, RhsTile<TM::RhsFragment>) {
         let tile_config = config.tile_config();
         let mut lhs = Sequence::new();
 
@@ -109,14 +111,14 @@ where
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call zero_accumulator or fill_accumulator prior to execute_with_listener.
+    /// Make sure to call `load_accumulator` prior to execute_with_listener.
     pub fn init_accumulator(#[comptime] config: S) -> Accumulators<MP, TM, S> {
         Accumulators::<MP, TM, S>::new(config)
     }
 
     /// Fill accumulators through an AccumulatorLoader
-    pub fn fill_accumulator(reader: &RA, acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
-        acc.fill::<RA>(reader, config);
+    pub fn load_accumulator(reader: &RA, acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
+        acc.load::<RA>(reader, config);
     }
 
     /// Execute partition matmul with a single buffer for rhs.
@@ -126,8 +128,8 @@ where
     fn execute_single_buffer<SEL: StageEventListener<S>>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TM::Lhs>,
-        rhs_fragment: &mut TM::Rhs,
+        lhs_fragment: &mut Sequence<TM::LhsFragment>,
+        rhs_fragment: &mut TM::RhsFragment,
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
@@ -164,7 +166,7 @@ where
                     k_load_iter,
                     config.stage_memory_config(),
                 );
-                TM::fill_lhs(
+                TM::load_lhs(
                     tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
@@ -195,7 +197,7 @@ where
                     n_load_iter,
                     config.stage_memory_config(),
                 );
-                TM::fill_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
+                TM::load_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
@@ -251,8 +253,8 @@ where
     fn execute_double_buffer<SEL: StageEventListener<S>>(
         lhs_reader: &RL,
         rhs_reader: &RR,
-        lhs_fragment: &mut Sequence<TM::Lhs>,
-        rhs_fragments: &mut (TM::Rhs, TM::Rhs),
+        lhs_fragment: &mut Sequence<TM::LhsFragment>,
+        rhs_fragments: &mut (TM::RhsFragment, TM::RhsFragment),
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
         mut listener: SEL,
@@ -290,7 +292,7 @@ where
                     k_load_iter,
                     config.stage_memory_config(),
                 );
-                TM::fill_lhs(
+                TM::load_lhs(
                     tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
@@ -317,7 +319,7 @@ where
                 n_load_iter,
                 config.stage_memory_config(),
             );
-            TM::fill_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
+            TM::load_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
@@ -344,7 +346,7 @@ where
                     n_load_iter,
                     config.stage_memory_config(),
                 );
-                TM::fill_rhs(rhs_tile_next, next, config.tile_config());
+                TM::load_rhs(rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {

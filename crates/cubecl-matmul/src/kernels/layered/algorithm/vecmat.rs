@@ -17,8 +17,8 @@ use crate::{
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FillReaderFamily, FullReaderFamily, PartialReaderFamily,
-            PartitionBuffering, PlaneMatmulFamily, RowMajorTilingOrder,
+            ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily,
+            PartialStageReaderFamily, PartitionBuffering, PlaneMatmulFamily, RowMajorTilingOrder,
         },
         tile::{loader::Filled, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
     },
@@ -30,8 +30,12 @@ pub struct SimpleVecMatAlgorithm {}
 impl Algorithm for SimpleVecMatAlgorithm {
     type SelectionArgs = ();
     type TileMatmul = PlaneVecMatInnerProduct<Filled>;
-    type StageMatmul =
-        PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily, FillReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullStageReaderFamily,
+        FullStageReaderFamily,
+        FillStageReaderFamily,
+    >;
     type GlobalMatmul = SimpleMatmulFamily<
         Self::StageMatmul,
         SyncFullCyclicLoading<RowMajorTilingOrder>,
@@ -64,9 +68,9 @@ impl Algorithm for DoubleVecMatAlgorithm {
     type TileMatmul = PlaneVecMatInnerProduct<Filled>;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialReaderFamily,
-        PartialReaderFamily,
-        FillReaderFamily,
+        PartialStageReaderFamily,
+        PartialStageReaderFamily,
+        FillStageReaderFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,

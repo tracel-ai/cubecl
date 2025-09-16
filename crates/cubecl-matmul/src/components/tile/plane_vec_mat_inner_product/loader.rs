@@ -9,20 +9,20 @@ use crate::components::{
     MatrixLayout,
     tile::{
         Tile,
-        loader::{Filled, Loader, Strided, TileKind},
+        loader::{Filled, Strided, TileKind, TileLoader},
         plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
     },
 };
 
 /// Loader for the vector side of the VecMat operation
 #[derive(CubeType)]
-pub struct VectorLoader {}
+pub struct VectorTileLoader {}
 
 /// Generic matrix loader over any tile type
 #[cube]
-pub(super) trait MatrixTileLoader: Loader {
+pub(super) trait MatrixFragmentLoader: TileLoader {
     /// Fill a fragment with data, with the implementation depending on the tile kind.
-    fn fill_fragment<E: Numeric, V: Numeric>(
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
@@ -31,27 +31,27 @@ pub(super) trait MatrixTileLoader: Loader {
 
 /// Loader for the matrix side of the VecMat operation. Implementation depends on the tile kind.
 #[derive(CubeType)]
-pub struct MatrixLoader<Kind: TileKind> {
+pub struct MatrixTileLoader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
 #[cube]
-impl VectorLoader {
-    pub fn fill_fragment<E: Numeric, V: Numeric>(tile: Tile<V>, frag: &mut LineContainer<E>) {
+impl VectorTileLoader {
+    pub fn load_fragment<E: Numeric, V: Numeric>(tile: Tile<V>, frag: &mut LineContainer<E>) {
         comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
 
         frag.line = Line::cast_from(tile.slice[UNIT_POS_X]);
     }
 }
 
-impl Loader for VectorLoader {
+impl TileLoader for VectorTileLoader {
     type TileKind = Strided;
 }
 
 #[cube]
-impl MatrixTileLoader for MatrixLoader<Strided> {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+impl MatrixFragmentLoader for MatrixTileLoader<Strided> {
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
@@ -72,8 +72,8 @@ impl MatrixTileLoader for MatrixLoader<Strided> {
 }
 
 #[cube]
-impl MatrixTileLoader for MatrixLoader<Filled> {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+impl MatrixFragmentLoader for MatrixTileLoader<Filled> {
+    fn load_fragment<E: Numeric, V: Numeric>(
         value: V,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
@@ -92,24 +92,24 @@ impl MatrixTileLoader for MatrixLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> MatrixTileLoader for MatrixLoader<CubeOption<Inner>>
+impl<Inner: TileKind> MatrixFragmentLoader for MatrixTileLoader<CubeOption<Inner>>
 where
-    MatrixLoader<Inner>: MatrixTileLoader<TileKind = Inner>,
+    MatrixTileLoader<Inner>: MatrixFragmentLoader<TileKind = Inner>,
 {
-    fn fill_fragment<E: Numeric, V: Numeric>(
+    fn load_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     ) {
         match tile {
-            CubeOption::Some(tile) => MatrixLoader::<Inner>::fill_fragment(tile, frag, config),
+            CubeOption::Some(tile) => MatrixTileLoader::<Inner>::load_fragment(tile, frag, config),
             CubeOption::None => {
-                MatrixLoader::<Filled>::fill_fragment::<E, V>(V::from_int(0), frag, config)
+                MatrixTileLoader::<Filled>::load_fragment::<E, V>(V::from_int(0), frag, config)
             }
         }
     }
 }
 
-impl<Kind: TileKind> Loader for MatrixLoader<Kind> {
+impl<Kind: TileKind> TileLoader for MatrixTileLoader<Kind> {
     type TileKind = Kind;
 }
