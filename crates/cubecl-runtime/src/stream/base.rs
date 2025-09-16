@@ -161,6 +161,8 @@ impl<B: StreamBackend> MultiStream<B> {
             return;
         }
 
+        log::info!("Analysis {analysis:?}");
+
         let mut events = Vec::with_capacity(analysis.slices.len());
 
         for (origin, slices) in analysis.slices {
@@ -177,13 +179,7 @@ impl<B: StreamBackend> MultiStream<B> {
         }
 
         let stream = self.streams.get_mut(&stream_id).unwrap();
-
         for ((stream_origin, cursor_origin), event) in events {
-            log::info!(
-                "Align stream {:?}[{:?}] with {stream_origin:?}[{cursor_origin:?}]",
-                stream.stream,
-                stream.cursor
-            );
             stream.last_synced.insert(stream_origin, cursor_origin);
 
             B::wait_event(&mut stream.stream, event);
@@ -200,8 +196,9 @@ impl<B: StreamBackend> StreamWrapper<B> {
     fn maybe_run_gc(&mut self) {
         let frequency = self.cursor / (self.num_shared + 1);
 
-        let should_run_time = frequency >= self.cursor - self.last_gc;
+        let should_run_time = frequency > self.cursor - self.last_gc;
         let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
+        println!("{frequency} - {should_run_time} - {should_run_batch}");
 
         if should_run_time || should_run_batch {
             self.last_gc = self.cursor;
@@ -234,7 +231,7 @@ impl<B: StreamBackend> StreamWrapper<B> {
 
         // We wait on the last event recorded.
         if let Some(shared) = dropped.last() {
-            B::wait_event_sync(shared.event.expect("An event to be created."));
+            B::wait_event_sync(shared.event.expect("The event to be initialized"));
         }
     }
 }
@@ -334,6 +331,38 @@ mod tests {
         let expected = SharedBindingAnalysis::default();
 
         assert_eq!(analysis, expected);
+    }
+
+    #[test]
+    fn test_last_sync() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::<TestBackend>::new();
+        ms.get(stream_1);
+        ms.get(stream_2);
+
+        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+        let stream1 = ms.streams.remove(&stream_1).unwrap();
+        assert_eq!(stream1.last_synced.get(&stream_2), Some(&1));
+        assert!(stream1.shareds.is_empty());
+        assert_eq!(stream1.num_shared, 0);
+        assert_eq!(stream1.cursor, 2);
+        assert_eq!(stream1.last_gc, 0);
+
+        let stream2 = ms.streams.remove(&stream_2).unwrap();
+        assert!(stream2.last_synced.is_empty());
+        for shared in stream2.shareds {
+            assert_eq!(shared._batch, vec![binding_2.memory.id().clone()]);
+        }
+        assert_eq!(stream2.num_shared, 1);
+        assert_eq!(stream2.cursor, 1);
+        assert_eq!(stream2.last_gc, 0);
     }
 
     fn binding(stream: StreamId) -> Binding {
