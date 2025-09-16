@@ -61,62 +61,6 @@ struct SharedBindings<B: StreamBackend> {
     event: Option<B::Event>,
 }
 
-const GC_BATCH_SIZE: usize = 2;
-const GC_MAX_QUEUED: usize = 32;
-const GC_MAX_QUEUED_FACTOR: usize = 2;
-
-impl<B: StreamBackend> StreamWrapper<B> {
-    /// Maybe run garbage collector on the current stream.
-    fn maybe_run_gc(&mut self) {
-        let frequency = self.cursor / self.num_shared;
-
-        let should_run_time = frequency >= self.cursor - self.last_gc;
-        let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
-
-        if should_run_time | should_run_batch {
-            self.last_gc = self.cursor;
-            let batch_size = usize::from(should_run_batch) * GC_MAX_QUEUED_FACTOR & GC_BATCH_SIZE;
-
-            self.run_gc(batch_size);
-        }
-    }
-
-    fn ensure_shared_events(&mut self) {
-        for shared in self.shareds.iter_mut().rev() {
-            match shared.event {
-                Some(..) => break,
-                None => {
-                    // We need to create an event _after_ the stream has executed something that
-                    // needed the bindings. Otherwise bindings that are written too might not be
-                    // correctly synchronized.
-                    shared.event = Some(B::flush(&mut self.stream));
-                }
-            }
-        }
-    }
-
-    fn run_gc(&mut self, batch_size: usize) {
-        let dropped = self.shareds.drain(0..batch_size);
-
-        // We wait on the last event recorded.
-        if let Some(shared) = dropped.last() {
-            B::wait_event_sync(shared.event.expect("An event to be created."));
-        }
-    }
-}
-
-impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("StreamWrapper")
-            .field("stream", &self.stream)
-            .field("cursor", &self.cursor)
-            .field("last_synced", &self.last_synced)
-            .field("shareds", &self.shareds.len())
-            .field("num_shared", &self.num_shared)
-            .finish()
-    }
-}
-
 impl<B: StreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
     pub fn new() -> Self {
@@ -237,6 +181,62 @@ impl<B: StreamBackend> MultiStream<B> {
         }
 
         analysis
+    }
+}
+
+const GC_BATCH_SIZE: usize = 2;
+const GC_MAX_QUEUED: usize = 32;
+const GC_MAX_QUEUED_FACTOR: usize = 2;
+
+impl<B: StreamBackend> StreamWrapper<B> {
+    /// Maybe run garbage collector on the current stream.
+    fn maybe_run_gc(&mut self) {
+        let frequency = self.cursor / self.num_shared;
+
+        let should_run_time = frequency >= self.cursor - self.last_gc;
+        let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
+
+        if should_run_time | should_run_batch {
+            self.last_gc = self.cursor;
+            let batch_size = usize::from(should_run_batch) * GC_MAX_QUEUED_FACTOR & GC_BATCH_SIZE;
+
+            self.run_gc(batch_size);
+        }
+    }
+
+    fn ensure_shared_events(&mut self) {
+        for shared in self.shareds.iter_mut().rev() {
+            match shared.event {
+                Some(..) => break,
+                None => {
+                    // We need to create an event _after_ the stream has executed something that
+                    // needed the bindings. Otherwise bindings that are written too might not be
+                    // correctly synchronized.
+                    shared.event = Some(B::flush(&mut self.stream));
+                }
+            }
+        }
+    }
+
+    fn run_gc(&mut self, batch_size: usize) {
+        let dropped = self.shareds.drain(0..batch_size);
+
+        // We wait on the last event recorded.
+        if let Some(shared) = dropped.last() {
+            B::wait_event_sync(shared.event.expect("An event to be created."));
+        }
+    }
+}
+
+impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("StreamWrapper")
+            .field("stream", &self.stream)
+            .field("cursor", &self.cursor)
+            .field("last_synced", &self.last_synced)
+            .field("shareds", &self.shareds.len())
+            .field("num_shared", &self.num_shared)
+            .finish()
     }
 }
 
