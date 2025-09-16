@@ -16,10 +16,6 @@ pub enum FastDivmod {
         multiplier: u32,
         shift_right: u32,
     },
-    PowerOfTwo {
-        shift: u32,
-        mask: u32,
-    },
     Fallback {
         divisor: u32,
     },
@@ -35,13 +31,6 @@ impl<R: Runtime> Copy for FastDivmodArgs<'_, R> {}
 impl<R: Runtime> FastDivmodArgs<'_, R> {
     pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: u32) -> Self {
         debug_assert!(divisor != 0);
-
-        if divisor.is_power_of_two() {
-            return FastDivmodArgs::PowerOfTwo {
-                shift: ScalarArg::new(divisor.trailing_zeros()),
-                mask: ScalarArg::new(divisor - 1),
-            };
-        }
 
         if !u64::supported_uses(client).contains(TypeUsage::Arithmetic) {
             return FastDivmodArgs::Fallback {
@@ -73,7 +62,6 @@ impl FastDivmod {
                 let t = u32::mul_hi(dividend, *multiplier);
                 (t + dividend) >> shift_right
             }
-            FastDivmod::PowerOfTwo { shift, .. } => dividend >> *shift,
             FastDivmod::Fallback { divisor } => dividend / divisor,
         }
     }
@@ -82,7 +70,6 @@ impl FastDivmod {
         let q = self.div(dividend);
         match self {
             FastDivmod::Fast { divisor, .. } => dividend - q * divisor,
-            FastDivmod::PowerOfTwo { mask, .. } => dividend & mask,
             FastDivmod::Fallback { divisor } => dividend % divisor,
         }
     }
@@ -92,7 +79,6 @@ impl FastDivmod {
         let r = match self {
             FastDivmod::Fast { divisor, .. } => dividend - q * divisor,
             FastDivmod::Fallback { divisor } => dividend - q * divisor,
-            FastDivmod::PowerOfTwo { mask, .. } => dividend & *mask,
         };
 
         (q, r)
