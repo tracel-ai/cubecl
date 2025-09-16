@@ -1,7 +1,4 @@
-use crate::{
-    memory_management::{SliceBinding, SliceId},
-    server::Binding,
-};
+use crate::{memory_management::SliceId, server::Binding};
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 
@@ -161,7 +158,7 @@ impl<B: StreamBackend> MultiStream<B> {
             return;
         }
 
-        log::info!("Analysis {analysis:?}");
+        log::info!("Analysis for stream {stream_id} => {analysis:?}");
 
         let mut events = Vec::with_capacity(analysis.slices.len());
 
@@ -182,7 +179,8 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
 
-            B::wait_event(&mut stream.stream, event);
+            // B::wait_event(&mut stream.stream, event);
+            B::wait_event_sync(event);
         }
     }
 }
@@ -198,7 +196,6 @@ impl<B: StreamBackend> StreamWrapper<B> {
 
         let should_run_time = frequency > self.cursor - self.last_gc;
         let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
-        // log::info!("{frequency} - {should_run_time} - {should_run_batch}");
 
         if should_run_time || should_run_batch {
             self.last_gc = self.cursor;
