@@ -198,7 +198,7 @@ impl<B: StreamBackend> StreamWrapper<B> {
 
         let should_run_time = frequency > self.cursor - self.last_gc;
         let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
-        println!("{frequency} - {should_run_time} - {should_run_batch}");
+        // log::info!("{frequency} - {should_run_time} - {should_run_batch}");
 
         if should_run_time || should_run_batch {
             self.last_gc = self.cursor;
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn test_last_sync() {
+    fn test_state() {
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
