@@ -192,7 +192,7 @@ impl<B: StreamBackend> MultiStream<B> {
 }
 
 const GC_BATCH_SIZE: usize = 2;
-const GC_MAX_QUEUED: usize = 1;
+const GC_MAX_QUEUED: usize = 32;
 const GC_MAX_QUEUED_FACTOR: usize = 2;
 
 impl<B: StreamBackend> StreamWrapper<B> {
