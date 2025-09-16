@@ -1,5 +1,6 @@
 //use crate::compute::CudaStorageType;
 //use crate::compute::VirtualStorage;
+use crate::compute::storage::gpu::GpuVirtualStorage;
 use crate::{
     WmmaCompiler,
     compute::{
@@ -12,7 +13,6 @@ use crate::{
     },
     device::CudaDevice,
 };
-use crate::compute::storage::gpu::GpuVirtualStorage;
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,

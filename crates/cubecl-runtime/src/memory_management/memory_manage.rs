@@ -2,12 +2,12 @@ use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
     memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualStaticPool},
 };
+use crate::memory_management::memory_pool::VirtualMemoryPool;
 use crate::storage::VirtualStorage;
 use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
-use crate::memory_management::memory_pool::VirtualMemoryPool;
 
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
@@ -295,16 +295,13 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
 
-
-
         if self.uses_virtual() {
             let count = self.alloc_reserve_count;
             let virtual_storage = self.virtual_storage.as_mut().unwrap();
-            self.virtual_pool.as_mut().unwrap().cleanup(
-                virtual_storage,
-                count,
-                explicit,
-            );
+            self.virtual_pool
+                .as_mut()
+                .unwrap()
+                .cleanup(virtual_storage, count, explicit);
         }
     }
 
@@ -323,8 +320,6 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
         self.pools.iter().find_map(|p| p.get(&binding)).cloned()
     }
 
-
-
     /// Returns the resource from the storage at the specified handle
     pub fn get_resource<R: Send>(
         &mut self,
@@ -334,7 +329,7 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
     ) -> Option<R>
     where
         Virtual: VirtualStorage<Resource = R>,
-        Storage: ComputeStorage<Resource = R>
+        Storage: ComputeStorage<Resource = R>,
     {
         let handle = self.get(binding);
 
@@ -350,7 +345,6 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
                 };
                 self.virtual_storage().get(&handle) // Devuelve Option<Virtual::Resource> (impl Send)
             })
-
         } else {
             handle.map(|handle| {
                 let handle = match offset_start {
@@ -370,7 +364,11 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
         if self.uses_virtual() {
             let virtual_storage = self.virtual_storage.as_mut().unwrap();
-            return self.virtual_pool.as_mut().unwrap().alloc(virtual_storage, size);
+            return self
+                .virtual_pool
+                .as_mut()
+                .unwrap()
+                .alloc(virtual_storage, size);
         }
 
         if let MemoryAllocationMode::Static = self.mode {
@@ -412,27 +410,30 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
     /// Fetch the virtual storage used by the memory manager.
     pub fn virtual_storage(&mut self) -> &mut Virtual {
         self.virtual_storage
-        .as_mut()
-        .expect("Virtual storage is not available")
+            .as_mut()
+            .expect("Virtual storage is not available")
     }
 
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
-        let memory_usage = self.pools.iter().map(|x| x.get_memory_usage()).fold(
-            MemoryUsage {
-                number_allocs: 0,
-                bytes_in_use: 0,
-                bytes_padding: 0,
-                bytes_reserved: 0,
-            },
-            |m1, m2| m1.combine(m2),
-        ).combine(self.static_pool.get_memory_usage());
+        let memory_usage = self
+            .pools
+            .iter()
+            .map(|x| x.get_memory_usage())
+            .fold(
+                MemoryUsage {
+                    number_allocs: 0,
+                    bytes_in_use: 0,
+                    bytes_padding: 0,
+                    bytes_reserved: 0,
+                },
+                |m1, m2| m1.combine(m2),
+            )
+            .combine(self.static_pool.get_memory_usage());
 
-        if self.uses_virtual(){
-
+        if self.uses_virtual() {
             memory_usage.combine(self.virtual_pool.as_ref().unwrap().get_memory_usage())
-        } else
-        {
+        } else {
             memory_usage
         }
     }
