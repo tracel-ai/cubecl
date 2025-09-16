@@ -2,14 +2,16 @@ use std::marker::PhantomData;
 
 use crate::components::StageIdent;
 use crate::components::tile::{
-    TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::MatrixTileLoader,
+    TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::MatrixFragmentLoader,
 };
 use crate::components::tile::{
-    loader::Strided, plane_vec_mat_inner_product::loader::MatrixLoader, tile_data::Tile,
+    loader::Strided, plane_vec_mat_inner_product::loader::MatrixTileLoader, tile_data::Tile,
 };
 use crate::components::tile::{
     loader::TileKind,
-    plane_vec_mat_inner_product::{config::PlaneVecMatInnerProductConfig, loader::VectorLoader},
+    plane_vec_mat_inner_product::{
+        config::PlaneVecMatInnerProductConfig, loader::VectorTileLoader,
+    },
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -37,26 +39,26 @@ impl<E: Numeric> LineContainer<E> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for PlaneVecMatInnerProduct<Acc>
 where
-    MatrixLoader<Acc>: MatrixTileLoader<TileKind = Acc>,
+    MatrixTileLoader<Acc>: MatrixFragmentLoader<TileKind = Acc>,
 {
     type Config = PlaneVecMatInnerProductConfig;
 
     // One line per unit in the plane
-    type Lhs = LineContainer<L>;
+    type LhsFragment = LineContainer<L>;
     // For each n: one line per unit in the plane
-    type Rhs = Sequence<LineContainer<R>>;
+    type RhsFragment = Sequence<LineContainer<R>>;
 
     // For each n: one line stored at unit pos 0, that will be reduced to a scalar only when writing at the end
-    type Accumulator = Sequence<LineContainer<A>>;
+    type AccFragment = Sequence<LineContainer<A>>;
 
-    type LhsLoader = VectorLoader;
-    type RhsLoader = MatrixLoader<Strided>;
-    type AccLoader = MatrixLoader<Acc>;
+    type LhsTileLoader = VectorTileLoader;
+    type RhsTileLoader = MatrixTileLoader<Strided>;
+    type AccTileLoader = MatrixTileLoader<Acc>;
 
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        acc: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         let mut n = comptime![0];
@@ -73,11 +75,11 @@ where
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         LineContainer::<L>::new(config.reduce_line_size())
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         let mut rhs = Sequence::new();
         #[unroll]
         for _ in 0..config.n() {
@@ -86,7 +88,7 @@ where
         rhs
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         let mut acc = Sequence::new();
         #[unroll]
         for _ in 0..config.n() {
@@ -95,24 +97,32 @@ where
         acc
     }
 
-    fn fill_lhs<E: Numeric>(tile: Tile<E>, lhs: &mut Self::Lhs, #[comptime] _config: Self::Config) {
-        Self::LhsLoader::fill_fragment(tile, lhs)
+    fn load_lhs<E: Numeric>(
+        tile: Tile<E>,
+        lhs: &mut Self::LhsFragment,
+        #[comptime] _config: Self::Config,
+    ) {
+        Self::LhsTileLoader::load_fragment(tile, lhs)
     }
 
-    fn fill_rhs<E: Numeric>(tile: Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        Self::RhsLoader::fill_fragment(tile, rhs, config)
-    }
-
-    fn fill_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
-        acc: &mut Self::Accumulator,
+    fn load_rhs<E: Numeric>(
+        tile: Tile<E>,
+        rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccLoader::fill_fragment(tile, acc, config);
+        Self::RhsTileLoader::load_fragment(tile, rhs, config)
+    }
+
+    fn load_acc<E: Numeric>(
+        tile: Acc::Tile<E>,
+        acc: &mut Self::AccFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::AccTileLoader::load_fragment(tile, acc, config);
     }
 
     fn write_results<E: Numeric>(
-        acc: &Self::Accumulator,
+        acc: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {

@@ -7,7 +7,7 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::single_stage::tma::SimpleTmaMatmulFamily,
-        stage::{FillReaderFamily, FullReaderFamily, PlaneMatmulFamily},
+        stage::{FillStageReaderFamily, FullStageReaderFamily, PlaneMatmulFamily},
         tile::{
             TileMatmulFamily,
             loader::{Filled, Strided},
@@ -27,8 +27,12 @@ where
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
-    type StageMatmul =
-        PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily, FillReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullStageReaderFamily,
+        FullStageReaderFamily,
+        FillStageReaderFamily,
+    >;
     type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

@@ -32,12 +32,12 @@ impl<Inner: TileKind> TileKind for CubeOption<Inner> {
 }
 
 /// A tile matmul loader, with a specific tile kind
-pub trait Loader {
+pub trait TileLoader {
     /// The kind of the tile used as an input for the tile loader
     type TileKind: TileKind;
 }
 
 /// The concrete tile type for a given loader and element type
-pub type LoaderTile<L, E> = <<L as Loader>::TileKind as TileKind>::Tile<E>;
+pub type LoaderTile<L, E> = <<L as TileLoader>::TileKind as TileKind>::Tile<E>;
 /// The tile kind of a given loader
-pub type LoaderKind<L> = <L as Loader>::TileKind;
+pub type LoaderKind<L> = <L as TileLoader>::TileKind;

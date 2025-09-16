@@ -34,9 +34,9 @@ impl<
     RA: StageReaderFamily,
 > StageMatmulFamily for UnitMatmulFamily<TM, RF, RA>
 {
-    type LhsReader = RF;
-    type RhsReader = RF;
-    type AccReader = RA;
+    type LhsStageReader = RF;
+    type RhsStageReader = RF;
+    type AccStageReader = RA;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
         UnitMatmul<
             MP,

@@ -2,7 +2,7 @@ use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::S
 use cubecl_matmul::components::{
     AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     global::GlobalConfig as _,
-    stage::{FullReaderFamily, StageMatmulFamily},
+    stage::{FullStageReaderFamily, StageMatmulFamily},
 };
 use cubecl_std::{FastDivmodArgs, tensor::layout::Coords3d};
 
@@ -20,9 +20,9 @@ use crate::{
 
 impl<
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            AccReader = Option<FullReaderFamily>,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = Option<FullStageReaderFamily>,
             WriteCoords = Coords3d,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleTmaConvolutionFamily<SMM>

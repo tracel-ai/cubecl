@@ -18,7 +18,7 @@ pub struct Accumulators<
         >,
     S: StageConfig<TileConfig = TM::Config>,
 > {
-    sequence: Sequence<TM::Accumulator>,
+    sequence: Sequence<TM::AccFragment>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -50,8 +50,8 @@ impl<
         }
     }
 
-    /// Fill all accumulators from the specified reader
-    pub fn fill<R: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccLoader>>>(
+    /// Load all accumulators from the specified reader
+    pub fn load<R: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccTileLoader>>>(
         &mut self,
         reader: &R,
         #[comptime] config: S,
@@ -69,7 +69,7 @@ impl<
                     n,
                     config.stage_memory_config(),
                 );
-                TM::fill_acc(tile, acc, config.tile_config());
+                TM::load_acc(tile, acc, config.tile_config());
             }
         }
     }
@@ -80,7 +80,7 @@ impl<
         #[comptime] m: u32,
         #[comptime] n: u32,
         #[comptime] config: S,
-    ) -> &TM::Accumulator {
+    ) -> &TM::AccFragment {
         self.sequence.index(comptime!(
             m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
@@ -92,7 +92,7 @@ impl<
         #[comptime] m: u32,
         #[comptime] n: u32,
         #[comptime] config: S,
-    ) -> &mut TM::Accumulator {
+    ) -> &mut TM::AccFragment {
         self.sequence.index_mut(comptime!(
             m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
