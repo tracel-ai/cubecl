@@ -65,6 +65,21 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );
+    fn tmp_write_score<E: Numeric>(
+        out: &Self::ScoreProb,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    );
+    fn tmp_write_query<E: Numeric>(
+        out: &Self::Query,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    );
+    fn tmp_write_key<E: Numeric>(
+        out: &Self::KeyValue,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    );
 
     // These methods should be deletable when we have proper control over fragments
     fn tmp_fill_accumulator(

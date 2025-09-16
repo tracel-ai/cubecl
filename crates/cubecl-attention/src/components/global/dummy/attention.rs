@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyLoader, QueryLoader, DummyValueLoader};
+use crate::components::global::dummy::load::{DummyKeyLoader, DummyValueLoader, QueryLoader};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::dummy::FlashMatmulConfig;
@@ -58,12 +58,11 @@ impl<
 
         let seq_kv_stage = config.tiling_scheme().seq_kv();
 
-        let seq_q_stage = config.stage_config().tiling_scheme().seq_q();
-
         let num_stage_iterations = div_ceil(seq_kv, seq_kv_stage);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
+                let seq_q_stage = config.stage_config().tiling_scheme().seq_q();
                 CubeOption::new_Some((seq_q_stage, seq_kv - i * seq_kv_stage))
             } else {
                 CubeOption::new_None()
@@ -94,6 +93,9 @@ impl<
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
 
         SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
+        // SA::tmp_write_score::<Self::Config>(&score_prob, &mut writer, config.stage_config(), config)
+        // SA::tmp_write_key::<Self::Config>(&key_value, &mut writer, config.stage_config(), config)
+        // SA::tmp_write_query::<Self::Config>(&query, &mut writer, config.stage_config(), config)
     }
 
     fn init_query_loader(

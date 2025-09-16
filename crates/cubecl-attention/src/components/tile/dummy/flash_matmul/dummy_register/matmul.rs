@@ -72,13 +72,17 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         tile: &Tile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
-        let size = config.attention_tile_size().query_size();
-        let mut query = Array::<FP::Q>::new(size);
+        let seq_q = config.attention_tile_size().seq_q;
+        let head_dim = config.attention_tile_size().head_dim;
+
+        let mut query = Array::<FP::Q>::new(seq_q * head_dim);
 
         if UNIT_POS == 0 {
             // Only lane 0 fills the data
-            for i in 0..size {
-                query[i] = FP::Q::cast_from(tile.slice[i]);
+            for q in 0..seq_q {
+                for hd in 0..head_dim {
+                    query[q * head_dim + hd] = FP::Q::cast_from(tile.get_line(q, hd));
+                }
             }
         }
 
@@ -149,6 +153,48 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     ) {
         if UNIT_POS == 0 {
             let size = config.attention_tile_size().accumulator_size();
+            for i in 0..size {
+                slice[i] = Line::cast_from(out[i]);
+            }
+        }
+
+        sync_cube();
+    }
+    fn tmp_write_score<E: Numeric>(
+        out: &Self::ScoreProb,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    ) {
+        if UNIT_POS == 0 {
+            let size = config.attention_tile_size().score_prob_size();
+            for i in 0..size {
+                slice[i] = Line::cast_from(out[i + 2]);
+            }
+        }
+
+        sync_cube();
+    }
+    fn tmp_write_query<E: Numeric>(
+        out: &Self::Query,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    ) {
+        if UNIT_POS == 0 {
+            let size = config.attention_tile_size().query_size();
+            for i in 0..size {
+                slice[i] = Line::cast_from(out[i]);
+            }
+        }
+
+        sync_cube();
+    }
+    fn tmp_write_key<E: Numeric>(
+        out: &Self::KeyValue,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    ) {
+        if UNIT_POS == 0 {
+            let size = config.attention_tile_size().key_size();
             for i in 0..size {
                 slice[i] = Line::cast_from(out[i]);
             }

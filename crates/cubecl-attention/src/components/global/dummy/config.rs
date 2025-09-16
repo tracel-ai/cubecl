@@ -38,6 +38,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
 
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig {
         let tiling_scheme = self.stage_config.tiling_scheme();
+
         let elements_in_tile_row = tiling_scheme.tile_size.num_rows(ident);
         let elements_in_tile_col = tiling_scheme.tile_size.num_cols(ident);
         let elements_in_stage_row =

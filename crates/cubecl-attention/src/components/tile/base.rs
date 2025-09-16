@@ -70,6 +70,24 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
+    fn tmp_write_score<G: GlobalAttentionConfig>(
+        acc: &Self::ScoreProb,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    );
+    fn tmp_write_query<G: GlobalAttentionConfig>(
+        acc: &Self::Query,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    );
+    fn tmp_write_key<G: GlobalAttentionConfig>(
+        acc: &Self::KeyValue,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
@@ -106,7 +124,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
         state: &Self::State,
-        #[comptime] config: Self::Config,
+        #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;
 
     fn accumulate_value(

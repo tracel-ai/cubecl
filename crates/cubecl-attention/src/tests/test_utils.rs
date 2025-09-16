@@ -379,6 +379,7 @@ where
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
+
                             dot += (q_val * k_val).cast_into();
                         }
                         // apply scale (1/sqrt(dk))

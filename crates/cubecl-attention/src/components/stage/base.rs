@@ -95,6 +95,24 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
+    fn tmp_write_score<G: GlobalAttentionConfig>(
+        acc: &Self::Score,
+        writer: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
+    fn tmp_write_query<G: GlobalAttentionConfig>(
+        acc: &Self::Query,
+        writer: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
+    fn tmp_write_key<G: GlobalAttentionConfig>(
+        acc: &Self::KeyValue,
+        writer: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 

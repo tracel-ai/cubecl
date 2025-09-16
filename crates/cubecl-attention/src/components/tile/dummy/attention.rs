@@ -59,17 +59,86 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     fn write<G: GlobalAttentionConfig>(
         acc: &Self::Accumulator,
         writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
+        #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     ) {
         comment!("Tile: Write");
         let mut out_smem =
-            SharedMemory::<AP::EA>::new(stage_config.attention_tile_size().accumulator_size());
+            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
 
         FM::write_results::<AP::EA>(
             &acc.fragment,
             &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            stage_config,
+            tile_config,
+        );
+
+        DummyWriter::<AP::EO>::write::<G>(
+            writer,
+            out_smem.to_slice().try_cast_unchecked(),
+            0,
+            0,
+            global_config,
+        )
+    }
+    fn tmp_write_score<G: GlobalAttentionConfig>(
+        acc: &Self::ScoreProb,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let mut out_smem =
+            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
+
+        FM::tmp_write_score::<AP::EA>(
+            &acc.fragment,
+            &mut out_smem.to_slice_mut().try_cast_unchecked(),
+            tile_config,
+        );
+
+        DummyWriter::<AP::EO>::write::<G>(
+            writer,
+            out_smem.to_slice().try_cast_unchecked(),
+            0,
+            0,
+            global_config,
+        )
+    }
+    fn tmp_write_query<G: GlobalAttentionConfig>(
+        query: &Self::Query,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let mut out_smem =
+            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
+
+        FM::tmp_write_query::<AP::EA>(
+            &query.fragment,
+            &mut out_smem.to_slice_mut().try_cast_unchecked(),
+            tile_config,
+        );
+
+        DummyWriter::<AP::EO>::write::<G>(
+            writer,
+            out_smem.to_slice().try_cast_unchecked(),
+            0,
+            0,
+            global_config,
+        )
+    }
+    fn tmp_write_key<G: GlobalAttentionConfig>(
+        key: &Self::KeyValue,
+        writer: &mut Self::Writer,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let mut out_smem =
+            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
+
+        FM::tmp_write_key::<AP::EA>(
+            &key.key(),
+            &mut out_smem.to_slice_mut().try_cast_unchecked(),
+            tile_config,
         );
 
         DummyWriter::<AP::EO>::write::<G>(
@@ -139,11 +208,9 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
         state: &Self::State,
-        #[comptime] config: Self::Config,
+        #[comptime] dk: u32,
     ) -> RowStats<AP::EA> {
-        let inv_sqrt_dk = AP::EA::new(comptime!(
-            1.0 / (config.attention_tile_size().head_dim as f32).sqrt()
-        ));
+        let inv_sqrt_dk = AP::EA::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         score_prob.multiply_score(inv_sqrt_dk);
 

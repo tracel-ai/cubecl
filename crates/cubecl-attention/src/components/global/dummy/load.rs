@@ -4,6 +4,7 @@ use cubecl_matmul::components::global::memory::{TensorReader, ViewDirection};
 use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::{View, layout::Coords3d};
 use std::marker::PhantomData;
 
@@ -62,7 +63,7 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
                 ),
                 attention_tile_size.query_size(),
             ),
-            stride: attention_tile_size.num_cols(FlashIdent::Query),
+            stride: config.tiling_scheme().head_dim(),
             layout: MatrixLayout::RowMajor,
         };
 
@@ -100,43 +101,48 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
 
         comment!("Loading Key");
         let memory_config = config.global_memory_config(FlashIdent::Key);
+
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 
-        let tile_config = config.stage_config().tile_config();
-        let num_rows = tile_config.attention_tile_size().num_rows(FlashIdent::Key);
-        let num_cols = tile_config.attention_tile_size().num_cols(FlashIdent::Key);
-        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Key);
-        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Key);
+        let tile_rows_load = memory_config.elements_in_tile_row;
+        let tile_cols_load = memory_config.elements_in_tile_col;
+        let partition_rows_load = memory_config.elements_in_stage_row / tile_rows_load;
+        let partition_cols_load = memory_config.elements_in_stage_col / tile_cols_load;
 
-        let num_tiles_row = config.tiling_scheme().partition_size.seq_kv;
-        let num_tiles_col = config.tiling_scheme().partition_size.head_dim;
+        let units_per_tile_row = comptime!(config.plane_dim() / tile_rows_load);
+        let tile_cols_per_unit = comptime!(div_ceil(tile_cols_load, units_per_tile_row));
 
-        let row = UNIT_POS_X / num_units_per_row;
-        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+        let row_load_in_tile = UNIT_POS_X / units_per_tile_row;
+        let col_load_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
 
         // Assumes row tiling order
-        let num_elements_per_tile = num_rows * num_cols;
-        let tile_row_stride = num_tiles_col * num_elements_per_tile;
-        let tile_col_stride = num_elements_per_tile;
+        let num_elements_per_tile = tile_rows_load * tile_cols_load;
+        let tile_row_stride_store = partition_rows_load * num_elements_per_tile;
+        let tile_col_stride_store = num_elements_per_tile;
 
         #[unroll]
-        for tile_row in 0..num_tiles_row {
+        for tile_row_load in 0..partition_rows_load {
             #[unroll]
-            for tile_col in 0..num_tiles_col {
-                if row < num_rows {
+            for tile_col_load in 0..partition_cols_load {
+                if row_load_in_tile < tile_rows_load {
                     #[unroll]
-                    for i in 0..num_cols_per_unit {
-                        let col = col_start + i;
+                    for i in 0..tile_cols_per_unit {
+                        let col_load = col_load_in_tile_start + i;
 
-                        if col < num_cols {
-                            let index_load = row * num_cols + col;
-                            let index_store = col * num_rows + row;
-                            slice[index_store
-                                + tile_row * tile_row_stride
-                                + tile_col * tile_col_stride] =
+                        if col_load < tile_cols_load {
+                            let tile_row_store = tile_col_load;
+                            let tile_col_store = tile_row_load;
+                            let tile_row_store_offset = tile_row_store * tile_row_stride_store;
+                            let tile_col_store_offset = tile_col_store * tile_col_stride_store;
+                            let store_offset = tile_row_store_offset + tile_col_store_offset;
+
+                            let index_load = row_load_in_tile * tile_cols_load + col_load;
+                            let index_store = col_load * tile_rows_load + row_load_in_tile;
+
+                            slice[index_store + store_offset] =
                                 Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
-                                    tile_row,
-                                    tile_col,
+                                    tile_row_load,
+                                    tile_col_load,
                                     index_load,
                                     memory_config,
                                 ));

@@ -82,19 +82,19 @@ impl<
 > Queries<AP, TA, S>
 {
     pub fn new(query_loader: QueryLoader<AP>, #[comptime] config: S) -> Queries<AP, TA, S> {
-        let partition_size = config.tiling_scheme().partition_size;
+        let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         let mut i = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(partition_size.seq_q) {
+        for _ in 0..comptime!(p.seq_q) {
             let mut j = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(partition_size.head_dim) {
+            for _ in 0..comptime!(p.head_dim) {
                 let tile = query_loader.get_tile::<S>(i, j, config);
                 sequence.push(TA::init_query(&tile, config.tile_config()));
 
