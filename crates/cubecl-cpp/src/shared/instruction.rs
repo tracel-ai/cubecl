@@ -467,7 +467,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             } => {
                 let out = out.fmt_left();
                 match *split_meta {
-                    true => writeln!(f, "{out} = static_info.x[{info_offset}];"),
+                    true => writeln!(f, "{out} = {STATIC_INFO_NAME}.x[{info_offset}];"),
                     false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
                 }
             }

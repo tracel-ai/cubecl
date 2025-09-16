@@ -45,6 +45,49 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         Self::new(shape, strides, ScalarArg::new(len as u32), line_size)
     }
 
+    pub fn from_shapes_strides_ref(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        reference_shape: &[usize],
+        strides: &[usize],
+        line_size: &'a u8,
+    ) -> Self {
+        debug_assert!(
+            shape.len() == reference_shape.len(),
+            "Shape and reference should have the same rank"
+        );
+        debug_assert!(
+            shape
+                .iter()
+                .zip(reference_shape)
+                .all(|(s, r)| s == r || *s == 1),
+            "Shape should be equal to reference or 1 on each dimension"
+        );
+
+        let strides: Vec<usize> = strides
+            .iter()
+            .zip(shape.iter().zip(reference_shape))
+            .map(|(stride, (s, r))| if *s == *r { *stride } else { 0 })
+            .collect();
+
+        Self::from_shape_strides(client, reference_shape, &strides, line_size)
+    }
+
+    pub fn from_handles_ref(
+        client: &ComputeClient<R::Server, R::Channel>,
+        handle: &TensorHandleRef<'_, R>,
+        reference_handle: &TensorHandleRef<'_, R>,
+        line_size: &'a u8,
+    ) -> Self {
+        Self::from_shapes_strides_ref(
+            client,
+            handle.shape,
+            reference_handle.shape,
+            handle.strides,
+            line_size,
+        )
+    }
+
     pub fn from_handle(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,

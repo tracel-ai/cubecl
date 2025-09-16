@@ -49,6 +49,7 @@ impl LinearLayoutExpand {
 }
 
 impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
+    /// Construct a linear layout from shapes, strides and line size of the tensor
     pub fn from_shape_strides(
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
@@ -69,12 +70,51 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         }
     }
 
+    /// Construct a possibly broadcast linear layout from shapes/strides and a reference shape
+    pub fn from_shape_strides_with_reference(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        reference_shape: &[usize],
+        strides: &[usize],
+        line_size: &'a u8,
+    ) -> Self {
+        if shape != reference_shape {
+            // Broadcast layouts are always treated as permuted
+            Self::Permuted(PermutedLayoutLaunch::from_shapes_strides_ref(
+                client,
+                shape,
+                reference_shape,
+                strides,
+                line_size,
+            ))
+        } else {
+            Self::from_shape_strides(client, shape, strides, line_size)
+        }
+    }
+
+    /// Construct a linear layout from a tensor handle
     pub fn from_handle(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'a, R>,
         line_size: &'a u8,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
+    }
+
+    /// Construct a possibly broadcast linear layout from a tensor handle and reference handle
+    pub fn from_handle_with_reference(
+        client: &ComputeClient<R::Server, R::Channel>,
+        handle: &TensorHandleRef<'a, R>,
+        reference: &TensorHandleRef<'a, R>,
+        line_size: &'a u8,
+    ) -> Self {
+        Self::from_shape_strides_with_reference(
+            client,
+            handle.shape,
+            reference.shape,
+            handle.strides,
+            line_size,
+        )
     }
 }
 
@@ -114,6 +154,21 @@ pub fn linear_view<'a, R: Runtime>(
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
+    let buffer = unsafe {
+        ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
+    };
+    LinearViewLaunch::new(buffer, layout)
+}
+
+/// Create a possibly broadcast linear tensor view from a handle, reference handle and line size
+pub fn linear_view_with_reference<'a, R: Runtime>(
+    client: &ComputeClient<R::Server, R::Channel>,
+    handle: &'a TensorHandleRef<'a, R>,
+    reference: &'a TensorHandleRef<'a, R>,
+    line_size: &'a u8,
+) -> LinearViewLaunch<'a, R> {
+    let len = handle.shape.iter().product::<usize>();
+    let layout = LinearLayoutArgs::from_handle_with_reference(client, handle, reference, line_size);
     let buffer = unsafe {
         ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
     };
