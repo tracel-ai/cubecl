@@ -204,7 +204,17 @@ pub(crate) fn create_client_on_setup(
     options: RuntimeOptions,
 ) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
     let limits = setup.device.limits();
-    let adapter_limits = setup.adapter.limits();
+    let mut adapter_limits = setup.adapter.limits();
+
+    // Workaround: WebGPU reports some "fake" subgroup info atm, as it's not really supported yet.
+    // However, some algorithms do rely on having this information eg. cubecl-reduce uses max subgroup size _even_ when
+    // subgroups aren't used. For now, just override with the maximum range of subgroups possible.
+    if adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0 {
+        // There is in theory nothing limiting the size to go below 8 but in practice 8 is the minimum found anywhere.
+        adapter_limits.min_subgroup_size = 8;
+        // This is a hard limit of GPU APIs (subgroup ballot returns 4 * 32 bits).
+        adapter_limits.max_subgroup_size = 128;
+    }
 
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
@@ -264,15 +274,8 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
-        // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
-        // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
-        // For now just disable subgroups on WebGPU, until this information is added.
-        let fake_plane_info =
-            adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
-
         if features.contains(wgpu::Features::SUBGROUP)
             && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
-            && !fake_plane_info
         {
             use cubecl_runtime::Plane;
 
