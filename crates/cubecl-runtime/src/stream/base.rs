@@ -229,6 +229,7 @@ impl<B: StreamBackend> StreamWrapper<B> {
     }
 
     fn run_gc(&mut self, batch_size: usize) {
+        let batch_size = usize::min(batch_size, self.shareds.len());
         let dropped = self.shareds.drain(0..batch_size);
 
         // We wait on the last event recorded.
