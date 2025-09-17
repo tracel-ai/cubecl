@@ -30,35 +30,30 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(
 
     let len = 4096;
     let input: Vec<u32> = (0..len as u32).collect();
-    let input = client.create(u32::as_bytes(&input));
-    let output = client_1.empty(len * core::mem::size_of::<F>());
+    let mut input = client_1.create(u32::as_bytes(&input));
+    let mut output = None;
 
-    unsafe {
-        big_task::launch::<F, R>(
-            &client_1,
-            CubeCount::Static(len as u32 / 32, 1, 1),
-            CubeDim::new(32, 1, 1),
-            ArrayArg::from_raw_parts::<F>(&input, len, 1),
-            ArrayArg::from_raw_parts::<F>(&output, len, 1),
-            ScalarArg::new(4096),
-        )
-    };
+    for _ in 0..300 {
+        let output_ = client_1.empty(len * core::mem::size_of::<F>());
+        unsafe {
+            big_task::launch::<F, R>(
+                &client_1,
+                CubeCount::Static(len as u32 / 32, 1, 1),
+                CubeDim::new(32, 1, 1),
+                ArrayArg::from_raw_parts::<F>(&input, len, 1),
+                ArrayArg::from_raw_parts::<F>(&output_, len, 1),
+                ScalarArg::new(4096),
+            );
+        };
+        input = output_.clone();
+        output = Some(output_);
+    }
 
-    // unsafe {
-    //     big_task::launch::<F, R>(
-    //         &client_2,
-    //         CubeCount::Static(len as u32 / 32, 1, 1),
-    //         CubeDim::new(32, 1, 1),
-    //         ArrayArg::from_raw_parts::<F>(&input, len, 1),
-    //         ArrayArg::from_raw_parts::<F>(&output, len, 1),
-    //         ScalarArg::new(4096),
-    //     )
-    // };
-
-    let actual = client.read_one(output);
+    // cubecl_common::future::block_on(client_1.sync());
+    let actual = client_2.read_one(output.unwrap());
     let actual = F::from_bytes(&actual);
 
-    assert_eq!(actual[0], F::new(2.0));
+    assert_eq!(actual[0], F::new(1318936000.0));
 }
 
 #[allow(missing_docs)]

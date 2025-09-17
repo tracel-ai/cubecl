@@ -140,13 +140,14 @@ impl<B: StreamBackend> MultiStream<B> {
 
         for binding in bindings {
             if stream_id != binding.stream {
-                if let Some(last_synced) = current.last_synced.get(&binding.stream) {
-                    if *last_synced < binding.cursor {
-                        analysis.shared(binding);
-                    }
-                } else {
-                    analysis.shared(binding);
-                }
+                analysis.shared(binding);
+                // if let Some(last_synced) = current.last_synced.get(&binding.stream) {
+                //     if *last_synced < binding.cursor {
+                //         analysis.shared(binding);
+                //     }
+                // } else {
+                //     analysis.shared(binding);
+                // }
             }
         }
 
@@ -180,6 +181,7 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
 
+            // println!("waiting..");
             B::wait_event(&mut stream.stream, event);
         }
     }

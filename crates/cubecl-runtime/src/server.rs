@@ -446,7 +446,8 @@ pub struct TensorMapMeta {
 impl Handle {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        self.memory.can_mut() && self.stream == StreamId::current()
+        false
+        // self.memory.can_mut() && self.stream == StreamId::current()
     }
 }
 
