@@ -159,6 +159,7 @@ impl<B: StreamBackend> MultiStream<B> {
         }
 
         log::info!("Analysis for stream {stream_id} => {analysis:?}");
+        // println!("Analysis for stream {stream_id} => {analysis:?}");
 
         let mut events = Vec::with_capacity(analysis.slices.len());
 
@@ -179,11 +180,8 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
 
-            // B::wait_event(&mut stream.stream, event);
-            B::wait_event_sync(event);
+            B::wait_event(&mut stream.stream, event);
         }
-        let event = B::flush(&mut stream.stream);
-        B::wait_event_sync(event);
     }
 }
 
@@ -228,13 +226,13 @@ impl<B: StreamBackend> StreamWrapper<B> {
         let batch_size = usize::min(batch_size, self.shareds.len());
         let dropped = self.shareds.drain(0..batch_size);
 
-        for d in dropped {
-            B::wait_event_sync(d.event.expect("The event to be initialized"));
-        }
-        // We wait on the last event recorded.
-        // if let Some(shared) = dropped.last() {
-        //     B::wait_event_sync(shared.event.expect("The event to be initialized"));
+        // for d in dropped {
+        //     B::wait_event_sync(d.event.expect("The event to be initialized"));
         // }
+        //  We wait on the last event recorded.
+        if let Some(shared) = dropped.last() {
+            B::wait_event_sync(shared.event.expect("The event to be initialized"));
+        }
     }
 }
 

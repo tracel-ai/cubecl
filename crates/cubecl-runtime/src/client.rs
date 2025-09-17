@@ -29,6 +29,7 @@ use cubecl_common::stream_id::StreamId;
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
     state: Arc<ComputeClientState<Server>>,
+    stream_id: Option<StreamId>,
 }
 
 #[derive(new)]
@@ -56,6 +57,7 @@ where
         Self {
             channel: self.channel.clone(),
             state: self.state.clone(),
+            stream_id: self.stream_id.clone(),
         }
     }
 }
@@ -103,13 +105,30 @@ where
         Self {
             channel,
             state: Arc::new(state),
+            stream_id: None,
         }
+    }
+
+    fn stream_id(&self) -> StreamId {
+        match self.stream_id {
+            Some(val) => val.clone(),
+            None => StreamId::current(),
+        }
+    }
+
+    /// Set the stream in which the current client is operating on.
+    ///
+    /// # Safety
+    ///
+    /// This is highly unsafe and should probably only be used by the CubeCL/Burn projects for now.
+    pub unsafe fn set_stream(&mut self, stream_id: StreamId) {
+        self.stream_id = Some(stream_id);
     }
 
     async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
         self.profile_guard();
 
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         self.channel.read(descriptors, stream_id).await
     }
 
@@ -193,7 +212,7 @@ where
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.profile_guard();
 
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         self.channel.get_resource(binding, stream_id)
     }
 
@@ -204,9 +223,7 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        let allocations = self
-            .channel
-            .create(descriptors.clone(), StreamId::current())?;
+        let allocations = self.channel.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
             .zip(allocations.iter())
@@ -223,7 +240,7 @@ where
                 )
             })
             .collect();
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         self.channel.write(descriptors, stream_id)?;
         Ok(allocations)
     }
@@ -289,7 +306,7 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        self.channel.create(descriptors, StreamId::current())
+        self.channel.create(descriptors, self.stream_id())
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -405,7 +422,7 @@ where
                 count,
                 bindings,
                 ExecutionMode::Checked,
-                StreamId::current(),
+                self.stream_id(),
             );
         }
     }
@@ -431,7 +448,7 @@ where
                 count,
                 bindings,
                 ExecutionMode::Unchecked,
-                StreamId::current(),
+                self.stream_id(),
             );
         }
     }
@@ -440,7 +457,7 @@ where
     pub fn flush(&self) {
         self.profile_guard();
 
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         self.channel.flush(stream_id);
     }
 
@@ -448,7 +465,7 @@ where
     pub async fn sync(&self) {
         self.profile_guard();
 
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         self.channel.sync(stream_id).await;
         self.state.logger.profile_summary();
     }
@@ -559,12 +576,12 @@ where
             None
         };
 
-        let token = self.channel.start_profile(StreamId::current());
+        let token = self.channel.start_profile(self.stream_id());
 
         let out = func();
 
         #[allow(unused_mut)]
-        let mut result = self.channel.end_profile(StreamId::current(), token);
+        let mut result = self.channel.end_profile(self.stream_id(), token);
 
         core::mem::drop(out);
 
@@ -604,12 +621,12 @@ where
         let strides = src_descriptor.strides;
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor], StreamId::current())
+            .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
@@ -636,12 +653,12 @@ where
     ) -> Allocation {
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor], StreamId::current())
+            .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
@@ -685,7 +702,7 @@ where
         let current = self.state.current_profiling.read();
 
         if let Some(current_stream_id) = current.as_ref() {
-            let stream_id = StreamId::current();
+            let stream_id = self.stream_id();
 
             if current_stream_id == &stream_id {
                 return;
@@ -713,7 +730,7 @@ where
 
     #[cfg(multi_threading)]
     fn profile_acquire(&self) -> Option<StreamId> {
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         let mut current = self.state.current_profiling.write();
 
         match current.as_mut() {
