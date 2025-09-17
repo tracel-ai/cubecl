@@ -1136,18 +1136,26 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Cast(op)
                 if is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()) =>
             {
-                let inst = self.compile_unary(op, out);
-
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec = inst.input.item().vectorization as u32;
+                let vec_in = op.input.ty.line_size();
+                let packing = out.storage_type().packing_factor();
+                self.compile_type(op.input.ty.line(packing));
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec_in),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec_in),
                 );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(packing),
+                );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(packing),
+                );
+
+                let inst = self.compile_unary(op, out);
 
                 instructions.push(Instruction::SpecialCast(inst));
             }

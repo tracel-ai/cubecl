@@ -60,12 +60,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), R>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let config = match A::setup::<P::MP, R>(&client, &problem, &selection, &line_sizes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");

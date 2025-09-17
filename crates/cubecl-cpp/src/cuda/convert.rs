@@ -57,6 +57,21 @@ pub(crate) fn special_cast<D: Dialect>(
         current_in = out_var;
     }
 
+    // Broadcast scalars to packing factor
+    if out.item().packing_factor() > 1 && input.item().vectorization == 1 {
+        let tmp = Variable::tmp(Item {
+            elem: input.item().elem,
+            vectorization: out.item().packing_factor(),
+            native: input.item().native,
+        });
+        let assign = Instruction::Assign(UnaryInstruction {
+            input: current_in,
+            out: tmp,
+        });
+        writeln!(f, "{assign}")?;
+        current_in = tmp;
+    }
+
     if matches!(
         current_in.elem(),
         Elem::U8
@@ -72,8 +87,8 @@ pub(crate) fn special_cast<D: Dialect>(
         // Precision is irrelevant for int, so use bf16 for the range
         let tmp = Variable::tmp(Item {
             elem: Elem::BF16,
-            vectorization: input.item().vectorization,
-            native: input.item().native,
+            vectorization: current_in.item().vectorization,
+            native: current_in.item().native,
         });
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
@@ -137,7 +152,7 @@ fn cast_to_fp4_fp6<D: Dialect>(
         _ => unreachable!("Must be fp4 or fp6"),
     };
 
-    let in_ty = match input.elem() {
+    let in_ty = match input.elem().unpacked() {
         Elem::F64 => format!("double{pack_suffix}"),
         Elem::TF32 | Elem::F32 => format!("float{pack_suffix}"),
         Elem::F16 => format!("halfraw{pack_suffix}"),
