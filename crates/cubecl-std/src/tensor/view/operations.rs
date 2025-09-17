@@ -645,7 +645,7 @@ where
             .clone()
             .__expand_to_source_pos_checked_method(scope, pos);
         if_expand(scope, in_bounds.into(), |scope| {
-            self.view.__expand_write_method(scope, pos, value);
+            self.view.__expand_write_checked_method(scope, pos, value);
         });
     }
 
