@@ -176,20 +176,15 @@ where
     fn init_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords3d,
-        _slice_size: Coords3d,
+        slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageWriter {
-        let (_, x_offset, y_offset) = offset;
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
             OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout_global).view_mut(layout_out),
-            x_offset,
-            y_offset,
-            0,
-        )
+        let out = out.view_mut(layout_global).view_mut(layout_out);
+        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size))
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

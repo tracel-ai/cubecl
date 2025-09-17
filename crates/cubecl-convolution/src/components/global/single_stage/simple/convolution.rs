@@ -133,7 +133,11 @@ where
         let layout_global = NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial);
         let layout_im2col = Im2colLayout::new(runtime_args, config);
         let lhs = lhs.view(layout_global).view(layout_im2col);
-        Self::LhsStageLoader::new(lhs.slice(offset, slice_size), MatmulIdent::Lhs, config)
+        Self::LhsStageLoader::new(
+            lhs.slice_unchecked(offset, slice_size),
+            MatmulIdent::Lhs,
+            config,
+        )
     }
 
     fn init_rhs_loader(
@@ -146,7 +150,11 @@ where
         let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false);
         let layout_weight = WeightLayout::new(&rhs, runtime_args, config);
         let rhs = rhs.view(layout_global).view(layout_weight);
-        Self::RhsStageLoader::new(rhs.slice(offset, slice_size), MatmulIdent::Rhs, config)
+        Self::RhsStageLoader::new(
+            rhs.slice_unchecked(offset, slice_size),
+            MatmulIdent::Rhs,
+            config,
+        )
     }
 
     fn init_bias_loader(
@@ -161,20 +169,15 @@ where
     fn init_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords3d,
-        _slice_size: Coords3d,
+        slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageWriter {
-        let (_, x_offset, y_offset) = offset;
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
             OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout_global).view_mut(layout_out),
-            x_offset,
-            y_offset,
-            0,
-        )
+        let out = out.view_mut(layout_global).view_mut(layout_out);
+        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size))
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

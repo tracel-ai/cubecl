@@ -135,8 +135,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         )
     }
 
-    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        DummyWriter::new(out, q_offset, 0, 0)
+    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+        DummyWriter::new(out)
     }
 
     fn init_fragments(

@@ -43,11 +43,8 @@ impl StagePartitioner for UnitPartitioner {
 
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
     ) -> Self::Writer<EO> {
-        UnitWriter::<EO>::new(tensor, x_offset, y_offset, batch_offset)
+        UnitWriter::<EO>::new(tensor)
     }
 
     fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {

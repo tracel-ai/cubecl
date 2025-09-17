@@ -19,14 +19,9 @@ pub struct PlaneWriter<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(
-        view: View<Line<EG>, Coords3d, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self {
+    pub fn new(view: View<Line<EG>, Coords3d, ReadWrite>) -> Self {
         PlaneWriter::<EG> {
-            tensor_writer: TensorWriter::new(view, x_offset, y_offset, batch_offset),
+            tensor_writer: TensorWriter::new(view),
         }
     }
 }

@@ -112,7 +112,7 @@ where
     ) -> Self::LhsStageLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
         Self::LhsStageLoader::new(
-            lhs.view(layout).slice(offset, slice_size),
+            lhs.view(layout).slice_unchecked(offset, slice_size),
             MatmulIdent::Lhs,
             config,
         )
@@ -127,7 +127,7 @@ where
     ) -> Self::RhsStageLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
         Self::RhsStageLoader::new(
-            rhs.view(layout).slice(offset, slice_size),
+            rhs.view(layout).slice_unchecked(offset, slice_size),
             MatmulIdent::Rhs,
             config,
         )
@@ -149,13 +149,12 @@ where
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords3d,
-        _slice_size: Coords3d,
+        slice_size: Coords3d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
-        let (batch_offset, x_offset, y_offset) = offset;
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
+        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

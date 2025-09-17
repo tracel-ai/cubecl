@@ -325,7 +325,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C,
     /// #Safety
     /// Size is not checked and may exceed bounds!
     pub fn slice_unchecked(&self, pos: C, size: C) -> View<E, C, ReadOnly> {
-        let layout = SliceLayout::new(pos, size);
+        let layout = SliceLayout::new(pos, size, false);
         self.view(layout)
     }
 }
@@ -341,7 +341,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         let pos = C::__expand_min(scope, pos, shape.clone());
         let max_size = C::__expand_sub(scope, shape, pos.clone());
         let size = C::__expand_min(scope, size, max_size);
-        let layout = SliceLayout::__expand_new(scope, pos, size);
+        let layout = SliceLayout::__expand_new(scope, pos, size, true);
         self.clone().__expand_view_method(scope, layout.into())
     }
 }
@@ -440,7 +440,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
     /// # Safety
     /// Size is unchecked and may exceed bounds
     pub fn slice_mut_unchecked(&self, pos: C, size: C) -> View<E, C, ReadWrite> {
-        let layout = SliceLayout::new(pos, size);
+        let layout = SliceLayout::new(pos, size, false);
         self.view_mut(layout)
     }
 }
@@ -456,7 +456,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
         let pos = C::__expand_min(scope, pos, shape.clone());
         let max_size = C::__expand_sub(scope, shape, pos.clone());
         let size = C::__expand_min(scope, size, max_size);
-        let layout = SliceLayout::__expand_new(scope, pos, size);
+        let layout = SliceLayout::__expand_new(scope, pos, size, true);
         self.clone().__expand_view_mut_method(scope, layout.into())
     }
 }

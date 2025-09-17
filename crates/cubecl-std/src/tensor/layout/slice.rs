@@ -8,15 +8,18 @@ use crate::tensor::layout::{Coordinates, Layout, LayoutExpand};
 pub struct SliceLayout<C: Coordinates> {
     offset: C,
     size: C,
+    #[cube(comptime)]
+    checked: bool,
 }
 
 #[cube]
 impl<C: Coordinates> SliceLayout<C> {
     /// Create a new slice layout.
-    pub fn new(start: C, size: C) -> Self {
+    pub fn new(start: C, size: C, #[comptime] checked: bool) -> Self {
         SliceLayout::<C> {
             offset: start,
             size,
+            checked,
         }
     }
 
@@ -43,7 +46,11 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        C::is_in_bounds(pos, self.size())
+        if comptime![self.checked] {
+            C::is_in_bounds(pos, self.size())
+        } else {
+            true.runtime()
+        }
     }
 
     fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {

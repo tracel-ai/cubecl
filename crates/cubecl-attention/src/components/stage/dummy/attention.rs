@@ -83,8 +83,8 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         TA::write::<G>(acc, writer, stage_config.tile_config(), global_config);
     }
 
-    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        TA::init_writer(q_offset, out)
+    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+        TA::init_writer(out)
     }
 
     fn init_fragments(
