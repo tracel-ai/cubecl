@@ -199,7 +199,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_semantic_type(SemanticType::Barrier);
         device_props.features.plane.insert(Plane::Sync);
 
-        comp_opts.grid_constants = true;
+        comp_opts.grid_constants = false;
     }
 
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
