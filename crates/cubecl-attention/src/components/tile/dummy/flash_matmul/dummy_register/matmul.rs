@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
@@ -91,7 +93,10 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        Array::<FP::KV>::new(config.attention_tile_size().key_size())
+        Array::<FP::KV>::new(comptime!(max(
+            config.attention_tile_size().key_size(),
+            config.attention_tile_size().value_size(),
+        )))
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {

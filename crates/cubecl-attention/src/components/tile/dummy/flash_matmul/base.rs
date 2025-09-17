@@ -105,7 +105,6 @@ pub trait FlashMatmulConfig:
 {
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
-    fn reuse_key_value(&self) -> bool;
     fn stage_line_size(&self, ident: FlashIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q

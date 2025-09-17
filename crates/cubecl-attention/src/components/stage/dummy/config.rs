@@ -40,6 +40,10 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     fn tiling_scheme(&self) -> AttentionTilingScheme {
         self.tiling_scheme
     }
+
+    fn reuse_key_value(&self) -> bool {
+        false
+    }
 }
 
 impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {

@@ -444,16 +444,16 @@ macro_rules! testgen_attention {
             fn attention_partition_vd2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 1,
-                    seq_kv: 1,
-                    head_dim: 1,
-                    val_dim: 1,
+                    seq_q: 8,
+                    seq_kv: 5,
+                    head_dim: 7,
+                    val_dim: 4,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,
                     seq_kv: 1,
-                    head_dim: 1,
-                    val_dim: 2,
+                    head_dim: 7,
+                    val_dim: 8,
                 };
                 let stage_size = AttentionStageSize { seq_q: 1 };
                 let tiling_scheme = AttentionTilingScheme {

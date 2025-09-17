@@ -5,7 +5,6 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::global::dummy::QueryLoader;
-use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 
 #[derive(CubeType)]
@@ -161,12 +160,12 @@ impl<
 > KeyValues<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> KeyValues<AP, TA, S> {
-        if config.tile_config().reuse_key_value() {
-            let partition_size = config.tiling_scheme().partition_size;
+        if config.reuse_key_value() {
+            let p = config.tiling_scheme().partition_size;
             let mut sequence = Sequence::new();
 
             #[unroll]
-            for _ in 0..comptime!(max(partition_size.head_dim, partition_size.val_dim)) {
+            for _ in 0..comptime!(max(p.head_dim, p.val_dim)) {
                 sequence.push(TA::init_key_value(config.tile_config()));
             }
 

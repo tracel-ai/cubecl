@@ -136,4 +136,5 @@ pub trait StageAttentionConfig:
     fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
+    fn reuse_key_value(&self) -> bool;
 }

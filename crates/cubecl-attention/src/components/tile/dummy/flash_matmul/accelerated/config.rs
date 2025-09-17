@@ -97,10 +97,6 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
         self.num_planes
     }
 
-    fn reuse_key_value(&self) -> bool {
-        false
-    }
-
     fn stage_line_size(&self, ident: FlashIdent) -> u32 {
         match ident {
             FlashIdent::Query => self.query_stage_line_size,

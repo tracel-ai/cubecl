@@ -95,10 +95,6 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         self.num_planes
     }
 
-    fn reuse_key_value(&self) -> bool {
-        false
-    }
-
     fn stage_line_size(&self, ident: FlashIdent) -> u32 {
         match ident {
             FlashIdent::Query => self.query_stage_line_size,
@@ -156,6 +152,11 @@ impl DummyRegisterFlashMatmulConfig {
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
+        if self.attention_tile_size.head_dim < self.attention_tile_size.val_dim {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(format!(
+                "Can't have tile head_dim < tile val dim (not sure why)"
+            ))));
+        }
         Ok(self)
     }
 }
