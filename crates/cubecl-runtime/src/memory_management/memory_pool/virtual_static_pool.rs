@@ -74,11 +74,13 @@ impl VirtualSlice {
         *self.handle.id()
     }
 
+    #[allow(dead_code)]
     fn storage_handle(&self) -> &StorageHandle {
         &self.storage_handle
     }
 
     /// Total virtual size (always multiple of block_size)
+    #[allow(dead_code)]
     fn virtual_size(&self) -> u64 {
         self.requested_size + self.padding
     }
@@ -88,6 +90,7 @@ impl VirtualSlice {
     }
 
     // Helper to get block size
+    #[allow(dead_code)]
     fn get_block_size(&self) -> u64 {
         let total_size = self.requested_size + self.padding;
         total_size.div_ceil(self.physical_block_indices.len() as u64)
@@ -155,6 +158,7 @@ impl VirtualStaticPool {
         // Create fresh virtual address space
         let virtual_size = blocks_needed as u64 * self.block_size;
         let virtual_handle = storage.try_reserve(virtual_size as usize)?;
+       
         let virtual_space_id = virtual_handle.id();
 
         // Collect physical handles for mapping

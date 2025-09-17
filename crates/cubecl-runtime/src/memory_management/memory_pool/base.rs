@@ -62,6 +62,7 @@ pub trait MemoryPool {
 /// It may look similar to existing memory pool.
 /// However, I think for scalability is better to have a separate trait, as actual implementations may differ.
 /// For example, you may want to add an [`unmap`] method here that releases a single page without deallocating memory, which probably would facilitate memory reuse and prevent OOM errors.
+#[allow(dead_code)]
 pub trait VirtualMemoryPool {
     fn max_alloc_size(&self) -> u64;
 

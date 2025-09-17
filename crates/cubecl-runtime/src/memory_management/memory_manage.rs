@@ -252,10 +252,9 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
             })
             .collect();
 
-        let virtual_pool = if properties.virtual_memory && virtual_storage.is_some() {
-            let virtual_ref = virtual_storage
-                .as_ref()
-                .expect("This is unreachable, as virtual storage must be defined at this point.");
+        let virtual_pool = if properties.virtual_memory
+            && let Some(ref virtual_ref) = virtual_storage
+        {
             Some(VirtualStaticPool::new(
                 virtual_ref,
                 properties.min_granularity as u64,
@@ -307,10 +306,10 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
 
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
-        if self.uses_virtual() {
-            if let Some(val) = self.static_pool.get(&binding) {
-                return Some(val.clone());
-            }
+        if self.uses_virtual()
+            && let Some(val) = self.virtual_pool.as_mut()?.get(&binding)
+        {
+            return Some(val.clone());
         }
 
         if let Some(val) = self.static_pool.get(&binding) {
@@ -334,15 +333,20 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
         let handle = self.get(binding);
 
         if self.uses_virtual() {
+
+
             handle.map(|handle| {
                 let handle = match offset_start {
-                    Some(offset) => handle.offset_start(offset),
+
+                    Some(offset) =>{
+                     handle.offset_start(offset)},
                     None => handle,
                 };
                 let handle = match offset_end {
                     Some(offset) => handle.offset_end(offset),
                     None => handle,
                 };
+
                 self.virtual_storage().get(&handle) // Devuelve Option<Virtual::Resource> (impl Send)
             })
         } else {
@@ -363,6 +367,7 @@ impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage,
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
         if self.uses_virtual() {
+            println!("LLAMO A ALLOC");
             let virtual_storage = self.virtual_storage.as_mut().unwrap();
             return self
                 .virtual_pool

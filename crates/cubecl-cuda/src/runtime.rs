@@ -232,7 +232,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let virtual_storage_gpu = GpuVirtualStorage::new(device_ptr, granularity);
     let memory_management_gpu = MemoryManagement::from_configuration(
         storage,
-        None, // PLACEHOLDER. NEED TO SET THIS
+        Some(virtual_storage_gpu),
         &mem_properties,
         options.memory_config.clone(),
     );

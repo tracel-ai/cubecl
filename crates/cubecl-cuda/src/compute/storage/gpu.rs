@@ -234,6 +234,7 @@ impl GpuMemoryRange {
     ///
     /// This should be called after successful `cuMemUnmap` operations to allow
     /// for future remapping or release of the virtual address space.
+    #[allow(dead_code)]
     fn set_unmapped(&mut self) {
         self.is_mapped = false;
     }
@@ -560,6 +561,7 @@ impl VirtualStorage for GpuVirtualStorage {
     /// invalid handles indicate programming bugs that should be caught during
     /// development rather than handled at runtime.
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
+      
         let mapping = self.active_mappings.get(&handle.id)
             .expect("Storage handle not found in active mappings. Handle may be unmapped, deallocated, or invalid");
 

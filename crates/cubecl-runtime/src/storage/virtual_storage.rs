@@ -347,8 +347,9 @@ pub trait VirtualStorage: Send {
 #[macro_export]
 macro_rules! impl_virtual_storage {
     ($storage_name:ident, $resource_name:ty) => {
+        /// Virtual Storage Dummy implementation
         pub struct $storage_name {
-            // Minimim granularity of the virtual storage
+            /// Minimim granularity of the virtual storage
             pub granularity: usize,
         }
 

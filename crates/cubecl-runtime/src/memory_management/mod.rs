@@ -86,7 +86,7 @@ pub struct MemoryDeviceProperties {
     pub data_transfer_async: bool,
     /// Whether this device supports virtual memory
     pub virtual_memory: bool,
-    // Minimum allocation granularity of the target device (will be 0 if it is not supported.)
+    /// Minimum allocation granularity of the target device (will be 0 if it is not supported.)
     pub min_granularity: usize,
 }
 
