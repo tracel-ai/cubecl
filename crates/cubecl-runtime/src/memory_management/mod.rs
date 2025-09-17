@@ -84,6 +84,10 @@ pub struct MemoryDeviceProperties {
     pub alignment: u64,
     /// Defines if memory can be transfered async between multiple devices of the same kind.
     pub data_transfer_async: bool,
+    /// Whether this device supports virtual memory
+    pub virtual_memory: bool,
+    /// Minimum allocation granularity of the target device (will be 0 if it is not supported.)
+    pub min_granularity: usize,
 }
 
 /// Properties of the device related to the accelerator hardware.

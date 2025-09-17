@@ -63,10 +63,12 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         max_page_size: max_shared_memory_size as u64,
         alignment: ALIGNMENT,
         data_transfer_async: false,
+        virtual_memory: false,
+        min_granularity: 0, // When virtual memory is false, this is unused
     };
 
     let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+        MemoryManagement::from_configuration(storage, None, &mem_properties, options.memory_config);
     let mut device_props = DeviceProperties::new(
         Default::default(),
         mem_properties,

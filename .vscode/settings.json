@@ -1,3 +1,17 @@
 {
-    "files.eol": "\n"
+    "files.eol": "\n",
+        "rust-analyzer.cargo.runBuildScripts": false,
+    "rust-analyzer.procMacro.enable": false,
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.cargo.noDefaultFeatures": false,
+    "rust-analyzer.cargo.features": ["minimal"],
+    "rust-analyzer.server.extraEnv": {
+        "RA_LRU_CAPACITY": "1024"   // Reduce memory used for caching
+    },
+    "rust-analyzer.diagnostics.enable": true,
+    "rust-analyzer.checkOnSave.enable": true,
+    "rust-analyzer.checkOnSave.command": "check",
+    "rust-analyzer.trace.server": "off"
+
+
 }

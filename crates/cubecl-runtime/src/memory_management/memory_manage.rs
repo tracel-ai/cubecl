@@ -1,7 +1,9 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualStaticPool},
 };
+use crate::memory_management::memory_pool::VirtualMemoryPool;
+use crate::storage::VirtualStorage;
 use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
@@ -86,11 +88,13 @@ pub enum MemoryAllocationMode {
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
-pub struct MemoryManagement<Storage> {
+pub struct MemoryManagement<Storage, Virtual> {
     static_pool: StaticPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
+    virtual_pool: Option<VirtualStaticPool>,
+    virtual_storage: Option<Virtual>,
     mode: MemoryAllocationMode,
 }
 
@@ -122,10 +126,11 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+impl<Storage: ComputeStorage, Virtual: VirtualStorage> MemoryManagement<Storage, Virtual> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
+        virtual_storage: Option<Virtual>,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
@@ -247,10 +252,24 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
+        let virtual_pool = if properties.virtual_memory
+            && let Some(ref virtual_ref) = virtual_storage
+        {
+            Some(VirtualStaticPool::new(
+                virtual_ref,
+                properties.min_granularity as u64,
+                properties.max_page_size,
+            ))
+        } else {
+            None
+        };
+
         Self {
             static_pool: StaticPool::new(properties.max_page_size),
             pools,
             storage,
+            virtual_pool,
+            virtual_storage,
             alloc_reserve_count: 0,
             mode: MemoryAllocationMode::Auto,
         }
@@ -261,6 +280,11 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.mode = mode;
     }
 
+    /// Check if using virtual storage
+    pub fn uses_virtual(&self) -> bool {
+        self.virtual_storage.is_some() && self.virtual_pool.is_some()
+    }
+
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
         self.static_pool
@@ -269,10 +293,25 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
+
+        if self.uses_virtual() {
+            let count = self.alloc_reserve_count;
+            let virtual_storage = self.virtual_storage.as_mut().unwrap();
+            self.virtual_pool
+                .as_mut()
+                .unwrap()
+                .cleanup(virtual_storage, count, explicit);
+        }
     }
 
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+        if self.uses_virtual()
+            && let Some(val) = self.virtual_pool.as_mut()?.get(&binding)
+        {
+            return Some(val.clone());
+        }
+
         if let Some(val) = self.static_pool.get(&binding) {
             return Some(val.clone());
         }
@@ -281,29 +320,62 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 
     /// Returns the resource from the storage at the specified handle
-    pub fn get_resource(
+    pub fn get_resource<R: Send>(
         &mut self,
         binding: SliceBinding,
         offset_start: Option<u64>,
         offset_end: Option<u64>,
-    ) -> Option<Storage::Resource> {
+    ) -> Option<R>
+    where
+        Virtual: VirtualStorage<Resource = R>,
+        Storage: ComputeStorage<Resource = R>,
+    {
         let handle = self.get(binding);
 
-        handle.map(|handle| {
-            let handle = match offset_start {
-                Some(offset) => handle.offset_start(offset),
-                None => handle,
-            };
-            let handle = match offset_end {
-                Some(offset) => handle.offset_end(offset),
-                None => handle,
-            };
-            self.storage().get(&handle)
-        })
+        if self.uses_virtual() {
+
+
+            handle.map(|handle| {
+                let handle = match offset_start {
+
+                    Some(offset) =>{
+                     handle.offset_start(offset)},
+                    None => handle,
+                };
+                let handle = match offset_end {
+                    Some(offset) => handle.offset_end(offset),
+                    None => handle,
+                };
+
+                self.virtual_storage().get(&handle) // Devuelve Option<Virtual::Resource> (impl Send)
+            })
+        } else {
+            handle.map(|handle| {
+                let handle = match offset_start {
+                    Some(offset) => handle.offset_start(offset),
+                    None => handle,
+                };
+                let handle = match offset_end {
+                    Some(offset) => handle.offset_end(offset),
+                    None => handle,
+                };
+                self.storage().get(&handle) // Devuelve OPtion<Storage::Resource> (impl Send)
+            })
+        }
     }
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+        if self.uses_virtual() {
+            println!("LLAMO A ALLOC");
+            let virtual_storage = self.virtual_storage.as_mut().unwrap();
+            return self
+                .virtual_pool
+                .as_mut()
+                .unwrap()
+                .alloc(virtual_storage, size);
+        }
+
         if let MemoryAllocationMode::Static = self.mode {
             return self.static_pool.alloc(&mut self.storage, size);
         }
@@ -340,18 +412,35 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         &mut self.storage
     }
 
+    /// Fetch the virtual storage used by the memory manager.
+    pub fn virtual_storage(&mut self) -> &mut Virtual {
+        self.virtual_storage
+            .as_mut()
+            .expect("Virtual storage is not available")
+    }
+
     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
-        let memory_usage = self.pools.iter().map(|x| x.get_memory_usage()).fold(
-            MemoryUsage {
-                number_allocs: 0,
-                bytes_in_use: 0,
-                bytes_padding: 0,
-                bytes_reserved: 0,
-            },
-            |m1, m2| m1.combine(m2),
-        );
-        memory_usage.combine(self.static_pool.get_memory_usage())
+        let memory_usage = self
+            .pools
+            .iter()
+            .map(|x| x.get_memory_usage())
+            .fold(
+                MemoryUsage {
+                    number_allocs: 0,
+                    bytes_in_use: 0,
+                    bytes_padding: 0,
+                    bytes_reserved: 0,
+                },
+                |m1, m2| m1.combine(m2),
+            )
+            .combine(self.static_pool.get_memory_usage());
+
+        if self.uses_virtual() {
+            memory_usage.combine(self.virtual_pool.as_ref().unwrap().get_memory_usage())
+        } else {
+            memory_usage
+        }
     }
 
     /// Print out a report of the current memory usage.
@@ -361,7 +450,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     }
 }
 
-impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
+impl<Storage, Virtual> core::fmt::Debug for MemoryManagement<Storage, Virtual> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(
             alloc::format!(

@@ -1,7 +1,7 @@
 use super::fence::{Fence, SyncStream};
-use super::storage::gpu::GpuStorage;
+use super::storage::gpu::{GpuStorage, GpuVirtualStorage};
 use super::{storage::gpu::GpuResource, uninit_vec};
-use crate::compute::cpu::PinnedMemoryStorage;
+use crate::compute::cpu::{CpuVirtualStorage, PinnedMemoryStorage};
 use crate::compute::io::register_copies_to_bytes;
 use crate::runtime::HipCompiler;
 use cubecl_common::bytes::Bytes;
@@ -48,8 +48,8 @@ pub struct HipServer {
 #[derive(Debug)]
 pub(crate) struct HipContext {
     pub(crate) stream: cubecl_hip_sys::hipStream_t,
-    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage>,
-    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
+    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage, GpuVirtualStorage>,
+    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage, CpuVirtualStorage>,
     module_names: HashMap<KernelId, HipCompiledKernel>,
     timestamps: TimestampProfiler,
     compilation_options: CompilationOptions,
@@ -320,8 +320,8 @@ fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> GpuResource 
 
 impl HipContext {
     pub fn new(
-        memory_management_gpu: MemoryManagement<GpuStorage>,
-        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
+        memory_management_gpu: MemoryManagement<GpuStorage, GpuVirtualStorage>,
+        memory_management_cpu: MemoryManagement<PinnedMemoryStorage, CpuVirtualStorage>,
         compilation_options: CompilationOptions,
         stream: cubecl_hip_sys::hipStream_t,
     ) -> Self {

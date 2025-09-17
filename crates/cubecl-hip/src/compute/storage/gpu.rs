@@ -1,7 +1,13 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_hip_sys::HIP_SUCCESS;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::{
+    impl_virtual_storage,
+    storage::{
+        ComputeStorage, PhysicalStorageHandle, PhysicalStorageId, StorageHandle, StorageId,
+        StorageUtilization, VirtualAddressSpaceHandle, VirtualSpaceId, VirtualStorage,
+    },
+};
 use std::collections::HashMap;
 
 /// Buffer storage for AMD GPUs.
@@ -153,3 +159,5 @@ impl core::fmt::Debug for GpuStorage {
         f.write_str(format!("GpuStorage {{ stream: {:?} }}", self.stream).as_str())
     }
 }
+
+impl_virtual_storage!(GpuVirtualStorage, GpuResource);

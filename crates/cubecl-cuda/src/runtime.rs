@@ -1,3 +1,6 @@
+//use crate::compute::CudaStorageType;
+//use crate::compute::VirtualStorage;
+use crate::compute::storage::gpu::GpuVirtualStorage;
 use crate::{
     WmmaCompiler,
     compute::{
@@ -33,9 +36,14 @@ use cubecl_runtime::{
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
+use cudarc::driver::sys::CUmemAllocationGranularity_flags;
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
-use std::mem::MaybeUninit;
 
+use cudarc::driver::sys::CUmemAllocationHandleType_enum;
+use cudarc::driver::sys::CUmemAllocationProp;
+use cudarc::driver::sys::cuMemGetAllocationGranularity;
+use cudarc::driver::sys::{CUmemLocation, CUmemLocationType};
+use std::mem::MaybeUninit;
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
 pub struct RuntimeOptions {
@@ -75,10 +83,67 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         arch_major * 10 + minor
     } as u32;
+
+    // Check if device supports VMM
+    let vmm_supported = unsafe {
+        matches!(cudarc::driver::result::device::get_attribute(
+       device_ptr,
+        cudarc::driver::sys::CUdevice_attribute::CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED,
+     ), Ok(1))
+    };
+
+    let granularity = if vmm_supported {
+        let handle_type = {
+            #[cfg(unix)]
+            {
+                CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_POSIX_FILE_DESCRIPTOR
+            }
+            #[cfg(target_os = "windows")]
+            {
+                CUmemAllocationHandleType_enum::CU_MEM_HANDLE_TYPE_WIN32
+            }
+        };
+
+        // Define allocation properties
+        let prop = CUmemAllocationProp {
+            type_: cudarc::driver::sys::CUmemAllocationType::CU_MEM_ALLOCATION_TYPE_PINNED,
+            location: CUmemLocation {
+                type_: CUmemLocationType::CU_MEM_LOCATION_TYPE_DEVICE,
+                id: device_ptr,
+            },
+            requestedHandleTypes: handle_type,
+            // Still not sure how to properly set this flag which is apparently windows-specific.
+            win32HandleMetaData: std::ptr::null_mut(),
+            allocFlags: cudarc::driver::sys::CUmemAllocationProp_st__bindgen_ty_1 {
+                compressionType: 0,      // 0 -> No memory compression
+                gpuDirectRDMACapable: 0, // 0 -> No RDMA capabilities. Probably may want to change in the future for sharing pinned memory accross different devices.
+                usage: 0,                // Must be 0
+                reserved: [0; 4],        // Must be always zero.
+            },
+        };
+
+        let mut granularity: usize = 0;
+        if unsafe {
+            cuMemGetAllocationGranularity(
+                &mut granularity as *mut usize,
+                &prop,
+                CUmemAllocationGranularity_flags::CU_MEM_ALLOC_GRANULARITY_MINIMUM,
+            )
+            .result()
+        }
+        .is_ok()
+        {
+            granularity
+        } else {
+            0usize
+        }
+    } else {
+        0 // default granularity.
+    };
+
     // 32 bytes is enough to handle a double4 worth of alignment.
     // NB: cudamalloc and co. actually align to _256_ bytes. Worth
     // trying this in the future to see if it reduces memory coalescing.
-    //
     // TODO: Find the correct value from the driver.
     let mem_alignment = 32;
 
@@ -100,6 +165,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cudarc::driver::result::stream::StreamKind::NonBlocking,
     )
     .unwrap();
+
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
@@ -109,8 +175,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
-        // TODO: We should have a fallback when peer access isn't supported.
         data_transfer_async: true,
+        virtual_memory: vmm_supported,
+        min_granularity: granularity, // When virtual memory is false, this is unused
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -162,8 +229,10 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
+    let virtual_storage_gpu = GpuVirtualStorage::new(device_ptr, granularity);
     let memory_management_gpu = MemoryManagement::from_configuration(
         storage,
+        Some(virtual_storage_gpu),
         &mem_properties,
         options.memory_config.clone(),
     );
@@ -171,10 +240,13 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // expect the CPU to have at least the same amount of RAM as GPU memory.
     let memory_management_cpu = MemoryManagement::from_configuration(
         PinnedMemoryStorage::new(),
+        None, // Virtual storage set to none for HIP (NOT IMPLEMENTED YET)
         &MemoryDeviceProperties {
             max_page_size: mem_properties.max_page_size,
             alignment: PINNED_MEMORY_ALIGNMENT as u64,
             data_transfer_async: false,
+            virtual_memory: false,
+            min_granularity: 0, // When virtual memory is false, this is unused
         },
         options.memory_config,
     );

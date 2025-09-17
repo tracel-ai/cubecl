@@ -1,5 +1,11 @@
 use cubecl_core::server::IoError;
-use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use cubecl_runtime::{
+    impl_virtual_storage,
+    storage::{
+        ComputeStorage, PhysicalStorageHandle, PhysicalStorageId, StorageHandle, StorageId,
+        StorageUtilization, VirtualAddressSpaceHandle, VirtualSpaceId, VirtualStorage,
+    },
+};
 use hashbrown::HashMap;
 use std::num::NonZeroU64;
 use wgpu::BufferUsages;
@@ -93,3 +99,5 @@ impl ComputeStorage for WgpuStorage {
         self.memory.remove(&id);
     }
 }
+
+impl_virtual_storage!(WgpuVirtualStorage, WgpuResource);

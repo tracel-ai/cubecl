@@ -130,6 +130,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
         data_transfer_async: false,
+        virtual_memory: false,
+        min_granularity: 0, // When virtual memory is false, this is unused
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
@@ -154,6 +156,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     };
     let memory_management_gpu = MemoryManagement::from_configuration(
         storage,
+        None, // Virtual storage set to none for HIP (NOT IMPLEMENTED YET)
         &mem_properties,
         options.memory_config.clone(),
     );
@@ -161,10 +164,13 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     // expect the CPU to have at least the same amount of RAM as GPU memory.
     let memory_management_cpu = MemoryManagement::from_configuration(
         PinnedMemoryStorage::new(),
+        None, // Virtual storage set to none for HIP (NOT IMPLEMENTED YET)
         &MemoryDeviceProperties {
             max_page_size: mem_properties.max_page_size,
             alignment: PINNED_MEMORY_ALIGNMENT as u64,
             data_transfer_async: false,
+            virtual_memory: false,
+            min_granularity: 0, // When virtual memory is false, this is unused
         },
         options.memory_config,
     );
