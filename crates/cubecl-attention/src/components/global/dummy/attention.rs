@@ -143,6 +143,6 @@ impl<
         comment!("Global: Init Writer");
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
         let out = out.view_mut(layout);
-        SA::init_writer(out.slice_mut((0, q_offset, 0), out.shape()))
+        SA::init_writer(out.slice_mut_unchecked((0, q_offset, 0), out.shape()))
     }
 }

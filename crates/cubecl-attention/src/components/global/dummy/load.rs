@@ -61,8 +61,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
                 .view
                 .slice(
                     (
-                        0u32.runtime(),
                         self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
+                        0u32.runtime(),
                         0u32.runtime(),
                     ),
                     (1u32, 1u32, attention_tile_size.query_size()).runtime(),
