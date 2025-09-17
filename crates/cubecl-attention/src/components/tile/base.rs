@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
+    global::PlaneWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
 use cubecl_std::CubeOption;
-use cubecl_std::tensor::{View, layout::Coords3d};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -43,8 +43,6 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    type Writer: CubeType;
-
     /// The configuration type associated with this Attention.
     type Config: FlashMatmulConfig;
 
@@ -64,38 +62,37 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    fn write<G: GlobalAttentionConfig>(
+    fn write_results(
         acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+        slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     );
     fn tmp_write_score<G: GlobalAttentionConfig>(
         acc: &Self::ScoreProb,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
     fn tmp_write_query<G: GlobalAttentionConfig>(
         acc: &Self::Query,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
     fn tmp_write_key<G: GlobalAttentionConfig>(
         acc: &Self::KeyValue,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
-
-    fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
     fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb;
 

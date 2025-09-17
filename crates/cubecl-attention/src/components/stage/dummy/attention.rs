@@ -1,11 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::global::{GlobalWriter, PlaneWriter};
 use cubecl_matmul::components::stage::StageToTileReader;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
+use crate::components::FlashIdent;
 use crate::components::global::dummy::QueryLoader;
 use crate::components::stage::dummy::{
     Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
@@ -33,7 +35,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     type KeyValue = KeyValues<AP, TA, Self::Config>;
     type Score = Scores<AP, TA, Self::Config>;
     type Accumulator = Accumulators<AP, TA, Self::Config>;
-    type Writer = TA::Writer;
+    type Writer = PlaneWriter<AP::EO>;
 
     // for kv in 0..seq_kv:
     //     load key[:, kv] into KeyValue
@@ -80,7 +82,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
                 TA::fill_key(
                     &key_tile,
-                    key_value.get_at_mut(hd, config),
+                    key_value.get_key_at_mut(hd, config),
                     config.tile_config(),
                 );
 
@@ -103,7 +105,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.head_dim {
                     let query_frag = query.get_at(q, hd, config);
-                    let key_frag = key_value.get_at(hd, config);
+                    let key_frag = key_value.get_key_at(hd, config);
 
                     TA::accumulate_score(query_frag, key_frag, score_frag, config.tile_config());
 
@@ -134,7 +136,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
                 TA::fill_value(
                     &value_tile,
-                    key_value.get_at_mut(vd, config),
+                    key_value.get_value_at_mut(vd, config),
                     config.tile_config(),
                 );
 
@@ -152,7 +154,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
                     TA::accumulate_value(
-                        key_value.get_at(vd, config),
+                        key_value.get_value_at(vd, config),
                         score_prob.get_at(q),
                         accumulator.get_at_mut(q, vd, config),
                         row_stats.index(q),
@@ -178,12 +180,12 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
+        for _ in 0..p.seq_q {
             let mut j = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(p.val_dim) {
+            for _ in 0..p.val_dim {
                 TA::rescale(
                     Self::Accumulator::get_at_mut(acc, i, j, config),
                     &state,
@@ -202,6 +204,10 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
         TA::init_state(config.tile_config())
     }
 
+    fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+        PlaneWriter::new(tensor, q_offset, 0u32, 0u32)
+    }
+
     fn write<G: GlobalAttentionConfig>(
         acc: &Self::Accumulator,
         writer: &mut Self::Writer,
@@ -210,22 +216,38 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
     ) {
         comment!("Stage: Write");
         let p = stage_config.tiling_scheme().partition_size;
+        let t = stage_config.tiling_scheme().tile_size;
+
+        let out_smem_num_elements = p.seq_q * t.seq_q * p.val_dim * t.val_dim;
+
+        let mut out_smem = SharedMemory::<AP::EO>::new_lined(out_smem_num_elements, 1u32);
+        // TODO change indexes when we have planes>1
+        let mut smem_slice = out_smem.slice_mut(0u32, out_smem_num_elements);
 
         let mut i = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
+        for _ in 0..p.seq_q {
             let mut j = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(p.val_dim) {
-                TA::write::<G>(
+            for _ in 0..p.val_dim {
+                TA::write_results(
                     Self::Accumulator::get_at(acc, i, j, stage_config),
-                    writer,
+                    &mut smem_slice,
                     stage_config.tile_config(),
-                    global_config,
+                );
+
+                Self::Writer::write(
+                    writer,
+                    smem_slice.to_slice(),
+                    i,
+                    j,
+                    1u32,
+                    stage_config.plane_dim(),
+                    global_config.global_memory_config(FlashIdent::Out),
                 );
 
                 comptime![j += 1];
@@ -248,7 +270,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
+        for _ in 0..p.seq_q {
             TA::tmp_write_score::<G>(
                 Self::Score::get_at(score, i),
                 writer,
@@ -272,12 +294,12 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
+        for _ in 0..p.seq_q {
             let mut j = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(p.head_dim) {
+            for _ in 0..p.head_dim {
                 TA::tmp_write_query::<G>(
                     Self::Query::get_at(query, i, j, stage_config),
                     writer,
@@ -304,9 +326,9 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_kv) {
+        for _ in 0..p.seq_kv {
             TA::tmp_write_key::<G>(
-                Self::KeyValue::get_at(key, i, stage_config),
+                Self::KeyValue::get_key_at(key, i, stage_config),
                 writer,
                 stage_config.tile_config(),
                 global_config,
@@ -314,10 +336,6 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
 
             comptime![i += 1];
         }
-    }
-
-    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        TA::init_writer(q_offset, out)
     }
 
     fn init_fragments(

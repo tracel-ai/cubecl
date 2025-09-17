@@ -1,11 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::global::GlobalWriter as _;
+use cubecl_matmul::components::global::PlaneWriter;
 use cubecl_matmul::components::tile::Tile;
-use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
+use crate::components::FlashIdent;
 use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
 use crate::components::tile::dummy::{
@@ -14,7 +15,7 @@ use crate::components::tile::dummy::{
 use crate::components::{
     AttentionPrecision,
     global::GlobalAttentionConfig,
-    tile::dummy::{AccumulatorFragment, DummyWriter, KeyValueFragment, QueryFragment},
+    tile::dummy::{AccumulatorFragment, KeyValueFragment, QueryFragment},
 };
 
 pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
@@ -26,8 +27,6 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     for DummyTileAttention<AP::FlashPrecision, FM>
 {
     type Config = FM::Config;
-
-    type Writer = DummyWriter<AP::EO>;
 
     type State = RunningState<AP::EA>;
 
@@ -56,33 +55,16 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         }
     }
 
-    fn write<G: GlobalAttentionConfig>(
+    fn write_results(
         acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+        slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     ) {
-        comment!("Tile: Write");
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
-
-        FM::write_results::<AP::EA>(
-            &acc.fragment,
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            tile_config,
-        );
-
-        DummyWriter::<AP::EO>::write::<G>(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            global_config,
-        )
+        FM::write_results(&acc.fragment, slice, tile_config)
     }
     fn tmp_write_score<G: GlobalAttentionConfig>(
         acc: &Self::ScoreProb,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -95,17 +77,19 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             tile_config,
         );
 
-        DummyWriter::<AP::EO>::write::<G>(
+        PlaneWriter::<AP::EO>::write(
             writer,
             out_smem.to_slice().try_cast_unchecked(),
             0,
             0,
-            global_config,
+            1u32,
+            tile_config.plane_dim(),
+            global_config.global_memory_config(FlashIdent::Out),
         )
     }
     fn tmp_write_query<G: GlobalAttentionConfig>(
         query: &Self::Query,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -118,17 +102,19 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             tile_config,
         );
 
-        DummyWriter::<AP::EO>::write::<G>(
+        PlaneWriter::<AP::EO>::write(
             writer,
             out_smem.to_slice().try_cast_unchecked(),
             0,
             0,
-            global_config,
+            1u32,
+            tile_config.plane_dim(),
+            global_config.global_memory_config(FlashIdent::Out),
         )
     }
     fn tmp_write_key<G: GlobalAttentionConfig>(
         key: &Self::KeyValue,
-        writer: &mut Self::Writer,
+        writer: &mut PlaneWriter<AP::EO>,
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     ) {
@@ -141,17 +127,15 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             tile_config,
         );
 
-        DummyWriter::<AP::EO>::write::<G>(
+        PlaneWriter::<AP::EO>::write(
             writer,
             out_smem.to_slice().try_cast_unchecked(),
             0,
             0,
-            global_config,
+            1u32,
+            tile_config.plane_dim(),
+            global_config.global_memory_config(FlashIdent::Out),
         )
-    }
-
-    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        DummyWriter::new(out, q_offset, 0, 0)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -163,7 +147,15 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     }
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        Self::KeyValue::new(config)
+        Self::KeyValue::new_key_value(config)
+    }
+
+    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValue {
+        Self::KeyValue::new_key(config)
+    }
+
+    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValue {
+        Self::KeyValue::new_value(config)
     }
 
     fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb {

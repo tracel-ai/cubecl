@@ -9,8 +9,6 @@ use crate::components::{
         BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
     },
     global::{GlobalAttention, GlobalAttentionConfig as _},
-    stage::StageAttentionConfig as _,
-    tile::dummy::FlashMatmulConfig as _,
 };
 
 pub struct DummyBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {

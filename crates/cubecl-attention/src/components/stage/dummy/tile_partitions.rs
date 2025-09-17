@@ -5,6 +5,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::global::dummy::QueryLoader;
+use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 
 #[derive(CubeType)]
@@ -134,7 +135,17 @@ impl<
 }
 
 #[derive(CubeType)]
-pub struct KeyValues<
+pub enum KeyValues<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+> {
+    Reuse(KeyValueSequence<AP, TA, S>),
+    Separate(KeyValueSequence<AP, TA, S>, KeyValueSequence<AP, TA, S>),
+}
+
+#[derive(CubeType)]
+pub struct KeyValueSequence<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
     S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
@@ -152,26 +163,80 @@ impl<
 > KeyValues<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> KeyValues<AP, TA, S> {
-        let partition_size = config.tiling_scheme().partition_size;
-        let mut sequence = Sequence::new();
+        if config.tile_config().reuse_key_value() {
+            let partition_size = config.tiling_scheme().partition_size;
+            let mut sequence = Sequence::new();
 
-        #[unroll]
-        for _ in 0..comptime!(max(partition_size.head_dim, partition_size.val_dim)) {
-            sequence.push(TA::init_key_value(config.tile_config()));
-        }
+            #[unroll]
+            for _ in 0..comptime!(max(partition_size.head_dim, partition_size.val_dim)) {
+                sequence.push(TA::init_key_value(config.tile_config()));
+            }
 
-        KeyValues::<AP, TA, S> {
-            sequence,
-            _phantom: PhantomData,
+            KeyValues::<AP, TA, S>::new_Reuse(KeyValueSequence::<AP, TA, S> {
+                sequence,
+                _phantom: PhantomData,
+            })
+        } else {
+            let partition_size = config.tiling_scheme().partition_size;
+            let mut keys = Sequence::new();
+            let mut values = Sequence::new();
+
+            #[unroll]
+            for _ in 0..comptime!(partition_size.head_dim) {
+                keys.push(TA::init_key(config.tile_config()));
+            }
+            #[unroll]
+            for _ in 0..comptime!(partition_size.val_dim) {
+                values.push(TA::init_value(config.tile_config()));
+            }
+
+            KeyValues::<AP, TA, S>::new_Separate(
+                KeyValueSequence::<AP, TA, S> {
+                    sequence: keys,
+                    _phantom: PhantomData,
+                },
+                KeyValueSequence::<AP, TA, S> {
+                    sequence: values,
+                    _phantom: PhantomData,
+                },
+            )
         }
     }
 
-    pub fn get_at(&self, #[comptime] i: u32, #[comptime] _config: S) -> &TA::KeyValue {
-        self.sequence.index(i)
+    pub fn get_key_at(&self, #[comptime] i: u32, #[comptime] _config: S) -> &TA::KeyValue {
+        match self {
+            KeyValues::Reuse(key_values) => key_values.sequence.index(i),
+            KeyValues::Separate(keys, _) => keys.sequence.index(i),
+        }
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] i: u32, #[comptime] _config: S) -> &mut TA::KeyValue {
-        self.sequence.index_mut(i)
+    pub fn get_key_at_mut(
+        &mut self,
+        #[comptime] i: u32,
+        #[comptime] _config: S,
+    ) -> &mut TA::KeyValue {
+        match self {
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(i),
+            KeyValues::Separate(keys, _) => keys.sequence.index_mut(i),
+        }
+    }
+
+    pub fn get_value_at(&self, #[comptime] i: u32, #[comptime] _config: S) -> &TA::KeyValue {
+        match self {
+            KeyValues::Reuse(key_values) => key_values.sequence.index(i),
+            KeyValues::Separate(_, values) => values.sequence.index(i),
+        }
+    }
+
+    pub fn get_value_at_mut(
+        &mut self,
+        #[comptime] i: u32,
+        #[comptime] _config: S,
+    ) -> &mut TA::KeyValue {
+        match self {
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(i),
+            KeyValues::Separate(_, values) => values.sequence.index_mut(i),
+        }
     }
 }
 
