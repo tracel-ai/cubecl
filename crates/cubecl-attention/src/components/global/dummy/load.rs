@@ -12,7 +12,6 @@ use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
@@ -191,32 +190,47 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         let memory_config = config.global_memory_config(FlashIdent::Value);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 
-        let tile_config = config.stage_config().tile_config();
-        let num_rows = tile_config
-            .attention_tile_size()
-            .num_rows(FlashIdent::Value);
-        let num_cols = tile_config
-            .attention_tile_size()
-            .num_cols(FlashIdent::Value);
-        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Value);
-        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Value);
+        let tile_rows = memory_config.elements_in_tile_row;
+        let tile_cols = memory_config.elements_in_tile_col;
+        let partition_rows = memory_config.elements_in_stage_row / tile_rows;
+        let partition_cols = memory_config.elements_in_stage_col / tile_cols;
 
-        let row = UNIT_POS_X / num_units_per_row;
-        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+        let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
+        let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
 
-        if row < num_rows {
+        let row_in_tile = UNIT_POS_X / units_per_tile_row;
+        let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
+
+        // Assumes row tiling order
+        let num_elements_per_tile = tile_rows * tile_cols;
+        let tile_row_stride = partition_rows * num_elements_per_tile;
+        let tile_col_stride = num_elements_per_tile;
+
+        #[unroll]
+        for tile_row in 0..partition_rows {
             #[unroll]
-            for i in 0..num_cols_per_unit {
-                let col = col_start + i;
+            for tile_col in 0..partition_cols {
+                if row_in_tile < tile_rows {
+                    #[unroll]
+                    for i in 0..tile_cols_per_unit {
+                        let col = col_in_tile_start + i;
 
-                if col < num_cols {
-                    let index = row * num_cols + col;
-                    slice[index] = Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
-                        0u32,
-                        0u32,
-                        index,
-                        memory_config,
-                    ));
+                        if col < tile_cols {
+                            let tile_row_offset = tile_row * tile_row_stride;
+                            let tile_col_offset = tile_col * tile_col_stride;
+                            let offset = tile_row_offset + tile_col_offset;
+
+                            let index = row_in_tile * tile_cols + col;
+
+                            slice[index + offset] =
+                                Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
+                                    tile_row,
+                                    tile_col,
+                                    index,
+                                    memory_config,
+                                ));
+                        }
+                    }
                 }
             }
         }

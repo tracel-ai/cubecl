@@ -150,6 +150,8 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
 
+                let scale = TA::update_state(row_stats.index(q), state);
+
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
@@ -157,8 +159,7 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
                         key_value.get_value_at(vd, config),
                         score_prob.get_at(q),
                         accumulator.get_at_mut(q, vd, config),
-                        row_stats.index(q),
-                        state,
+                        scale,
                         config.tile_config(),
                     );
 

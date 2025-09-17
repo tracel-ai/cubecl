@@ -27,11 +27,11 @@ impl<
 > Accumulators<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> Accumulators<AP, TA, S> {
-        let partition_size = config.tiling_scheme().partition_size;
+        let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(partition_size.seq_q * partition_size.val_dim) {
+        for _ in 0..comptime!(p.seq_q * p.val_dim) {
             sequence.push(TA::init_accumulator(config.tile_config()));
         }
 
@@ -47,9 +47,8 @@ impl<
         #[comptime] j: u32,
         #[comptime] config: S,
     ) -> &TA::Accumulator {
-        let partition_size = config.tiling_scheme().partition_size;
-        self.sequence
-            .index(comptime!(i * partition_size.val_dim + j))
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index(comptime!(i * p.val_dim + j))
     }
 
     pub fn get_at_mut(
@@ -58,9 +57,8 @@ impl<
         #[comptime] j: u32,
         #[comptime] config: S,
     ) -> &mut TA::Accumulator {
-        let partition_size = config.tiling_scheme().partition_size;
-        self.sequence
-            .index_mut(comptime!(i * partition_size.val_dim + j))
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index_mut(comptime!(i * p.val_dim + j))
     }
 }
 
@@ -177,16 +175,16 @@ impl<
                 _phantom: PhantomData,
             })
         } else {
-            let partition_size = config.tiling_scheme().partition_size;
+            let p = config.tiling_scheme().partition_size;
             let mut keys = Sequence::new();
             let mut values = Sequence::new();
 
             #[unroll]
-            for _ in 0..comptime!(partition_size.head_dim) {
+            for _ in 0..p.head_dim {
                 keys.push(TA::init_key(config.tile_config()));
             }
             #[unroll]
-            for _ in 0..comptime!(partition_size.val_dim) {
+            for _ in 0..p.val_dim {
                 values.push(TA::init_value(config.tile_config()));
             }
 
@@ -259,11 +257,11 @@ impl<
 > Scores<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> Scores<AP, TA, S> {
-        let partition_size = config.tiling_scheme().partition_size;
+        let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(partition_size.seq_q) {
+        for _ in 0..comptime!(p.seq_q) {
             sequence.push(TA::init_score(config.tile_config()));
         }
 

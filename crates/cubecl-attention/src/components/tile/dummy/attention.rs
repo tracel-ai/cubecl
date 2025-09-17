@@ -219,14 +219,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         RowStats::<AP::EA> { m, prob_row_sum }
     }
 
-    fn accumulate_value(
-        key_value: &Self::KeyValue,
-        score_prob: &Self::ScoreProb,
-        accumulator: &mut Self::Accumulator,
-        score_prob_row_stats: &RowStats<AP::EA>,
-        state: &mut Self::State,
-        #[comptime] config: Self::Config,
-    ) {
+    fn update_state(score_prob_row_stats: &RowStats<AP::EA>, state: &mut Self::State) -> AP::EA {
         let prev_m = state.m;
         let prev_l = state.l;
         let new_m = score_prob_row_stats.m;
@@ -235,7 +228,20 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         let exp_m_diff = Exp::exp(prev_m - new_m);
         let new_l = exp_m_diff * prev_l + row_sum;
 
-        accumulator.scale(exp_m_diff);
+        state.m = new_m;
+        state.l = new_l;
+
+        exp_m_diff
+    }
+
+    fn accumulate_value(
+        key_value: &Self::KeyValue,
+        score_prob: &Self::ScoreProb,
+        accumulator: &mut Self::Accumulator,
+        scale: AP::EA,
+        #[comptime] config: Self::Config,
+    ) {
+        accumulator.scale(scale);
 
         FM::value_matmul(
             &score_prob.fragment,
@@ -243,9 +249,6 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             &mut accumulator.fragment,
             config,
         );
-
-        state.m = new_m;
-        state.l = new_l;
     }
 }
 

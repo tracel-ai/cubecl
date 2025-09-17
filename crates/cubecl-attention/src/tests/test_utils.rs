@@ -112,6 +112,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
+        // println!("{:?}: {:?}, {:?}", i, a, e);
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
         if f32::is_nan(a.to_f32().unwrap())
@@ -129,6 +130,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     }
 
     Ok(())
+    // Err("".to_string())
 }
 
 pub trait CastInto<E> {

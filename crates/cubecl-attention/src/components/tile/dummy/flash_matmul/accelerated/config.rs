@@ -98,7 +98,7 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
     }
 
     fn reuse_key_value(&self) -> bool {
-        true
+        false
     }
 
     fn stage_line_size(&self, ident: FlashIdent) -> u32 {

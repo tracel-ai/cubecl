@@ -124,12 +124,13 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;
 
+    fn update_state(score_prob_row_stats: &RowStats<AP::EA>, state: &mut Self::State) -> AP::EA;
+
     fn accumulate_value(
         key_value: &Self::KeyValue,
         score_prob: &Self::ScoreProb,
         accumulator: &mut Self::Accumulator,
-        row_stats: &RowStats<AP::EA>,
-        state: &mut Self::State,
+        scale: AP::EA,
         #[comptime] config: Self::Config,
     );
 }
