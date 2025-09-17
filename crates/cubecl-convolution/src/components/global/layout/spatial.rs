@@ -41,6 +41,51 @@ impl Coordinates for NhwcCoords {
         }
     }
 
+    fn sub(this: Self, other: Self) -> Self {
+        let mut spatial = Sequence::new();
+
+        #[unroll]
+        for i in 0..comptime![this.spatial.len()] {
+            spatial.push(*this.spatial.index(i) - *other.spatial.index(i));
+        }
+
+        NhwcCoords {
+            batch: this.batch - other.batch,
+            spatial,
+            channel: this.channel - other.channel,
+        }
+    }
+
+    fn min(this: Self, other: Self) -> Self {
+        let mut spatial = Sequence::new();
+
+        #[unroll]
+        for i in 0..comptime![this.spatial.len()] {
+            spatial.push(Min::min(*this.spatial.index(i), *other.spatial.index(i)));
+        }
+
+        NhwcCoords {
+            batch: Min::min(this.batch, other.batch),
+            spatial,
+            channel: Min::min(this.channel, other.channel),
+        }
+    }
+
+    fn max(this: Self, other: Self) -> Self {
+        let mut spatial = Sequence::new();
+
+        #[unroll]
+        for i in 0..comptime![this.spatial.len()] {
+            spatial.push(Max::max(*this.spatial.index(i), *other.spatial.index(i)));
+        }
+
+        NhwcCoords {
+            batch: Max::max(this.batch, other.batch),
+            spatial,
+            channel: Max::max(this.channel, other.channel),
+        }
+    }
+
     fn is_in_bounds(pos: Self, bounds: Self) -> bool {
         let mut out = pos.batch < bounds.batch && pos.channel < bounds.channel;
 
@@ -180,6 +225,17 @@ impl Layout for NhwcLayout {
             spatial: cast_seq(self.shapes_spatial.clone()),
             channel: self.shape_channel,
         }
+    }
+
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        let spatial_dims = self.shapes_spatial.len();
+        let mut size = shape.batch * shape.channel;
+
+        for i in 0..spatial_dims {
+            size *= *shape.spatial.index(i) as u32;
+        }
+
+        size / comptime![self.line_size]
     }
 }
 

@@ -124,16 +124,14 @@ where
 
     fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        slice_size: Coords3d,
         _nth_batch: u32,
-        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
         let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
-        let lhs = lhs.view(layout);
         Self::LhsStageLoader::new(
-            lhs.slice((batch_offset, x_offset, y_offset), lhs.shape()),
+            lhs.view(layout).slice(offset, slice_size),
             MatmulIdent::Lhs,
             config,
         )
@@ -141,16 +139,14 @@ where
 
     fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        slice_size: Coords3d,
         _nth_batch: u32,
-        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
         let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
-        let rhs = rhs.view(layout);
         Self::RhsStageLoader::new(
-            rhs.slice((batch_offset, x_offset, y_offset), rhs.shape()),
+            rhs.view(layout).slice(offset, slice_size),
             MatmulIdent::Rhs,
             config,
         )
@@ -158,10 +154,9 @@ where
 
     fn init_acc_stage_loader(
         acc: CubeOption<VirtualTensor<AccG<MP>>>,
-        _m_offset: u32,
-        _n_offset: u32,
+        _offset: Coords3d,
+        _slice_size: Coords3d,
         _nth_batch: u32,
-        _batch_offset: u32,
         #[comptime] _config: Self::Config,
     ) -> Self::AccStageLoader {
         match acc {
@@ -172,12 +167,12 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        _slice_size: Coords3d,
         _nth_batch: u32,
-        batch_offset: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
+        let (batch_offset, x_offset, y_offset) = offset;
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
         SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
     }

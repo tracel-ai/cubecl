@@ -120,6 +120,16 @@ impl Layout for Im2colLayout {
         (1, self.shape_m, self.shape_k)
     }
 
+    #[allow(unreachable_code)]
+    fn to_source_shape(&self, _shape: Self::Coordinates) -> Self::SourceCoordinates {
+        panic!("im2col cannot transform an (m, k) shape to NHWC");
+        NhwcCoords {
+            batch: 0,
+            spatial: Sequence::new(),
+            channel: 0,
+        }
+    }
+
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (NhwcCoords, bool) {
         (self.to_source_pos(pos), self.is_in_bounds(pos))
     }

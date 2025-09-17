@@ -143,53 +143,28 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_row = view_tile_row + load_row;
         let view_col = view_tile_col + load_col;
 
-        let (_, rows, columns) = self.view.shape();
-
-        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
-            match config.matrix_layout {
-                MatrixLayout::RowMajor => (
-                    config.check_row_bounds,
-                    view_row,
-                    rows,
-                    config.check_col_bounds,
-                    view_col,
-                    columns,
-                ),
-                MatrixLayout::ColMajor => (
-                    config.check_col_bounds,
-                    view_col,
-                    columns,
-                    config.check_row_bounds,
-                    view_row,
-                    rows,
-                ),
-            };
-
-        // There are 0 lines if out-of-bounds vertically
-        let max_lines_in_window = if comptime!(check_h_bounds) {
-            num_lines_in_window * u32::cast_from(view_h < shape_h)
-        } else {
-            num_lines_in_window.runtime()
-        };
-
-        // Window is clamped if partially out-of-bounds horizontally
-        let size = if comptime!(check_w_bounds) {
-            slice_length_clamp(shape_w / line_size, view_w / line_size, max_lines_in_window)
-        } else {
-            max_lines_in_window
-        };
-
         let (size_h, size_w) = match config.matrix_layout {
-            MatrixLayout::RowMajor => (1, size * line_size),
-            MatrixLayout::ColMajor => (size * line_size, 1),
+            MatrixLayout::RowMajor => (1u32, num_lines_in_window * line_size).runtime(),
+            MatrixLayout::ColMajor => (num_lines_in_window * line_size, 1u32).runtime(),
         };
 
-        Window::<EG> {
-            slice: self
+        if comptime![config.check_row_bounds || config.check_col_bounds] {
+            let view = self
                 .view
-                .slice((0, view_row, view_col), (1, size_h, size_w))
-                .to_linear_slice(),
-            size,
+                .slice((0, view_row, view_col), (1, size_h, size_w));
+            let (_, size_h, size_w) = view.shape();
+            Window::<EG> {
+                slice: view.to_linear_slice(),
+                size: (size_h * size_w) / line_size,
+            }
+        } else {
+            let view = self
+                .view
+                .slice_unchecked((0, view_row, view_col), (1, size_h, size_w));
+            Window::<EG> {
+                slice: view.to_linear_slice(),
+                size: num_lines_in_window,
+            }
         }
     }
 

@@ -12,6 +12,7 @@ pub struct SliceLayout<C: Coordinates> {
 
 #[cube]
 impl<C: Coordinates> SliceLayout<C> {
+    /// Create a new slice layout.
     pub fn new(start: C, size: C) -> Self {
         SliceLayout::<C> {
             offset: start,
@@ -43,6 +44,10 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         C::is_in_bounds(pos, self.size())
+    }
+
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        shape
     }
 
     #[allow(unused)]

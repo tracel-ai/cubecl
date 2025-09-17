@@ -67,6 +67,16 @@ impl Layout for OutLayout {
         (1, self.shape_m, self.shape_n)
     }
 
+    #[allow(unreachable_code)]
+    fn to_source_shape(&self, _shape: Self::Coordinates) -> Self::SourceCoordinates {
+        panic!("out layout cannot trivially transform an (m, k) shape to NHWC");
+        NhwcCoords {
+            batch: 0,
+            spatial: Sequence::new(),
+            channel: 0,
+        }
+    }
+
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, m, n) = pos;
         let check_m = comptime![self.config.check_row_bounds];

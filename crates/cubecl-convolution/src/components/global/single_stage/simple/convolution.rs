@@ -124,8 +124,8 @@ where
 
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
@@ -133,33 +133,26 @@ where
         let layout_global = NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial);
         let layout_im2col = Im2colLayout::new(runtime_args, config);
         let lhs = lhs.view(layout_global).view(layout_im2col);
-        Self::LhsStageLoader::new(
-            lhs.slice((0, x_offset, y_offset), lhs.shape()),
-            MatmulIdent::Lhs,
-            config,
-        )
+        Self::LhsStageLoader::new(lhs.slice(offset, slice_size), MatmulIdent::Lhs, config)
     }
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
         let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false);
         let layout_weight = WeightLayout::new(&rhs, runtime_args, config);
         let rhs = rhs.view(layout_global).view(layout_weight);
-        Self::RhsStageLoader::new(
-            rhs.slice((0, x_offset, y_offset), rhs.shape()),
-            MatmulIdent::Rhs,
-            config,
-        )
+        Self::RhsStageLoader::new(rhs.slice(offset, slice_size), MatmulIdent::Rhs, config)
     }
 
     fn init_bias_loader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
+        _slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader {
         Self::AccStageLoader::new::<Self::Config>(bias, n_offset, config)
@@ -167,11 +160,12 @@ where
 
     fn init_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords3d,
+        _slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageWriter {
+        let (_, x_offset, y_offset) = offset;
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
             OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));

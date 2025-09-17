@@ -1,7 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{AccG, LhsG, MatmulPrecision, RhsG, global};
+use crate::components::{
+    AccG, LhsG, MatmulPrecision, RhsG,
+    global::{self, GlobalConfig},
+};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 #[derive(CubeType)]
@@ -175,11 +178,40 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
         batch_b += tmp % b.shape(axis) * b.stride(axis);
     }
 
+    let tiling = config.tiling_scheme();
+    let stage_m = tiling.elements_in_stage_m().runtime();
+    let stage_n = tiling.elements_in_stage_n().runtime();
+    let k_size = k_range.1 - k_range.0;
+
     GMM::execute(
-        GMM::init_lhs_stage_loader(a, m_offset, k_range.0, nth_batch, batch_a, config),
-        GMM::init_rhs_stage_loader(b, k_range.0, n_offset, nth_batch, batch_b, config),
-        GMM::init_acc_stage_loader(c, m_offset, n_offset, nth_batch, batch_out, config),
-        GMM::init_global_writer(out, m_offset, n_offset, nth_batch, batch_out, config),
+        GMM::init_lhs_stage_loader(
+            a,
+            (batch_a, m_offset, k_range.0),
+            (1, stage_m, k_size),
+            nth_batch,
+            config,
+        ),
+        GMM::init_rhs_stage_loader(
+            b,
+            (batch_b, k_range.0, n_offset),
+            (1, k_size, stage_n),
+            nth_batch,
+            config,
+        ),
+        GMM::init_acc_stage_loader(
+            c,
+            (batch_out, m_offset, n_offset),
+            (1, stage_m, stage_n),
+            nth_batch,
+            config,
+        ),
+        GMM::init_global_writer(
+            out,
+            (batch_out, m_offset, n_offset),
+            (1, stage_m, stage_n),
+            nth_batch,
+            config,
+        ),
         acc,
         k_range,
         config,

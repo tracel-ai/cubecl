@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::{
     layout::{Coords1d, Coords3d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
@@ -43,9 +43,11 @@ impl Layout for SimpleGlobalLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
+        let line_size = comptime![self.config.global_line_size];
         let (b, row, col) = coords;
         let idx = b + row * self.stride_row + col * self.stride_col;
-        idx / comptime![self.config.global_line_size]
+
+        idx / line_size
     }
 
     fn to_source_pos_checked(&self, coords: Self::Coordinates) -> (u32, bool) {
@@ -53,7 +55,13 @@ impl Layout for SimpleGlobalLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        (1, self.rows, self.columns)
+        // Batch dim isn't well-defined, so we treat it as infinite size
+        (<u32 as Numeric>::max_value(), self.rows, self.columns)
+    }
+
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        let size = shape.0 * shape.1 * shape.2;
+        size / comptime![self.config.global_line_size]
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {

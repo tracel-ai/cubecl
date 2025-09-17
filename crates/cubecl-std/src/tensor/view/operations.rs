@@ -587,7 +587,7 @@ macro_rules! impl_virtual_read {
                 let size = self
                     .layout
                     .clone()
-                    .__expand_to_source_pos_method(scope, size);
+                    .__expand_to_source_shape_method(scope, size);
                 self.view.__expand_to_linear_slice_method(scope, pos, size)
             }
 
@@ -662,7 +662,7 @@ where
         let size = self
             .layout
             .clone()
-            .__expand_to_source_pos_method(scope, size);
+            .__expand_to_source_shape_method(scope, size);
         self.view
             .__expand_to_linear_slice_mut_method(scope, pos, size)
     }
@@ -708,9 +708,9 @@ mod view {
             &self,
             scope: &mut Scope,
             pos: <C>::ExpandType,
-            size: <C>::ExpandType,
+            end: <C>::ExpandType,
         ) -> SliceExpand<T, ReadOnly> {
-            ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, size)
+            ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
@@ -752,9 +752,9 @@ mod view {
             &self,
             scope: &mut Scope,
             pos: <C>::ExpandType,
-            size: <C>::ExpandType,
+            end: <C>::ExpandType,
         ) -> SliceExpand<T, ReadWrite> {
-            ViewExpand::__expand_to_linear_slice_mut_inner_method(self.clone(), scope, pos, size)
+            ViewExpand::__expand_to_linear_slice_mut_inner_method(self.clone(), scope, pos, end)
         }
     }
 }

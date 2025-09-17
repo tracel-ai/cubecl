@@ -17,9 +17,9 @@ pub trait Layout {
     /// `Array`, or `(u32, u32)` for a 2D view.
     type SourceCoordinates: Coordinates;
 
-    /// Transform a set of n-dimensional coordinates to an offset into the underlying storage
-    /// (i.e. tensor, shared memory). Implementations on concrete storage should account for line
-    /// size - coordinates are given in elements, not lines.
+    /// Transform a set of n-dimensional coordinates to a source coordinate space.
+    /// It is recommended to use absolute positions here, and handle the translation into lines
+    /// at the lowest level (global memory layout).
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates;
     /// Transform a set of n-dimensional coordinates to an offset into the underlying storage,
     /// and return whether the position is in bounds of this layout.
@@ -28,5 +28,10 @@ pub trait Layout {
     /// The shape of the conceptual tensor represented by this layout. Not necessarily the extent
     /// of the underlying storage, but only this view of it.
     fn shape(&self) -> Self::Coordinates;
+    /// Transform an n-dimensional shape to a shape in the source coordinate space.
+    /// Unlike `to_source_pos`, this should not apply any offsets, only multiplicative transformations.
+    /// It is recommended to use absolute positions here, and handle the translation into lines
+    /// at the lowest level (global memory layout).
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates;
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool;
 }
