@@ -13,7 +13,7 @@ pub trait StreamBackend {
     type Event;
 
     /// Initializes and returns a new stream associated with the given stream ID.
-    fn create_stream(&self, stream_id: StreamId) -> Self::Stream;
+    fn create_stream(&self) -> Self::Stream;
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
     fn flush(stream: &mut Self::Stream) -> Self::Event;
@@ -30,9 +30,7 @@ pub trait StreamBackend {
 #[derive(Debug)]
 pub struct MultiStream<B: StreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
-    streams: HashMap<u64, StreamWrapper<B>>,
-    max_streams: u64,
-    backend: B,
+    streams: StreamPool<B>,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -45,7 +43,7 @@ struct StreamWrapper<B: StreamBackend> {
     /// The current cursor position, representing the logical progress or version of operations on this stream.
     cursor: u64,
     /// A map tracking the last synchronized cursor positions from other streams.
-    last_synced: HashMap<u64, u64>,
+    last_synced: HashMap<usize, u64>,
 }
 
 /// Streams that are synchronized correctly after a [MultiStream::resolve] is called.
@@ -54,33 +52,82 @@ pub struct ResolvedStreams<'a, B: StreamBackend> {
     ///
     /// This cursor should be use for new allocations happening on the current stream.
     pub cursor: u64,
-    streams: &'a mut HashMap<u64, StreamWrapper<B>>,
-    max_streams: u64,
+    streams: &'a mut StreamPool<B>,
     /// The current stream where new tasks can be sent safely.
     pub current: StreamId,
+}
+
+#[derive(Debug)]
+struct StreamPool<B: StreamBackend> {
+    streams: Vec<Option<StreamWrapper<B>>>,
+    backend: B,
+}
+
+impl<B: StreamBackend> StreamPool<B> {
+    fn new(backend: B, max_streams: u8) -> Self {
+        let mut streams = Vec::with_capacity(max_streams as usize);
+        for _ in 0..max_streams {
+            streams.push(None);
+        }
+
+        Self { streams, backend }
+    }
+
+    fn get_mut(&mut self, stream_id: &StreamId) -> &mut StreamWrapper<B> {
+        let index = self.stream_index(stream_id);
+
+        // The pool is init, can't go over the index because of stream_index.
+        unsafe { self.get_mut_index(index) }
+    }
+
+    unsafe fn get_mut_index(&mut self, index: usize) -> &mut StreamWrapper<B> {
+        unsafe {
+            let entry = self.streams.get_unchecked_mut(index);
+            match entry {
+                Some(val) => val,
+                None => {
+                    let stream = self.backend.create_stream();
+                    let stream = StreamWrapper {
+                        stream,
+                        cursor: 0,
+                        last_synced: Default::default(),
+                    };
+
+                    *entry = Some(stream);
+
+                    match entry {
+                        Some(val) => val,
+                        None => unreachable!(),
+                    }
+                }
+            }
+        }
+    }
+
+    fn stream_index(&self, stream_id: &StreamId) -> usize {
+        stream_id.value as usize % self.streams.len()
+    }
 }
 
 impl<'a, B: StreamBackend> ResolvedStreams<'a, B> {
     /// Get the stream associated to the given [stream_id](StreamId).
     pub fn get(&mut self, stream_id: &StreamId) -> &mut B::Stream {
-        let index = stream_id.value % self.max_streams;
-        &mut self.streams.get_mut(&index).unwrap().stream
+        let stream = self.streams.get_mut(&stream_id);
+        &mut stream.stream
     }
 
     /// Get the stream associated to the [current stream_id](StreamId).
     pub fn current(&mut self) -> &mut B::Stream {
-        let index = self.current.value % self.max_streams;
-        &mut self.streams.get_mut(&index).unwrap().stream
+        let stream = self.streams.get_mut(&self.current);
+        &mut stream.stream
     }
 }
 
 impl<B: StreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
-    pub fn new(backend: B, max_streams: u64) -> Self {
+    pub fn new(backend: B, max_streams: u8) -> Self {
         Self {
-            streams: Default::default(),
-            max_streams,
-            backend,
+            streams: StreamPool::new(backend, max_streams),
         }
     }
 
@@ -96,16 +143,12 @@ impl<B: StreamBackend> MultiStream<B> {
     ) -> ResolvedStreams<'_, B> {
         self.align_streams(stream_id, bindings);
 
-        let index = stream_id.value % self.max_streams;
-        let stream = self.streams.get_mut(&index).expect("Stream to exist");
-
+        let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
 
-        let max_streams = self.max_streams;
         ResolvedStreams {
             cursor: stream.cursor,
             streams: &mut self.streams,
-            max_streams,
             current: stream_id,
         }
     }
@@ -119,21 +162,6 @@ impl<B: StreamBackend> MultiStream<B> {
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) {
-        let index = stream_id.value % self.max_streams;
-
-        if !self.streams.contains_key(&index) {
-            let stream = self.backend.create_stream(stream_id);
-            let stream = StreamWrapper {
-                stream,
-                cursor: 0,
-                last_synced: Default::default(),
-                // shareds: Default::default(),
-                // num_shared: 0,
-                // last_gc: 0,
-            };
-            self.streams.insert(index, stream);
-        }
-
         let analysis = self.update_shared_bindings(stream_id, bindings);
 
         self.apply_analysis(stream_id, analysis);
@@ -153,7 +181,8 @@ impl<B: StreamBackend> MultiStream<B> {
 
         for binding in bindings {
             if stream_id != binding.stream {
-                analysis.shared(binding, self.max_streams);
+                let index = self.streams.stream_index(&binding.stream);
+                analysis.shared(index);
                 // if let Some(last_synced) = current.last_synced.get(&binding.stream) {
                 //     if *last_synced < binding.cursor {
                 //         analysis.shared(binding);
@@ -168,24 +197,25 @@ impl<B: StreamBackend> MultiStream<B> {
     }
 
     pub(crate) fn apply_analysis(&mut self, stream_id: StreamId, analysis: SharedBindingAnalysis) {
-        if analysis.slices.is_empty() {
+        if analysis.index.is_empty() {
             return;
         }
 
         log::info!("Analysis for stream {stream_id} => {analysis:?}");
         // println!("Analysis for stream {stream_id} => {analysis:?}");
 
-        let mut events = Vec::with_capacity(analysis.slices.len());
+        let mut events = Vec::with_capacity(analysis.index.len());
 
-        for origin in analysis.slices {
-            let stream = self.streams.get_mut(&origin).unwrap();
-            let event = B::flush(&mut stream.stream);
+        unsafe {
+            for origin in analysis.index {
+                let stream = self.streams.get_mut_index(origin);
+                let event = B::flush(&mut stream.stream);
 
-            events.push(((origin, stream.cursor), event));
+                events.push(((origin, stream.cursor), event));
+            }
         }
 
-        let index = stream_id.value % self.max_streams;
-        let stream = self.streams.get_mut(&index).unwrap();
+        let stream = self.streams.get_mut(&stream_id);
 
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
@@ -208,13 +238,12 @@ impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    slices: HashSet<u64>,
+    index: HashSet<usize>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, binding: &Binding, max_streams: u64) {
-        let index = binding.stream.value % max_streams;
-        self.slices.insert(index);
+    fn shared(&mut self, index: usize) {
+        self.index.insert(index);
     }
 }
 
