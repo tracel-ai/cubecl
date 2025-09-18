@@ -3,29 +3,33 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
 
 use cubecl_matmul::components::{
-    InputPrecision, MatmulIdent, MatmulPrecision, StageIdent,
-    global::{AccumulatorLoader, GlobalConfig},
-    stage::{StageConfig, StageMemory},
-    tile::{Tile, TileConfig, TileMatmul},
+    InputPrecision, MatmulIdent, StageIdent,
+    global::GlobalConfig,
+    stage::{FullStageReader, StageConfig, StageMemory},
 };
 
-use crate::components::global::{memory::BiasReader, single_stage::simple::ConvTilingLayout};
+use crate::components::{global::memory::BiasReader, stage::reader::BiasTilingLayout};
 
 /// Special loader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
-pub enum BiasLoader<MP: MatmulPrecision> {
+pub enum BiasStageLoader<IP: InputPrecision> {
     Some {
-        tensor_view: BiasReader<MP::EO>,
-        stage: StageMemory<MP::EA, ConvTilingLayout>,
+        tensor_view: BiasReader<IP::Global>,
+        stage: StageMemory<IP::Stage, BiasTilingLayout>,
     },
     None,
 }
 
+/// Type of the stage reader for the bias loader
+pub type BiasStageReader<E> = CubeOption<FullStageReader<E, BiasTilingLayout>>;
+
 #[cube]
-impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
-    fn fill_stage<G: GlobalConfig>(this: &mut Self, #[comptime] config: G) {
-        match this {
-            BiasLoader::Some { tensor_view, stage } => {
+impl<IP: InputPrecision> BiasStageLoader<IP> {
+    /// Loads all bias tiles into the stage. Unlike normal loaders, bias only loads a 1D vector along
+    /// the `n` dimension.
+    pub fn load_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
+        match self {
+            BiasStageLoader::Some { tensor_view, stage } => {
                 let line_size = config.global_line_size(MatmulIdent::Out);
                 let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
 
@@ -39,67 +43,48 @@ impl<MP: MatmulPrecision> AccumulatorLoader<MP> for BiasLoader<MP> {
                     slice[unit_id] = Line::cast_from(read_line);
                 }
             }
-            BiasLoader::None => {}
+            BiasStageLoader::None => {}
         }
     }
 
-    /// Load accumulator
-    fn load<
-        TMM: TileMatmul<
-                <MP::Lhs as InputPrecision>::Register,
-                <MP::Rhs as InputPrecision>::Register,
-                MP::EA,
-            >,
-        S: StageConfig<TileConfig = TMM::Config>,
-    >(
-        this: &mut Self,
-        acc: &mut TMM::Accumulator,
-        nth_tile: u32,
-        #[comptime] config: S,
-    ) {
-        match this {
-            BiasLoader::Some { stage, .. } => {
-                let tile_n = nth_tile % config.tiling_scheme().tiles_in_stage_partition_n();
-                let line_size = config.stage_line_size(StageIdent::Acc);
-                let tile_elems = config.tile_config().tile_size().n() / line_size;
-                let start = tile_n * tile_elems;
-                let slice = stage
-                    .as_slice_mut(line_size)
-                    .slice(start, start + tile_elems);
-                let tile = Tile::new_strided(slice, 0, config.matrix_layout(StageIdent::Acc));
-                TMM::fill_accumulator(&tile, acc, config.tile_config());
+    /// Create a reader for the stage contained in this loader. It will use custom tiling with
+    /// a stride of `0`.
+    pub fn reader(&self) -> BiasStageReader<IP::Stage> {
+        match self {
+            BiasStageLoader::Some { stage, .. } => {
+                CubeOption::new_Some(FullStageReader::new(*stage, StageIdent::Acc))
             }
-            BiasLoader::None => {
-                TMM::zero_accumulator(acc, config.tile_config());
-            }
+            BiasStageLoader::None => CubeOption::new_None(),
         }
     }
 }
 
 #[cube]
-impl<MP: MatmulPrecision> BiasLoader<MP> {
+impl<IP: InputPrecision> BiasStageLoader<IP> {
+    /// Create a new bias loader from the bias tensor and a global offset `n_offset`.
     pub fn new<G: GlobalConfig>(
-        tensor: CubeOption<VirtualTensor<MP::EO>>,
+        tensor: CubeOption<VirtualTensor<IP::Global>>,
         n_offset: u32,
         #[comptime] config: G,
     ) -> Self {
         match tensor {
             CubeOption::Some(tensor) => {
-                let stage = init_stage::<MP::EA, G>(config);
+                let stage = init_stage::<IP::Stage, G>(config);
                 let shape_n = tensor.shape(0);
-                let tensor_view = BiasReader::<MP::EO>::new(tensor, n_offset, shape_n);
+                let tensor_view = BiasReader::<IP::Global>::new(tensor, n_offset, shape_n);
 
-                BiasLoader::<MP>::new_Some(tensor_view, stage)
+                BiasStageLoader::<IP>::new_Some(tensor_view, stage)
             }
-            CubeOption::None => BiasLoader::new_None(),
+            CubeOption::None => BiasStageLoader::new_None(),
         }
     }
 }
 
+/// Create a new 1D bias stage of size `stage_size_n`.
 #[cube]
 fn init_stage<ES: Numeric, G: GlobalConfig>(
     #[comptime] config: G,
-) -> StageMemory<ES, ConvTilingLayout> {
+) -> StageMemory<ES, BiasTilingLayout> {
     let line_size = config.stage_config().stage_line_size(StageIdent::Acc);
 
     let smem = SharedMemory::new_lined(
@@ -107,10 +92,5 @@ fn init_stage<ES: Numeric, G: GlobalConfig>(
         line_size,
     );
 
-    StageMemory::<ES, ConvTilingLayout>::new_with_smem(smem, 1u32)
-}
-
-#[cube]
-fn init_empty_stage<ES: Numeric>() -> StageMemory<ES, ConvTilingLayout> {
-    StageMemory::<ES, ConvTilingLayout>::new_with_smem(SharedMemory::new(1), 1u32)
+    StageMemory::<ES, BiasTilingLayout>::new_with_smem(smem, 1u32)
 }

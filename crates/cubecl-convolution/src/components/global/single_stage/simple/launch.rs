@@ -1,7 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
-    EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
-    stage::{FullReaderFamily, StageMatmulFamily},
+    AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    stage::{FullStageReaderFamily, StageMatmulFamily},
 };
 use cubecl_std::{FastDivmodArgs, tensor::layout::Coords3d};
 
@@ -19,8 +19,9 @@ use crate::{
 
 impl<
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = Option<FullStageReaderFamily>,
             WriteCoords = Coords3d,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
@@ -50,10 +51,10 @@ impl<
                 MS::Args,
                 LhsG<MS>,
                 RhsG<MS>,
+                AccG<MS>,
                 LhsS<MS>,
                 RhsS<MS>,
-                EA<MS>,
-                EO<MS>,
+                AccS<MS>,
                 Self,
                 R,
             >(

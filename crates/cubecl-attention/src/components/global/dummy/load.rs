@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::{TensorReader, ViewDirection};
-use cubecl_matmul::components::stage::{FullStageToTileReader, StageMemory};
+use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::div_ceil;
@@ -88,8 +88,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         }
     }
 
-    pub fn reader(&self) -> FullStageToTileReader<AP::ES, AttentionTilingLayout> {
-        FullStageToTileReader::<AP::ES, AttentionTilingLayout> {
+    pub fn reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
+        FullStageReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: self.stage_memory,
             stage_ident: StageIdent::Rhs,
         }
@@ -176,8 +176,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         }
     }
 
-    pub fn reader(&self) -> FullStageToTileReader<AP::ES, AttentionTilingLayout> {
-        FullStageToTileReader::<AP::ES, AttentionTilingLayout> {
+    pub fn reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
+        FullStageReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: self.stage_memory,
             stage_ident: StageIdent::Rhs,
         }

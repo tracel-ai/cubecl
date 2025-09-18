@@ -2,6 +2,7 @@ use cubecl::calculate_cube_count_elemwise;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::tensor_line_size_parallel;
+use cubecl_runtime::TypeUsage;
 use cubecl_std::tensor::layout::linear::LinearView;
 use cubecl_std::tensor::{View, into_contiguous, layout::linear::linear_view};
 
@@ -145,7 +146,7 @@ fn quantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
 }
 
 #[cube(launch_unchecked)]
-fn quantize_symmetric_int8_packed_kernel<F: Float, FS: Float>(
+fn quantize_symmetric_packed_kernel<F: Float, FS: Float>(
     input: &LinearView<Line<F>>,
     scale: &LinearView<Line<F>>,
     range_min: F,
@@ -222,7 +223,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
             store: QuantStore::Native,
             ..
         } => {
-            if !i8::is_supported(client) {
+            if !i8::supported_uses(client).contains(TypeUsage::Conversion) {
                 panic!(
                     "{:?} is not supported for native quantization",
                     scheme.value
@@ -274,7 +275,7 @@ fn quantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::Q8S,
+            value: QuantValue::Q8S | QuantValue::Q8F,
             store: QuantStore::Native,
             ..
         } => {
@@ -310,7 +311,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
 ) {
     let input = into_contiguous::<R, F>(client, input);
     let input = input.as_ref();
-    let num_elems: usize = output.shape.iter().product();
+    let num_elems: usize = input.shape.iter().product();
 
     let num_quants = scheme.num_quants() as u8;
     let line_size = num_quants;
@@ -329,7 +330,7 @@ fn quantize_packed<R: Runtime, F: Float, FS: Float>(
         } => {
             check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
-                quantize_symmetric_int8_packed_kernel::launch_unchecked::<F, FS, R>(
+                quantize_symmetric_packed_kernel::launch_unchecked::<F, FS, R>(
                     client,
                     cube_count,
                     cube_dim,

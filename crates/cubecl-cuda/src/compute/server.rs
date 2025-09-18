@@ -1,6 +1,6 @@
 use cubecl_core::{
     compute::{CubeTask, DebugInformation},
-    server::IoError,
+    server::{DataTransferService, IoError},
 };
 use cubecl_core::{
     future::{self, DynFut},
@@ -13,29 +13,29 @@ use cubecl_core::{
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
-use serde::{Deserialize, Serialize};
-
+use super::storage::gpu::{GpuResource, GpuStorage};
+use super::sync::{Fence, SyncStream};
+use crate::compute::{
+    DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
+    storage::cpu::PinnedMemoryStorage,
+};
 use crate::{CudaCompiler, WmmaCompiler};
-
-use super::CudaResource;
-use super::fence::{Fence, SyncStream};
-use super::storage::CudaStorage;
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Feature,
     ir::FloatKind,
     server::{Bindings, CopyDescriptor, TensorMapBinding},
 };
+use cubecl_runtime::data_service::DataTransferId;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
+use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
@@ -44,6 +44,7 @@ use cudarc::driver::sys::{
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 #[cfg(feature = "cuda-12080")]
 use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::c_char;
 use std::path::PathBuf;
@@ -55,6 +56,8 @@ use std::{ffi::CString, mem::MaybeUninit};
 #[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 
+pub(crate) const MB: usize = 1024 * 1024;
+
 #[derive(Debug)]
 pub struct CudaServer {
     ctx: CudaContext,
@@ -64,8 +67,9 @@ pub struct CudaServer {
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     context: *mut CUctx_st,
-    stream: cudarc::driver::sys::CUstream,
-    memory_management: MemoryManagement<CudaStorage>,
+    pub(crate) stream: cudarc::driver::sys::CUstream,
+    pub(crate) memory_management_gpu: MemoryManagement<GpuStorage>,
+    pub(crate) memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -96,78 +100,13 @@ impl CudaServer {
     fn read_async(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let ctx = self.get_context();
-
-        fn inner(
-            ctx: &mut CudaContext,
-            descriptors: Vec<CopyDescriptor<'_>>,
-        ) -> Result<Vec<Vec<u8>>, IoError> {
-            let mut result = Vec::with_capacity(descriptors.len());
-
-            for descriptor in descriptors {
-                let CopyDescriptor {
-                    binding,
-                    shape,
-                    strides,
-                    elem_size,
-                } = descriptor;
-
-                if !valid_strides(shape, strides) {
-                    return Err(IoError::UnsupportedStrides);
-                }
-
-                let resource = ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .ok_or(IoError::InvalidHandle)?;
-                let mut data = vec![0; shape.iter().product::<usize>() * elem_size];
-
-                let rank = shape.len();
-                if rank <= 1 {
-                    unsafe {
-                        cudarc::driver::result::memcpy_dtoh_async(
-                            &mut data,
-                            resource.ptr,
-                            ctx.stream,
-                        )
-                        .unwrap();
-                    };
-                    result.push(data);
-                    continue;
-                }
-
-                let dim_x = shape[rank - 1];
-                let width_bytes = dim_x * elem_size;
-                let dim_y: usize = shape.iter().rev().skip(1).product();
-                let pitch = strides[rank - 2] * elem_size;
-
-                let cpy = CUDA_MEMCPY2D_st {
-                    srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-                    srcDevice: resource.ptr,
-                    srcPitch: pitch,
-                    dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-                    dstHost: data.as_mut_ptr() as *mut c_void,
-                    dstPitch: width_bytes,
-                    WidthInBytes: width_bytes,
-                    Height: dim_y,
-                    ..Default::default()
-                };
-
-                unsafe {
-                    cuMemcpy2DAsync_v2(&cpy, ctx.stream).result().unwrap();
-                };
-                result.push(data);
-            }
-
-            Ok(result)
-        }
-
-        let result = inner(ctx, descriptors);
+        let result = register_copies_to_bytes(ctx, descriptors);
         let fence = ctx.fence();
 
         async move {
-            fence.wait();
+            fence.wait_sync();
             result
         }
     }
@@ -187,14 +126,13 @@ impl CudaServer {
 
 impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
-    type Storage = CudaStorage;
-    type Feature = Feature;
+    type Storage = GpuStorage;
     type Info = ();
 
     fn read(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 
@@ -235,7 +173,7 @@ impl ComputeServer for CudaServer {
         }
 
         let ctx = self.get_context();
-        let handle = ctx.memory_management.reserve(total_size as u64)?;
+        let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
         let mem_handle = server::Handle::new(handle, None, None, total_size as u64);
 
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
@@ -264,7 +202,7 @@ impl ComputeServer for CudaServer {
             }
 
             let resource = ctx
-                .memory_management
+                .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .ok_or(IoError::InvalidHandle)?;
 
@@ -389,7 +327,7 @@ impl ComputeServer for CudaServer {
             .into_iter()
             .map(|TensorMapBinding { map, binding }| {
                 let resource = ctx
-                    .memory_management
+                    .memory_management_gpu
                     .get_resource(
                         binding.memory.clone(),
                         binding.offset_start,
@@ -553,38 +491,89 @@ impl ComputeServer for CudaServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<CudaResource> {
+    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
         let ctx = self.get_context();
         BindingResource::new(
             binding.clone(),
-            ctx.memory_management
+            ctx.memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Failed to find resource"),
         )
     }
 
     fn memory_usage(&self) -> MemoryUsage {
-        self.ctx.memory_management.memory_usage()
+        self.ctx.memory_management_gpu.memory_usage()
     }
 
     fn memory_cleanup(&mut self) {
-        self.ctx.memory_management.cleanup(true);
+        self.ctx.memory_management_gpu.cleanup(true);
     }
 
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
-        self.ctx.memory_management.mode(mode);
+        self.ctx.memory_management_gpu.mode(mode);
     }
 }
 
-fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> CudaResource {
-    ctx.memory_management
+impl DataTransferService for CudaServer {
+    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let src_ctx = self.get_context();
+
+        let src_resource = src_ctx
+            .memory_management_gpu
+            .get_resource(
+                src.binding.memory,
+                src.binding.offset_start,
+                src.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = DataTransferRuntime::client();
+
+        let handle = DataTransferItem {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: src_resource,
+        };
+        let fence = Fence::new(self.ctx.stream);
+
+        client.register_src(id, handle, fence);
+    }
+
+    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let dst_ctx = self.get_context();
+        let dst_resource = dst_ctx
+            .memory_management_gpu
+            .get_resource(
+                dst.binding.memory,
+                dst.binding.offset_start,
+                dst.binding.offset_end,
+            )
+            .ok_or(IoError::InvalidHandle)
+            .unwrap();
+
+        let client = DataTransferRuntime::client();
+
+        let call = DataTransferItem {
+            context: self.ctx.context,
+            stream: self.ctx.stream,
+            resource: dst_resource,
+        };
+
+        client.register_dest(id, call);
+    }
+}
+
+fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> GpuResource {
+    ctx.memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
 }
 
 impl CudaContext {
     pub fn new(
-        memory_management: MemoryManagement<CudaStorage>,
+        memory_management_gpu: MemoryManagement<GpuStorage>,
+        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
         compilation_options: CompilationOptions,
         stream: cudarc::driver::sys::CUstream,
         context: *mut CUctx_st,
@@ -592,7 +581,8 @@ impl CudaContext {
     ) -> Self {
         Self {
             context,
-            memory_management,
+            memory_management_gpu,
+            memory_management_cpu,
             module_names: HashMap::new(),
             #[cfg(feature = "compilation-cache")]
             ptx_cache: {
@@ -779,14 +769,14 @@ impl CudaContext {
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
         tensor_maps: &[CUtensorMap],
-        resources: &[CudaResource],
+        resources: &[GpuResource],
         scalars: &[*mut c_void],
     ) -> Result<(), String> {
         let mut bindings = tensor_maps
             .iter()
             .map(|map| map as *const _ as *mut c_void)
             .collect::<Vec<_>>();
-        bindings.extend(resources.iter().map(|memory| memory.as_binding()));
+        bindings.extend(resources.iter().map(|memory| memory.binding));
         bindings.extend(scalars);
 
         let kernel = self.module_names.get(&kernel_id).unwrap();

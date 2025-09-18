@@ -1,14 +1,21 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaContext, CudaServer, CudaStorage, valid_strides},
+    compute::{
+        CudaContext, CudaServer,
+        storage::{
+            cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
+            gpu::GpuStorage,
+        },
+        valid_strides,
+    },
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime, TmaFeature,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
-        UIntKind,
+        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
+        TargetProperties,
     },
 };
 use cubecl_cpp::{
@@ -21,10 +28,9 @@ use cubecl_cpp::{
     },
 };
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
+    ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
@@ -53,7 +59,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
 ) -> ComputeClient<Server, Channel> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
-    let device_ptr = cudarc::driver::result::device::get(device.index as i32).unwrap();
+    let device_id = device.index as i32;
+    let device_ptr = cudarc::driver::result::device::get(device_id).unwrap();
     let arch_major;
     let arch_version = unsafe {
         arch_major = cudarc::driver::result::device::get_attribute(
@@ -98,10 +105,12 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = CudaStorage::new(mem_alignment, stream);
+    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
+        // TODO: We should have a fallback when peer access isn't supported.
+        data_transfer_async: true,
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -153,29 +162,45 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+    let memory_management_gpu = MemoryManagement::from_configuration(
+        storage,
+        &mem_properties,
+        options.memory_config.clone(),
+    );
+    // We use the same page size and memory pools configuration for CPU pinned memory, since we
+    // expect the CPU to have at least the same amount of RAM as GPU memory.
+    let memory_management_cpu = MemoryManagement::from_configuration(
+        PinnedMemoryStorage::new(),
+        &MemoryDeviceProperties {
+            max_page_size: mem_properties.max_page_size,
+            alignment: PINNED_MEMORY_ALIGNMENT as u64,
+            data_transfer_async: false,
+        },
+        options.memory_config,
+    );
 
     let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
+        Default::default(),
         mem_properties,
         hardware_props,
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::TF32).into()));
+    device_props.register_type_usage(ElemType::Float(FloatKind::TF32), TypeUsage::Conversion);
     if arch_version >= 60 {
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F64,
-        ))));
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F64)),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
     }
     if arch_version >= 70 {
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F16,
-        ))));
-        device_props.register_feature(Feature::Pipeline);
-        device_props.register_feature(Feature::Barrier);
-        device_props.register_feature(Feature::SyncPlane);
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F16)),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
+        device_props.register_semantic_type(SemanticType::Pipeline);
+        device_props.register_semantic_type(SemanticType::Barrier);
+        device_props.features.plane.insert(Plane::Sync);
 
         comp_opts.grid_constants = true;
     }
@@ -186,56 +211,64 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // }
 
     if arch_version >= 89 {
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E4M3).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E5M2).into()));
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E4M3),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E5M2),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
     if arch_version >= 90 {
-        device_props.register_feature(Feature::Tma(TmaFeature::Base));
-        device_props.register_feature(Feature::CubeCluster);
+        device_props.features.tma.insert(Tma::Base);
+        device_props.register_semantic_type(SemanticType::TensorMap);
+        device_props.features.cube_cluster = true;
         comp_opts.supports_clusters = true;
     }
 
     if arch_version >= 100 {
-        device_props.register_feature(Feature::Tma(TmaFeature::Im2colWide));
+        device_props.features.tma.insert(Tma::Im2colWide);
     }
 
     // NOTE: FP6/FP4 is explicitly not marked as forward compatible, but is compatible within a
     // major version. Try to keep this up to date with new arch major revisions if they also
     // implement it.
     if arch_major == 10 || arch_major == 12 {
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M1).into()));
-        device_props.register_feature(Feature::Type(StorageType::Packed(
-            ElemType::Float(FloatKind::E2M1),
-            2,
-        )));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E2M3).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::E3M2).into()));
-        device_props.register_feature(Feature::Type(ElemType::Float(FloatKind::UE8M0).into()));
+        device_props.register_type_usage(ElemType::Float(FloatKind::E2M1), TypeUsage::Conversion);
+        device_props.register_type_usage(
+            StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E2M3),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::E3M2),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        device_props.register_type_usage(
+            ElemType::Float(FloatKind::UE8M0),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
     }
 
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-
-    // Supported by all architectures
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-        IntKind::I32,
-    ))));
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-        UIntKind::U32,
-    ))));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-
-    device_props.register_feature(Feature::DynamicLineSize);
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.dynamic_line_size = true;
+    device_props.features.plane.insert(Plane::Ops);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);
     register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(memory_management, comp_opts, stream, ctx, arch);
+    let cuda_ctx = CudaContext::new(
+        memory_management_gpu,
+        memory_management_cpu,
+        comp_opts,
+        stream,
+        ctx,
+        arch,
+    );
     let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
@@ -261,10 +294,6 @@ impl Runtime for CudaRuntime {
         })
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, device.index as u32)
-    }
-
     fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
         "cuda"
     }
@@ -283,10 +312,6 @@ impl Runtime for CudaRuntime {
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         valid_strides(shape, strides)
-    }
-
-    fn device_count() -> usize {
-        cudarc::driver::CudaContext::device_count().unwrap_or(0) as usize
     }
 
     fn target_properties() -> TargetProperties {

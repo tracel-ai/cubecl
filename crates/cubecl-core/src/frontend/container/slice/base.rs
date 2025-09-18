@@ -5,9 +5,9 @@ use cubecl::prelude::*;
 use cubecl_ir::{Branch, ElemType, ExpandElement, FloatKind, RangeLoop, Type, Variable};
 use cubecl_macros::intrinsic;
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ReadOnly;
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct ReadWrite;
 
 /// A read-only contiguous list of elements
@@ -48,7 +48,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     }
 }
 
-pub trait SliceVisibility {}
+pub trait SliceVisibility: Clone + Copy {}
 
 impl SliceVisibility for ReadOnly {}
 
@@ -218,6 +218,14 @@ impl<E: CubePrimitive, IO: SliceVisibility> CubeType for Slice<E, IO> {
     type ExpandType = SliceExpand<E, IO>;
 }
 
+impl<E: CubePrimitive, IO: SliceVisibility> CubeType for &Slice<E, IO> {
+    type ExpandType = SliceExpand<E, IO>;
+}
+
+impl<E: CubePrimitive, IO: SliceVisibility> CubeType for &mut Slice<E, IO> {
+    type ExpandType = SliceExpand<E, IO>;
+}
+
 impl<E: CubePrimitive, IO: SliceVisibility> IntoMut for SliceExpand<E, IO> {
     fn into_mut(self, _scope: &mut cubecl_ir::Scope) -> Self {
         self
@@ -339,11 +347,10 @@ impl<E: CubePrimitive, IO: SliceVisibility> ListExpand<E> for SliceExpand<E, IO>
     fn __expand_len_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
         Self::__expand_len(scope, self.clone())
     }
+}
 
-    fn __expand_line_size_method(&self, _scope: &mut Scope) -> u32 {
-        self.line_size()
-    }
-
+impl<E: CubePrimitive, IO: SliceVisibility> Lined for Slice<E, IO> {}
+impl<E: CubePrimitive, IO: SliceVisibility> LinedExpand for SliceExpand<E, IO> {
     fn line_size(&self) -> u32 {
         self.line_size.unwrap_or_else(|| self.origin.line_size())
     }

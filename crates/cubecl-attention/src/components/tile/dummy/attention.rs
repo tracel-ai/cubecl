@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::GlobalWriter as _;
 use cubecl_matmul::components::global::PlaneWriter;
+use cubecl_matmul::components::global::StageUnloader as _;
 use cubecl_matmul::components::tile::Tile;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;

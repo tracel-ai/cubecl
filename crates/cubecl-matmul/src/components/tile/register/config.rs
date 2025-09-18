@@ -2,6 +2,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::StorageType};
+use cubecl_runtime::TypeUsage;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -12,12 +13,12 @@ pub enum ProductType {
     /// Computes the Tile Matmul as m*n inner products of length k.
     ///
     /// Needs Lhs to be row major and Rhs to be col major
-    /// If not the case, tile will be transposed during fill
+    /// If not the case, tile will be transposed during load
     Inner,
     /// Computes the Stage Matmul as the sum of k outer products of size m*n.
     ///
     /// Needs Lhs to be col major and Rhs to be row major
-    /// If not the case, tile will be transposed during fill
+    /// If not the case, tile will be transposed during load
     Outer,
 }
 
@@ -187,7 +188,10 @@ impl RegisterConfig {
             _ => acc,
         };
 
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
+        if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
+        {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));

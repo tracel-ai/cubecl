@@ -1,11 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::components::global::AccumulatorLoader;
-use crate::components::stage::StageConfig;
-use crate::components::tile::TileMatmul;
+use crate::components::{AccS, stage::StageReader, tile::TileMatmul};
 use crate::components::{InputPrecision, MatmulPrecision};
+use crate::components::{stage::StageConfig, tile::loader::LoaderKind};
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, intrinsic};
 
 #[derive(CubeType)]
 /// Wrapper over a sequence of Tile Matmul accumulators
@@ -15,11 +14,11 @@ pub struct Accumulators<
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            MP::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     S: StageConfig<TileConfig = TM::Config>,
 > {
-    sequence: Sequence<TM::Accumulator>,
+    sequence: Sequence<TM::AccFragment>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -30,18 +29,19 @@ impl<
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            MP::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     S: StageConfig<TileConfig = TM::Config>,
 > Accumulators<MP, TM, S>
 {
+    /// Create a new accumulators sequence from the provided configuration
     pub fn new(#[comptime] config: S) -> Accumulators<MP, TM, S> {
         let partition_size = config.tiling_scheme().partition_size;
         let mut accumulators = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(partition_size.mn()) {
-            accumulators.push(TM::allocate_accumulator(config.tile_config()));
+            accumulators.push(TM::allocate_acc(config.tile_config()));
         }
 
         Accumulators::<MP, TM, S> {
@@ -50,40 +50,51 @@ impl<
         }
     }
 
-    pub fn zero(&mut self, #[comptime] config: S) {
-        #[unroll]
-        for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
-            TM::zero_accumulator(self.sequence.index_mut(i), config.tile_config());
-        }
-    }
-
-    pub fn fill<L: AccumulatorLoader<MP>>(&mut self, loader: &mut L, #[comptime] config: S) {
-        #[unroll]
-        for i in 0..comptime![config.tiling_scheme().partition_size.mn()] {
-            let acc = self.sequence.index_mut(i);
-            L::load::<TM, S>(loader, acc, i, config);
-        }
-    }
-
-    pub fn get_at(
-        this: &Accumulators<MP, TM, S>,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+    /// Load all accumulators from the specified reader
+    pub fn load<R: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccTileLoader>>>(
+        &mut self,
+        reader: &R,
         #[comptime] config: S,
-    ) -> &TM::Accumulator {
-        this.sequence.index(comptime!(
-            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
+    ) {
+        let size_m = comptime![config.tiling_scheme().tiles_in_stage_partition_m()];
+        let size_n = comptime![config.tiling_scheme().tiles_in_stage_partition_n()];
+        #[unroll]
+        for m in 0..size_m {
+            #[unroll]
+            for n in 0..size_n {
+                let acc = self.get_at_mut(unwrap(m), unwrap(n), config);
+                let tile = R::read_tile::<S::StageMemoryConfig>(
+                    reader,
+                    m,
+                    n,
+                    config.stage_memory_config(),
+                );
+                TM::load_acc(tile, acc, config.tile_config());
+            }
+        }
+    }
+
+    /// Fetch a reference to the accumulator at (`m`, `n`)
+    pub fn get_at(
+        &self,
+        #[comptime] m: u32,
+        #[comptime] n: u32,
+        #[comptime] config: S,
+    ) -> &TM::AccFragment {
+        self.sequence.index(comptime!(
+            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
     }
 
+    /// Fetch a mutable reference to the accumulator at (`m`, `n`)
     pub fn get_at_mut(
-        this: &mut Accumulators<MP, TM, S>,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+        &mut self,
+        #[comptime] m: u32,
+        #[comptime] n: u32,
         #[comptime] config: S,
-    ) -> &mut TM::Accumulator {
-        this.sequence.index_mut(comptime!(
-            i * config.tiling_scheme().tiles_in_stage_partition_n() + j
+    ) -> &mut TM::AccFragment {
+        self.sequence.index_mut(comptime!(
+            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
         ))
     }
 }
@@ -93,4 +104,10 @@ impl<
 pub enum RhsTile<Rhs: CubeType> {
     Single(Rhs),
     Double((Rhs, Rhs)),
+}
+
+#[cube]
+#[allow(unused)]
+fn unwrap(i: u32) -> comptime_type!(u32) {
+    intrinsic!(|_| i.constant().unwrap().as_u32())
 }

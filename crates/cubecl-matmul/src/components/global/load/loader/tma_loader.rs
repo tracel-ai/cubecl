@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
 use crate::components::MatrixLayout;
 use crate::components::stage::{
-    FullStageToTileReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
+    FullStageReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
 };
 use crate::components::{InputPrecision, MatmulIdent, StageIdent};
 use crate::components::{
@@ -16,7 +16,7 @@ use crate::components::{
 /// TMA uses contiguous tiling, but with a special tiling order
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
 /// TMA uses standard full stage to tile reader
-pub type TmaReader<IP> = FullStageToTileReader<<IP as InputPrecision>::Stage, TmaTiling>;
+pub type TmaStageReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
 /// A special tiling order where:
@@ -86,7 +86,7 @@ impl TilingOrder for TmaTilingOrder {
 
 #[derive(CubeType)]
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
-pub struct TmaLoader<IP: InputPrecision, G: GlobalConfig> {
+pub struct TmaStageLoader<IP: InputPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
     pub stage: StageMemory<IP::Stage, TmaTiling>,
     #[cube(comptime)]
@@ -96,7 +96,7 @@ pub struct TmaLoader<IP: InputPrecision, G: GlobalConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
+impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
     /// Create a TmaLoader
     pub fn new(
         tensor: TensorMap<IP::Global>,
@@ -114,7 +114,7 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
 
-        TmaLoader::<IP, G> {
+        TmaStageLoader::<IP, G> {
             tensor_view,
             stage,
             ident,
@@ -122,8 +122,8 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
         }
     }
 
-    /// Fill the full stage memory
-    pub fn fill_stage(this: &mut Self, barrier: &Barrier, #[comptime] config: G) {
+    /// Load data into the full stage memory
+    pub fn load_stage(this: &mut Self, barrier: &Barrier, #[comptime] config: G) {
         if UNIT_POS == 0 {
             let ident = comptime!(this.ident);
             let stage_ident = comptime!(ident.into_stage());
@@ -163,8 +163,8 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaLoader<IP, G> {
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(this: &Self) -> TmaReader<IP> {
-        TmaReader::<IP>::new(this.stage, comptime!(this.ident.into_stage()))
+    pub fn reader(this: &Self) -> TmaStageReader<IP> {
+        TmaStageReader::<IP>::new(this.stage, comptime!(this.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

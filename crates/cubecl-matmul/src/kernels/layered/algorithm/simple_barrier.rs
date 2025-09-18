@@ -9,8 +9,11 @@ use crate::{
         global::{
             load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
         },
-        stage::{FullReaderFamily, PlaneMatmulFamily},
-        tile,
+        stage::{FillStageReaderFamily, FullStageReaderFamily, PlaneMatmulFamily},
+        tile::{
+            self,
+            loader::{Filled, Strided},
+        },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
@@ -23,12 +26,17 @@ pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
 
 impl<TMM, L> Algorithm for SimpleBarrierAlgorithm<TMM, L>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
     L: AsyncFullLoadingStrategy,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullStageReaderFamily,
+        FullStageReaderFamily,
+        FillStageReaderFamily,
+    >;
     type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 
     type BatchMatmul =

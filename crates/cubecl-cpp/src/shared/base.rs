@@ -5,14 +5,14 @@ use cubecl_core::CubeDim;
 use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
-    Compiler, Feature,
+    Compiler,
     ir::{self as gpu},
 };
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
 
@@ -1136,18 +1136,26 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Cast(op)
                 if is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()) =>
             {
-                let inst = self.compile_unary(op, out);
-
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec = inst.input.item().vectorization as u32;
+                let vec_in = op.input.ty.line_size();
+                let packing = out.storage_type().packing_factor();
+                self.compile_type(op.input.ty.line(packing));
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec_in),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec_in),
                 );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(packing),
+                );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(packing),
+                );
+
+                let inst = self.compile_unary(op, out);
 
                 instructions.push(Instruction::SpecialCast(inst));
             }
@@ -1613,7 +1621,7 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
     )
 }
 
-pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_supported_types(props: &mut DeviceProperties) {
     let supported_types = [
         gpu::ElemType::UInt(gpu::UIntKind::U8),
         gpu::ElemType::UInt(gpu::UIntKind::U16),
@@ -1641,10 +1649,13 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     ];
 
     for ty in supported_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Scalar(ty)));
+        props.register_type_usage(ty, TypeUsage::all_scalar());
     }
 
     for ty in supported_atomic_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Atomic(ty)));
+        props.register_type_usage(
+            gpu::StorageType::Atomic(ty),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
     }
 }

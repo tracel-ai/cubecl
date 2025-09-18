@@ -1,4 +1,5 @@
 use super::ComputeChannel;
+use crate::data_service::DataTransferId;
 use crate::memory_management::MemoryAllocationMode;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
@@ -11,6 +12,7 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use spin::Mutex;
@@ -53,7 +55,7 @@ where
         server.create(descriptors)
     }
 
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut server = self.server.lock();
         server.read(descriptors)
     }
@@ -61,6 +63,16 @@ where
     fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         let mut server = self.server.lock();
         server.write(descriptors)
+    }
+
+    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let mut server = self.server.lock();
+        server.register_src(id, src);
+    }
+
+    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        let mut server = self.server.lock();
+        server.register_dest(id, dst);
     }
 
     fn sync(&self) -> DynFut<()> {

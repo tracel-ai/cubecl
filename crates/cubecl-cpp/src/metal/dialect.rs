@@ -8,14 +8,14 @@ use crate::{
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
         FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
-        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WarpInstruction,
-        WmmaInstruction, wmma_api_base,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
     compute::{Location, Visibility},
     ir::{self as gpu, Id},
 };
+use cubecl_runtime::MmaConfig;
 
 use super::{
     AddressSpace, Extension,
@@ -1149,33 +1149,40 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         unimplemented!("Not supported")
     }
 
-    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
-        vec![
+    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
+        let types = vec![
             (
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                vec![(8, 8, 8)],
             ),
-        ]
+        ];
+        types
+            .into_iter()
+            .map(|(a_type, b_type, cd_type)| MmaConfig {
+                a_type,
+                b_type,
+                cd_type,
+                m: 8,
+                n: 8,
+                k: 8,
+            })
+            .collect()
     }
 
     fn supported_mma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {

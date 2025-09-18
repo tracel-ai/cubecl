@@ -1,4 +1,5 @@
 use crate::{
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -14,7 +15,7 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
+use cubecl_common::{ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration};
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
@@ -31,7 +32,7 @@ pub enum ProfileError {
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug
+pub trait ComputeServer: DataTransferService + Send + core::fmt::Debug
 where
     Self: Sized,
 {
@@ -41,8 +42,6 @@ where
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
-    /// The type of the features supported by the server.
-    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn create(
@@ -75,7 +74,7 @@ where
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>>;
+    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
@@ -123,6 +122,36 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode);
+}
+
+/// Defines a way to move data from one compute server to another.
+///
+/// # Notes
+///
+/// This is an optional trait to be implemented and methods will only be called if the
+/// memory device property 'data_service_async' is set to 'true'.
+pub trait DataTransferService {
+    /// Send data to another server. Should be called with [register_dest](DataTransferService::register_dest)
+    ///
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `src`: The source for the read operation.
+    #[allow(unused_variables)]
+    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
+
+    /// Receive data from another server. Should be called with [register_src](DataTransferService::register_src)
+    ///
+    /// # Arguments
+    ///
+    /// - `id`: A unique id for the transaction
+    /// - `dst`: The destination for the write operation.
+    #[allow(unused_variables)]
+    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+        unimplemented!("Data transfer not supported on the current runtime.",);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
@@ -200,6 +229,9 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
+    /// Unknown error happened during execution
+    #[error("Unknown error happened during execution")]
+    Unknown(String),
 }
 
 impl Handle {

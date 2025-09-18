@@ -112,7 +112,7 @@ impl<T: TileConfig> StageMemoryConfig for PlanePartitionedStageConfig<T> {
         match ident {
             StageIdent::Lhs => self.num_stages.lhs,
             StageIdent::Rhs => self.num_stages.rhs,
-            StageIdent::Acc => unreachable!(),
+            StageIdent::Acc => 1,
         }
     }
 }

@@ -1,4 +1,4 @@
-use cubecl_matmul::components::stage::FullReaderFamily;
+use cubecl_matmul::components::stage::FullStageReaderFamily;
 
 use crate::{
     components::{
@@ -19,7 +19,7 @@ pub struct DummyAlgorithm {}
 impl Algorithm for DummyAlgorithm {
     // type TileAttention = DummyTileAttentionFamily<AcceleratedFlashMatmul>;
     type TileAttention = DummyTileAttentionFamily<DummyRegisterFlashMatmul>;
-    type StageAttention = DummyStageAttentionFamily<Self::TileAttention, FullReaderFamily>;
+    type StageAttention = DummyStageAttentionFamily<Self::TileAttention, FullStageReaderFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 

@@ -18,11 +18,20 @@ pub type UnitMatmul<
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
-            <MP as MatmulPrecision>::EA,
+            <MP::Acc as InputPrecision>::Register,
         >,
     RL,
     RR,
-> = PartitionedStageMatmul<MP, TM, RL, RR, UnitPartitioner, UnitPartitionedStageConfig<TM::Config>>;
+    RA,
+> = PartitionedStageMatmul<
+    MP,
+    TM,
+    RL,
+    RR,
+    RA,
+    UnitPartitioner,
+    UnitPartitionedStageConfig<TM::Config>,
+>;
 
 /// Defines how to partition across units
 pub struct UnitPartitioner {}

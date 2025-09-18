@@ -1,8 +1,11 @@
 use cubecl_ir::{ExpandElement, StorageType};
-use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
+use cubecl_runtime::{
+    TypeUsage, channel::ComputeChannel, client::ComputeClient, server::ComputeServer,
+};
+use enumset::EnumSet;
 
+use crate::frontend::CubeType;
 use crate::ir::Scope;
-use crate::{Feature, frontend::CubeType};
 
 use super::{ExpandElementIntoMut, ExpandElementTyped};
 
@@ -48,11 +51,11 @@ pub trait CubePrimitive:
         ExpandElementTyped::new(elem)
     }
 
-    fn is_supported<S: ComputeServer<Feature = Feature>, C: ComputeChannel<S>>(
+    fn supported_uses<S: ComputeServer, C: ComputeChannel<S>>(
         client: &ComputeClient<S, C>,
-    ) -> bool {
+    ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
-        client.properties().feature_enabled(Feature::Type(elem))
+        client.properties().features.type_usage(elem)
     }
 
     fn elem_size() -> u32 {

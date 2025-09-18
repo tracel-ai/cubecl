@@ -4,7 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{load::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
-    stage::{FullReaderFamily, StageConfig as _, StageMatmulFamily},
+    stage::{FullStageReaderFamily, StageConfig as _, StageMatmulFamily},
 };
 use cubecl_std::tensor::layout::Coords3d;
 
@@ -16,6 +16,7 @@ use crate::{
             load::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
             multi_stage::tma::{MultiStageTmaConvolution, num_stages},
         },
+        stage::reader::BiasTilingLayout,
     },
     kernels::layered::algorithm::simple_tma::check_problem_tma,
 };
@@ -27,13 +28,16 @@ pub struct MultiStageTmaConvolutionFamily<SMM: StageMatmulFamily> {
 impl<SMM> GlobalConvolutionFamily for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = Option<FullStageReaderFamily>,
             WriteCoords = Coords3d,
         >,
 {
-    type Convolution<MP: MatmulPrecision> =
-        MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+    type Convolution<MP: MatmulPrecision> = MultiStageTmaConvolution<
+        MP,
+        SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout>,
+    >;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

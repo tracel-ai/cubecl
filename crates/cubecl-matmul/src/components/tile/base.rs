@@ -1,19 +1,34 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::StageIdent;
-use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
-    resource::ComputeResources, tile::tile_data::Tile,
+    resource::ComputeResources, tile::loader::TileKind,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{StageIdent, tile::loader::TileLoader};
+use crate::components::{error::MatmulSetupError, tile::loader::LoaderTile};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<L, R, A, Config = Self::Config>;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<
+            L,
+            R,
+            A,
+            Config = Self::Config,
+            LhsTileLoader: TileLoader<TileKind = Self::LhsTile>,
+            RhsTileLoader: TileLoader<TileKind = Self::RhsTile>,
+            AccTileLoader: TileLoader<TileKind = Self::AccTile>,
+        >;
+
+    /// Tile kind for Lhs
+    type LhsTile: TileKind;
+    /// Tile kind for Rhs
+    type RhsTile: TileKind;
+    /// Tile kind for Acc
+    type AccTile: TileKind;
 
     /// The configuration type associated with this matmul family.
     type Config: TileConfig;
@@ -57,17 +72,24 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// The configuration type associated with this Matmul.
     type Config: TileConfig;
     /// Contains Lhs data for computation
-    type Lhs: CubeType;
+    type LhsFragment: CubeType;
     /// Contains Rhs data for computation
-    type Rhs: CubeType;
+    type RhsFragment: CubeType;
     /// Contains and accumulates results of the Tile Matmul execution
-    type Accumulator: CubeType;
+    type AccFragment: CubeType;
+
+    /// Loader for the lhs data
+    type LhsTileLoader: TileLoader;
+    /// Loader for the rhs data
+    type RhsTileLoader: TileLoader;
+    /// Loader for the accumulator data
+    type AccTileLoader: TileLoader;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        out: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        out: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );
 
@@ -76,22 +98,30 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call [fill_lhs](TileMatmul::fill_lhs) prior to [execute](TileMatmul::execute).
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs;
+    /// Make sure to call [load_lhs](TileMatmul::load_lhs) prior to [execute](TileMatmul::execute).
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment;
 
-    /// Fill the container of Lhs with tile data
-    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config);
+    /// Load the container of Lhs from tile data
+    fn load_lhs<E: Numeric>(
+        tile: LoaderTile<Self::LhsTileLoader, E>,
+        lhs: &mut Self::LhsFragment,
+        #[comptime] config: Self::Config,
+    );
 
     /// Create the container for Rhs
     ///
     /// # Safety
     ///
     /// This may point towards uninitialized memory.
-    /// Make sure to call [fill_rhs](TileMatmul::fill_rhs) prior to [execute](TileMatmul::execute).
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs;
+    /// Make sure to call [load_rhs](TileMatmul::load_rhs) prior to [execute](TileMatmul::execute).
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment;
 
-    /// Fill the container of Rhs with tile data
-    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config);
+    /// Load the container of Rhs from tile data
+    fn load_rhs<E: Numeric>(
+        tile: LoaderTile<Self::RhsTileLoader, E>,
+        rhs: &mut Self::RhsFragment,
+        #[comptime] config: Self::Config,
+    );
 
     /// Allocate the container to receive the execution output.
     ///
@@ -99,23 +129,19 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     ///
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
-    /// Make sure to call either [fill_accumulator](TileMatmul::fill_accumulator)
-    /// or [zero_accumulator](TileMatmul::zero_accumulator).
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    /// Make sure to call [load_acc](TileMatmul::load_acc) prior to [execute](TileMatmul::execute).
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment;
 
-    /// Fill the accumulator with data
-    fn fill_accumulator(
-        tile: &Tile<A>,
-        acc: &mut Self::Accumulator,
+    /// Load the container of Acc from tile data
+    fn load_acc<E: Numeric>(
+        tile: LoaderTile<Self::AccTileLoader, E>,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );
 
-    /// Fill the accumulator with zeros.
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
-
     /// Write the content of the output container to the given slice
     fn write_results<E: Numeric>(
-        out: &Self::Accumulator,
+        out: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );

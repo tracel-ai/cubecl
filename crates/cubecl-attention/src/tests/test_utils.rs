@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use cubecl_core::{
-    CubeElement, Feature, Runtime,
+    CubeElement, Runtime,
     client::ComputeClient,
     flex32,
     prelude::{CubePrimitive, Exp, Float, Numeric},
@@ -9,6 +9,7 @@ use cubecl_core::{
     tf32,
 };
 
+use cubecl_runtime::MmaConfig;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
@@ -60,18 +61,18 @@ where
         shape: &[usize],
         strides: &[usize],
     ) {
-        let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_type_native().expect("To be a native type"),
-            b: ES::as_type_native().expect("To be a native type"),
-            c: EG::as_type_native().expect("To be a native type"),
+        let maybe_f16 = client.properties().features.cmma.contains(&MmaConfig {
+            a_type: ES::as_type_native().expect("To be a native type"),
+            b_type: ES::as_type_native().expect("To be a native type"),
+            cd_type: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 16,
             n: 16,
         });
-        let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_type_native().expect("To be a native type"),
-            b: ES::as_type_native().expect("To be a native type"),
-            c: EG::as_type_native().expect("To be a native type"),
+        let maybe_tf32 = client.properties().features.cmma.contains(&MmaConfig {
+            a_type: ES::as_type_native().expect("To be a native type"),
+            b_type: ES::as_type_native().expect("To be a native type"),
+            cd_type: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 8,
             n: 16,

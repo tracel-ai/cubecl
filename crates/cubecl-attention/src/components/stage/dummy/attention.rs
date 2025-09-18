@@ -1,7 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::{GlobalWriter, PlaneWriter};
-use cubecl_matmul::components::stage::StageToTileReader;
+use cubecl_matmul::components::global::PlaneWriter;
+use cubecl_matmul::components::global::StageUnloader as _;
+use cubecl_matmul::components::stage::StageReader;
+use cubecl_matmul::components::tile::loader::Strided;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords3d;
@@ -22,8 +24,8 @@ pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>>
 }
 
 #[cube]
-impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>> StageAttention<AP>
-    for DummyStageAttention<AP, R, TA>
+impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
+    StageAttention<AP> for DummyStageAttention<AP, R, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
@@ -71,14 +73,13 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile =
-                    <R as StageToTileReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
-                        key_reader,
-                        // TODO maybe transpose the indexes?
-                        hd,
-                        kv,
-                        config.score_stage_memory_config(),
-                    );
+                let key_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
+                    key_reader,
+                    // TODO maybe transpose the indexes?
+                    hd,
+                    kv,
+                    config.score_stage_memory_config(),
+                );
 
                 TA::fill_key(
                     &key_tile,
@@ -128,10 +129,11 @@ impl<AP: AttentionPrecision, R: StageToTileReader<AP::ES>, TA: TileAttention<AP>
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = <R as StageToTileReader<AP::ES>>::read_tile::<
-                    AttentionStageMemoryConfig,
-                >(
-                    value_reader, kv, vd, config.value_stage_memory_config()
+                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
+                    value_reader,
+                    kv,
+                    vd,
+                    config.value_stage_memory_config(),
                 );
 
                 TA::fill_value(

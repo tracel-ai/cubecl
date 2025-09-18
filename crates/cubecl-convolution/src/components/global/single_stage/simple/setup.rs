@@ -5,7 +5,7 @@ use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{load::NoLoadingValidation, single_stage::simple::SimpleConfig},
     stage::{
-        ContiguousTilingLayout, FullReaderFamily, RowMajorTilingOrder, StageConfig as _,
+        ContiguousTilingLayout, FullStageReaderFamily, RowMajorTilingOrder, StageConfig as _,
         StageMatmulFamily,
     },
 };
@@ -14,6 +14,7 @@ use cubecl_std::tensor::layout::Coords3d;
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
     global::{GlobalConvolutionFamily, single_stage::simple::SimpleConvolution},
+    stage::reader::BiasTilingLayout,
 };
 
 pub type ConvTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
@@ -25,13 +26,16 @@ pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
 impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
+            LhsStageReader = FullStageReaderFamily,
+            RhsStageReader = FullStageReaderFamily,
+            AccStageReader = Option<FullStageReaderFamily>,
             WriteCoords = Coords3d,
         >,
 {
-    type Convolution<MP: MatmulPrecision> =
-        SimpleConvolution<MP, SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout>>;
+    type Convolution<MP: MatmulPrecision> = SimpleConvolution<
+        MP,
+        SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout>,
+    >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

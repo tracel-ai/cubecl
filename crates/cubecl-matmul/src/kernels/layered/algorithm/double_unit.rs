@@ -8,8 +8,10 @@ use crate::{
             load::sync_partial_cyclic::SyncPartialCyclicLoading,
             multi_stage::double_buffering::DoubleBufferingMatmulFamily,
         },
-        stage::{PartialReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-        tile::register::RegisterMatmul,
+        stage::{
+            FillStageReaderFamily, PartialStageReaderFamily, RowMajorTilingOrder, UnitMatmulFamily,
+        },
+        tile::{loader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         Algorithm,
@@ -27,8 +29,9 @@ pub struct DoubleUnitSelectionArgs {
 
 impl Algorithm for DoubleUnitAlgorithm {
     type SelectionArgs = DoubleUnitSelectionArgs;
-    type TileMatmul = RegisterMatmul;
-    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, PartialReaderFamily>;
+    type TileMatmul = RegisterMatmul<Filled>;
+    type StageMatmul =
+        UnitMatmulFamily<Self::TileMatmul, PartialStageReaderFamily, FillStageReaderFamily>;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,

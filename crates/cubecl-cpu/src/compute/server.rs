@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use cubecl_common::profile::ProfileDuration;
+use cubecl_common::{bytes::Bytes, profile::ProfileDuration};
 use cubecl_core::{
-    CubeCount, ExecutionMode, Feature, MemoryUsage,
+    CubeCount, ExecutionMode, MemoryUsage,
     compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
+        DataTransferService, Handle, IoError, ProfileError, ProfilingToken,
     },
 };
 use cubecl_runtime::{
@@ -17,7 +17,7 @@ use cubecl_runtime::{
     timestamp_profiler::TimestampProfiler,
 };
 
-use crate::CpuCompiler;
+use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
 
 use super::scheduler::Scheduler;
 
@@ -27,6 +27,8 @@ pub struct CpuServer {
     scheduler: Scheduler,
     logger: ServerLogger,
 }
+
+impl DataTransferService for CpuServer {}
 
 impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {
@@ -57,22 +59,17 @@ impl CpuServer {
     fn read_async(
         &mut self,
         descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Vec<u8>>, IoError>> + Send + use<> {
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         fn inner(
             ctx: &mut CpuContext,
             descriptors: Vec<CopyDescriptor>,
-        ) -> Result<Vec<Vec<u8>>, IoError> {
+        ) -> Result<Vec<Bytes>, IoError> {
             let mut result = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
-                let binding = desc.binding;
-                let resource = ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .ok_or(IoError::InvalidHandle)?;
-
-                let data = resource.read().to_vec();
-
-                result.push(data);
+                let len = desc.binding.size() as usize;
+                let (controller, alloc) =
+                    CpuAllocController::init(desc.binding, &mut ctx.memory_management)?;
+                result.push(unsafe { Bytes::from_raw_parts(alloc, len, Box::new(controller)) });
             }
             Ok(result)
         }
@@ -86,7 +83,6 @@ impl CpuServer {
 impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
     type Storage = BytesStorage;
-    type Feature = Feature;
     type Info = ();
 
     fn create(
@@ -121,7 +117,7 @@ impl ComputeServer for CpuServer {
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 

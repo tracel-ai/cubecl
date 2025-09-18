@@ -1,30 +1,46 @@
-use crate::components::tile::accelerated::config::AcceleratedConfig;
+use std::marker::PhantomData;
+
 use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul};
+use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaFragmentLoader};
+use crate::components::tile::{
+    accelerated::{config::AcceleratedConfig, loader::CmmaTileLoader},
+    loader::{Strided, TileKind},
+};
 use crate::components::{StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
+use cubecl_std::CubeOption;
 
 /// Uses one plane to perform a small matmul using accelerated instructions.
-pub struct AcceleratedMatmul;
+pub struct AcceleratedMatmul<Acc: TileKind> {
+    _ty: PhantomData<Acc>,
+}
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatmul {
+impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
+    for AcceleratedMatmul<Acc>
+where
+    CmmaTileLoader<Acc>: CmmaFragmentLoader<TileKind = Acc>,
+{
     type Config = AcceleratedConfig;
-    type Lhs = cmma::Matrix<L>;
-    type Rhs = cmma::Matrix<R>;
-    type Accumulator = cmma::Matrix<A>;
+    type LhsFragment = cmma::Matrix<L>;
+    type RhsFragment = cmma::Matrix<R>;
+    type AccFragment = cmma::Matrix<A>;
+
+    type LhsTileLoader = CmmaTileLoader<Strided>;
+    type RhsTileLoader = CmmaTileLoader<Strided>;
+    type AccTileLoader = CmmaTileLoader<Acc>;
 
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        out: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        out: &mut Self::AccFragment,
         #[comptime] _config: Self::Config,
     ) {
         cmma::execute::<L, R, A, A>(lhs, rhs, out, out);
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Lhs);
         unsafe {
@@ -38,7 +54,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         }
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         let size = config.tile_size();
         let layout = config.matrix_layout(StageIdent::Rhs);
         unsafe {
@@ -52,28 +68,48 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         }
     }
 
-    fn fill_lhs<E: Numeric>(tile: &Tile<E>, lhs: &mut Self::Lhs, #[comptime] config: Self::Config) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Lhs));
-        cmma::load(lhs, &slice, stride);
+    fn load_lhs<E: Numeric>(
+        tile: Tile<E>,
+        lhs: &mut Self::LhsFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::LhsTileLoader::load_fragment(
+            tile,
+            lhs,
+            CubeOption::new_None(),
+            config.stage_line_size(StageIdent::Lhs),
+        );
     }
 
-    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Rhs));
-        cmma::load(rhs, &slice, stride);
+    fn load_rhs<E: Numeric>(
+        tile: Tile<E>,
+        rhs: &mut Self::RhsFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::RhsTileLoader::load_fragment(
+            tile,
+            rhs,
+            CubeOption::new_None(),
+            config.stage_line_size(StageIdent::Rhs),
+        );
     }
 
-    fn fill_accumulator(
-        tile: &Tile<A>,
-        acc: &mut Self::Accumulator,
+    fn load_acc<E: Numeric>(
+        tile: Acc::Tile<E>,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(StageIdent::Acc));
-        cmma::load_with_layout(acc, &slice, stride, layout);
+        Self::AccTileLoader::load_fragment(
+            tile,
+            acc,
+            CubeOption::new_Some(layout),
+            config.stage_line_size(StageIdent::Acc),
+        );
     }
 
     fn write_results<E: Numeric>(
-        out: &Self::Accumulator,
+        out: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
@@ -86,7 +122,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
         );
     }
 
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         let size = config.tile_size();
         unsafe {
             cmma::Matrix::<A>::uninitialized(
@@ -97,9 +133,5 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for AcceleratedMatm
                 cmma::MatrixLayout::Undefined,
             )
         }
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
-        cmma::fill(acc, A::from_int(0));
     }
 }

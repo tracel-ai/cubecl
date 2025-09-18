@@ -1,4 +1,5 @@
-use cubecl_core::{Feature, Runtime, client::ComputeClient};
+use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_runtime::MmaConfig;
 use std::marker::PhantomData;
 
 use crate::{
@@ -14,10 +15,13 @@ use crate::{
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
-            RowMajorTilingOrder,
+            ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily, PartitionBuffering,
+            PlaneMatmulFamily, RowMajorTilingOrder,
         },
-        tile::TileMatmulFamily,
+        tile::{
+            TileMatmulFamily,
+            loader::{Filled, Strided},
+        },
     },
     kernels::layered::{
         Algorithm,
@@ -44,13 +48,18 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily,
+    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        FullStageReaderFamily,
+        FullStageReaderFamily,
+        FillStageReaderFamily,
+    >;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -87,11 +96,11 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     plane_dim: u32,
     elems: MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    let supported = |m: u8, n: u8, k: u8| {
-        client.properties().feature_enabled(Feature::Cmma {
-            a: elems.lhs_register,
-            b: elems.rhs_register,
-            c: elems.acc,
+    let supported = |m: u32, n: u32, k: u32| {
+        client.properties().features.cmma.contains(&MmaConfig {
+            a_type: elems.lhs_register,
+            b_type: elems.rhs_register,
+            cd_type: elems.acc_register,
             m,
             n,
             k,

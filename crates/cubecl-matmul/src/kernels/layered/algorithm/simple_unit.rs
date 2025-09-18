@@ -10,8 +10,11 @@ use crate::{
             load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
-        stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-        tile::register::RegisterMatmul,
+        stage::{
+            ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily, RowMajorTilingOrder,
+            UnitMatmulFamily,
+        },
+        tile::{loader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -43,8 +46,9 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
-    type TileMatmul = RegisterMatmul;
-    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
+    type TileMatmul = RegisterMatmul<Filled>;
+    type StageMatmul =
+        UnitMatmulFamily<Self::TileMatmul, FullStageReaderFamily, FillStageReaderFamily>;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
 
     type BatchMatmul =

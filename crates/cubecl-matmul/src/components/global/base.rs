@@ -1,20 +1,20 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::error::MatmulSetupError;
 use crate::components::global::RoleRuleConfig;
 use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::stage::StageMemoryConfig;
+use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
-use super::{GlobalWriter, load::LoaderMode};
+use super::{StageUnloader, load::LoaderMode};
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -63,11 +63,16 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 /// before loading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
-    type LhsLoader: CubeType;
-    type RhsLoader: CubeType;
-    type AccumulatorLoader: CubeType;
-    type Writer: GlobalWriter<MP::EO>;
-    type Accumulator: CubeType;
+    /// Stage loader for matrix A (Lhs)
+    type LhsStageLoader: CubeType;
+    /// Stage loader for matrix B (Rhs)
+    type RhsStageLoader: CubeType;
+    /// Stage loader for matrix C (Accumulator/Bias)
+    type AccStageLoader: CubeType;
+    /// Writer to store the output stage into global memory
+    type StageUnloader: StageUnloader<AccG<MP>>;
+    /// The accumulator type for the tile matmul
+    type Accumulators: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
     /// Lhs and Rhs loaders, over the range given for K, and stores with
@@ -76,46 +81,57 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of Lhs and Rhs.
     fn execute(
-        lhs_loader: Self::LhsLoader,
-        rhs_loader: Self::RhsLoader,
-        writer: Self::Writer,
-        acc: &mut Self::Accumulator,
+        lhs_loader: Self::LhsStageLoader,
+        rhs_loader: Self::RhsStageLoader,
+        acc_loader: Self::AccStageLoader,
+        writer: Self::StageUnloader,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
     /// Initialize the loader for Lhs, starting at row m and column k
-    fn init_lhs_loader(
+    fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
         m_offset: u32,
         k_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsLoader;
+    ) -> Self::LhsStageLoader;
 
     /// Initialize the loader for Rhs, starting at row k and column n
-    fn init_rhs_loader(
+    fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
         k_offset: u32,
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsLoader;
+    ) -> Self::RhsStageLoader;
 
-    /// Initialize the accumulator without data
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-
-    /// Initialize the writer at row m and column n
-    fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+    /// Initialize the loader for Rhs, starting at row k and column n
+    fn init_acc_stage_loader(
+        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
         m_offset: u32,
         n_offset: u32,
         nth_batch: u32,
         batch_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Writer;
+    ) -> Self::AccStageLoader;
+
+    /// Initialize the accumulator without data
+    fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators;
+
+    /// Initialize the writer at row m and column n
+    fn init_global_writer(
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
+        m_offset: u32,
+        n_offset: u32,
+        nth_batch: u32,
+        batch_offset: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::StageUnloader;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.

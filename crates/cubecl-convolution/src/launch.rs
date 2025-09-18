@@ -1,7 +1,8 @@
 use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
-use cubecl_matmul::MatmulInputHandleRef;
+use cubecl_matmul::{MatmulInputHandleRef, components::AccG};
+use cubecl_runtime::TypeUsage;
 use half::f16;
 
 use crate::{
@@ -21,10 +22,11 @@ use cubecl_matmul::components::{
 type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<
     <<MP as MatmulPrecision>::Lhs as InputPrecision>::Global,
     <<MP as MatmulPrecision>::Rhs as InputPrecision>::Global,
-    <MP as MatmulPrecision>::EO,
+    <<MP as MatmulPrecision>::Acc as InputPrecision>::Global,
 >;
-type Output<Alg, MP> =
-    <<Alg as Algorithm>::Args as MatmulArgs>::Output<<MP as MatmulPrecision>::EO>;
+type Output<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Output<
+    <<MP as MatmulPrecision>::Acc as InputPrecision>::Global,
+>;
 
 #[derive(Clone)]
 pub struct ConvolutionArgs<const N_SPATIAL: usize> {
@@ -140,20 +142,20 @@ where
     let rhs_is_f32 = TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>();
 
     let launch = if lhs_is_f32 || rhs_is_f32 {
-        if tf32::is_supported(client) {
+        if tf32::supported_uses(client).contains(TypeUsage::Conversion) {
             if lhs_is_f32 && rhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, tf32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, tf32, tf32, f32), Alg>
             } else if lhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, tf32, f32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, tf32, f32, f32), Alg>
             } else {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, tf32, f32, MP::EO), Alg>
+                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f32, tf32, f32), Alg>
             }
         } else if lhs_is_f32 && rhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f16, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f16, f16, f32), Alg>
         } else if lhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f16, f32, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f16, f32, f32), Alg>
         } else {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, f32, f16, f32, MP::EO), Alg>
+            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f32, f16, f32), Alg>
         }
     } else {
         launch_kernel::<R, MP, Alg>
@@ -179,7 +181,7 @@ where
     let line_sizes = AvailableLineSizes::from_types::<R>(
         &LhsG::<MP>::as_type_native_unchecked(),
         &RhsG::<MP>::as_type_native_unchecked(),
-        &MP::EO::as_type_native_unchecked(),
+        &AccG::<MP>::as_type_native_unchecked(),
     )
     .filter_lhs_with_tensor(input.data().strides, input.data().shape, problem.lhs_layout)
     .filter_rhs_with_tensor(

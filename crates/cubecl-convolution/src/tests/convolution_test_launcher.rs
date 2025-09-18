@@ -61,7 +61,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .pick_max()
     .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::EG, P::ES, P::ES, f32, P::EG)>(
+    let config = match A::setup::<R, (P::EG, P::EG, P::EG, P::ES, P::ES, f32)>(
         &client,
         &problem,
         &selection,
@@ -121,7 +121,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<
-            ((P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), Args),
+            ((P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), Args),
             R,
         >(
             &client,

@@ -1,16 +1,29 @@
-use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
-use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul};
-use crate::components::{MatrixLayout, StageIdent};
+use std::marker::PhantomData;
+
+use crate::components::StageIdent;
+use crate::components::tile::{
+    TileConfig, TileMatmul, plane_vec_mat_inner_product::loader::MatrixFragmentLoader,
+};
+use crate::components::tile::{
+    loader::Strided, plane_vec_mat_inner_product::loader::MatrixTileLoader, tile_data::Tile,
+};
+use crate::components::tile::{
+    loader::TileKind,
+    plane_vec_mat_inner_product::{
+        config::PlaneVecMatInnerProductConfig, loader::VectorTileLoader,
+    },
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 /// Uses one unit to perform a small matmul directly in registers
-pub struct PlaneVecMatInnerProduct;
+pub struct PlaneVecMatInnerProduct<Acc: TileKind> {
+    _ty: PhantomData<Acc>,
+}
 
 #[derive(CubeType)]
 pub struct LineContainer<E: Numeric> {
-    line: Line<E>,
+    pub line: Line<E>,
 }
 
 #[cube]
@@ -23,21 +36,29 @@ impl<E: Numeric> LineContainer<E> {
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInnerProduct {
+impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
+    for PlaneVecMatInnerProduct<Acc>
+where
+    MatrixTileLoader<Acc>: MatrixFragmentLoader<TileKind = Acc>,
+{
     type Config = PlaneVecMatInnerProductConfig;
 
     // One line per unit in the plane
-    type Lhs = LineContainer<L>;
+    type LhsFragment = LineContainer<L>;
     // For each n: one line per unit in the plane
-    type Rhs = Sequence<LineContainer<R>>;
+    type RhsFragment = Sequence<LineContainer<R>>;
 
     // For each n: one line stored at unit pos 0, that will be reduced to a scalar only when writing at the end
-    type Accumulator = Sequence<LineContainer<A>>;
+    type AccFragment = Sequence<LineContainer<A>>;
+
+    type LhsTileLoader = VectorTileLoader;
+    type RhsTileLoader = MatrixTileLoader<Strided>;
+    type AccTileLoader = MatrixTileLoader<Acc>;
 
     fn execute(
-        lhs: &Self::Lhs,
-        rhs: &Self::Rhs,
-        acc: &mut Self::Accumulator,
+        lhs: &Self::LhsFragment,
+        rhs: &Self::RhsFragment,
+        acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         let mut n = comptime![0];
@@ -54,11 +75,11 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::Lhs {
+    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         LineContainer::<L>::new(config.reduce_line_size())
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::Rhs {
+    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         let mut rhs = Sequence::new();
         #[unroll]
         for _ in 0..config.n() {
@@ -67,7 +88,7 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         rhs
     }
 
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
+    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         let mut acc = Sequence::new();
         #[unroll]
         for _ in 0..config.n() {
@@ -76,63 +97,32 @@ impl<L: Numeric, R: Numeric, A: Numeric> TileMatmul<L, R, A> for PlaneVecMatInne
         acc
     }
 
-    fn fill_lhs<E: Numeric>(
-        tile: &Tile<E>,
-        lhs: &mut Self::Lhs,
+    fn load_lhs<E: Numeric>(
+        tile: Tile<E>,
+        lhs: &mut Self::LhsFragment,
         #[comptime] _config: Self::Config,
     ) {
-        comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
-
-        lhs.line = Line::cast_from(tile.slice[UNIT_POS_X]);
+        Self::LhsTileLoader::load_fragment(tile, lhs)
     }
 
-    fn fill_rhs<E: Numeric>(tile: &Tile<E>, rhs: &mut Self::Rhs, #[comptime] config: Self::Config) {
-        comptime!(assert!(tile.layout == MatrixLayout::ColMajor));
-
-        let mut n = comptime![0];
-
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
-            let line_container = rhs.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
-
-            comptime![n += 1];
-        }
-    }
-
-    fn fill_accumulator(
-        tile: &Tile<A>,
-        acc: &mut Self::Accumulator,
+    fn load_rhs<E: Numeric>(
+        tile: Tile<E>,
+        rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        let mut n = comptime![0];
-
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
-            let line_container = acc.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
-
-            comptime![n += 1];
-        }
+        Self::RhsTileLoader::load_fragment(tile, rhs, config)
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        let mut n = comptime![0];
-
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
-            let line_container = acc.index_mut(n);
-            line_container.line = Line::cast_from(0);
-
-            comptime![n += 1];
-        }
+    fn load_acc<E: Numeric>(
+        tile: Acc::Tile<E>,
+        acc: &mut Self::AccFragment,
+        #[comptime] config: Self::Config,
+    ) {
+        Self::AccTileLoader::load_fragment(tile, acc, config);
     }
 
     fn write_results<E: Numeric>(
-        acc: &Self::Accumulator,
+        acc: &Self::AccFragment,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {

@@ -5,7 +5,10 @@ use cubecl_core::{
     prelude::FastMath,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
-use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
+use cubecl_runtime::{
+    EnumSet,
+    config::{GlobalConfig, compilation::CompilationLogLevel},
+};
 use std::{
     collections::HashSet,
     fmt::Debug,
@@ -16,7 +19,7 @@ use std::{
 
 use cubecl_core::{Compiler, compute::KernelDefinition};
 use rspirv::{
-    dr::{self, Builder, InsertPoint, Instruction, Module, Operand},
+    dr::{Builder, InsertPoint, Instruction, Module, Operand},
     spirv::{self, BuiltIn, Capability, Decoration, FPFastMathMode, Op, StorageClass, Word},
 };
 
@@ -210,13 +213,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         self.float_controls = self.fp_math_mode != FPFastMathMode::NONE;
 
         if self.float_controls {
-            let inst = dr::Instruction::new(
-                spirv::Op::Capability,
-                None,
-                None,
-                vec![dr::Operand::LiteralBit32(6029)],
-            );
-            self.module_mut().capabilities.push(inst);
+            self.capabilities.insert(Capability::FloatControls2);
         }
 
         self.set_version(1, 6);
@@ -397,17 +394,8 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .filter(|inst| inst.class.opcode == Op::TypeFloat)
             .map(|it| it.result_id.expect("OpTypeFloat always has result ID"))
             .collect::<Vec<_>>();
-        println!("Scalars: {scalars:?}");
         for ty in scalars {
-            let operands = vec![
-                dr::Operand::IdRef(main),
-                dr::Operand::LiteralBit32(6028),
-                dr::Operand::LiteralBit32(ty),
-                dr::Operand::LiteralBit32(mode),
-            ];
-
-            let inst = dr::Instruction::new(spirv::Op::ExecutionModeId, None, None, operands);
-            self.module_mut().execution_modes.push(inst);
+            self.execution_mode(main, spirv::ExecutionMode::FPFastMathDefault, [ty, mode]);
         }
     }
 
@@ -417,7 +405,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
     }
 }
 
-fn convert_math_mode(math_mode: FastMath) -> FPFastMathMode {
+fn convert_math_mode(math_mode: EnumSet<FastMath>) -> FPFastMathMode {
     let mut flags = FPFastMathMode::NONE;
 
     for mode in math_mode.iter() {

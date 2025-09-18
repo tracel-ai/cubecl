@@ -83,17 +83,12 @@ impl ToTokens for KernelSignature {
             }
             KernelReturns::Plain(ty) => quote![#ty],
         };
-        let out = if self
-            .parameters
-            .first()
-            .filter(|param| param.name == "self")
-            .is_some()
-        {
+        let out = if let Some(receiver) = &self.receiver_arg {
             let args = self.parameters.iter().skip(1);
 
             quote! {
                 fn #name #generics(
-                    self, // Always owned during expand.
+                    #receiver,
                     scope: &mut #scope,
                     #(#args),*
                 ) -> #return_type
@@ -246,7 +241,8 @@ impl Launch {
     }
 
     /// Returns the kernel entrypoint name.
-    /// Appropriate for usage in source code such as naming the CUDA or WGSL entrypoint.
+    /// Appropriate for usage in source code such as naming the CUDA or WGSL
+    /// entrypoint.
     ///
     /// For example a kernel:
     /// ```text
@@ -255,15 +251,16 @@ impl Launch {
     /// ```
     /// would produce the name `my_kernel`.
     ///
-    /// If a generic has the `Float` or `Numeric` bound the kernel also has a suffix
-    /// with the name of that type in use:
+    /// If a generic has the `Float` or `Numeric` bound the kernel also has a
+    /// suffix with the name of that type in use:
     /// ```text
     /// fn my_kernel<F: Float>(input: &Array<F>, output: &mut Array<F>) {}
     /// ```
     /// now produces the name `my_kernel_f16` or `my_kernel_f32` etc. depending
     /// on which variant of the kernel is launched by the user.
     ///
-    /// If a kernel has several matching bounds they are appended as suffixes in order.
+    /// If a kernel has several matching bounds they are appended as suffixes in
+    /// order.
     fn kernel_entrypoint_name(&self) -> TokenStream {
         // This base name is always used; a suffix might be added
         // based on generics.
@@ -282,7 +279,8 @@ impl Launch {
                     continue;
                 };
 
-                // Using last should account for the bounds such as `Float` but also `some::prefix::Float`
+                // Using last should account for the bounds such as `Float` but also
+                // `some::prefix::Float`
                 let Some(generic_trailing) = t.path.segments.last() else {
                     continue;
                 };
@@ -358,7 +356,7 @@ impl Launch {
                 settings.extend(quote![.debug_symbols()]);
             }
             if let Some(mode) = &self.args.fast_math {
-                settings.extend(quote![.fp_math_mode(#mode)]);
+                settings.extend(quote![.fp_math_mode((#mode).into())]);
             }
             if let Some(cluster_dim) = &self.args.cluster_dim {
                 settings.extend(quote![.cluster_dim(#cluster_dim)]);

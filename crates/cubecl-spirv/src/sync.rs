@@ -17,7 +17,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Synchronization::SyncPlane => {
                 // Adopting wgpu semantics
                 let scope = self.const_u32(Scope::Subgroup as u32);
-                let semantics = MemorySemantics::NONE;
+                let semantics = MemorySemantics::RELAXED;
                 let semantics = self.const_u32(semantics.bits());
                 self.control_barrier(scope, scope, semantics).unwrap();
             }

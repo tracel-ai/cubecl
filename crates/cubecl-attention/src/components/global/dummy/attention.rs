@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
-use cubecl_matmul::components::stage::FullStageToTileReader;
+use cubecl_matmul::components::stage::FullStageReader;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
@@ -25,8 +25,8 @@ pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> 
 impl<
     SA: StageAttention<
             AP,
-            KeyReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
-            ValueReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
+            KeyReader = FullStageReader<AP::ES, AttentionTilingLayout>,
+            ValueReader = FullStageReader<AP::ES, AttentionTilingLayout>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
@@ -106,7 +106,7 @@ impl<
         comment!("Global: Init Query Loader");
         let layout =
             SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
-        QueryLoader::<AP>::new(q_offset, query.view(layout.virt()))
+        QueryLoader::<AP>::new(q_offset, query.view(layout))
     }
 
     fn init_key_loader(
@@ -115,7 +115,7 @@ impl<
     ) -> Self::KeyLoader {
         comment!("Global: Init Key Loader");
         let layout = SimpleGlobalLayout::new(&key, config.global_memory_config(FlashIdent::Key));
-        DummyKeyLoader::new(key.view(layout.virt()), config)
+        DummyKeyLoader::new(key.view(layout), config)
     }
 
     fn init_value_loader(
@@ -125,7 +125,7 @@ impl<
         comment!("Global: Init Value Loader");
         let layout =
             SimpleGlobalLayout::new(&value, config.global_memory_config(FlashIdent::Value));
-        DummyValueLoader::new(value.view(layout.virt()), config)
+        DummyValueLoader::new(value.view(layout), config)
     }
 
     fn init_writer(
@@ -135,6 +135,6 @@ impl<
     ) -> Self::Writer {
         comment!("Global: Init Writer");
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
-        SA::init_writer(q_offset, out.view_mut(layout.virt()))
+        SA::init_writer(q_offset, out.view_mut(layout))
     }
 }

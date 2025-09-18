@@ -4,7 +4,6 @@ use crate::{
 };
 use cubecl_common::{future, profile::TimingMethod};
 
-use cubecl_core::Feature;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
@@ -12,7 +11,6 @@ use cubecl_runtime::{
     ComputeRuntime,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    id::DeviceId,
     logging::{ProfileLevel, ServerLogger},
 };
 use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
@@ -81,18 +79,6 @@ impl Runtime for WgpuRuntime {
         (max_dim, max_dim, max_dim)
     }
 
-    fn device_id(device: &Self::Device) -> DeviceId {
-        #[allow(deprecated)]
-        match device {
-            WgpuDevice::DiscreteGpu(index) => DeviceId::new(0, *index as u32),
-            WgpuDevice::IntegratedGpu(index) => DeviceId::new(1, *index as u32),
-            WgpuDevice::VirtualGpu(index) => DeviceId::new(2, *index as u32),
-            WgpuDevice::Cpu => DeviceId::new(3, 0),
-            WgpuDevice::BestAvailable | WgpuDevice::DefaultDevice => DeviceId::new(4, 0),
-            WgpuDevice::Existing(id) => DeviceId::new(5, *id),
-        }
-    }
-
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         if shape.is_empty() {
             return true;
@@ -105,27 +91,6 @@ impl Runtime for WgpuRuntime {
         }
 
         true
-    }
-
-    fn device_count() -> usize {
-        #[cfg(target_family = "wasm")]
-        {
-            // WebGPU only supports a single device currently.
-            1
-        }
-
-        #[cfg(not(target_family = "wasm"))]
-        {
-            let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                backends: wgpu::Backends::all(),
-                ..Default::default()
-            });
-            let adapters: Vec<_> = instance
-                .enumerate_adapters(wgpu::Backends::all())
-                .into_iter()
-                .collect();
-            adapters.len()
-        }
     }
 
     fn target_properties() -> TargetProperties {
@@ -239,11 +204,22 @@ pub(crate) fn create_client_on_setup(
     options: RuntimeOptions,
 ) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
     let limits = setup.device.limits();
-    let adapter_limits = setup.adapter.limits();
+    let mut adapter_limits = setup.adapter.limits();
+
+    // Workaround: WebGPU reports some "fake" subgroup info atm, as it's not really supported yet.
+    // However, some algorithms do rely on having this information eg. cubecl-reduce uses max subgroup size _even_ when
+    // subgroups aren't used. For now, just override with the maximum range of subgroups possible.
+    if adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0 {
+        // There is in theory nothing limiting the size to go below 8 but in practice 8 is the minimum found anywhere.
+        adapter_limits.min_subgroup_size = 8;
+        // This is a hard limit of GPU APIs (subgroup ballot returns 4 * 32 bits).
+        adapter_limits.max_subgroup_size = 128;
+    }
 
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: limits.min_storage_buffer_offset_alignment as u64,
+        data_transfer_async: false,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
@@ -258,7 +234,12 @@ pub(crate) fn create_client_on_setup(
         plane_size_max: 32,
         #[cfg(not(apple_silicon))]
         plane_size_max: adapter_limits.max_subgroup_size,
-        max_bindings: limits.max_storage_buffers_per_shader_stage,
+        // wgpu uses an additional buffer for variable-length buffers,
+        // so we have to use one buffer less on our side to make room for that wgpu internal buffer.
+        // See: https://github.com/gfx-rs/wgpu/blob/a9638c8e3ac09ce4f27ac171f8175671e30365fd/wgpu-hal/src/metal/device.rs#L799
+        max_bindings: limits
+            .max_storage_buffers_per_shader_stage
+            .saturating_sub(1),
         max_shared_memory_size: limits.max_compute_workgroup_storage_size as usize,
         max_cube_count: CubeCount::new_3d(max_count, max_count, max_count),
         max_units_per_cube: adapter_limits.max_compute_invocations_per_workgroup,
@@ -282,22 +263,21 @@ pub(crate) fn create_client_on_setup(
         TimingMethod::System
     };
 
-    let mut device_props =
-        DeviceProperties::new(&[], mem_props.clone(), hardware_props, time_measurement);
+    let mut device_props = DeviceProperties::new(
+        Default::default(),
+        mem_props.clone(),
+        hardware_props,
+        time_measurement,
+    );
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     {
-        // Workaround: WebGPU does support subgroups and correctly reports this, but wgpu
-        // doesn't plumb through this info. Instead min/max are just reported as 0, which can cause issues.
-        // For now just disable subgroups on WebGPU, until this information is added.
-        let fake_plane_info =
-            adapter_limits.min_subgroup_size == 0 && adapter_limits.max_subgroup_size == 0;
-
         if features.contains(wgpu::Features::SUBGROUP)
             && setup.adapter.get_info().device_type != wgpu::DeviceType::Cpu
-            && !fake_plane_info
         {
-            device_props.register_feature(Feature::Plane);
+            use cubecl_runtime::Plane;
+
+            device_props.features.plane.insert(Plane::Ops);
         }
     }
 
@@ -317,35 +297,14 @@ pub(crate) fn create_client_on_setup(
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        use cubecl_core::AtomicFeature;
         use cubecl_core::ir::{ElemType, FloatKind, StorageType};
+        use cubecl_runtime::TypeUsage;
 
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-            FloatKind::F32,
-        ))));
-
-        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
+        device_props.register_type_usage(
+            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
+            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
+        );
     }
-
-    #[cfg(not(all(target_os = "macos", feature = "msl")))]
-    {
-        use cubecl_core::AtomicFeature;
-        use cubecl_core::ir::{ElemType, IntKind, StorageType, UIntKind};
-
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-            IntKind::I32,
-        ))));
-        device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-            UIntKind::U32,
-        ))));
-        device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-        device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-    }
-
-    device_props.register_feature(Feature::PlaneOps);
 
     ComputeClient::new(channel, device_props, setup.backend)
 }

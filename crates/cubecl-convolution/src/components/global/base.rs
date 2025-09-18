@@ -1,9 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    RhsG,
-    global::{AccumulatorLoader, GlobalWriter},
+    AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulSetupError, RhsG,
+    global::StageUnloader,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
@@ -34,13 +34,19 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
 
 #[cube]
 pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
-    type LhsLoader: CubeType;
-    type RhsLoader: CubeType;
+    /// The loader for the Lhs (input feature map) tensor
+    type LhsStageLoader: CubeType;
+    /// The loader for the Rhs (weight) tensor
+    type RhsStageLoader: CubeType;
+    /// The loader for the accumulator (bias) tensor
+    type AccStageLoader: CubeType;
+    /// The config type of the convolution
     type Config: ConvGemmConfig;
-    type AccumulatorLoader: AccumulatorLoader<MP>;
 
-    type Writer: GlobalWriter<MP::EO>;
-    type Accumulator: CubeType;
+    /// The writer used to write the results to the output feature map
+    type StageWriter: StageUnloader<AccG<MP>>;
+    /// The type of the tile matmul accumulator
+    type Accumulators: CubeType;
 
     /// Performs the convolution over data loaded by the
     /// LHS and RHS loaders, over the range given for K, and stores with
@@ -49,44 +55,49 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Self::LhsLoader,
-        rhs_loader: Self::RhsLoader,
-        acc_loader: Self::AccumulatorLoader,
-        writer: Self::Writer,
-        acc: &mut Self::Accumulator,
+        lhs_loader: Self::LhsStageLoader,
+        rhs_loader: Self::RhsStageLoader,
+        acc_loader: Self::AccStageLoader,
+        writer: Self::StageWriter,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
+    /// Initializes the loader for the input feature map with an appropriate layout
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsLoader;
+    ) -> Self::LhsStageLoader;
 
+    /// Initializes the loader for the weights with an appropriate layout
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsLoader;
+    ) -> Self::RhsStageLoader;
 
+    /// Initializes the loader for the bias with an appropriate layout
     fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader;
+    ) -> Self::AccStageLoader;
 
+    /// Initializes the output feature map loader with an appropriate layout
     fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         x_offset: u32,
         y_offset: u32,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::Writer;
+    ) -> Self::StageWriter;
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    /// Initializes a new accumulator for the tile matmul
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators;
 }

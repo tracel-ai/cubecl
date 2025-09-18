@@ -7,7 +7,6 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
-    id::DeviceId,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
@@ -63,12 +62,17 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_shared_memory_size as u64,
         alignment: ALIGNMENT,
+        data_transfer_async: false,
     };
 
     let memory_management =
         MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props =
-        DeviceProperties::new(&[], mem_properties, topology, TimingMethod::Device);
+    let mut device_props = DeviceProperties::new(
+        Default::default(),
+        mem_properties,
+        topology,
+        TimingMethod::Device,
+    );
     register_supported_types(&mut device_props);
 
     let ctx = CpuContext::new(memory_management);
@@ -106,16 +110,8 @@ impl Runtime for CpuRuntime {
         (u32::MAX, u32::MAX, u32::MAX)
     }
 
-    fn device_id(_device: &Self::Device) -> DeviceId {
-        DeviceId::new(0, 0)
-    }
-
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
         is_contiguous(shape, strides)
-    }
-
-    fn device_count() -> usize {
-        1
     }
 
     fn target_properties() -> TargetProperties {
