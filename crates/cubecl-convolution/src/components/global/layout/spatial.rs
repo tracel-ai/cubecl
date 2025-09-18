@@ -14,6 +14,27 @@ pub struct NhwcCoords {
     pub channel: u32,
 }
 
+type NhwcTuple = (u32, Sequence<i32>, u32);
+
+#[cube]
+impl NhwcCoords {
+    pub fn new(batch: u32, spatial: Sequence<i32>, channel: u32) -> Self {
+        NhwcCoords {
+            batch,
+            spatial,
+            channel,
+        }
+    }
+
+    fn into_tuple(self) -> NhwcTuple {
+        (self.batch, self.spatial, self.channel)
+    }
+
+    fn from_tuple(tuple: NhwcTuple) -> Self {
+        NhwcCoords::new(tuple.0, tuple.1, tuple.2)
+    }
+}
+
 impl NhwcCoordsExpand {
     pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
         NhwcCoordsExpand {
@@ -27,89 +48,32 @@ impl NhwcCoordsExpand {
 #[cube]
 impl Coordinates for NhwcCoords {
     fn add(this: Self, other: Self) -> Self {
-        let mut spatial = Sequence::new();
-
-        #[unroll]
-        for i in 0..comptime![this.spatial.len()] {
-            spatial.push(*this.spatial.index(i) + *other.spatial.index(i));
-        }
-
-        NhwcCoords {
-            batch: this.batch + other.batch,
-            spatial,
-            channel: this.channel + other.channel,
-        }
+        let tuple = NhwcTuple::add(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
     }
 
     fn sub(this: Self, other: Self) -> Self {
-        let mut spatial = Sequence::new();
-
-        #[unroll]
-        for i in 0..comptime![this.spatial.len()] {
-            spatial.push(*this.spatial.index(i) - *other.spatial.index(i));
-        }
-
-        NhwcCoords {
-            batch: this.batch - other.batch,
-            spatial,
-            channel: this.channel - other.channel,
-        }
+        let tuple = NhwcTuple::sub(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
     }
 
     fn min(this: Self, other: Self) -> Self {
-        let mut spatial = Sequence::new();
-
-        #[unroll]
-        for i in 0..comptime![this.spatial.len()] {
-            spatial.push(Min::min(*this.spatial.index(i), *other.spatial.index(i)));
-        }
-
-        NhwcCoords {
-            batch: Min::min(this.batch, other.batch),
-            spatial,
-            channel: Min::min(this.channel, other.channel),
-        }
+        let tuple = <NhwcTuple as Coordinates>::min(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
     }
 
     fn max(this: Self, other: Self) -> Self {
-        let mut spatial = Sequence::new();
-
-        #[unroll]
-        for i in 0..comptime![this.spatial.len()] {
-            spatial.push(Max::max(*this.spatial.index(i), *other.spatial.index(i)));
-        }
-
-        NhwcCoords {
-            batch: Max::max(this.batch, other.batch),
-            spatial,
-            channel: Max::max(this.channel, other.channel),
-        }
+        let tuple = <NhwcTuple as Coordinates>::max(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
     }
 
-    fn is_in_bounds(pos: Self, bounds: Self) -> bool {
-        let mut out = pos.batch < bounds.batch && pos.channel < bounds.channel;
-
-        #[unroll]
-        for i in 0..comptime![pos.spatial.len()] {
-            out &= *pos.spatial.index(i) < *bounds.spatial.index(i);
-        }
-
-        out
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+        NhwcTuple::is_in_bounds(&pos.clone().into_tuple(), &bounds.clone().into_tuple())
     }
 
     fn origin(this: &Self) -> Self {
-        let spatial_len = comptime![this.spatial.len()];
-        let mut spatial = Sequence::new();
-
-        for _ in 0..spatial_len {
-            spatial.push(0i32.runtime());
-        }
-
-        NhwcCoords {
-            batch: 0u32,
-            spatial,
-            channel: 0u32,
-        }
+        let tuple = NhwcTuple::origin(&this.clone().into_tuple());
+        NhwcCoords::from_tuple(tuple)
     }
 }
 

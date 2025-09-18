@@ -14,7 +14,7 @@ pub trait Coordinates: CubeType + Clone {
     /// Apply an elementwise maximum to the coordinates and return the result.
     fn max(this: Self, other: Self) -> Self;
     /// Check whether `pos` is fully contained within `bounds`.
-    fn is_in_bounds(pos: Self, bounds: Self) -> bool;
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool;
     /// The origin (zero) coordinates. `this` may be used as a reference coordinate for dynamically
     /// sized layouts.
     fn origin(this: &Self) -> Self;
@@ -30,48 +30,48 @@ pub type CoordsDyn = Sequence<u32>;
 
 macro_rules! impl_coordinates_tuple {
     ( $(($T:ident, $t:ident, $o: ident)),*) => {
-                #[cube]
-                impl<$($T: Coordinates),*> Coordinates for ($($T),*) {
-                    fn add(this: Self, other: Self) -> Self {
-                        let ($($t),*) = this;
-                        let ($($o),*) = other;
-                        ($($T::add($t, $o)),*)
-                    }
-                    fn sub(this: Self, other: Self) -> Self {
-                        let ($($t),*) = this;
-                        let ($($o),*) = other;
-                        ($($T::sub($t, $o)),*)
-                    }
-                    fn min(this: Self, other: Self) -> Self {
-                        let ($($t),*) = this;
-                        let ($($o),*) = other;
-                        ($($T::min($t, $o)),*)
-                    }
-                    fn max(this: Self, other: Self) -> Self {
-                        let ($($t),*) = this;
-                        let ($($o),*) = other;
-                        ($($T::max($t, $o)),*)
-                    }
-                    fn is_in_bounds(this: Self, other: Self) -> bool {
-                        let ($($t),*) = this;
-                        let ($($o),*) = other;
-                        true $(&& $T::is_in_bounds($t, $o))*
-                    }
-                    fn origin(this: &Self) -> Self {
-                        let ($($t),*) = this;
-                        ($($T::origin($t)),*)
-                    }
-                }
+        #[cube]
+        impl<$($T: Coordinates),*> Coordinates for ($($T),*) {
+            fn add(this: Self, other: Self) -> Self {
+                let ($($t),*) = this;
+                let ($($o),*) = other;
+                ($($T::add($t, $o)),*)
+            }
+            fn sub(this: Self, other: Self) -> Self {
+                let ($($t),*) = this;
+                let ($($o),*) = other;
+                ($($T::sub($t, $o)),*)
+            }
+            fn min(this: Self, other: Self) -> Self {
+                let ($($t),*) = this;
+                let ($($o),*) = other;
+                ($($T::min($t, $o)),*)
+            }
+            fn max(this: Self, other: Self) -> Self {
+                let ($($t),*) = this;
+                let ($($o),*) = other;
+                ($($T::max($t, $o)),*)
+            }
+            fn is_in_bounds(this: &Self, other: &Self) -> bool {
+                let ($($t),*) = this;
+                let ($($o),*) = other;
+                true $(&& $T::is_in_bounds($t, $o))*
+            }
+            fn origin(this: &Self) -> Self {
+                let ($($t),*) = this;
+                ($($T::origin($t)),*)
+            }
+        }
     };
 }
 
 #[cube]
-impl Coordinates for Coords1d {
+impl Coordinates for u32 {
     fn add(this: Self, other: Self) -> Self {
         this + other
     }
     fn sub(this: Self, other: Self) -> Self {
-        Max::max(this as i32 - other as i32, 0) as u32
+        this - other
     }
     fn min(this: Self, other: Self) -> Self {
         Min::min(this, other)
@@ -79,7 +79,7 @@ impl Coordinates for Coords1d {
     fn max(this: Self, other: Self) -> Self {
         Max::max(this, other)
     }
-    fn is_in_bounds(pos: Self, bounds: Self) -> bool {
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
         pos < bounds
     }
     fn origin(_this: &Self) -> Self {
@@ -87,17 +87,39 @@ impl Coordinates for Coords1d {
     }
 }
 
+#[cube]
+impl Coordinates for i32 {
+    fn add(this: Self, other: Self) -> Self {
+        this + other
+    }
+    fn sub(this: Self, other: Self) -> Self {
+        this - other
+    }
+    fn min(this: Self, other: Self) -> Self {
+        Min::min(this, other)
+    }
+    fn max(this: Self, other: Self) -> Self {
+        Max::max(this, other)
+    }
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+        pos < bounds
+    }
+    fn origin(_this: &Self) -> Self {
+        0i32.runtime()
+    }
+}
+
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
-impl Coordinates for CoordsDyn {
+impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
     fn add(this: Self, other: Self) -> Self {
         let rank = comptime![this.len()];
         let mut out = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            out.push(*this.index(i) + *other.index(i));
+            out.push(T::add(*this.index(i), *other.index(i)));
         }
 
         out
@@ -109,7 +131,7 @@ impl Coordinates for CoordsDyn {
 
         #[unroll]
         for i in 0..rank {
-            out.push(*this.index(i) - *other.index(i));
+            out.push(T::sub(*this.index(i), *other.index(i)));
         }
 
         out
@@ -121,7 +143,7 @@ impl Coordinates for CoordsDyn {
 
         #[unroll]
         for i in 0..rank {
-            out.push(Min::min(*this.index(i), *other.index(i)));
+            out.push(T::min(*this.index(i), *other.index(i)));
         }
 
         out
@@ -133,19 +155,19 @@ impl Coordinates for CoordsDyn {
 
         #[unroll]
         for i in 0..rank {
-            out.push(Max::max(*this.index(i), *other.index(i)));
+            out.push(T::max(*this.index(i), *other.index(i)));
         }
 
         out
     }
 
-    fn is_in_bounds(pos: Self, bounds: Self) -> bool {
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
         let rank = comptime![pos.len()];
         let mut out = true;
 
         #[unroll]
         for i in 0..rank {
-            out &= *pos.index(i) < *bounds.index(i);
+            out &= T::is_in_bounds(pos.index(i), bounds.index(i));
         }
 
         out
@@ -156,8 +178,8 @@ impl Coordinates for CoordsDyn {
         let mut origin = Sequence::new();
 
         #[unroll]
-        for _ in 0..rank {
-            origin.push(0u32.runtime())
+        for i in 0..rank {
+            origin.push(T::origin(this.index(i)))
         }
 
         origin
