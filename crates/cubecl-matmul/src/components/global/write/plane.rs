@@ -100,7 +100,8 @@ fn write_line<EG: Numeric>(
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
     } else if comptime!(
-        out_smem_line_size < output_line_size && output_line_size.is_multiple_of(out_smem_line_size)
+        out_smem_line_size < output_line_size
+            && output_line_size.is_multiple_of(out_smem_line_size)
     ) {
         let mut value = Line::empty(output_line_size);
         #[unroll]
