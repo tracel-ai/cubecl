@@ -150,13 +150,11 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let result = self.copies_to_bytes(descriptors, false);
         let fence = Fence::new(self.streams.current().sys);
+        fence.wait_sync();
+        let result = self.copies_to_bytes(descriptors, false);
 
-        async move {
-            fence.wait_sync();
-            result
-        }
+        async move { result }
     }
 
     fn copies_to_bytes(
