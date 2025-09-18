@@ -34,7 +34,7 @@ impl StreamBackend for HipStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn init_stream(id: StreamId) -> Self::Stream {
+    fn create_stream(id: StreamId) -> Self::Stream {
         let stream = unsafe {
             let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
             let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);

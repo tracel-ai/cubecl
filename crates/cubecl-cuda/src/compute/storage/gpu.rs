@@ -12,6 +12,7 @@ pub struct GpuStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
     ptr_bindings: PtrBindings,
+    stream: cudarc::driver::sys::CUstream,
     mem_alignment: usize,
 }
 
@@ -39,11 +40,12 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    pub fn new(mem_alignment: usize) -> Self {
+    pub fn new(mem_alignment: usize, stream: cudarc::driver::sys::CUstream) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
             ptr_bindings: PtrBindings::new(),
+            stream,
             mem_alignment,
         }
     }
@@ -55,7 +57,7 @@ impl GpuStorage {
         for id in self.deallocations.drain(..) {
             if let Some(ptr) = self.memory.remove(&id) {
                 unsafe {
-                    cudarc::driver::result::free_sync(ptr).unwrap();
+                    cudarc::driver::result::free_async(ptr, self.stream).unwrap();
                 }
             }
         }
@@ -138,7 +140,7 @@ impl ComputeStorage for GpuStorage {
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let id = StorageId::new();
-        let ptr = unsafe { cudarc::driver::result::malloc_sync(size as usize) };
+        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
         let ptr = match ptr {
             Ok(ptr) => ptr,
             Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {

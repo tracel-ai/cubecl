@@ -1,6 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{CudaServer, context::CudaContext, storage::gpu::GpuStorage, valid_strides},
+    compute::{CudaServer, context::CudaContext, valid_strides},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
@@ -24,7 +24,7 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use std::mem::MaybeUninit;

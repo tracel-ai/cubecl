@@ -1,12 +1,15 @@
 use crate::compute::{
     storage::{
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-        gpu::GpuStorage,
+        gpu::{GpuResource, GpuStorage},
     },
     sync::Fence,
 };
 use cubecl_common::stream_id::StreamId;
-use cubecl_core::MemoryConfiguration;
+use cubecl_core::{
+    MemoryConfiguration,
+    server::{Binding, IoError},
+};
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     stream::StreamBackend,
@@ -46,13 +49,13 @@ impl StreamBackend for CudaStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn init_stream(&self, id: StreamId) -> Self::Stream {
+    fn create_stream(&self, id: StreamId) -> Self::Stream {
         let stream = cudarc::driver::result::stream::create(
             cudarc::driver::result::stream::StreamKind::NonBlocking,
         )
         .expect("Can create a new stream.");
 
-        let storage = GpuStorage::new(self.mem_alignment);
+        let storage = GpuStorage::new(self.mem_alignment, stream);
         let memory_management_gpu =
             MemoryManagement::from_configuration(storage, &self.mem_props, self.mem_config.clone());
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
