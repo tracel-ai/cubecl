@@ -106,7 +106,7 @@ pub(crate) fn implicit_conv<
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_loader(
             bias, n_offset, stage_n, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_writer(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(
             out,
             (0, m_offset, n_offset),
             (1, stage_m, stage_n),

@@ -47,7 +47,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
 
     /// The writer used to write the results to the output feature map
-    type StageWriter: StageUnloader<AccG<MP>>;
+    type StageUnloader: StageUnloader<AccG<MP>>;
     /// The type of the tile matmul accumulator
     type Accumulators: CubeType;
 
@@ -61,7 +61,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsStageLoader,
         rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
-        writer: Self::StageWriter,
+        writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -94,13 +94,13 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     ) -> Self::AccStageLoader;
 
     /// Initializes the output feature map loader with an appropriate layout
-    fn init_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords3d,
         view_shape: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::StageWriter;
+    ) -> Self::StageUnloader;
 
     /// Initializes a new accumulator for the tile matmul
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators;

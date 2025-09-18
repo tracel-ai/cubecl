@@ -56,14 +56,14 @@ where
     type RhsStageLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
     type AccStageLoader = BiasStageLoader<MP::Acc>;
 
-    type StageWriter = SMM::StageUnloader;
+    type StageUnloader = SMM::StageUnloader;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
         mut lhs_loader: Self::LhsStageLoader,
         mut rhs_loader: Self::RhsStageLoader,
         mut acc_loader: Self::AccStageLoader,
-        mut out_writer: Self::StageWriter,
+        mut out_writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -173,13 +173,13 @@ where
         Self::AccStageLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
-    fn init_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords3d,
         slice_size: Coords3d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::StageWriter {
+    ) -> Self::StageUnloader {
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
             OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
