@@ -6,7 +6,7 @@ use crate::{
         stream::CudaStreamBackend, sync::Fence, valid_strides,
     },
 };
-use cubecl_common::bytes::Bytes;
+use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
     compute::CubeTask,
@@ -110,18 +110,26 @@ impl<'a> Command<'a> {
     /// # Returns
     ///
     /// A [Bytes] instance of the correct size.
-    pub fn reserve_cpu(&mut self, size: usize, marked_pinned: bool) -> Bytes {
+    pub fn reserve_cpu(
+        &mut self,
+        size: usize,
+        marked_pinned: bool,
+        origin: Option<StreamId>,
+    ) -> Bytes {
         // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
         if !marked_pinned && size > 100 * MB {
             return Bytes::from_bytes_vec(vec![0; size]);
         }
 
-        self.reserve_pinned(size)
+        self.reserve_pinned(size, origin)
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
     }
 
-    fn reserve_pinned(&mut self, size: usize) -> Option<Bytes> {
-        let stream = self.streams.current();
+    fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
+        let stream = match origin {
+            Some(id) => self.streams.get(&id),
+            None => self.streams.current(),
+        };
         let handle = stream.memory_management_cpu.reserve(size as u64).ok()?;
 
         let binding = MemoryHandle::binding(handle);
@@ -151,11 +159,29 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let fence = Fence::new(self.streams.current().sys);
-        fence.wait_sync();
         let result = self.copies_to_bytes(descriptors, false);
+        let fence = Fence::new(self.streams.current().sys);
 
-        async move { result }
+        async move {
+            fence.wait_sync();
+            result
+        }
+    }
+
+    ///   * `Err(IoError)` - If the read operation fails.
+    pub fn read_async_origin(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let results = self.copies_to_bytes_origin(descriptors, false);
+
+        async move {
+            let (bytes, fences) = results?;
+            for fence in fences {
+                fence.wait_sync();
+            }
+            Ok(bytes)
+        }
     }
 
     fn copies_to_bytes(
@@ -166,13 +192,43 @@ impl<'a> Command<'a> {
         let mut result = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
-            let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-            let mut bytes = self.reserve_cpu(num_bytes, pinned);
-            self.write_to_cpu(descriptor, &mut bytes)?;
-            result.push(bytes);
+            result.push(self.copy_to_bytes(descriptor, pinned, None)?);
         }
 
         Ok(result)
+    }
+
+    fn copies_to_bytes_origin(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        pinned: bool,
+    ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
+        let mut data = Vec::with_capacity(descriptors.len());
+        let mut fences = Vec::with_capacity(descriptors.len());
+
+        for descriptor in descriptors {
+            let stream = descriptor.binding.stream;
+            let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
+            let fence = Fence::new(self.streams.get(&stream).sys);
+
+            data.push(bytes);
+            fences.push(fence);
+        }
+
+        Ok((data, fences))
+    }
+
+    fn copy_to_bytes(
+        &mut self,
+        descriptor: CopyDescriptor<'_>,
+        pinned: bool,
+        stream_id: Option<StreamId>,
+    ) -> Result<Bytes, IoError> {
+        let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        let mut bytes = self.reserve_cpu(num_bytes, pinned, stream_id);
+        self.write_to_cpu(descriptor, &mut bytes, stream_id)?;
+
+        Ok(bytes)
     }
 
     /// Writes data to the host from the GPU memory as specified by the copy descriptor.
@@ -190,6 +246,7 @@ impl<'a> Command<'a> {
         &mut self,
         descriptor: CopyDescriptor,
         bytes: &mut Bytes,
+        stream_id: Option<StreamId>,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
@@ -204,7 +261,10 @@ impl<'a> Command<'a> {
 
         let rank = shape.len();
         let resource = self.resource(binding)?;
-        let stream = self.streams.current();
+        let stream = match stream_id {
+            Some(id) => self.streams.get(&id),
+            None => self.streams.current(),
+        };
 
         if rank <= 1 {
             unsafe {
