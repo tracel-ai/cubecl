@@ -172,7 +172,7 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let results = self.copies_to_bytes_origin(descriptors, false);
+        let results = self.copies_to_bytes_origin(descriptors, true);
 
         async move {
             let (bytes, fences) = results?;
