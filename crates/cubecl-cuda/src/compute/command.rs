@@ -204,14 +204,19 @@ impl<'a> Command<'a> {
     ) -> Result<(Vec<Bytes>, Vec<Fence>), IoError> {
         let mut data = Vec::with_capacity(descriptors.len());
         let mut fences = Vec::with_capacity(descriptors.len());
+        let mut fenced = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
             let stream = descriptor.binding.stream;
             let bytes = self.copy_to_bytes(descriptor, pinned, Some(stream))?;
-            let fence = Fence::new(self.streams.get(&stream).sys);
+
+            if !fenced.contains(&stream) {
+                let fence = Fence::new(self.streams.get(&stream).sys);
+                fenced.push(stream);
+                fences.push(fence);
+            }
 
             data.push(bytes);
-            fences.push(fence);
         }
 
         Ok((data, fences))
