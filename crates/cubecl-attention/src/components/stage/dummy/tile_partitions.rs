@@ -278,3 +278,45 @@ impl<
         self.sequence.index_mut(i)
     }
 }
+
+#[derive(CubeType)]
+pub struct StageState<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+> {
+    sequence: Sequence<TA::State>,
+    #[cube(comptime)]
+    _phantom: PhantomData<S>,
+}
+
+#[cube]
+impl<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+> StageState<AP, TA, S>
+{
+    pub fn new(#[comptime] config: S) -> StageState<AP, TA, S> {
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        #[unroll]
+        for _ in 0..comptime!(p.seq_q) {
+            sequence.push(TA::init_state(config.tile_config()));
+        }
+
+        StageState::<AP, TA, S> {
+            sequence,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_at(&self, #[comptime] i: u32) -> &TA::State {
+        self.sequence.index(i)
+    }
+
+    pub fn get_at_mut(&mut self, #[comptime] i: u32) -> &mut TA::State {
+        self.sequence.index_mut(i)
+    }
+}

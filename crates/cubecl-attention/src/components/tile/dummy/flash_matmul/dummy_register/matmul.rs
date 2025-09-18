@@ -173,7 +173,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         if UNIT_POS == 0 {
             let size = config.attention_tile_size().score_prob_size();
             for i in 0..size {
-                slice[i] = Line::cast_from(out[i + 2]);
+                slice[i] = Line::cast_from(out[i]);
             }
         }
 

@@ -11,6 +11,7 @@ use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::dummy::QueryLoader;
+use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{
     Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
 };
@@ -32,7 +33,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     type KeyReader = R;
     type ValueReader = R;
 
-    type State = TA::State;
+    type State = StageState<AP, TA, Self::Config>;
     type Query = Queries<AP, TA, Self::Config>;
     type KeyValue = KeyValues<AP, TA, Self::Config>;
     type Score = Scores<AP, TA, Self::Config>;
@@ -116,7 +117,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 row_stats.push(TA::score_to_prob(
                     score_frag,
                     out_of_bound_mask,
-                    state,
+                    state.get_at(q),
                     config.tiling_scheme().head_dim(),
                 ));
 
@@ -152,7 +153,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
 
-                let scale = TA::update_state(row_stats.index(q), state);
+                let scale = TA::update_state(row_stats.index(q), state.get_at_mut(q));
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
@@ -179,32 +180,32 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         comment!("Stage: Rescale");
         let p = config.tiling_scheme().partition_size;
 
-        let mut i = comptime!(0u32);
+        let mut q = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..p.seq_q {
-            let mut j = comptime!(0u32);
+            let mut vd = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 TA::rescale(
-                    Self::Accumulator::get_at_mut(acc, i, j, config),
-                    &state,
+                    Self::Accumulator::get_at_mut(acc, q, vd, config),
+                    &state.get_at(q),
                     config.tile_config(),
                 );
 
-                comptime![j += 1];
+                comptime![vd += 1];
             }
 
-            comptime![i += 1];
+            comptime![q += 1];
         }
     }
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State {
         comment!("Stage: Init Stage");
-        TA::init_state(config.tile_config())
+        Self::State::new(config)
     }
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
