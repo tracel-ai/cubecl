@@ -94,7 +94,9 @@ impl ComputeServer for CudaServer {
         for descriptor in descriptors {
             let pitch_align = match descriptor.kind {
                 AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized => self.mem_alignment,
+                _ => 1,
+                // AllocationKind::Optimized => self.mem_alignment,
+                // AllocationKind::Optimized => self.mem_alignment,
             };
 
             let rank = descriptor.shape.len();
