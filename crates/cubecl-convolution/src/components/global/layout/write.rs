@@ -52,17 +52,6 @@ impl Layout for OutLayout {
         let (view_m, view_n) = coords;
         let (batch, spatial) = div_mod_seq(view_m, &self.shape_out);
 
-        if view_n == 0 {
-            debug_print!(
-                "view_m: %d, view_n: %d, batch: %d, spatial: %d, %d\n",
-                view_m,
-                view_n,
-                batch,
-                spatial.index(0),
-                spatial.index(1)
-            );
-        }
-
         NhwcCoords {
             batch,
             spatial: cast_seq(spatial),
