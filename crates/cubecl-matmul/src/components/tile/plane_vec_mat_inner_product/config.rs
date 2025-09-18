@@ -140,7 +140,7 @@ impl PlaneVecMatInnerProductConfig {
             ))));
         }
 
-        if n % out_line != 0 {
+        if !n.is_multiple_of(out_line) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                 "n must be divisible by out line size, got n={n:?}, out_line_size={out_line:?}",
             ))));

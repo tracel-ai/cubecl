@@ -51,7 +51,7 @@ impl<D: Dialect> Item<D> {
     }
 
     pub fn optimized(&self) -> Item<D> {
-        if !self.can_be_optimized() || self.vectorization % 2 != 0 {
+        if !self.can_be_optimized() || !self.vectorization.is_multiple_of(2) {
             return *self;
         }
 

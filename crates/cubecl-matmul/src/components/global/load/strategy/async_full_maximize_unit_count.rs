@@ -34,7 +34,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         };
         let unit_count = config.plane_dim() * config.num_loading_planes(ident);
 
-        if unit_count % num_slices != 0 {
+        if !unit_count.is_multiple_of(num_slices) {
             return Err(Box::new(
                 "Number of slices must divide number of units evenly",
             ));
