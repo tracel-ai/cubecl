@@ -136,7 +136,7 @@ impl MatmulAutotuneKey {
 /// Defines the potential vectorization.
 fn pow2_factor(axis: usize) -> u8 {
     for i in (1..4).rev() {
-        if axis % 2usize.pow(i as u32) == 0 {
+        if axis.is_multiple_of(2usize.pow(i as u32)) {
             return i;
         }
     }

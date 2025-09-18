@@ -28,7 +28,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
             let total_units = config.num_loading_planes(ident) * config.plane_dim();
 
-            if num_stage_lines % total_units != 0 {
+            if !num_stage_lines.is_multiple_of(total_units) {
                 return Err(Box::new(
                 "Too many data will be loaded, resulting in out of bounds.
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
@@ -68,7 +68,7 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
         let num_stage_lines = num_stage_elements.div_ceil(line_size);
         let total_units = comptime!(config.num_loading_planes(ident) * config.plane_dim());
         let num_tasks_per_unit = comptime!(num_stage_lines.div_ceil(total_units));
-        let balanced_workload = comptime!(num_stage_lines % total_units == 0);
+        let balanced_workload = comptime!(num_stage_lines.is_multiple_of(total_units));
         let jump_length = comptime!(total_units * line_size);
 
         let unit_id = RoleRule::new(config.role_rule_config())
