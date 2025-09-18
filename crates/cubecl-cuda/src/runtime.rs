@@ -73,7 +73,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     // trying this in the future to see if it reduces memory coalescing.
     //
     // TODO: Find the correct value from the driver.
-    let mem_alignment = 32;
+    let mem_alignment = 256;
 
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
