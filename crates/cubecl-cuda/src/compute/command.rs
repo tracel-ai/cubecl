@@ -175,11 +175,8 @@ impl<'a> Command<'a> {
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
         let results = self.copies_to_bytes_origin(descriptors, true);
-        let fence = Fence::new(self.streams.current().sys);
 
         async move {
-            fence.wait_sync();
-
             let (bytes, fences) = results?;
 
             for fence in fences {
