@@ -114,9 +114,8 @@ impl<
         #[comptime] j: u32,
         #[comptime] config: S,
     ) -> &TA::Query {
-        let partition_size = config.tiling_scheme().partition_size;
-        self.sequence
-            .index(comptime!(i * partition_size.head_dim + j))
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index(comptime!(i * p.head_dim + j))
     }
 
     pub fn get_at_mut(
@@ -125,9 +124,8 @@ impl<
         #[comptime] j: u32,
         #[comptime] config: S,
     ) -> &mut TA::Query {
-        let partition_size = config.tiling_scheme().partition_size;
-        self.sequence
-            .index_mut(comptime!(i * partition_size.head_dim + j))
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index_mut(comptime!(i * p.head_dim + j))
     }
 }
 
@@ -165,7 +163,7 @@ impl<
             let mut sequence = Sequence::new();
 
             #[unroll]
-            for _ in 0..comptime!(max(p.head_dim, p.val_dim)) {
+            for _ in 0..comptime!(p.seq_kv * max(p.head_dim, p.val_dim)) {
                 sequence.push(TA::init_key_value(config.tile_config()));
             }
 
@@ -179,11 +177,11 @@ impl<
             let mut values = Sequence::new();
 
             #[unroll]
-            for _ in 0..p.head_dim {
+            for _ in 0..comptime!(p.head_dim * p.seq_kv) {
                 keys.push(TA::init_key(config.tile_config()));
             }
             #[unroll]
-            for _ in 0..p.val_dim {
+            for _ in 0..comptime!(p.seq_kv * p.val_dim) {
                 values.push(TA::init_value(config.tile_config()));
             }
 
@@ -200,39 +198,55 @@ impl<
         }
     }
 
-    pub fn get_key_at(&self, #[comptime] i: u32, #[comptime] _config: S) -> &TA::KeyValue {
+    pub fn get_key_at(
+        &self,
+        #[comptime] hd: u32,
+        #[comptime] kv: u32,
+        #[comptime] config: S,
+    ) -> &TA::KeyValue {
+        let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(i),
-            KeyValues::Separate(keys, _) => keys.sequence.index(i),
+            KeyValues::Reuse(key_values) => key_values.sequence.index(index),
+            KeyValues::Separate(keys, _) => keys.sequence.index(index),
         }
     }
 
     pub fn get_key_at_mut(
         &mut self,
-        #[comptime] i: u32,
-        #[comptime] _config: S,
+        #[comptime] hd: u32,
+        #[comptime] kv: u32,
+        #[comptime] config: S,
     ) -> &mut TA::KeyValue {
+        let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(i),
-            KeyValues::Separate(keys, _) => keys.sequence.index_mut(i),
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
+            KeyValues::Separate(keys, _) => keys.sequence.index_mut(index),
         }
     }
 
-    pub fn get_value_at(&self, #[comptime] i: u32, #[comptime] _config: S) -> &TA::KeyValue {
+    pub fn get_value_at(
+        &self,
+        #[comptime] kv: u32,
+        #[comptime] vd: u32,
+        #[comptime] config: S,
+    ) -> &TA::KeyValue {
+        let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(i),
-            KeyValues::Separate(_, values) => values.sequence.index(i),
+            KeyValues::Reuse(key_values) => key_values.sequence.index(index),
+            KeyValues::Separate(_, values) => values.sequence.index(index),
         }
     }
 
     pub fn get_value_at_mut(
         &mut self,
-        #[comptime] i: u32,
-        #[comptime] _config: S,
+        #[comptime] kv: u32,
+        #[comptime] vd: u32,
+        #[comptime] config: S,
     ) -> &mut TA::KeyValue {
+        let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(i),
-            KeyValues::Separate(_, values) => values.sequence.index_mut(i),
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
+            KeyValues::Separate(_, values) => values.sequence.index_mut(index),
         }
     }
 }
@@ -260,7 +274,7 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(p.seq_q) {
+        for _ in 0..comptime!(p.seq_q * p.seq_kv) {
             sequence.push(TA::init_score(config.tile_config()));
         }
 
@@ -270,12 +284,24 @@ impl<
         }
     }
 
-    pub fn get_at(&self, #[comptime] i: u32) -> &TA::ScoreProb {
-        self.sequence.index(i)
+    pub fn get_at(
+        &self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] config: S,
+    ) -> &TA::ScoreProb {
+        let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
+        self.sequence.index(index)
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] i: u32) -> &mut TA::ScoreProb {
-        self.sequence.index_mut(i)
+    pub fn get_at_mut(
+        &mut self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] config: S,
+    ) -> &mut TA::ScoreProb {
+        let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
+        self.sequence.index_mut(index)
     }
 }
 

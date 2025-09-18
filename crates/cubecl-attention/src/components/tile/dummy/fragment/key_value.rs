@@ -28,7 +28,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> KeyValueFragment<FP, FM> {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Key(key) => &key.fragment,
-            KeyValueFragment::Value(_) => panic!(),
+            KeyValueFragment::Value(_) => panic!("Tried to access key on value-only fragment"),
         }
     }
 
@@ -36,14 +36,14 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> KeyValueFragment<FP, FM> {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Key(key) => &mut key.fragment,
-            KeyValueFragment::Value(_) => panic!(),
+            KeyValueFragment::Value(_) => panic!("Tried to access key on value-only fragment"),
         }
     }
 
     pub fn value(&self) -> &FM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
-            KeyValueFragment::Key(_) => panic!(),
+            KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),
             KeyValueFragment::Value(value) => &value.fragment,
         }
     }
@@ -51,7 +51,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> KeyValueFragment<FP, FM> {
     pub fn value_mut(&mut self) -> &mut FM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
-            KeyValueFragment::Key(_) => panic!(),
+            KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),
             KeyValueFragment::Value(value) => &mut value.fragment,
         }
     }

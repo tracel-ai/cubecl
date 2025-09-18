@@ -74,7 +74,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         sync_cube();
     }
 
-    pub fn row_max(&mut self, base: FP::SP) -> FP::SP {
+    pub fn row_max(&self, base: FP::SP) -> FP::SP {
         let row_offset = self.row * self.num_cols;
         let mut rowmax = base;
 
@@ -88,35 +88,13 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         rowmax
     }
 
-    pub fn to_prob(&mut self, m: FP::SP) {
-        if self.row < self.num_rows {
-            #[unroll]
-            for i in 0..self.num_cols_per_unit {
-                let col = self.col_start + i;
-
-                if col < self.num_cols {
-                    let index = self.row * self.num_cols + col;
-                    self.tmp_smem[index] = Exp::exp(self.tmp_smem[index] - m);
-                }
-            }
-        }
-
-        sync_cube();
-
-        let tile = Tile::<FP::SP> {
-            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
-            stride: self.num_cols.runtime(),
-            layout: MatrixLayout::RowMajor,
-        };
-        FM::tmp_fill_prob(&tile, &mut self.fragment, self.config);
-    }
-
-    pub fn row_sum(&self) -> FP::SP {
+    pub fn get_prob_row_sum(&self, m_new: FP::SP) -> FP::SP {
         let row_offset = self.row * self.num_cols;
 
         let mut rowsum = FP::SP::from_int(0);
         for i in 0..self.num_cols {
-            rowsum += self.tmp_smem[row_offset + i];
+            let val = self.tmp_smem[row_offset + i];
+            rowsum += Exp::exp(val - m_new);
         }
 
         rowsum
