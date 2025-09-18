@@ -62,6 +62,17 @@ struct SharedBindings<B: StreamBackend> {
     event: Option<B::Event>,
 }
 
+pub struct ResolvedStreams<'a, B: StreamBackend> {
+    pub cursor: u64,
+    streams: &'a mut HashMap<StreamId, StreamWrapper<B>>,
+}
+
+impl<'a, B: StreamBackend> ResolvedStreams<'a, B> {
+    pub fn get(&mut self, stream_id: &StreamId) -> &mut B::Stream {
+        &mut self.streams.get_mut(stream_id).unwrap().stream
+    }
+}
+
 impl<B: StreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
     pub fn new(backend: B) -> Self {
@@ -69,15 +80,6 @@ impl<B: StreamBackend> MultiStream<B> {
             streams: Default::default(),
             backend,
         }
-    }
-
-    /// Get the current stream not linked with any [Binding].
-    ///
-    /// # Note
-    ///
-    /// The cursor will still be increased.
-    pub fn get(&mut self, stream_id: StreamId) -> &mut StreamWrapper<B> {
-        self.resolve(stream_id, [].into_iter())
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary
@@ -89,15 +91,17 @@ impl<B: StreamBackend> MultiStream<B> {
         &mut self,
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
-    ) -> &mut StreamWrapper<B> {
+    ) -> ResolvedStreams<'_, B> {
         self.align_streams(stream_id, bindings);
 
         let stream = self.streams.get_mut(&stream_id).expect("Stream to exist");
 
         stream.cursor += 1;
-        // stream.maybe_run_gc();
 
-        stream
+        ResolvedStreams {
+            cursor: stream.cursor,
+            streams: &mut self.streams,
+        }
     }
 
     /// Aligns the target stream with other streams based on shared bindings.
@@ -282,8 +286,8 @@ mod tests {
         let binding_2 = binding(stream_2);
 
         let mut ms = MultiStream::new(TestBackend);
-        ms.get(stream_1);
-        ms.get(stream_2);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
 
@@ -303,8 +307,8 @@ mod tests {
         let binding_3 = binding(stream_1);
 
         let mut ms = MultiStream::new(TestBackend);
-        ms.get(stream_1);
-        ms.get(stream_2);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -325,8 +329,8 @@ mod tests {
         let binding_3 = binding(stream_1);
 
         let mut ms = MultiStream::new(TestBackend);
-        ms.get(stream_1);
-        ms.get(stream_2);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         let analysis =
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
@@ -346,8 +350,8 @@ mod tests {
         let binding_3 = binding(stream_1);
 
         let mut ms = MultiStream::new(TestBackend);
-        ms.get(stream_1);
-        ms.get(stream_2);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
         ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 

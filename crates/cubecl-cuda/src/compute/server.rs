@@ -1,7 +1,7 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use super::sync::Fence;
 use crate::CudaCompiler;
-use crate::compute::stream::{CudaStreamBackend, Stream};
+use crate::compute::stream::CudaStreamBackend;
 use crate::compute::{
     DataTransferItem, DataTransferRuntime, context::CudaContext, io::register_copies_to_bytes,
 };
@@ -31,7 +31,7 @@ use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::stream::{MultiStream, ResolvedStreams};
 use cudarc::driver::sys::CUtensorMapInterleave;
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMapDataType, CUtensorMapFloatOOBfill,
@@ -113,11 +113,20 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
-        let (_ctx, stream, cursor) = self.resolve_context_basic(stream_id);
+        let (_ctx, mut streams) = self.resolve_context_basic(stream_id);
 
-        let handle = stream.memory_management_gpu.reserve(total_size as u64)?;
-        let mem_handle =
-            server::Handle::new(handle, None, None, stream_id, cursor, total_size as u64);
+        let handle = streams
+            .get(&stream_id)
+            .memory_management_gpu
+            .reserve(total_size as u64)?;
+        let mem_handle = server::Handle::new(
+            handle,
+            None,
+            None,
+            stream_id,
+            streams.cursor,
+            total_size as u64,
+        );
 
         let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
 
@@ -133,7 +142,7 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        let (_ctx, stream, _cursor) = self
+        let (_ctx, mut streams) = self
             .resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
@@ -149,10 +158,13 @@ impl ComputeServer for CudaServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            let resource = stream
+            let resource = streams
+                .get(&binding.stream)
                 .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .ok_or(IoError::InvalidHandle)?;
+
+            let current = streams.get(&stream_id);
 
             if rank > 1 {
                 let dim_x = shape[rank - 1];
@@ -173,11 +185,11 @@ impl ComputeServer for CudaServer {
                 };
 
                 unsafe {
-                    cuMemcpy2DAsync_v2(&cpy, stream.sys).result().unwrap();
+                    cuMemcpy2DAsync_v2(&cpy, current.sys).result().unwrap();
                 }
             } else {
                 unsafe {
-                    cudarc::driver::result::memcpy_htod_async(resource.ptr, data, stream.sys)
+                    cudarc::driver::result::memcpy_htod_async(resource.ptr, data, current.sys)
                         .unwrap();
                 }
             }
@@ -262,8 +274,7 @@ impl ComputeServer for CudaServer {
             (Vec::new(), handles)
         };
 
-        let (ctx, stream, _cursor) =
-            self.resolve_context_bindings(stream_id, bindings.buffers.iter());
+        let (ctx, mut streams) = self.resolve_context_bindings(stream_id, bindings.buffers.iter());
 
         if !ctx.module_names.contains_key(&kernel_id) {
             ctx.compile_kernel(&kernel_id, kernel, mode, logger);
@@ -273,7 +284,8 @@ impl ComputeServer for CudaServer {
             .tensor_maps
             .into_iter()
             .map(|TensorMapBinding { map, binding }| {
-                let resource = stream
+                let resource = streams
+                    .get(&binding.stream)
                     .memory_management_gpu
                     .get_resource(
                         binding.memory.clone(),
@@ -402,15 +414,23 @@ impl ComputeServer for CudaServer {
         let mut resources = bindings
             .buffers
             .into_iter()
-            .map(|binding| find_resource(stream, binding))
+            .map(|binding| find_resource(&mut streams, binding))
             .collect::<Vec<_>>();
         resources.extend(
             scalar_bindings
                 .into_iter()
-                .map(|s| find_resource(stream, s.binding())),
+                .map(|s| find_resource(&mut streams, s.binding())),
         );
 
-        let result = ctx.execute_task(stream, kernel_id, count, &tensor_maps, &resources, &scalars);
+        let current = streams.get(&stream_id);
+        let result = ctx.execute_task(
+            current,
+            kernel_id,
+            count,
+            &tensor_maps,
+            &resources,
+            &scalars,
+        );
 
         match result {
             Ok(_) => {}
@@ -424,8 +444,8 @@ impl ComputeServer for CudaServer {
     fn flush(&mut self, _stream_id: StreamId) {}
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
-        let (_, stream, _) = self.resolve_context_basic(stream_id);
-        let fence = stream.fence();
+        let (_, mut streams) = self.resolve_context_basic(stream_id);
+        let fence = streams.get(&stream_id).fence();
 
         Box::pin(async {
             fence.wait_sync();
@@ -451,11 +471,12 @@ impl ComputeServer for CudaServer {
         binding: server::Binding,
         stream_id: StreamId,
     ) -> BindingResource<GpuResource> {
-        let (_, stream, _) = self.resolve_context_bindings(stream_id, [&binding].into_iter());
+        let (_, mut streams) = self.resolve_context_bindings(stream_id, [&binding].into_iter());
 
         BindingResource::new(
             binding.clone(),
-            stream
+            streams
+                .get(&binding.stream)
                 .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Failed to find resource"),
@@ -480,10 +501,11 @@ impl ComputeServer for CudaServer {
 
 impl DataTransferService for CudaServer {
     fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let (src_ctx, stream, _cursor) =
+        let (src_ctx, mut streams) =
             self.resolve_context_bindings(stream_id, [&src.binding].into_iter());
 
-        let src_resource = stream
+        let src_resource = streams
+            .get(&src.binding.stream)
             .memory_management_gpu
             .get_resource(
                 src.binding.memory,
@@ -494,21 +516,23 @@ impl DataTransferService for CudaServer {
             .unwrap();
 
         let client = DataTransferRuntime::client();
+        let current = streams.get(&stream_id);
 
         let handle = DataTransferItem {
-            stream: stream.sys,
+            stream: current.sys,
             context: src_ctx.context,
             resource: src_resource,
         };
-        let fence = Fence::new(stream.sys);
+        let fence = Fence::new(current.sys);
 
         client.register_src(id, handle, fence);
     }
 
     fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        let (dst_ctx, stream, _cursor) =
+        let (dst_ctx, mut streams) =
             self.resolve_context_bindings(stream_id, [&dst.binding].into_iter());
-        let dst_resource = stream
+        let dst_resource = streams
+            .get(&dst.binding.stream)
             .memory_management_gpu
             .get_resource(
                 dst.binding.memory,
@@ -518,11 +542,12 @@ impl DataTransferService for CudaServer {
             .ok_or(IoError::InvalidHandle)
             .unwrap();
 
+        let current = streams.get(&stream_id);
         let client = DataTransferRuntime::client();
 
         let call = DataTransferItem {
             context: dst_ctx.context,
-            stream: stream.sys,
+            stream: current.sys,
             resource: dst_resource,
         };
 
@@ -530,8 +555,12 @@ impl DataTransferService for CudaServer {
     }
 }
 
-fn find_resource(stream: &mut Stream, binding: server::Binding) -> GpuResource {
-    stream
+fn find_resource(
+    streams: &mut ResolvedStreams<CudaStreamBackend>,
+    binding: server::Binding,
+) -> GpuResource {
+    streams
+        .get(&binding.stream)
         .memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
@@ -555,27 +584,21 @@ impl CudaServer {
     fn resolve_context_basic(
         &mut self,
         stream_id: StreamId,
-    ) -> (&mut CudaContext, &mut Stream, u64) {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
-
-        let stream = self.streams.get(stream_id);
-
-        (&mut self.ctx, &mut stream.stream, stream.cursor)
+    ) -> (&mut CudaContext, ResolvedStreams<'_, CudaStreamBackend>) {
+        self.resolve_context_bindings(stream_id, [].into_iter())
     }
 
     fn resolve_context_bindings<'a>(
         &mut self,
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
-    ) -> (&mut CudaContext, &mut Stream, u64) {
+    ) -> (&mut CudaContext, ResolvedStreams<'_, CudaStreamBackend>) {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
-        let stream = self.streams.resolve(stream_id, bindings);
+        let streams = self.streams.resolve(stream_id, bindings);
 
-        (&mut self.ctx, &mut stream.stream, stream.cursor)
+        (&mut self.ctx, streams)
     }
 
     fn read_async(
@@ -583,11 +606,11 @@ impl CudaServer {
         descriptors: Vec<CopyDescriptor<'_>>,
         stream_id: StreamId,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let (ctx, stream, _cursor) =
+        let (_ctx, mut streams) =
             self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
 
-        let result = register_copies_to_bytes(ctx, stream, descriptors);
-        let fence = stream.fence();
+        let result = register_copies_to_bytes(stream_id, &mut streams, descriptors);
+        let fence = streams.get(&stream_id).fence();
 
         async move {
             fence.wait_sync();

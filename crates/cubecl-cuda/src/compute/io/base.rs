@@ -1,8 +1,12 @@
 use super::controller::PinnedMemoryManagedAllocController;
-use crate::compute::{MB, context::CudaContext, stream::Stream, valid_strides};
-use cubecl_common::bytes::Bytes;
+use crate::compute::{
+    MB,
+    stream::{CudaStreamBackend, Stream},
+    valid_strides,
+};
+use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::server::{CopyDescriptor, IoError};
-use cubecl_runtime::memory_management::MemoryHandle;
+use cubecl_runtime::{memory_management::MemoryHandle, stream::ResolvedStreams};
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, cuMemcpy2DAsync_v2};
 use std::{ffi::c_void, ops::DerefMut};
 
@@ -17,14 +21,14 @@ use std::{ffi::c_void, ops::DerefMut};
 ///
 /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
 pub fn register_copies_to_bytes(
-    ctx: &mut CudaContext,
-    stream: &mut Stream,
+    current: StreamId,
+    streams: &mut ResolvedStreams<'_, CudaStreamBackend>,
     descriptors: Vec<CopyDescriptor<'_>>,
 ) -> Result<Vec<Bytes>, IoError> {
     let mut result = Vec::with_capacity(descriptors.len());
 
     for descriptor in descriptors {
-        result.push(register_copy_to_bytes(ctx, stream, descriptor, false)?);
+        result.push(register_copy_to_bytes(current, streams, descriptor, false)?);
     }
 
     Ok(result)
@@ -42,8 +46,8 @@ pub fn register_copies_to_bytes(
 ///
 /// A [Result] containing the copied data as [Bytes], or an [IoError] if the copy fails.
 pub fn register_copy_to_bytes(
-    ctx: &mut CudaContext,
-    stream: &mut Stream,
+    current: StreamId,
+    streams: &mut ResolvedStreams<'_, CudaStreamBackend>,
     descriptor: CopyDescriptor<'_>,
     marked_pinned: bool,
 ) -> Result<Bytes, IoError> {
@@ -59,11 +63,13 @@ pub fn register_copy_to_bytes(
     }
 
     let num_bytes = shape.iter().product::<usize>() * elem_size;
-    let resource = stream
+    let resource = streams
+        .get(&binding.stream)
         .memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .ok_or(IoError::InvalidHandle)?;
 
+    let stream = streams.get(&current);
     let mut bytes = bytes_from_managed_pinned_memory(stream, num_bytes, marked_pinned)
         .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; num_bytes]));
 
