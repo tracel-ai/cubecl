@@ -104,24 +104,25 @@ impl<'a> Command<'a> {
     ///
     /// # Arguments
     ///
-    /// * `ctx` - The CUDA context for managing memory.
-    /// * `num_bytes` - The number of bytes to allocate.
+    /// * `size` - The number of bytes to allocate.
     /// * `marked_pinned` - Whether to force the use of pinned memory.
     ///
     /// # Returns
     ///
-    /// An [Option] containing a [Bytes] instance if pinned memory is used, or [None] if regular memory should be used instead.
-    pub fn reserve_cpu(&mut self, num_bytes: usize, marked_pinned: bool) -> Option<Bytes> {
+    /// A [Bytes] instance of the correct size.
+    pub fn reserve_cpu(&mut self, size: usize, marked_pinned: bool) -> Bytes {
         // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
-        if !marked_pinned && num_bytes > 100 * MB {
-            return None;
+        if !marked_pinned && size > 100 * MB {
+            return Bytes::from_bytes_vec(vec![0; size]);
         }
 
+        self.reserve_pinned(size)
+            .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
+    }
+
+    fn reserve_pinned(&mut self, size: usize) -> Option<Bytes> {
         let stream = self.streams.current();
-        let handle = stream
-            .memory_management_cpu
-            .reserve(num_bytes as u64)
-            .ok()?;
+        let handle = stream.memory_management_cpu.reserve(size as u64).ok()?;
 
         let binding = MemoryHandle::binding(handle);
         let resource = stream
@@ -132,7 +133,7 @@ impl<'a> Command<'a> {
 
         let (controller, alloc) = PinnedMemoryManagedAllocController::init(binding, resource);
 
-        Some(unsafe { Bytes::from_raw_parts(alloc, num_bytes, Box::new(controller)) })
+        Some(unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) })
     }
 
     /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.
@@ -166,10 +167,7 @@ impl<'a> Command<'a> {
 
         for descriptor in descriptors {
             let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-            let mut bytes = self
-                .reserve_cpu(num_bytes, pinned)
-                .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; num_bytes]));
-
+            let mut bytes = self.reserve_cpu(num_bytes, pinned);
             self.write_to_cpu(descriptor, &mut bytes)?;
             result.push(bytes);
         }
