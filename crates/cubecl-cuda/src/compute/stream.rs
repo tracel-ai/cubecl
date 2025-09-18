@@ -74,8 +74,7 @@ impl StreamBackend for CudaStreamBackend {
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {
-        // event.wait_async(stream.sys);
-        event.wait_sync();
+        event.wait_async(stream.sys);
     }
 
     fn wait_event_sync(event: Self::Event) {

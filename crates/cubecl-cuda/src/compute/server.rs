@@ -449,7 +449,10 @@ impl CudaServer {
         Self {
             mem_alignment,
             ctx,
-            streams: MultiStream::new(CudaStreamBackend::new(mem_props, mem_config, mem_alignment)),
+            streams: MultiStream::new(
+                CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
+                1,
+            ),
         }
     }
 
