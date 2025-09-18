@@ -1,8 +1,9 @@
 use crate::{
     CudaCompiler,
     compute::{
-        DataTransferItem, DataTransferRuntime, context::CudaContext, io::register_copies_to_bytes,
-        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence, valid_strides,
+        DataTransferItem, DataTransferRuntime, MB, context::CudaContext,
+        io::controller::PinnedMemoryManagedAllocController, storage::gpu::GpuResource,
+        stream::CudaStreamBackend, sync::Fence, valid_strides,
     },
 };
 use cubecl_common::bytes::Bytes;
@@ -13,11 +14,14 @@ use cubecl_core::{
     server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
 };
 use cubecl_runtime::{
-    data_service::DataTransferId, id::KernelId, logging::ServerLogger,
-    memory_management::MemoryAllocationMode, stream::ResolvedStreams,
+    data_service::DataTransferId,
+    id::KernelId,
+    logging::ServerLogger,
+    memory_management::{MemoryAllocationMode, MemoryHandle},
+    stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMap, cuMemcpy2DAsync_v2};
-use std::{ffi::c_void, sync::Arc};
+use std::{ffi::c_void, ops::DerefMut, sync::Arc};
 
 #[derive(new)]
 /// The `Command` struct encapsulates a CUDA context and a set of resolved CUDA streams, providing an
@@ -93,6 +97,44 @@ impl<'a> Command<'a> {
         ))
     }
 
+    /// Creates a [Bytes] instance from pinned memory, if suitable for the given size.
+    ///
+    /// For small data transfers (<= 100 MB) or when explicitly marked as pinned, this function
+    /// uses pinned memory to optimize performance. For larger transfers, it falls back to regular memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx` - The CUDA context for managing memory.
+    /// * `num_bytes` - The number of bytes to allocate.
+    /// * `marked_pinned` - Whether to force the use of pinned memory.
+    ///
+    /// # Returns
+    ///
+    /// An [Option] containing a [Bytes] instance if pinned memory is used, or [None] if regular memory should be used instead.
+    pub fn reserve_cpu(&mut self, num_bytes: usize, marked_pinned: bool) -> Option<Bytes> {
+        // Use pinned memory for small transfers (<= 100 MB) or when explicitly marked.
+        if !marked_pinned && num_bytes > 100 * MB {
+            return None;
+        }
+
+        let stream = self.streams.current();
+        let handle = stream
+            .memory_management_cpu
+            .reserve(num_bytes as u64)
+            .ok()?;
+
+        let binding = MemoryHandle::binding(handle);
+        let resource = stream
+            .memory_management_cpu
+            .get_resource(binding.clone(), None, None)
+            .ok_or(IoError::InvalidHandle)
+            .ok()?;
+
+        let (controller, alloc) = PinnedMemoryManagedAllocController::init(binding, resource);
+
+        Some(unsafe { Bytes::from_raw_parts(alloc, num_bytes, Box::new(controller)) })
+    }
+
     /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.
     ///
     /// # Parameters
@@ -108,12 +150,103 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let result = self.copies_to_bytes(descriptors, false);
         let fence = Fence::new(self.streams.current().sys);
-        fence.wait_sync();
 
-        let result = register_copies_to_bytes(self.streams.current, &mut self.streams, descriptors);
+        async move {
+            fence.wait_sync();
+            result
+        }
+    }
 
-        async move { result }
+    fn copies_to_bytes(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        pinned: bool,
+    ) -> Result<Vec<Bytes>, IoError> {
+        let mut result = Vec::with_capacity(descriptors.len());
+
+        for descriptor in descriptors {
+            let num_bytes = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+            let mut bytes = self
+                .reserve_cpu(num_bytes, pinned)
+                .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; num_bytes]));
+
+            self.write_to_cpu(descriptor, &mut bytes)?;
+            result.push(bytes);
+        }
+
+        Ok(result)
+    }
+
+    /// Writes data to the host from the GPU memory as specified by the copy descriptor.
+    ///
+    /// # Parameters
+    ///
+    /// * `descriptor` - Describes the srouce GPU memory, its shape, strides, and element size.
+    /// * `bytes` - The host bytes to write from the GPU.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the write operation succeeds.
+    /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
+    pub fn write_to_cpu(
+        &mut self,
+        descriptor: CopyDescriptor,
+        bytes: &mut Bytes,
+    ) -> Result<(), IoError> {
+        let CopyDescriptor {
+            binding,
+            shape,
+            strides,
+            elem_size,
+        } = descriptor;
+
+        if !valid_strides(shape, strides) {
+            return Err(IoError::UnsupportedStrides);
+        }
+
+        let rank = shape.len();
+        let resource = self.resource(binding)?;
+        let stream = self.streams.current();
+
+        if rank <= 1 {
+            unsafe {
+                cudarc::driver::result::memcpy_dtoh_async(
+                    bytes.deref_mut(),
+                    resource.ptr,
+                    stream.sys,
+                )
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+            }
+            return Ok(());
+        }
+
+        let dim_x = shape[rank - 1];
+        let width_bytes = dim_x * elem_size;
+        let dim_y: usize = shape.iter().rev().skip(1).product();
+        let pitch = strides[rank - 2] * elem_size;
+        let slice = bytes.deref_mut();
+
+        let cpy = CUDA_MEMCPY2D_st {
+            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+            srcDevice: resource.ptr,
+            srcPitch: pitch,
+            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+            dstHost: slice.as_mut_ptr() as *mut c_void,
+            dstPitch: width_bytes,
+            WidthInBytes: width_bytes,
+            Height: dim_y,
+            ..Default::default()
+        };
+
+        unsafe {
+            cuMemcpy2DAsync_v2(&cpy, stream.sys)
+                .result()
+                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+        }
+
+        Ok(())
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
@@ -127,7 +260,7 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    pub fn write(&mut self, descriptor: CopyDescriptor, data: &[u8]) -> Result<(), IoError> {
+    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: &[u8]) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
             shape,
@@ -186,7 +319,7 @@ impl<'a> Command<'a> {
     pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
         let handle = self.reserve(data.len() as u64)?;
 
-        self.write(
+        self.write_to_gpu(
             CopyDescriptor::new(handle.clone().binding(), &[data.len()], &[1], 1),
             data,
         )?;

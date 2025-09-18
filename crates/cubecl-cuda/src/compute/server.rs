@@ -132,7 +132,7 @@ impl ComputeServer for CudaServer {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
-            command.write(descriptor, data)?;
+            command.write_to_gpu(descriptor, data)?;
         }
 
         Ok(())
