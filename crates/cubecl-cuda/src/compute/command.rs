@@ -333,7 +333,12 @@ impl<'a> Command<'a> {
             return Err(IoError::UnsupportedStrides);
         }
 
+        assert_eq!(
+            binding.stream, self.streams.current,
+            "Can't write data from another stream."
+        );
         let resource = self.resource(binding)?;
+
         let current = self.streams.current();
 
         if rank > 1 {
