@@ -70,6 +70,13 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<CopyDescriptor<'_>>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+        log::info!(
+            "Read async on stream {stream_id} from streams {:?}",
+            descriptors
+                .iter()
+                .map(|d| format!(" - {}", d.binding.stream))
+                .collect::<Vec<_>>()
+        );
         let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
 
         Box::pin(command.read_async(descriptors))
