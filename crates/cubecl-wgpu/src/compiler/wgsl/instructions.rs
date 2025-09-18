@@ -924,11 +924,8 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
                 }
             }
             Instruction::Dot { lhs, rhs, out } => {
-                let item = out.item();
-                let lhs = lhs.fmt_cast_to(out.item());
-                let rhs = rhs.fmt_cast_to(out.item());
                 let out = out.fmt_left();
-                if item.vectorization_factor() == 1 {
+                if lhs.item().vectorization_factor() == 1 {
                     writeln!(f, "{out} = {lhs} * {rhs};")
                 } else {
                     writeln!(f, "{out} = dot({lhs}, {rhs});")
