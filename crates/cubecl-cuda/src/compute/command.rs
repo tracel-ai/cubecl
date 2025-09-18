@@ -159,7 +159,7 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let result = self.copies_to_bytes(descriptors, false);
+        let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
@@ -168,7 +168,6 @@ impl<'a> Command<'a> {
         }
     }
 
-    ///   * `Err(IoError)` - If the read operation fails.
     pub fn read_async_origin(
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
