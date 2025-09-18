@@ -78,7 +78,7 @@ fn best_divisor_close_to_reference(dividible_value: u32, reference: u32) -> u32 
     let mut best_dist = reference.abs_diff(1);
 
     for d in 1..=dividible_value {
-        if dividible_value % d == 0 {
+        if dividible_value.is_multiple_of(d) {
             let dist = reference.abs_diff(d);
             if dist < best_dist || (dist == best_dist && d > best) {
                 best = d;

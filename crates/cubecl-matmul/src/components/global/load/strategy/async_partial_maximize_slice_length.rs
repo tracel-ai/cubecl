@@ -147,7 +147,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
         let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(this.num_slices % this.unit_count == 0) {
+        if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
             CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
         } else {
             if nth_slice_in_stage < this.num_slices {

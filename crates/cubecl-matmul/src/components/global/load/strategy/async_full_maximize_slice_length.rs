@@ -83,7 +83,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
         let nth_slice = this.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(this.num_slices % this.unit_count == 0) {
+        if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
             load_nth_slice::<IP::Global, IP::Stage, CM, G>(
                 nth_slice,
                 tensor_reader,
