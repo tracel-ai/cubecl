@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use variadics_please::all_tuples_with_size;
+use variadics_please::all_tuples;
 
 /// A set of coordinates used in layouts. Contains some utilities for comptime inspection.
 #[cube]
@@ -28,52 +28,40 @@ pub type Coords4d = (u32, u32, u32, u32);
 pub type Coords5d = (u32, u32, u32, u32, u32);
 pub type CoordsDyn = Sequence<u32>;
 
-macro_rules! repeat_tokens {
-    ($t:ident, $tokens:tt) => {
-        $tokens
-    };
-}
-
 macro_rules! impl_coordinates_tuple {
-    ($N:expr, $(($t:ident, $o: ident)),*) => {
-        paste::paste! {
-            mod [<coords $N d>] {
-                use super::*;
-                const ORIGIN: ($(repeat_tokens!($t, u32),)*) = ($(repeat_tokens!($t, 0u32),)*);
-
+    ( $(($T:ident, $t:ident, $o: ident)),*) => {
                 #[cube]
-                impl Coordinates for ($(repeat_tokens!($t, u32),)*) {
+                impl<$($T: Coordinates),*> Coordinates for ($($T),*) {
                     fn add(this: Self, other: Self) -> Self {
                         let ($($t),*) = this;
                         let ($($o),*) = other;
-                        ($($t + $o),*)
+                        ($($T::add($t, $o)),*)
                     }
                     fn sub(this: Self, other: Self) -> Self {
                         let ($($t),*) = this;
                         let ($($o),*) = other;
-                        ($($t - $o),*)
+                        ($($T::sub($t, $o)),*)
                     }
                     fn min(this: Self, other: Self) -> Self {
                         let ($($t),*) = this;
                         let ($($o),*) = other;
-                        ($(Min::min($t, $o)),*)
+                        ($($T::min($t, $o)),*)
                     }
                     fn max(this: Self, other: Self) -> Self {
                         let ($($t),*) = this;
                         let ($($o),*) = other;
-                        ($(Max::max($t, $o)),*)
+                        ($($T::max($t, $o)),*)
                     }
                     fn is_in_bounds(this: Self, other: Self) -> bool {
                         let ($($t),*) = this;
                         let ($($o),*) = other;
-                        true $(&& $t < $o)*
+                        true $(&& $T::is_in_bounds($t, $o))*
                     }
-                    fn origin(_this: &Self) -> Self {
-                        ORIGIN.runtime()
+                    fn origin(this: &Self) -> Self {
+                        let ($($t),*) = this;
+                        ($($T::origin($t)),*)
                     }
                 }
-            }
-        }
     };
 }
 
@@ -99,7 +87,7 @@ impl Coordinates for Coords1d {
     }
 }
 
-all_tuples_with_size!(impl_coordinates_tuple, 2, 5, t, o);
+all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
 impl Coordinates for CoordsDyn {
