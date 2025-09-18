@@ -13,7 +13,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -44,7 +44,7 @@ where
             LhsStageReader = FullStageReader<LhsS<MP>, ConvTilingLayout>,
             RhsStageReader = FullStageReader<RhsS<MP>, ConvTilingLayout>,
             AccStageReader = BiasStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type LhsStageLoader = SyncFullStageLoader<
@@ -124,8 +124,8 @@ where
 
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
@@ -142,8 +142,8 @@ where
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
@@ -168,8 +168,8 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {

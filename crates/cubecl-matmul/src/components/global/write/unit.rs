@@ -2,7 +2,7 @@ use crate::components::global::memory::TensorWriter;
 use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords2d};
 
 use super::StageUnloader;
 
@@ -15,7 +15,7 @@ pub struct UnitWriter<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> UnitWriter<EG> {
-    pub fn new(view: View<Line<EG>, Coords3d, ReadWrite>) -> Self {
+    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
         UnitWriter::<EG> {
             tensor_view: TensorWriter::new(view),
         }
@@ -24,7 +24,7 @@ impl<EG: Numeric> UnitWriter<EG> {
 
 #[cube]
 impl<EG: Numeric> StageUnloader<EG> for UnitWriter<EG> {
-    type Coordinates = Coords3d;
+    type Coordinates = Coords2d;
 
     fn write<G: GlobalConfig>(
         this: &mut Self,

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
 use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
@@ -135,7 +135,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         )
     }
 
-    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+    fn init_writer(out: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer {
         DummyWriter::new(out)
     }
 

@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
 use cubecl_std::{
     FastDivmod,
     tensor::{
-        layout::{Coords3d, Layout, LayoutExpand},
+        layout::{Coords2d, Layout, LayoutExpand},
         r#virtual::VirtualTensor,
     },
 };
@@ -80,11 +80,11 @@ impl WeightLayout {
 
 #[cube]
 impl Layout for WeightLayout {
-    type Coordinates = Coords3d;
+    type Coordinates = Coords2d;
     type SourceCoordinates = NhwcCoords;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> NhwcCoords {
-        let (_, k, n) = coords;
+        let (k, n) = coords;
 
         let (mut rem, in_c) = self.channels.div_mod(k);
 
@@ -116,7 +116,7 @@ impl Layout for WeightLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        (1, self.shape_k, self.shape_n)
+        (self.shape_k, self.shape_n)
     }
 
     #[allow(unreachable_code)]
@@ -130,7 +130,7 @@ impl Layout for WeightLayout {
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        let (_, k, n) = pos;
+        let (k, n) = pos;
         let check_k = comptime![self.config.check_row_bounds];
         let check_n = comptime![self.config.check_col_bounds];
         (!check_k || k < self.shape_k) && (!check_n || n < self.shape_n)

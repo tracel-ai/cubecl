@@ -18,7 +18,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords3d},
+    tensor::{View, layout::Coords2d},
 };
 
 #[cube]
@@ -60,7 +60,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 {
     /// Create a new SyncFullLoader
     pub fn new(
-        tensor: View<Line<IP::Global>, Coords3d>,
+        tensor: View<Line<IP::Global>, Coords2d>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {

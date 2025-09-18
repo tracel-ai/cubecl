@@ -13,7 +13,7 @@ use crate::components::{
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -96,8 +96,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initialize the loader for Lhs, starting at row m and column k
     fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader;
@@ -105,8 +106,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader;
@@ -114,8 +116,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initialize the loader for Rhs, starting at row k and column n
     fn init_acc_stage_loader(
         rhs: CubeOption<VirtualTensor<AccG<MP>>>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader;
@@ -126,8 +129,9 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initialize the writer at row m and column n
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader;

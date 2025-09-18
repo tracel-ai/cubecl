@@ -1,14 +1,14 @@
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords2d};
 
 #[derive(CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorWriter<EO: Numeric> {
-    pub view: View<Line<EO>, Coords3d, ReadWrite>,
+    pub view: View<Line<EO>, Coords2d, ReadWrite>,
 }
 
 unsafe impl<EG: Numeric> Sync for TensorWriter<EG> {}
@@ -17,7 +17,7 @@ unsafe impl<EG: Numeric> Send for TensorWriter<EG> {}
 #[cube]
 impl<EG: Numeric> TensorWriter<EG> {
     /// Instantiate a write view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: View<Line<EG>, Coords3d, ReadWrite>) -> Self {
+    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
         TensorWriter::<EG> { view }
     }
 
@@ -39,6 +39,6 @@ impl<EG: Numeric> TensorWriter<EG> {
         let view_y = tile_y * tile_size_n + unit_id % tile_size_n;
 
         self.view
-            .write_checked((0, view_x, view_y), Line::cast_from(value));
+            .write_checked((view_x, view_y), Line::cast_from(value));
     }
 }

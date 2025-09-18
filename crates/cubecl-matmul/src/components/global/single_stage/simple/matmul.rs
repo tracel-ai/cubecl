@@ -12,7 +12,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 use std::marker::PhantomData;
 
@@ -39,7 +39,7 @@ where
             LhsStageReader = FullStageReader<LhsS<MP>, LL::TilingLayout>,
             RhsStageReader = FullStageReader<RhsS<MP>, RL::TilingLayout>,
             AccStageReader = FillStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
@@ -105,12 +105,14 @@ where
 
     fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
-        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
+        let conf = config.global_memory_config(MatmulIdent::Lhs);
+        let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         Self::LhsStageLoader::new(
             lhs.view(layout).slice_unchecked(offset, slice_size),
             MatmulIdent::Lhs,
@@ -120,12 +122,14 @@ where
 
     fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
-        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        let conf = config.global_memory_config(MatmulIdent::Rhs);
+        let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         Self::RhsStageLoader::new(
             rhs.view(layout).slice_unchecked(offset, slice_size),
             MatmulIdent::Rhs,
@@ -135,8 +139,9 @@ where
 
     fn init_acc_stage_loader(
         acc: CubeOption<VirtualTensor<AccG<MP>>>,
-        _offset: Coords3d,
-        _slice_size: Coords3d,
+        _batch_offset: u32,
+        _offset: Coords2d,
+        _slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] _config: Self::Config,
     ) -> Self::AccStageLoader {
@@ -148,12 +153,14 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        let conf = config.global_memory_config(MatmulIdent::Out);
+        let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
         SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
     }
 

@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -70,8 +70,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the loader for the input feature map with an appropriate layout
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader;
@@ -79,8 +79,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the loader for the weights with an appropriate layout
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader;
@@ -96,8 +96,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the output feature map loader with an appropriate layout
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        view_shape: Coords3d,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader;

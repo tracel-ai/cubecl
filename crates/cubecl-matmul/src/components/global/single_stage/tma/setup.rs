@@ -12,7 +12,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{
     MatmulProblem,
@@ -31,7 +31,7 @@ where
             LhsStageReader = FullStageReaderFamily,
             RhsStageReader = FullStageReaderFamily,
             AccStageReader = FillStageReaderFamily,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type Matmul<MP: MatmulPrecision> =

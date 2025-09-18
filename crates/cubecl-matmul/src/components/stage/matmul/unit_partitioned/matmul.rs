@@ -9,7 +9,7 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords2d};
 
 #[allow(type_alias_bounds)]
 /// [PartitionedStageMatmul] partitioned across units
@@ -39,7 +39,7 @@ pub struct UnitPartitioner {}
 #[cube]
 impl StagePartitioner for UnitPartitioner {
     type Writer<EO: Numeric> = UnitWriter<EO>;
-    type WriteCoords = Coords3d;
+    type WriteCoords = Coords2d;
 
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,

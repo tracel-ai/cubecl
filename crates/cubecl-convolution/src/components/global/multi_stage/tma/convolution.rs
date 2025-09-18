@@ -12,7 +12,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -60,7 +60,7 @@ where
             LhsStageReader = FullStageReader<LhsS<MP>, TmaIm2colTiling>,
             RhsStageReader = FullStageReader<RhsS<MP>, TmaWeightTiling>,
             AccStageReader = BiasStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
@@ -201,12 +201,12 @@ where
 
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        _slice_size: Coords3d,
+        offset: Coords2d,
+        _slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
-        let (_, x_offset, y_offset) = offset;
+        let (x_offset, y_offset) = offset;
         Self::LhsStageLoader::new(
             lhs,
             x_offset,
@@ -219,12 +219,12 @@ where
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        _slice_size: Coords3d,
+        offset: Coords2d,
+        _slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
-        let (_, x_offset, y_offset) = offset;
+        let (x_offset, y_offset) = offset;
         Self::RhsStageLoader::new::<Self::Config>(
             rhs.as_tensor_map(),
             x_offset,
@@ -246,8 +246,8 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {

@@ -12,7 +12,7 @@ use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords3d},
+    tensor::{View, layout::Coords2d},
 };
 
 #[cube]
@@ -66,7 +66,7 @@ impl<
 {
     /// Create a new AsyncFullLoader
     pub fn new(
-        view: View<Line<IP::Global>, Coords3d>,
+        view: View<Line<IP::Global>, Coords2d>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -75,7 +75,7 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let (_, shape_x, shape_y) = view.shape();
+        let (shape_x, shape_y) = view.shape();
         let tensor_reader = TensorReader::new(view);
 
         let loading_job = match config.precompute_job() {

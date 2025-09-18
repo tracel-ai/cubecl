@@ -14,7 +14,7 @@ use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords3d};
+use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 use std::marker::PhantomData;
 
 use crate::components::global::GlobalConfig;
@@ -33,7 +33,7 @@ where
             LhsStageReader = TmaStageReader<MP::Lhs>,
             RhsStageReader = TmaStageReader<MP::Rhs>,
             AccStageReader = FillStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
@@ -110,12 +110,13 @@ where
 
     fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        offset: Coords3d,
-        _slice_size: Coords3d,
+        _batch_offset: u32,
+        offset: Coords2d,
+        _slice_size: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
-        let (_, x_offset, y_offset) = offset;
+        let (x_offset, y_offset) = offset;
         Self::LhsStageLoader::new(
             lhs.as_tensor_map(),
             x_offset,
@@ -128,12 +129,13 @@ where
 
     fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords3d,
-        _slice_size: Coords3d,
+        _batch_offset: u32,
+        offset: Coords2d,
+        _slice_size: Coords2d,
         nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
-        let (_, x_offset, y_offset) = offset;
+        let (x_offset, y_offset) = offset;
         Self::RhsStageLoader::new(
             rhs.as_tensor_map(),
             x_offset,
@@ -146,8 +148,9 @@ where
 
     fn init_acc_stage_loader(
         acc: CubeOption<VirtualTensor<AccG<MP>>>,
-        _offset: Coords3d,
-        _slice_size: Coords3d,
+        _batch_offset: u32,
+        _offset: Coords2d,
+        _slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] _config: Self::Config,
     ) -> Self::AccStageLoader {
@@ -159,12 +162,14 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords3d,
-        slice_size: Coords3d,
+        batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
+        let conf = config.global_memory_config(MatmulIdent::Out);
+        let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
         SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
     }
 

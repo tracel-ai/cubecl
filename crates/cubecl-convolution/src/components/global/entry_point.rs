@@ -91,15 +91,15 @@ pub(crate) fn implicit_conv<
     GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_loader(
             lhs,
-            (0, m_offset, k_range.0),
-            (1, stage_m, k_size),
+            (m_offset, k_range.0),
+            (stage_m, k_size),
             &runtime_args,
             config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_loader(
             rhs,
-            (0, k_range.0, n_offset),
-            (1, k_size, stage_n),
+            (k_range.0, n_offset),
+            (k_size, stage_n),
             &runtime_args,
             config,
         ),
@@ -108,8 +108,8 @@ pub(crate) fn implicit_conv<
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(
             out,
-            (0, m_offset, n_offset),
-            (1, stage_m, stage_n),
+            (m_offset, n_offset),
+            (stage_m, stage_n),
             &runtime_args,
             config,
         ),

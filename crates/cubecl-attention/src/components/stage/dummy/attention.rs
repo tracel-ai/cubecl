@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{stage::StageReader, tile::loader::Strided};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::global::dummy::QueryRegisterReader;
@@ -83,7 +83,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         TA::write::<G>(acc, writer, stage_config.tile_config(), global_config);
     }
 
-    fn init_writer(out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
+    fn init_writer(out: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer {
         TA::init_writer(out)
     }
 
