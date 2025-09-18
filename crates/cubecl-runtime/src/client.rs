@@ -486,7 +486,7 @@ where
     pub fn memory_usage(&self) -> MemoryUsage {
         self.profile_guard();
 
-        self.channel.memory_usage()
+        self.channel.memory_usage(self.stream_id())
     }
 
     /// Change the memory allocation mode.
@@ -497,7 +497,7 @@ where
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
         self.profile_guard();
 
-        self.channel.allocation_mode(mode)
+        self.channel.allocation_mode(mode, self.stream_id())
     }
 
     /// Use a static memory strategy to execute the provided function.
@@ -519,9 +519,11 @@ where
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
-        self.channel.allocation_mode(MemoryAllocationMode::Static);
+        self.channel
+            .allocation_mode(MemoryAllocationMode::Static, self.stream_id());
         let output = func(input);
-        self.channel.allocation_mode(MemoryAllocationMode::Auto);
+        self.channel
+            .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);
@@ -536,7 +538,7 @@ where
     pub fn memory_cleanup(&self) {
         self.profile_guard();
 
-        self.channel.memory_cleanup()
+        self.channel.memory_cleanup(self.stream_id())
     }
 
     /// Measure the execution time of some inner operations.

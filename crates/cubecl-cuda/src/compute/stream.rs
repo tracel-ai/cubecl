@@ -1,15 +1,12 @@
 use crate::compute::{
     storage::{
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-        gpu::{GpuResource, GpuStorage},
+        gpu::GpuStorage,
     },
     sync::Fence,
 };
 use cubecl_common::stream_id::StreamId;
-use cubecl_core::{
-    MemoryConfiguration,
-    server::{Binding, IoError},
-};
+use cubecl_core::MemoryConfiguration;
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     stream::StreamBackend,
@@ -29,12 +26,6 @@ impl core::fmt::Debug for Stream {
             .field("memory_management_gpu", &self.memory_management_gpu)
             .field("memory_management_cpu", &self.memory_management_cpu)
             .finish()
-    }
-}
-
-impl Stream {
-    pub fn fence(&mut self) -> Fence {
-        Fence::new(self.sys)
     }
 }
 
@@ -79,7 +70,7 @@ impl StreamBackend for CudaStreamBackend {
     }
 
     fn flush(stream: &mut Self::Stream) -> Self::Event {
-        stream.fence()
+        Fence::new(stream.sys)
     }
 
     fn wait_event(stream: &mut Self::Stream, event: Self::Event) {

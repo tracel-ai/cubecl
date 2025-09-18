@@ -129,12 +129,12 @@ where
         self.server.borrow_mut().flush(stream_id)
     }
 
-    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
-        self.server.borrow_mut().memory_usage()
+    fn memory_usage(&self, stream_id: StreamId) -> crate::memory_management::MemoryUsage {
+        self.server.borrow_mut().memory_usage(stream_id)
     }
 
-    fn memory_cleanup(&self) {
-        self.server.borrow_mut().memory_cleanup();
+    fn memory_cleanup(&self, stream_id: StreamId) {
+        self.server.borrow_mut().memory_cleanup(stream_id);
     }
 
     fn start_profile(&self, stream_id: StreamId) -> ProfilingToken {
@@ -149,8 +149,12 @@ where
         self.server.borrow_mut().end_profile(stream_id, token)
     }
 
-    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
-        self.server.borrow_mut().allocation_mode(mode)
+    fn allocation_mode(
+        &self,
+        mode: crate::memory_management::MemoryAllocationMode,
+        stream_id: StreamId,
+    ) {
+        self.server.borrow_mut().allocation_mode(mode, stream_id)
     }
 }
 

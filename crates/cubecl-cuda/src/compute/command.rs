@@ -1,0 +1,302 @@
+use crate::{
+    CudaCompiler,
+    compute::{
+        DataTransferItem, DataTransferRuntime, context::CudaContext, io::register_copies_to_bytes,
+        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence, valid_strides,
+    },
+};
+use cubecl_common::bytes::Bytes;
+use cubecl_core::{
+    ExecutionMode, MemoryUsage,
+    compute::CubeTask,
+    future::DynFut,
+    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
+};
+use cubecl_runtime::{
+    data_service::DataTransferId, id::KernelId, logging::ServerLogger,
+    memory_management::MemoryAllocationMode, stream::ResolvedStreams,
+};
+use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMap, cuMemcpy2DAsync_v2};
+use std::{ffi::c_void, sync::Arc};
+
+#[derive(new)]
+/// The `Command` struct encapsulates a CUDA context and a set of resolved CUDA streams, providing an
+/// interface for executing GPU-related operations such as memory allocation, data transfers, kernel
+/// registration, and task execution.
+pub struct Command<'a> {
+    ctx: &'a mut CudaContext,
+    streams: ResolvedStreams<'a, CudaStreamBackend>,
+}
+
+impl<'a> Command<'a> {
+    /// Retrieves a GPU resource associated with the provided binding.
+    ///
+    /// # Parameters
+    ///
+    /// * `binding` - The binding specifying the stream, memory, and offsets for the resource.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(GpuResource)` - The GPU resource associated with the binding.
+    /// * `Err(IoError::InvalidHandle)` - If the binding does not correspond to a valid resource.
+    pub fn resource(&mut self, binding: Binding) -> Result<GpuResource, IoError> {
+        self.streams
+            .get(&binding.stream)
+            .memory_management_gpu
+            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+            .ok_or(IoError::InvalidHandle)
+    }
+
+    /// Retrieves the gpu memory usage of the current stream.
+    ///
+    /// # Returns
+    ///
+    /// * The [MemoryUsage] struct.
+    pub fn memory_usage(&mut self) -> MemoryUsage {
+        self.streams.current().memory_management_gpu.memory_usage()
+    }
+
+    /// Explicitly cleanup gpu memory on the current stream.
+    pub fn memory_cleanup(&mut self) {
+        self.streams.current().memory_management_gpu.cleanup(true)
+    }
+
+    /// Set the [MemoryAllocationMode] for the current stream.
+    ///
+    /// # Parameters
+    ///
+    /// * `mode` - The allocation mode to be used.
+    pub fn allocation_mode(&mut self, mode: MemoryAllocationMode) {
+        self.streams.current().memory_management_gpu.mode(mode)
+    }
+
+    /// Allocates a new GPU memory buffer of the specified size.
+    ///
+    /// # Parameters
+    ///
+    /// * `size` - The size of the memory to allocate (in bytes).
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Handle)` - A handle to the newly allocated GPU memory.
+    /// * `Err(IoError)` - If the allocation fails.
+    pub fn reserve(&mut self, size: u64) -> Result<Handle, IoError> {
+        let handle = self.streams.current().memory_management_gpu.reserve(size)?;
+
+        Ok(Handle::new(
+            handle,
+            None,
+            None,
+            self.streams.current,
+            self.streams.cursor,
+            size,
+        ))
+    }
+
+    /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.
+    ///
+    /// # Parameters
+    ///
+    /// * `descriptors` - A vector of descriptors specifying the source GPU memory and its layout.
+    ///
+    /// # Returns
+    ///
+    /// * A `Future` resolving to:
+    ///   * `Ok(Vec<Bytes>)` - The data read from the GPU as a vector of byte arrays.
+    ///   * `Err(IoError)` - If the read operation fails.
+    pub fn read_async(
+        &mut self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let result = register_copies_to_bytes(self.streams.current, &mut self.streams, descriptors);
+        let fence = Fence::new(self.streams.current().sys);
+
+        async move {
+            fence.wait_sync();
+            result
+        }
+    }
+
+    /// Writes data from the host to GPU memory as specified by the copy descriptor.
+    ///
+    /// # Parameters
+    ///
+    /// * `descriptor` - Describes the destination GPU memory, its shape, strides, and element size.
+    /// * `data` - The host data to write to the GPU.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(())` - If the write operation succeeds.
+    /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
+    pub fn write(&mut self, descriptor: CopyDescriptor, data: &[u8]) -> Result<(), IoError> {
+        let CopyDescriptor {
+            binding,
+            shape,
+            strides,
+            elem_size,
+        } = descriptor;
+        let rank = shape.len();
+
+        if !valid_strides(shape, strides) {
+            return Err(IoError::UnsupportedStrides);
+        }
+
+        let resource = self.resource(binding)?;
+        let current = self.streams.current();
+
+        if rank > 1 {
+            let dim_x = shape[rank - 1];
+            let width_bytes = dim_x * elem_size;
+            let dim_y: usize = shape.iter().rev().skip(1).product();
+            let pitch = strides[rank - 2] * elem_size;
+
+            let cpy = CUDA_MEMCPY2D_st {
+                srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+                srcHost: data.as_ptr() as *const c_void,
+                srcPitch: width_bytes,
+                dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+                dstDevice: resource.ptr,
+                dstPitch: pitch,
+                WidthInBytes: width_bytes,
+                Height: dim_y,
+                ..Default::default()
+            };
+
+            unsafe {
+                cuMemcpy2DAsync_v2(&cpy, current.sys).result().unwrap();
+            }
+        } else {
+            unsafe {
+                cudarc::driver::result::memcpy_htod_async(resource.ptr, data, current.sys).unwrap();
+            }
+        };
+
+        Ok(())
+    }
+
+    /// Allocates a new GPU memory buffer and immediately copies contiguous host data into it.
+    ///
+    /// # Parameters
+    ///
+    /// * `data` - The host data to copy to the GPU.
+    ///
+    /// # Returns
+    ///
+    /// * `Ok(Handle)` - A handle to the newly allocated and populated GPU memory.
+    /// * `Err(IoError)` - If the allocation or data copy fails.
+    pub fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+        let handle = self.reserve(data.len() as u64)?;
+
+        self.write(
+            CopyDescriptor::new(handle.clone().binding(), &[data.len()], &[1], 1),
+            data,
+        )?;
+
+        Ok(handle)
+    }
+
+    /// Registers a source for an asynchronous data transfer operation.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` - The unique identifier for the data transfer.
+    /// * `src` - The descriptor for the source GPU memory.
+    pub fn data_transfer_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+        let src_resource = self.resource(src.binding).unwrap();
+
+        let client = DataTransferRuntime::client();
+        let current = self.streams.current();
+
+        let handle = DataTransferItem {
+            stream: current.sys,
+            context: self.ctx.context,
+            resource: src_resource,
+        };
+        let fence = Fence::new(current.sys);
+
+        client.register_src(id, handle, fence);
+    }
+
+    /// Registers a destination for an asynchronous data transfer operation.
+    ///
+    /// # Parameters
+    ///
+    /// * `id` - The unique identifier for the data transfer.
+    /// * `dest` - The descriptor for the destination GPU memory.
+    pub fn data_transfer_dest(&mut self, id: DataTransferId, dest: CopyDescriptor<'_>) {
+        let dst_resource = self.resource(dest.binding).unwrap();
+        let current = self.streams.current();
+        let client = DataTransferRuntime::client();
+
+        let call = DataTransferItem {
+            context: self.ctx.context,
+            stream: current.sys,
+            resource: dst_resource,
+        };
+
+        client.register_dest(id, call);
+    }
+
+    /// Synchronizes the current stream, ensuring all pending operations are complete.
+    ///
+    /// # Returns
+    ///
+    /// * A `DynFut<()>` future that resolves when the stream is synchronized.
+    pub fn sync(&mut self) -> DynFut<()> {
+        let fence = Fence::new(self.streams.current().sys);
+
+        Box::pin(async {
+            fence.wait_sync();
+        })
+    }
+
+    /// Executes a registered CUDA kernel with the specified parameters.
+    ///
+    /// # Parameters
+    ///
+    /// * `kernel_id` - The identifier of the kernel to execute.
+    /// * `kernel` - The cube task to compile if not cached.
+    /// * `mode` - The execution mode for the current kernel.
+    /// * `dispatch_count` - The number of thread blocks in the x, y, and z dimensions.
+    /// * `tensor_maps` - Tensor maps for structured memory access.
+    /// * `resources` - GPU resources (e.g., buffers) used by the kernel.
+    /// * `scalars` - Scalar arguments passed to the kernel.
+    /// * `logger` - The logger to use to write compilation & runtime info.
+    ///
+    /// # Panics
+    ///
+    /// * If the execution fails, with an error message or profiling error.
+    pub fn kernel(
+        &mut self,
+        kernel_id: KernelId,
+        kernel: Box<dyn CubeTask<CudaCompiler>>,
+        mode: ExecutionMode,
+        dispatch_count: (u32, u32, u32),
+        tensor_maps: &[CUtensorMap],
+        resources: &[GpuResource],
+        scalars: &[*mut c_void],
+        logger: Arc<ServerLogger>,
+    ) {
+        if !self.ctx.module_names.contains_key(&kernel_id) {
+            self.ctx.compile_kernel(&kernel_id, kernel, mode, logger);
+        }
+
+        let stream = self.streams.current();
+
+        let result = self.ctx.execute_task(
+            stream,
+            kernel_id,
+            dispatch_count,
+            tensor_maps,
+            resources,
+            scalars,
+        );
+
+        if let Err(err) = result {
+            match self.ctx.timestamps.is_empty() {
+                true => panic!("{err:?}"),
+                false => self.ctx.timestamps.error(ProfileError::Unknown(err)),
+            }
+        };
+    }
+}

@@ -118,12 +118,12 @@ where
         self.server.lock().flush(stream_id);
     }
 
-    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
-        self.server.lock().memory_usage()
+    fn memory_usage(&self, stream_id: StreamId) -> crate::memory_management::MemoryUsage {
+        self.server.lock().memory_usage(stream_id)
     }
 
-    fn memory_cleanup(&self) {
-        self.server.lock().memory_cleanup();
+    fn memory_cleanup(&self, stream_id: StreamId) {
+        self.server.lock().memory_cleanup(stream_id);
     }
 
     fn start_profile(&self, stream_id: StreamId) -> ProfilingToken {
@@ -138,8 +138,8 @@ where
         self.server.lock().end_profile(stream_id, token)
     }
 
-    fn allocation_mode(&self, mode: MemoryAllocationMode) {
+    fn allocation_mode(&self, mode: MemoryAllocationMode, stream_id: StreamId) {
         let mut server = self.server.lock();
-        server.allocation_mode(mode)
+        server.allocation_mode(mode, stream_id)
     }
 }

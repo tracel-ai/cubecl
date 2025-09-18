@@ -125,10 +125,10 @@ where
     fn flush(&mut self, stream_id: StreamId);
 
     /// The current memory usage of the server.
-    fn memory_usage(&self) -> MemoryUsage;
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self);
+    fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
@@ -141,7 +141,7 @@ where
     ) -> Result<ProfileDuration, ProfileError>;
 
     /// Update the memory mode of allocation in the server.
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
 /// Defines a way to move data from one compute server to another.

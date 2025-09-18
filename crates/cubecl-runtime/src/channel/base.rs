@@ -75,13 +75,13 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
     fn flush(&self, stream_id: StreamId);
 
     /// Get the current memory usage of the server.
-    fn memory_usage(&self) -> crate::memory_management::MemoryUsage;
+    fn memory_usage(&self, stream_id: StreamId) -> crate::memory_management::MemoryUsage;
 
     /// Change the memory allocation mode.
-    fn allocation_mode(&self, mode: MemoryAllocationMode);
+    fn allocation_mode(&self, mode: MemoryAllocationMode, stream_id: StreamId);
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&self);
+    fn memory_cleanup(&self, stream_id: StreamId);
 
     /// Start a profile on the server. This allows you to profile kernels.
     ///

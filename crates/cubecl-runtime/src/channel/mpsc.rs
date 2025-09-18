@@ -122,9 +122,9 @@ where
     ),
     Flush(StreamId),
     Sync(StreamId, Callback<()>),
-    MemoryUsage(Callback<MemoryUsage>),
-    MemoryCleanup,
-    AllocationMode(MemoryAllocationMode),
+    MemoryUsage(StreamId, Callback<MemoryUsage>),
+    MemoryCleanup(StreamId),
+    AllocationMode(StreamId, MemoryAllocationMode),
     StartProfile(StreamId, Callback<ProfilingToken>),
     StopMeasure(
         Callback<Result<ProfileDuration, ProfileError>>,
@@ -178,11 +178,11 @@ where
                     Message::Flush(stream) => {
                         server.flush(stream);
                     }
-                    Message::MemoryUsage(callback) => {
-                        callback.send(server.memory_usage()).await.unwrap();
+                    Message::MemoryUsage(stream, callback) => {
+                        callback.send(server.memory_usage(stream)).await.unwrap();
                     }
-                    Message::MemoryCleanup => {
-                        server.memory_cleanup();
+                    Message::MemoryCleanup(stream) => {
+                        server.memory_cleanup(stream);
                     }
                     Message::StartProfile(stream_id, callback) => {
                         let token = server.start_profile(stream_id);
@@ -194,8 +194,8 @@ where
                             .await
                             .unwrap();
                     }
-                    Message::AllocationMode(mode) => {
-                        server.allocation_mode(mode);
+                    Message::AllocationMode(stream, mode) => {
+                        server.allocation_mode(mode, stream);
                     }
                     Message::DataTransferSend(stream, id, src) => {
                         server.register_src(stream, id, src.as_ref());
@@ -352,19 +352,19 @@ where
         })
     }
 
-    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
+    fn memory_usage(&self, stream_id: StreamId) -> crate::memory_management::MemoryUsage {
         let (callback, response) = async_channel::unbounded();
         self.state
             .sender
-            .send_blocking(Message::MemoryUsage(callback))
+            .send_blocking(Message::MemoryUsage(stream_id, callback))
             .unwrap();
         handle_response(response.recv_blocking())
     }
 
-    fn memory_cleanup(&self) {
+    fn memory_cleanup(&self, stream_id: StreamId) {
         self.state
             .sender
-            .send_blocking(Message::MemoryCleanup)
+            .send_blocking(Message::MemoryCleanup(stream_id))
             .unwrap()
     }
 
@@ -392,10 +392,14 @@ where
         handle_response(response.recv_blocking())
     }
 
-    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
+    fn allocation_mode(
+        &self,
+        mode: crate::memory_management::MemoryAllocationMode,
+        stream_id: StreamId,
+    ) {
         self.state
             .sender
-            .send_blocking(Message::AllocationMode(mode))
+            .send_blocking(Message::AllocationMode(stream_id, mode))
             .unwrap()
     }
 }
