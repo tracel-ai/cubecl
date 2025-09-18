@@ -29,7 +29,7 @@ pub type Coords5d = (u32, u32, u32, u32, u32);
 pub type CoordsDyn = Sequence<u32>;
 
 macro_rules! impl_coordinates_tuple {
-    ( $(($T:ident, $t:ident, $o: ident)),*) => {
+    ($(($T:ident, $t:ident, $o: ident)),*) => {
         #[cube]
         impl<$($T: Coordinates),*> Coordinates for ($($T),*) {
             fn add(this: Self, other: Self) -> Self {

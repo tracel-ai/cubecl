@@ -3,6 +3,7 @@ use cubecl_core::{self as cubecl, intrinsic};
 
 use crate::tensor::layout::{Coordinates, Layout, LayoutExpand};
 
+/// A layout containing a sub-slice of the inner layout.
 #[allow(unused)]
 #[derive(CubeType)]
 pub struct SliceLayout<C: Coordinates> {
@@ -15,6 +16,7 @@ pub struct SliceLayout<C: Coordinates> {
 #[cube]
 impl<C: Coordinates> SliceLayout<C> {
     /// Create a new slice layout.
+    /// `checked` determines whether bounds should be checked, or simply treated as always in bounds.
     pub fn new(start: C, size: C, #[comptime] checked: bool) -> Self {
         SliceLayout::<C> {
             offset: start,
