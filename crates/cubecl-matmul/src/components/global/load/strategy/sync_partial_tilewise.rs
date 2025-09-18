@@ -46,7 +46,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
 
-        if num_tiles % num_planes != 0 {
+        if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
                 "Number of planes {num_planes:?} must divide number of tiles {num_tiles:?} for tilewise loading.".to_string()
             }));

@@ -44,7 +44,6 @@ use cudarc::driver::sys::{
 use cudarc::driver::sys::{CUfunc_st, CUtensorMapInterleave};
 #[cfg(feature = "cuda-12080")]
 use cudarc::driver::sys::{CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::c_char;
 use std::path::PathBuf;
@@ -78,7 +77,8 @@ pub(crate) struct CudaContext {
     compilation_options: CompilationOptions,
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
+#[cfg(feature = "compilation-cache")]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
@@ -336,7 +336,7 @@ impl ComputeServer for CudaServer {
                     .expect("Failed to find resource");
                 let device_ptr = resource.ptr as *mut c_void;
                 debug_assert!(
-                    device_ptr as usize % 16 == 0,
+                    (device_ptr as usize).is_multiple_of(16),
                     "Tensor pointer must be 16 byte aligned"
                 );
                 let mut map_ptr = MaybeUninit::zeroed();

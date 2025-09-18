@@ -247,7 +247,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     let line_size_out = num_quants;
     let rank = output.shape.len();
 
-    if output.shape[rank - 1] % line_size_out as usize != 0 {
+    if !output.shape[rank - 1].is_multiple_of(line_size_out as usize) {
         line_size_in = 1;
     }
 

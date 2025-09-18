@@ -22,7 +22,7 @@ impl LoadingValidation for SyncFullStridedLoading {
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
 
-        if num_stage_lines % total_units != 0 {
+        if !num_stage_lines.is_multiple_of(total_units) {
             return Err(Box::new(
                 "Too many data will be loaded, resulting in out of bounds.
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
