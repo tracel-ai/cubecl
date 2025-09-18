@@ -2,15 +2,11 @@ use cubecl_core::compute::{CubeTask, DebugInformation};
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
-use super::storage::gpu::{GpuResource, GpuStorage};
+use super::storage::gpu::GpuResource;
+use crate::install::{cccl_include_path, include_path};
 use crate::{CudaCompiler, WmmaCompiler, compute::stream::Stream};
-use crate::{
-    compute::storage::cpu::PinnedMemoryStorage,
-    install::{cccl_include_path, include_path},
-};
 use cubecl_core::prelude::*;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::MemoryManagement;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cudarc::driver::sys::CUfunc_st;
 use cudarc::driver::sys::{CUctx_st, CUfunction_attribute, CUtensorMap};
@@ -27,8 +23,6 @@ use cubecl_common::cache::{Cache, CacheOption};
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
-    pub memory_management_gpu: MemoryManagement<GpuStorage>,
-    pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub module_names: HashMap<KernelId, CompiledKernel>,
     #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
@@ -46,16 +40,12 @@ pub struct CompiledKernel {
 
 impl CudaContext {
     pub fn new(
-        memory_management_gpu: MemoryManagement<GpuStorage>,
-        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
         compilation_options: CompilationOptions,
         context: *mut CUctx_st,
         arch: CudaArchitecture,
     ) -> Self {
         Self {
             context,
-            memory_management_gpu,
-            memory_management_cpu,
             module_names: HashMap::new(),
             #[cfg(feature = "compilation-cache")]
             ptx_cache: {

@@ -100,6 +100,7 @@ where
     fn get_resource(
         &mut self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
     /// Executes the `kernel` over the given memory `handles`.

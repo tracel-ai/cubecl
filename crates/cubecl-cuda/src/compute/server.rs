@@ -7,8 +7,8 @@ use crate::compute::{
 };
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
-use cubecl_core::prelude::*;
 use cubecl_core::server::Binding;
+use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{
     compute::CubeTask,
     server::{DataTransferService, IoError},
@@ -27,8 +27,8 @@ use cubecl_core::{
 };
 use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
+use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
@@ -113,9 +113,9 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
-        let (ctx, _stream, cursor) = self.resolve_context_basic(stream_id);
+        let (_ctx, stream, cursor) = self.resolve_context_basic(stream_id);
 
-        let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
+        let handle = stream.memory_management_gpu.reserve(total_size as u64)?;
         let mem_handle =
             server::Handle::new(handle, None, None, stream_id, cursor, total_size as u64);
 
@@ -133,7 +133,7 @@ impl ComputeServer for CudaServer {
         descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        let (ctx, stream, _cursor) = self
+        let (_ctx, stream, _cursor) = self
             .resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
@@ -149,7 +149,7 @@ impl ComputeServer for CudaServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            let resource = ctx
+            let resource = stream
                 .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .ok_or(IoError::InvalidHandle)?;
@@ -273,7 +273,7 @@ impl ComputeServer for CudaServer {
             .tensor_maps
             .into_iter()
             .map(|TensorMapBinding { map, binding }| {
-                let resource = ctx
+                let resource = stream
                     .memory_management_gpu
                     .get_resource(
                         binding.memory.clone(),
@@ -402,12 +402,12 @@ impl ComputeServer for CudaServer {
         let mut resources = bindings
             .buffers
             .into_iter()
-            .map(|binding| find_resource(ctx, binding))
+            .map(|binding| find_resource(stream, binding))
             .collect::<Vec<_>>();
         resources.extend(
             scalar_bindings
                 .into_iter()
-                .map(|s| find_resource(ctx, s.binding())),
+                .map(|s| find_resource(stream, s.binding())),
         );
 
         let result = ctx.execute_task(stream, kernel_id, count, &tensor_maps, &resources, &scalars);
@@ -446,10 +446,16 @@ impl ComputeServer for CudaServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
+    fn get_resource(
+        &mut self,
+        binding: server::Binding,
+        stream_id: StreamId,
+    ) -> BindingResource<GpuResource> {
+        let (_, stream, _) = self.resolve_context_bindings(stream_id, [&binding].into_iter());
+
         BindingResource::new(
             binding.clone(),
-            self.ctx
+            stream
                 .memory_management_gpu
                 .get_resource(binding.memory, binding.offset_start, binding.offset_end)
                 .expect("Failed to find resource"),
@@ -457,15 +463,18 @@ impl ComputeServer for CudaServer {
     }
 
     fn memory_usage(&self) -> MemoryUsage {
-        self.ctx.memory_management_gpu.memory_usage()
+        todo!()
+        // self.ctx.memory_management_gpu.memory_usage()
     }
 
     fn memory_cleanup(&mut self) {
-        self.ctx.memory_management_gpu.cleanup(true);
+        todo!()
+        // self.ctx.memory_management_gpu.cleanup(true);
     }
 
     fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
-        self.ctx.memory_management_gpu.mode(mode);
+        todo!()
+        // self.ctx.memory_management_gpu.mode(mode);
     }
 }
 
@@ -474,7 +483,7 @@ impl DataTransferService for CudaServer {
         let (src_ctx, stream, _cursor) =
             self.resolve_context_bindings(stream_id, [&src.binding].into_iter());
 
-        let src_resource = src_ctx
+        let src_resource = stream
             .memory_management_gpu
             .get_resource(
                 src.binding.memory,
@@ -499,7 +508,7 @@ impl DataTransferService for CudaServer {
     fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
         let (dst_ctx, stream, _cursor) =
             self.resolve_context_bindings(stream_id, [&dst.binding].into_iter());
-        let dst_resource = dst_ctx
+        let dst_resource = stream
             .memory_management_gpu
             .get_resource(
                 dst.binding.memory,
@@ -521,19 +530,25 @@ impl DataTransferService for CudaServer {
     }
 }
 
-fn find_resource(ctx: &mut CudaContext, binding: server::Binding) -> GpuResource {
-    ctx.memory_management_gpu
+fn find_resource(stream: &mut Stream, binding: server::Binding) -> GpuResource {
+    stream
+        .memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .expect("Failed to find resource")
 }
 
 impl CudaServer {
     /// Create a new cuda server.
-    pub(crate) fn new(mem_alignment: usize, ctx: CudaContext) -> Self {
+    pub(crate) fn new(
+        ctx: CudaContext,
+        mem_props: MemoryDeviceProperties,
+        mem_config: MemoryConfiguration,
+        mem_alignment: usize,
+    ) -> Self {
         Self {
             mem_alignment,
             ctx,
-            streams: MultiStream::new(),
+            streams: MultiStream::new(CudaStreamBackend::new(mem_props, mem_config, mem_alignment)),
         }
     }
 

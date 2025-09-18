@@ -101,7 +101,7 @@ where
         binding: Binding,
         stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
-        self.server.borrow_mut().get_resource(binding)
+        self.server.borrow_mut().get_resource(binding, stream_id)
     }
 
     unsafe fn execute(

@@ -13,7 +13,7 @@ pub trait StreamBackend {
     type Event;
 
     /// Initializes and returns a new stream associated with the given stream ID.
-    fn init_stream(stream_id: StreamId) -> Self::Stream;
+    fn init_stream(&self, stream_id: StreamId) -> Self::Stream;
     /// Flushes the given stream, ensuring all pending operations are submitted, and returns an event
     /// that can be used for synchronization.
     fn flush(stream: &mut Self::Stream) -> Self::Event;
@@ -31,6 +31,7 @@ pub trait StreamBackend {
 pub struct MultiStream<B: StreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: HashMap<StreamId, StreamWrapper<B>>,
+    backend: B,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -63,9 +64,10 @@ struct SharedBindings<B: StreamBackend> {
 
 impl<B: StreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
-    pub fn new() -> Self {
+    pub fn new(backend: B) -> Self {
         Self {
             streams: Default::default(),
+            backend,
         }
     }
 
@@ -108,7 +110,7 @@ impl<B: StreamBackend> MultiStream<B> {
         bindings: impl Iterator<Item = &'a Binding>,
     ) {
         if !self.streams.contains_key(&stream_id) {
-            let stream = B::init_stream(stream_id);
+            let stream = self.backend.init_stream(stream_id);
             let stream = StreamWrapper {
                 stream,
                 cursor: 0,
@@ -280,7 +282,7 @@ mod tests {
         let binding_1 = binding(stream_1);
         let binding_2 = binding(stream_2);
 
-        let mut ms = MultiStream::<TestBackend>::new();
+        let mut ms = MultiStream::new(TestBackend);
         ms.get(stream_1);
         ms.get(stream_2);
 
@@ -301,7 +303,7 @@ mod tests {
         let binding_2 = binding(stream_2);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::<TestBackend>::new();
+        let mut ms = MultiStream::new(TestBackend);
         ms.get(stream_1);
         ms.get(stream_2);
 
@@ -323,7 +325,7 @@ mod tests {
         let binding_2 = binding(stream_1);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::<TestBackend>::new();
+        let mut ms = MultiStream::new(TestBackend);
         ms.get(stream_1);
         ms.get(stream_2);
 
@@ -344,7 +346,7 @@ mod tests {
         let binding_2 = binding(stream_2);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::<TestBackend>::new();
+        let mut ms = MultiStream::new(TestBackend);
         ms.get(stream_1);
         ms.get(stream_2);
 
@@ -383,7 +385,7 @@ mod tests {
         type Stream = TestStream;
         type Event = TestEvent;
 
-        fn init_stream(_stream_id: StreamId) -> Self::Stream {
+        fn init_stream(&self, _stream_id: StreamId) -> Self::Stream {
             TestStream {}
         }
 

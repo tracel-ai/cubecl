@@ -164,8 +164,8 @@ where
                         let data = server.write(descriptors, stream);
                         callback.send(data).await.unwrap();
                     }
-                    Message::GetResource(binding, strean, callback) => {
-                        let data = server.get_resource(binding);
+                    Message::GetResource(binding, stream, callback) => {
+                        let data = server.get_resource(binding, stream);
                         callback.send(data).await.unwrap();
                     }
                     Message::ExecuteKernel(kernel, bindings, logger) => unsafe {

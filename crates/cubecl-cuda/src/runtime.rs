@@ -1,14 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{
-        CudaServer,
-        context::CudaContext,
-        storage::{
-            cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-            gpu::GpuStorage,
-        },
-        valid_strides,
-    },
+    compute::{CudaServer, context::CudaContext, storage::gpu::GpuStorage, valid_strides},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
@@ -102,7 +94,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = GpuStorage::new(mem_alignment);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
@@ -159,26 +150,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
-    let memory_management_gpu = MemoryManagement::from_configuration(
-        storage,
-        &mem_properties,
-        options.memory_config.clone(),
-    );
-    // We use the same page size and memory pools configuration for CPU pinned memory, since we
-    // expect the CPU to have at least the same amount of RAM as GPU memory.
-    let memory_management_cpu = MemoryManagement::from_configuration(
-        PinnedMemoryStorage::new(),
-        &MemoryDeviceProperties {
-            max_page_size: mem_properties.max_page_size,
-            alignment: PINNED_MEMORY_ALIGNMENT as u64,
-            data_transfer_async: false,
-        },
-        options.memory_config,
-    );
-
     let mut device_props = DeviceProperties::new(
         Default::default(),
-        mem_properties,
+        mem_properties.clone(),
         hardware_props,
         TimingMethod::System,
     );
@@ -258,14 +232,13 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     register_mma_features(supported_mma_combinations, &mut device_props);
     register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(
-        memory_management_gpu,
-        memory_management_cpu,
-        comp_opts,
-        ctx,
-        arch,
+    let cuda_ctx = CudaContext::new(comp_opts, ctx, arch);
+    let server = CudaServer::new(
+        cuda_ctx,
+        mem_properties,
+        options.memory_config,
+        mem_alignment,
     );
-    let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 

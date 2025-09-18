@@ -95,7 +95,7 @@ where
         binding: Binding,
         stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
-        self.server.lock().get_resource(binding)
+        self.server.lock().get_resource(binding, stream_id)
     }
 
     unsafe fn execute(
