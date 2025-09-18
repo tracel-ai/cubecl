@@ -17,7 +17,7 @@ use cubecl_core::{
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane,
-    channel::MutexComputeChannel,
+    channel::MpscComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
 };
@@ -44,13 +44,13 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct HipRuntime;
 
-static RUNTIME: ComputeRuntime<AmdDevice, Server, MutexComputeChannel<Server>> =
+static RUNTIME: ComputeRuntime<AmdDevice, Server, MpscComputeChannel<Server>> =
     ComputeRuntime::new();
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
-type Channel = MutexComputeChannel<Server>;
+type Channel = MpscComputeChannel<Server>;
 
 fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &AmdDevice,
@@ -190,13 +190,13 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     };
     let hip_ctx = HipContext::new(memory_management_gpu, memory_management_cpu, comp_opts);
     let server = HipServer::new(mem_alignment, hip_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    ComputeClient::new(MpscComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
     type Server = HipServer;
-    type Channel = MutexComputeChannel<HipServer>;
+    type Channel = MpscComputeChannel<HipServer>;
     type Device = AmdDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {

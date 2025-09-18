@@ -181,8 +181,8 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(stream_origin, cursor_origin);
 
-            // println!("waiting..");
-            B::wait_event(&mut stream.stream, event);
+            println!("waiting.. {stream_origin}");
+            // B::wait_event(&mut stream.stream, event);
         }
     }
 }

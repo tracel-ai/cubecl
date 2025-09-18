@@ -49,7 +49,6 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(
         output = Some(output_);
     }
 
-    // cubecl_common::future::block_on(client_1.sync());
     let actual = client_2.read_one(output.unwrap());
     let actual = F::from_bytes(&actual);
 
