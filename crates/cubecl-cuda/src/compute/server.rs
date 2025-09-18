@@ -79,7 +79,7 @@ impl ComputeServer for CudaServer {
         );
         let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
 
-        Box::pin(command.read_async_origin(descriptors))
+        Box::pin(command.read_async(descriptors))
     }
 
     fn create(
