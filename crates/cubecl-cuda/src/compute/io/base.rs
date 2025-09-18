@@ -59,12 +59,12 @@ pub fn register_copy_to_bytes(
     }
 
     let num_bytes = shape.iter().product::<usize>() * elem_size;
-    let resource = ctx
+    let resource = stream
         .memory_management_gpu
         .get_resource(binding.memory, binding.offset_start, binding.offset_end)
         .ok_or(IoError::InvalidHandle)?;
 
-    let mut bytes = bytes_from_managed_pinned_memory(ctx, num_bytes, marked_pinned)
+    let mut bytes = bytes_from_managed_pinned_memory(stream, num_bytes, marked_pinned)
         .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; num_bytes]));
 
     let rank = shape.len();
@@ -118,7 +118,7 @@ pub fn register_copy_to_bytes(
 ///
 /// An [Option] containing a [Bytes] instance if pinned memory is used, or [None] if regular memory should be used instead.
 fn bytes_from_managed_pinned_memory(
-    ctx: &mut CudaContext,
+    stream: &mut Stream,
     num_bytes: usize,
     marked_pinned: bool,
 ) -> Option<Bytes> {
@@ -127,9 +127,12 @@ fn bytes_from_managed_pinned_memory(
         return None;
     }
 
-    let handle = ctx.memory_management_cpu.reserve(num_bytes as u64).ok()?;
+    let handle = stream
+        .memory_management_cpu
+        .reserve(num_bytes as u64)
+        .ok()?;
     let binding = handle.binding();
-    let resource = ctx
+    let resource = stream
         .memory_management_cpu
         .get_resource(binding.clone(), None, None)
         .ok_or(IoError::InvalidHandle)
