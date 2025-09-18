@@ -108,13 +108,12 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let result = register_copies_to_bytes(self.streams.current, &mut self.streams, descriptors);
         let fence = Fence::new(self.streams.current().sys);
+        fence.wait_sync();
 
-        async move {
-            fence.wait_sync();
-            result
-        }
+        let result = register_copies_to_bytes(self.streams.current, &mut self.streams, descriptors);
+
+        async move { result }
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
