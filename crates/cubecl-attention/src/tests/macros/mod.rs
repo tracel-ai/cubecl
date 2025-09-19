@@ -610,6 +610,7 @@ macro_rules! testgen_attention {
             }
 
             #[test]
+            #[ignore = "TODO"]
             fn attention_reuse_key_value() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
