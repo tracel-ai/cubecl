@@ -7,7 +7,7 @@ use cubecl_macros::cube;
 
 use crate::{
     self as cubecl,
-    prelude::{CubeIndex, CubeType, ExpandElementTyped, Int, Remainder, eq},
+    prelude::{CubeIndex, CubeType, ExpandElementTyped, Int, eq, rem},
 };
 
 pub(crate) fn binary_expand<F, Op>(
@@ -332,7 +332,7 @@ impl<E: Int> ExpandElementTyped<E> {
         scope: &mut Scope,
         factor: ExpandElementTyped<E>,
     ) -> ExpandElementTyped<bool> {
-        let modulo = Remainder::__expand_rem(scope, self, factor);
+        let modulo = rem::expand(scope, self, factor);
         eq::expand(scope, modulo, E::from_int(0).into())
     }
 }
