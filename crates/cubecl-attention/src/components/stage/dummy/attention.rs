@@ -16,7 +16,6 @@ use crate::components::stage::dummy::{
     Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
 };
 use crate::components::stage::{StageAttention, StageAttentionConfig};
-use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
@@ -33,7 +32,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     type KeyReader = R;
     type ValueReader = R;
 
-    type State = StageState<AP, TA, Self::Config>;
+    type State = StageState<AP>;
     type Query = Queries<AP, TA, Self::Config>;
     type KeyValue = KeyValues<AP, TA, Self::Config>;
     type Score = Scores<AP, TA, Self::Config>;
@@ -182,7 +181,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
-        state: &mut Self::State,
+        state: &mut StageState<AP>,
         out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
@@ -218,6 +217,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             let mut vd = comptime![0u32];
 
             // TODO: if p.seq_q=1 skip preloading, do on the fly
+            // TODO: move to later if reuse key
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
@@ -258,25 +258,30 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                     comptime![hd += 1];
                 }
 
+                let state_q = state.get_at_mut(q);
+
                 let row_stats = TA::score_to_prob(
                     score_frag,
                     out_of_bound_mask,
-                    state.get_at(q),
+                    state_q,
                     config.tiling_scheme().head_dim(),
                 );
 
-                let mut vd = comptime![0u32];
+                // let mut vd = comptime![0u32];
+                let (exp_m_diff, m_new, l_new) =
+                    TA::get_new_state(&row_stats, state_q.m, state_q.l);
+                state_q.update(m_new, l_new);
 
-                let scale = TA::update_state(&row_stats, state.get_at_mut(q));
+                let mut vd = comptime![0u32];
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
                     TA::accumulate_value(
+                        score_frag,
                         key_value.get_value_at(kv, vd, config),
-                        score_prob.get_at(q, kv, config),
                         accumulator.get_at_mut(q, vd, config),
-                        scale,
+                        exp_m_diff,
                         config.tile_config(),
                     );
 
@@ -290,7 +295,11 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         }
     }
 
-    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] config: Self::Config) {
+    fn rescale(
+        acc: &mut Self::Accumulator,
+        state: StageState<AP>,
+        #[comptime] config: Self::Config,
+    ) {
         comment!("Stage: Rescale");
         let p = config.tiling_scheme().partition_size;
 
@@ -317,9 +326,9 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         }
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+    fn init_state(#[comptime] config: Self::Config) -> StageState<AP> {
         comment!("Stage: Init Stage");
-        Self::State::new(config)
+        StageState::<AP>::init::<Self::Config>(config)
     }
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
@@ -342,18 +351,18 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         // TODO change indexes when we have planes>1
         let mut smem_slice = out_smem.slice_mut(0u32, out_smem_num_elements);
 
-        let mut i = comptime!(0u32);
+        let mut q = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..p.seq_q {
-            let mut j = comptime!(0u32);
+            let mut kv = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 TA::write_results(
-                    Self::Accumulator::get_at(acc, i, j, stage_config),
+                    Self::Accumulator::get_at(acc, q, kv, stage_config),
                     &mut smem_slice,
                     stage_config.tile_config(),
                 );
@@ -361,17 +370,17 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 Self::Writer::write(
                     writer,
                     smem_slice.to_slice(),
-                    i,
-                    j,
+                    q,
+                    kv,
                     1u32,
                     stage_config.plane_dim(),
                     global_config.global_memory_config(FlashIdent::Out),
                 );
 
-                comptime![j += 1];
+                comptime![kv += 1];
             }
 
-            comptime![i += 1];
+            comptime![q += 1];
         }
     }
 
@@ -384,28 +393,35 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         comment!("Stage: Write");
         let p = stage_config.tiling_scheme().partition_size;
 
-        let mut q = comptime!(0u32);
+        TA::tmp_write_score::<G>(
+            Self::Score::get_at(score, 0u32, 0u32, stage_config),
+            writer,
+            stage_config.tile_config(),
+            global_config,
+        );
 
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_q {
-            let mut kv = comptime!(0u32);
+        // let mut q = comptime!(0u32);
 
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.seq_kv {
-                TA::tmp_write_score::<G>(
-                    Self::Score::get_at(score, q, kv, stage_config),
-                    writer,
-                    stage_config.tile_config(),
-                    global_config,
-                );
+        // #[unroll]
+        // #[allow(clippy::explicit_counter_loop)]
+        // for _ in 0..p.seq_q {
+        //     let mut kv = comptime!(0u32);
 
-                comptime![kv += 1];
-            }
+        //     #[unroll]
+        //     #[allow(clippy::explicit_counter_loop)]
+        //     for _ in 0..p.seq_kv {
+        //         TA::tmp_write_score::<G>(
+        //             Self::Score::get_at(score, q, kv, stage_config),
+        //             writer,
+        //             stage_config.tile_config(),
+        //             global_config,
+        //         );
 
-            comptime![q += 1];
-        }
+        //         comptime![kv += 1];
+        //     }
+
+        //     comptime![q += 1];
+        // }
     }
     fn tmp_write_query<G: GlobalAttentionConfig>(
         query: &Self::Query,

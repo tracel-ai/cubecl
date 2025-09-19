@@ -7,7 +7,7 @@ use std::{fmt::Debug, hash::Hash};
 
 use crate::components::AttentionTilingScheme;
 use crate::components::global::dummy::QueryLoader;
-use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -72,7 +72,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type Writer: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
+    fn init_state(#[comptime] config: Self::Config) -> StageState<AP>;
 
     fn execute(
         key_reader: &Self::KeyReader,
@@ -81,14 +81,14 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_value: &mut Self::KeyValue,
         score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
-        prev_state: &mut Self::State,
+        prev_state: &mut StageState<AP>,
         out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
         acc: &mut Self::Accumulator,
-        prev_state: Self::State,
+        state: StageState<AP>,
         #[comptime] config: Self::Config,
     );
 

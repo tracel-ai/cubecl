@@ -7,6 +7,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::CubeOption;
 
+use crate::components::tile::dummy::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
@@ -46,19 +47,15 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: FlashMatmulConfig;
 
-    type State: CubeType;
-
     type Query: CubeType;
     type KeyValue: CubeType;
     type ScoreProb: CubeType;
     type Accumulator: CubeType;
     type OutOfBoundMask: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
-
     fn rescale(
         acc: &mut Self::Accumulator,
-        prev_state: &Self::State,
+        prev_state: &RunningState<AP::EA>,
         #[comptime] config: Self::Config,
     );
 
@@ -120,15 +117,19 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
-        state: &Self::State,
+        state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;
 
-    fn update_state(score_prob_row_stats: &RowStats<AP::EA>, state: &mut Self::State) -> AP::EA;
+    fn get_new_state(
+        score_prob_row_stats: &RowStats<AP::EA>,
+        prev_m: AP::EA,
+        prev_l: AP::EA,
+    ) -> (AP::EA, AP::EA, AP::EA);
 
     fn accumulate_value(
-        key_value: &Self::KeyValue,
         score_prob: &Self::ScoreProb,
+        key_value: &Self::KeyValue,
         accumulator: &mut Self::Accumulator,
         scale: AP::EA,
         #[comptime] config: Self::Config,

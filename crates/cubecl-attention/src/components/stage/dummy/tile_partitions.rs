@@ -5,6 +5,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::global::dummy::QueryLoader;
+use crate::components::tile::dummy::RunningState;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 
 #[derive(CubeType)]
@@ -291,6 +292,7 @@ impl<
         #[comptime] config: S,
     ) -> &TA::ScoreProb {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
+        comptime!(println!("{:?}", kv));
         self.sequence.index(index)
     }
 
@@ -306,43 +308,29 @@ impl<
 }
 
 #[derive(CubeType)]
-pub struct StageState<
-    AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
-> {
-    sequence: Sequence<TA::State>,
-    #[cube(comptime)]
-    _phantom: PhantomData<S>,
+pub struct StageState<AP: AttentionPrecision> {
+    sequence: Sequence<RunningState<AP::EA>>,
 }
 
 #[cube]
-impl<
-    AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
-> StageState<AP, TA, S>
-{
-    pub fn new(#[comptime] config: S) -> StageState<AP, TA, S> {
+impl<AP: AttentionPrecision> StageState<AP> {
+    pub fn init<S: StageAttentionConfig>(#[comptime] config: S) -> StageState<AP> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TA::init_state(config.tile_config()));
+            sequence.push(RunningState::<AP::EA>::init());
         }
 
-        StageState::<AP, TA, S> {
-            sequence,
-            _phantom: PhantomData,
-        }
+        StageState::<AP> { sequence }
     }
 
-    pub fn get_at(&self, #[comptime] i: u32) -> &TA::State {
+    pub fn get_at(&self, #[comptime] i: u32) -> &RunningState<AP::EA> {
         self.sequence.index(i)
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] i: u32) -> &mut TA::State {
+    pub fn get_at_mut(&mut self, #[comptime] i: u32) -> &mut RunningState<AP::EA> {
         self.sequence.index_mut(i)
     }
 }
