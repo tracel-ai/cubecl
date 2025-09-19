@@ -107,6 +107,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
             stage_size: AttentionStageSize { seq_q: 1 },
         },
         plane_dim: 32,
+        reuse_key_value: false,
     };
 
     let config = DummyAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;

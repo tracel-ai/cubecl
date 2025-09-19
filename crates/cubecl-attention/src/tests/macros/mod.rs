@@ -12,11 +12,13 @@ pub fn attention_test_launch<R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
+    reuse_key_value: bool,
 ) {
     let selection = AttentionSelection {
         hypercube_selection: HypercubeSelection {},
         plane_dim: 32,
         tiling_scheme,
+        reuse_key_value,
     };
 
     test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
@@ -67,6 +69,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -104,6 +107,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -141,6 +145,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -178,6 +183,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -215,6 +221,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -252,6 +259,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -289,6 +297,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 )
             }
 
@@ -326,6 +335,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -363,6 +373,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -400,6 +411,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -438,6 +450,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -476,6 +489,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -513,6 +527,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -551,6 +566,7 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
                 );
             }
 
@@ -589,6 +605,45 @@ macro_rules! testgen_attention {
                     client,
                     tiling_scheme,
                     problem,
+                    false,
+                );
+            }
+
+            #[test]
+            fn attention_reuse_key_value() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 2,
+                    val_dim: 2,
+                };
+                let stage_size = AttentionStageSize { seq_q: 1 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.seq_q() as usize,
+                    seq_kv: tiling_scheme.seq_kv() as usize,
+                    head_dim: tiling_scheme.head_dim() as usize,
+                    val_dim: tiling_scheme.val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    true,
                 );
             }
         }

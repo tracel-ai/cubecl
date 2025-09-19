@@ -11,6 +11,7 @@ pub struct DummyStageConfig<FC: FlashMatmulConfig> {
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
     tiling_scheme: AttentionTilingScheme,
+    reuse_key_value: bool,
 }
 
 impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
@@ -42,7 +43,7 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     }
 
     fn reuse_key_value(&self) -> bool {
-        false
+        self.reuse_key_value
     }
 }
 
@@ -52,17 +53,30 @@ impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
         score_stage_memory_config: AttentionStageMemoryConfig,
         value_stage_memory_config: AttentionStageMemoryConfig,
         tiling_scheme: AttentionTilingScheme,
+        reuse_key_value: bool,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             tile_config,
             score_stage_memory_config,
             value_stage_memory_config,
             tiling_scheme,
+            reuse_key_value,
         }
         .validate()
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
+        if self.reuse_key_value
+            && (self.tiling_scheme.tile_size.head_dim != self.tiling_scheme.tile_size.val_dim
+                || self.tiling_scheme.partition_size.head_dim
+                    != self.tiling_scheme.partition_size.val_dim)
+        {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+        "When reusing key/value, head_dim must equal val_dim in both tile_size and partition_size."
+            .to_string(),
+    )));
+        }
+
         Ok(self)
     }
 }

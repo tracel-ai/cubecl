@@ -6,4 +6,6 @@ pub struct AttentionSelection {
 
     pub tiling_scheme: AttentionTilingScheme,
     pub plane_dim: u32,
+
+    pub reuse_key_value: bool
 }

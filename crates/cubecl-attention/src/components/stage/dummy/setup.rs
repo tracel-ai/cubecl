@@ -43,6 +43,7 @@ impl<TA: TileAttentionFamily, RF: StageReaderFamily<TileKind = Strided>> StageAt
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),
             selection.tiling_scheme,
+            selection.reuse_key_value,
         )
     }
 }
