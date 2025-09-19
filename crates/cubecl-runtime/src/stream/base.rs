@@ -247,135 +247,135 @@ impl SharedBindingAnalysis {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::{memory_management::SliceHandle, server::Handle};
-//
-//     const MAX_STREAMS: u8 = 4;
-//
-//     #[test]
-//     fn test_analysis_shared_bindings() {
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_2);
-//
-//         let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
-//
-//         let mut expected = SharedBindingAnalysis::default();
-//         expected.shared(&binding_2);
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     #[test]
-//     fn test_analysis_shared_bindings_2() {
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_2);
-//         let binding_3 = binding(stream_1);
-//
-//         let mut ms = MultiStream::new(TestBackend, 4);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis =
-//             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//         let mut expected = SharedBindingAnalysis::default();
-//         expected.shared(&binding_2, MAX_STREAMS);
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     #[test]
-//     fn test_analysis_no_shared() {
-//         let stream_1 = StreamId { value: 1 };
-//         let stream_2 = StreamId { value: 2 };
-//
-//         let binding_1 = binding(stream_1);
-//         let binding_2 = binding(stream_1);
-//         let binding_3 = binding(stream_1);
-//
-//         let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
-//         ms.resolve(stream_1, [].into_iter());
-//         ms.resolve(stream_2, [].into_iter());
-//
-//         let analysis =
-//             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//         let expected = SharedBindingAnalysis::default();
-//
-//         assert_eq!(analysis, expected);
-//     }
-//
-//     // #[test]
-//     // fn test_state() {
-//     //     let stream_1 = StreamId { value: 1 };
-//     //     let stream_2 = StreamId { value: 2 };
-//
-//     //     let binding_1 = binding(stream_1);
-//     //     let binding_2 = binding(stream_2);
-//     //     let binding_3 = binding(stream_1);
-//
-//     //     let mut ms = MultiStream::new(TestBackend, 4);
-//     //     ms.resolve(stream_1, [].into_iter());
-//     //     ms.resolve(stream_2, [].into_iter());
-//
-//     //     ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
-//
-//     //     let stream1 = ms.streams.remove(&stream_1).unwrap();
-//     //     assert_eq!(stream1.last_synced.get(&stream_2), Some(&1));
-//     //     assert_eq!(stream1.cursor, 2);
-//
-//     //     // assert!(stream1.shareds.is_empty());
-//     //     // assert_eq!(stream1.num_shared, 0);
-//     //     // assert_eq!(stream1.last_gc, 0);
-//
-//     //     let stream2 = ms.streams.remove(&stream_2).unwrap();
-//     //     assert!(stream2.last_synced.is_empty());
-//     //     assert_eq!(stream2.cursor, 1);
-//     //     // for shared in stream2.shareds {
-//     //     //     assert_eq!(shared._batch, vec![binding_2.memory.id().clone()]);
-//     //     // }
-//     //     // assert_eq!(stream2.num_shared, 1);
-//     //     // assert_eq!(stream2.last_gc, 0);
-//     // }
-//
-//     fn binding(stream: StreamId) -> Binding {
-//         Handle::new(SliceHandle::new(), None, None, stream, 0, 10).binding()
-//     }
-//
-//     struct TestBackend;
-//
-//     #[derive(Debug)]
-//     struct TestStream {}
-//
-//     #[derive(Debug)]
-//     struct TestEvent {}
-//
-//     impl StreamBackend for TestBackend {
-//         type Stream = TestStream;
-//         type Event = TestEvent;
-//
-//         fn create_stream(&self) -> Self::Stream {
-//             TestStream {}
-//         }
-//
-//         fn flush(_stream: &mut Self::Stream) -> Self::Event {
-//             TestEvent {}
-//         }
-//
-//         fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
-//
-//         fn wait_event_sync(_event: Self::Event) {}
-//     }
-// }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{memory_management::SliceHandle, server::Handle};
+
+    const MAX_STREAMS: u8 = 4;
+
+    #[test]
+    fn test_analysis_shared_bindings_1() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+
+        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
+
+        let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
+
+        let mut expected = SharedBindingAnalysis::default();
+        expected.shared(ms.streams.stream_index(&binding_2.stream));
+
+        assert_eq!(analysis, expected);
+    }
+
+    #[test]
+    fn test_analysis_shared_bindings_2() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::new(TestBackend, 4);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
+
+        let analysis =
+            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+        let mut expected = SharedBindingAnalysis::default();
+        expected.shared(ms.streams.stream_index(&binding_2.stream));
+
+        assert_eq!(analysis, expected);
+    }
+
+    #[test]
+    fn test_analysis_no_shared() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
+
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_1);
+        let binding_3 = binding(stream_1);
+
+        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
+
+        let analysis =
+            ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+        let expected = SharedBindingAnalysis::default();
+
+        assert_eq!(analysis, expected);
+    }
+
+    // #[test]
+    // fn test_state() {
+    //     let stream_1 = StreamId { value: 1 };
+    //     let stream_2 = StreamId { value: 2 };
+
+    //     let binding_1 = binding(stream_1);
+    //     let binding_2 = binding(stream_2);
+    //     let binding_3 = binding(stream_1);
+
+    //     let mut ms = MultiStream::new(TestBackend, 4);
+    //     ms.resolve(stream_1, [].into_iter());
+    //     ms.resolve(stream_2, [].into_iter());
+
+    //     ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+
+    //     let stream1 = ms.streams.remove(&stream_1).unwrap();
+    //     assert_eq!(stream1.last_synced.get(&stream_2), Some(&1));
+    //     assert_eq!(stream1.cursor, 2);
+
+    //     // assert!(stream1.shareds.is_empty());
+    //     // assert_eq!(stream1.num_shared, 0);
+    //     // assert_eq!(stream1.last_gc, 0);
+
+    //     let stream2 = ms.streams.remove(&stream_2).unwrap();
+    //     assert!(stream2.last_synced.is_empty());
+    //     assert_eq!(stream2.cursor, 1);
+    //     // for shared in stream2.shareds {
+    //     //     assert_eq!(shared._batch, vec![binding_2.memory.id().clone()]);
+    //     // }
+    //     // assert_eq!(stream2.num_shared, 1);
+    //     // assert_eq!(stream2.last_gc, 0);
+    // }
+
+    fn binding(stream: StreamId) -> Binding {
+        Handle::new(SliceHandle::new(), None, None, stream, 0, 10).binding()
+    }
+
+    struct TestBackend;
+
+    #[derive(Debug)]
+    struct TestStream {}
+
+    #[derive(Debug)]
+    struct TestEvent {}
+
+    impl StreamBackend for TestBackend {
+        type Stream = TestStream;
+        type Event = TestEvent;
+
+        fn create_stream(&self) -> Self::Stream {
+            TestStream {}
+        }
+
+        fn flush(_stream: &mut Self::Stream) -> Self::Event {
+            TestEvent {}
+        }
+
+        fn wait_event(_stream: &mut Self::Stream, _event: Self::Event) {}
+
+        fn wait_event_sync(_event: Self::Event) {}
+    }
+}
