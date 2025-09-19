@@ -140,7 +140,7 @@ struct GcThread<B: StreamBackend> {
 
 impl<B: StreamBackend> GcThread<B> {
     fn new() -> GcThread<B> {
-        let (sender, recv) = std::sync::mpsc::sync_channel::<GcTask<B>>(32);
+        let (sender, recv) = std::sync::mpsc::sync_channel::<GcTask<B>>(8);
 
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
@@ -181,19 +181,20 @@ impl<'a, B: StreamBackend> Drop for ResolvedStreams<'a, B> {
             return;
         }
 
-        for (_index, ids) in self.analysis.slices.drain() {
-            let stream = self.streams.get_mut(&self.current);
-            let event_orgin = B::flush(&mut stream.stream);
+        let stream = self.streams.get_mut(&self.current);
+        let event_orgin = B::flush(&mut stream.stream);
 
-            let stream_gc = self.streams.get_gc();
-            B::wait_event(stream_gc, event_orgin);
-            let event_gc = B::flush(stream_gc);
-            let task = GcTask {
-                ids,
-                event: event_gc,
-            };
-            self.gc.register(task);
-        }
+        let stream_gc = self.streams.get_gc();
+        B::wait_event(stream_gc, event_orgin);
+        let event = B::flush(stream_gc);
+
+        let mut ids = Vec::new();
+        self.analysis
+            .slices
+            .drain()
+            .for_each(|item| ids.extend(item.1));
+
+        self.gc.register(GcTask { ids, event });
     }
 }
 
