@@ -125,4 +125,27 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         FM::tmp_fill_prob(&tile, &mut self.fragment, self.config);
         sync_cube();
     }
+
+    pub fn to_prob(&mut self, m_new: FP::SP, l_new: FP::SP) {
+        if self.row < self.num_rows {
+            #[unroll]
+            for i in 0..self.num_cols_per_unit {
+                let col = self.col_start + i;
+
+                if col < self.num_cols {
+                    let index = self.row * self.num_cols + col;
+                    self.tmp_smem[index] = Exp::exp(self.tmp_smem[index] - m_new) / l_new;
+                }
+            }
+        }
+
+        sync_cube();
+
+        let tile = Tile::<FP::SP> {
+            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
+            stride: self.num_cols.runtime(),
+            layout: MatrixLayout::RowMajor,
+        };
+        FM::tmp_fill_prob(&tile, &mut self.fragment, self.config);
+    }
 }

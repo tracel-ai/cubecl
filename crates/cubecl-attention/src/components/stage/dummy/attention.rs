@@ -115,8 +115,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
             let mut q = comptime![0u32];
 
-            let mut row_stats: Sequence<RowStats<AP::EA>> = Sequence::new();
-
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.seq_q {
@@ -148,16 +146,9 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 let lprev_exp_m_diff = TA::get_lprev_exp_m_diff(state.get_at(q), m_new);
                 let l_new = lprev_exp_m_diff + prob_row_sum;
 
-                // row_stats.push(TA::score_to_prob(
-                //     score_frag,
-                //     out_of_bound_mask,
-                //     state.get_at(q),
-                //     config.tiling_scheme().head_dim(),
-                // ));
+                TA::update_state(state.get_at_mut(q), m_new, l_new);
 
-                // let scale = TA::update_state(row_stats.index(q), state.get_at_mut(q));
-                // scale: Exp::exp(prev_m - new_m);
-                // should also have multiply by l_prev / l_new ?
+                TA::score_to_prob(score_frag, out_of_bound_mask, m_new, l_new);
 
                 let scale = lprev_exp_m_diff / l_new;
 
@@ -167,9 +158,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
                     TA::scale_accumulator(accumulator.get_at_mut(q, vd, config), scale);
-
-                    // RENDU ICITTE
-                    // accnew​=accprev​+j∑​Vtile​[j,:]⋅ℓnew​exp(score_tile[j]−mnew​)​
 
                     TA::accumulate_value(
                         key_value.get_value_at(kv, vd, config),

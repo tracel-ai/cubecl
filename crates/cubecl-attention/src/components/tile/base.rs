@@ -122,13 +122,14 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn get_prob_row_sum(score_prob: &Self::ScoreProb, m_new: AP::EA) -> AP::EA;
     fn get_lprev_exp_m_diff(state: &Self::State, m_new: AP::EA) -> AP::EA;
 
-    // fn score_to_prob(
-    //     score_prob: &mut Self::ScoreProb,
-    //     out_of_bound_mask: CubeOption<(u32, u32)>,
-    //     state: &Self::State,
-    // ) -> RowStats<AP::EA>;
+    fn score_to_prob(
+        score_prob: &mut Self::ScoreProb,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
+        m_new: AP::EA,
+        l_new: AP::EA,
+    );
 
-    fn update_state(score_prob_row_stats: &RowStats<AP::EA>, state: &mut Self::State) -> AP::EA;
+    fn update_state(state: &mut Self::State, m_new: AP::EA, l_new: AP::EA);
 
     fn scale_accumulator(accumulator: &mut Self::Accumulator, scale: AP::EA);
 

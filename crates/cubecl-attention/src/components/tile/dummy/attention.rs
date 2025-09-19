@@ -214,36 +214,26 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         state.l * exp_m_diff
     }
 
-    // fn score_to_prob(
-    //     score_prob: &mut Self::ScoreProb,
-    //     out_of_bound_mask: CubeOption<(u32, u32)>,
-    //     state: &Self::State,
-    // ) -> RowStats<AP::EA> {
-    //     todo!()
-    //         match out_of_bound_mask {
-    //             CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
-    //             CubeOption::None => {}
-    //         }
+    fn score_to_prob(
+        score_prob: &mut Self::ScoreProb,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
+        m_new: AP::EA,
+        l_new: AP::EA,
+    ) {
+        match out_of_bound_mask {
+            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
+            CubeOption::None => {}
+        }
 
-    //         score_prob.to_prob(m);
-    //         let prob_row_sum = score_prob.row_sum();
+        score_prob.to_prob(m_new, l_new);
+        // let prob_row_sum = score_prob.row_sum();
 
-    //         RowStats::<AP::EA> { m, prob_row_sum }
-    // }
+        // RowStats::<AP::EA> { m, prob_row_sum }
+    }
 
-    fn update_state(score_prob_row_stats: &RowStats<AP::EA>, state: &mut Self::State) -> AP::EA {
-        let prev_m = state.m;
-        let prev_l = state.l;
-        let new_m = score_prob_row_stats.m;
-        let row_sum = score_prob_row_stats.prob_row_sum;
-
-        let exp_m_diff = Exp::exp(prev_m - new_m);
-        let new_l = exp_m_diff * prev_l + row_sum;
-
-        state.m = new_m;
-        state.l = new_l;
-
-        exp_m_diff
+    fn update_state(state: &mut Self::State, m_new: AP::EA, l_new: AP::EA) {
+        state.m = m_new;
+        state.l = l_new;
     }
 
     fn scale_accumulator(accumulator: &mut Self::Accumulator, scale: AP::EA) {
