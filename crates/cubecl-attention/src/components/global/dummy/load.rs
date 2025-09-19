@@ -5,7 +5,7 @@ use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::div_ceil;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
@@ -39,8 +39,9 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<AP: AttentionPrecision> QueryLoader<AP> {
-    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords3d>) -> Self {
-        let tensor_reader = TensorReader::new(query, (0u32.runtime(), q_offset, 0u32.runtime()));
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>) -> Self {
+        let query = query.slice((q_offset, 0), query.shape());
+        let tensor_reader = TensorReader::new(query);
 
         QueryLoader::<AP> { tensor_reader }
     }
@@ -55,13 +56,11 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
         let tile = Tile::<AP::EI> {
             slice: self.tensor_reader.view.slice(
                 (
-                    // batch
-                    0u32.runtime(),
                     self.tensor_reader.row_offset.read() + row * attention_tile_size.seq_q,
                     col * attention_tile_size.head_dim,
                 ),
-                attention_tile_size.query_size(),
-            ),
+                (1u32, attention_tile_size.query_size()).runtime(),
+            ).to_linear_slice(),
             stride: config.tiling_scheme().head_dim(),
             layout: MatrixLayout::RowMajor,
         };
@@ -72,9 +71,8 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
-    pub fn new(key: View<Line<AP::EI>, Coords3d>, #[comptime] config: G) -> Self {
-        let tensor_reader =
-            TensorReader::new(key, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
+    pub fn new(key: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
+        let tensor_reader = TensorReader::new(key);
         let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
@@ -158,9 +156,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
-    pub fn new(value: View<Line<AP::EI>, Coords3d>, #[comptime] config: G) -> Self {
-        let tensor_reader =
-            TensorReader::new(value, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
+    pub fn new(value: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
+        let tensor_reader = TensorReader::new(value);
         let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,

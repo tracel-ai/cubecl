@@ -26,7 +26,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
             * config.tiling_scheme().tiles_in_stage(ident);
 
-        if num_slices >= total_units && num_slices % total_units != 0 {
+        if num_slices >= total_units && !num_slices.is_multiple_of(total_units) {
             return Err(Box::new(format!(
                 "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
             )));

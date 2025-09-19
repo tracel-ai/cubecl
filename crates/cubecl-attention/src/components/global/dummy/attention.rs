@@ -99,7 +99,7 @@ impl<
         #[comptime] config: Self::Config,
     ) -> QueryLoader<AP> {
         let layout =
-            SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
+            SimpleGlobalLayout::new(&query, 0, config.global_memory_config(FlashIdent::Query));
         QueryLoader::<AP>::new(q_offset, query.view(layout))
     }
 
@@ -107,7 +107,7 @@ impl<
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyLoader {
-        let layout = SimpleGlobalLayout::new(&key, config.global_memory_config(FlashIdent::Key));
+        let layout = SimpleGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
         DummyKeyLoader::new(key.view(layout), config)
     }
 
@@ -116,7 +116,7 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader {
         let layout =
-            SimpleGlobalLayout::new(&value, config.global_memory_config(FlashIdent::Value));
+            SimpleGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
         DummyValueLoader::new(value.view(layout), config)
     }
 
@@ -125,7 +125,8 @@ impl<
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
-        SA::init_writer(q_offset, out.view_mut(layout))
+        let layout = SimpleGlobalLayout::new(&out, 0, config.global_memory_config(FlashIdent::Out));
+        let out = out.view_mut(layout);
+        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()))
     }
 }

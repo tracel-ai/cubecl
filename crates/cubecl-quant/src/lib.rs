@@ -1,4 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
+#![allow(clippy::manual_div_ceil, clippy::manual_is_multiple_of)]
 
 extern crate alloc;
 

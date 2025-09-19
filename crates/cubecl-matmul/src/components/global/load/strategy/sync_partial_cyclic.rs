@@ -84,7 +84,7 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
 
         let num_tiles_in_stage = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
-        let balanced_workload = total_num_lines % total_units == 0;
+        let balanced_workload = total_num_lines.is_multiple_of(total_units);
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
         let jump_length = total_units * line_size;
 

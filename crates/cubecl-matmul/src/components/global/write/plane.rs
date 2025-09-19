@@ -3,7 +3,7 @@ use crate::components::global::memory::TensorWriter;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
-use cubecl_std::{div_ceil, tensor::layout::Coords3d};
+use cubecl_std::{div_ceil, tensor::layout::Coords2d};
 
 use super::StageUnloader;
 
@@ -16,21 +16,16 @@ pub struct PlaneWriter<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(
-        view: View<Line<EG>, Coords3d, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self {
+    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
         PlaneWriter::<EG> {
-            tensor_writer: TensorWriter::new(view, x_offset, y_offset, batch_offset),
+            tensor_writer: TensorWriter::new(view),
         }
     }
 }
 
 #[cube]
 impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
-    type Coordinates = Coords3d;
+    type Coordinates = Coords2d;
 
     fn write(
         this: &mut Self,
@@ -46,7 +41,7 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
 
         let unit_step = plane_dim * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
-        let balanced_workload = comptime!(tile_size % unit_step == 0);
+        let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {
@@ -96,7 +91,8 @@ fn write_line<EG: Numeric>(
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
     } else if comptime!(
-        out_smem_line_size < output_line_size && output_line_size % out_smem_line_size == 0
+        out_smem_line_size < output_line_size
+            && output_line_size.is_multiple_of(out_smem_line_size)
     ) {
         let mut value = Line::empty(output_line_size);
         #[unroll]

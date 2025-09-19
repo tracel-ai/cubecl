@@ -146,19 +146,6 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         exp_m_diff
     }
 
-    // fn get_new_state(
-    //     score_prob_row_stats: &RowStats<AP::EA>,
-    //     prev_m: AP::EA,
-    //     prev_l: AP::EA,
-    // ) -> (AP::EA, AP::EA, AP::EA) {
-    //     let new_m = score_prob_row_stats.m;
-
-    //     let exp_m_diff = Exp::exp(prev_m - new_m);
-    //     let new_l = exp_m_diff * prev_l + score_prob_row_stats.prob_row_sum;
-
-    //     (exp_m_diff, new_m, new_l)
-    // }
-
     fn accumulate_value(
         score_prob: &Self::ScoreProb,
         key_value: &Self::KeyValue,

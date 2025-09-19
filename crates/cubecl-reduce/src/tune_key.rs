@@ -57,7 +57,9 @@ impl ReduceAutotuneKey {
         let mut potential_line_size = 1;
         let max_bytes_in_line = 16; // 128 bits
         //
-        while shape % 2 == 0 && potential_line_size as usize * elem_size < max_bytes_in_line {
+        while shape.is_multiple_of(2)
+            && potential_line_size as usize * elem_size < max_bytes_in_line
+        {
             potential_line_size *= 2;
             shape /= 2;
         }

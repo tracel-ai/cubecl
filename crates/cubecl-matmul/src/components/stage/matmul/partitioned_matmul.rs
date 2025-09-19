@@ -29,9 +29,6 @@ pub trait StagePartitioner: Send + Sync + 'static {
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
     ) -> Self::Writer<EO>;
 
     /// Returns the (row, col) of the current compute primitive within the stage.
@@ -233,11 +230,8 @@ where
 
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
     ) -> Self::StageUnloader {
-        SP::init_writer(tensor, x_offset, y_offset, batch_offset)
+        SP::init_writer(tensor)
     }
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {

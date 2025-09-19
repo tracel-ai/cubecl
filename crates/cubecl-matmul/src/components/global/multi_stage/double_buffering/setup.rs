@@ -9,7 +9,7 @@ use crate::components::{error::MatmulSetupError, stage::FillStageReaderFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialStageReaderFamily};
 use crate::components::{global::MaxLoaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 /// Double buffering matmul family for any precision
@@ -29,7 +29,7 @@ where
             LhsStageReader = PartialStageReaderFamily,
             RhsStageReader = PartialStageReaderFamily,
             AccStageReader = FillStageReaderFamily,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
@@ -79,9 +79,9 @@ where
             client,
             stage_config,
             num_planes,
-            problem.m as u32 % stage_shape_m != 0,
-            problem.n as u32 % stage_shape_n != 0,
-            problem.k as u32 % (2 * stage_shape_k) != 0,
+            !(problem.m as u32).is_multiple_of(stage_shape_m),
+            !(problem.n as u32).is_multiple_of(stage_shape_n),
+            !(problem.k as u32).is_multiple_of(2 * stage_shape_k),
             selection.loading_precompute_strategy,
             selection.loader_mode,
             selection.load_specialization_config.into(),

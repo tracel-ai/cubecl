@@ -160,7 +160,7 @@ fn optimize_line_size(
     let line_source_size = source_size * line_size;
     match line_source_size.cmp(&target_size) {
         core::cmp::Ordering::Less => {
-            if target_size % line_source_size != 0 {
+            if !target_size.is_multiple_of(line_source_size) {
                 panic!("incompatible number of bytes");
             }
 
@@ -169,7 +169,7 @@ fn optimize_line_size(
             (None, Some(ratio))
         }
         core::cmp::Ordering::Greater => {
-            if line_source_size % target_size != 0 {
+            if !line_source_size.is_multiple_of(target_size) {
                 panic!("incompatible number of bytes");
             }
             let ratio = line_source_size / target_size;

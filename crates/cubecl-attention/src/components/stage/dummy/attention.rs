@@ -6,7 +6,7 @@ use cubecl_matmul::components::stage::StageReader;
 use cubecl_matmul::components::tile::loader::Strided;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
@@ -191,8 +191,8 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         StageState::<AP>::init::<Self::Config>(config)
     }
 
-    fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        PlaneWriter::new(tensor, q_offset, 0u32, 0u32)
+    fn init_writer(tensor: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer {
+        PlaneWriter::new(tensor)
     }
 
     fn write<G: GlobalAttentionConfig>(

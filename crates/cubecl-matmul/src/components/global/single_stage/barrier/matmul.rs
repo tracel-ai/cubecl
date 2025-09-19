@@ -18,7 +18,7 @@ use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords3d};
+use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using asynchronous loading
@@ -42,7 +42,7 @@ where
             LhsStageReader = FullStageReader<LhsS<MP>, LL::TilingLayout>,
             RhsStageReader = FullStageReader<RhsS<MP>, RL::TilingLayout>,
             AccStageReader = FillStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
@@ -124,18 +124,16 @@ where
 
     fn init_lhs_stage_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
-        _nth_batch: u32,
         batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
+        _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
-        let layout = SimpleGlobalLayout::new(&lhs, config.global_memory_config(MatmulIdent::Lhs));
+        let conf = config.global_memory_config(MatmulIdent::Lhs);
+        let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         Self::LhsStageLoader::new(
-            lhs.view(layout),
-            x_offset,
-            y_offset,
-            batch_offset,
+            lhs.view(layout).slice(offset, slice_size),
             MatmulIdent::Lhs,
             config,
         )
@@ -143,18 +141,16 @@ where
 
     fn init_rhs_stage_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
-        _nth_batch: u32,
         batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
+        _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
-        let layout = SimpleGlobalLayout::new(&rhs, config.global_memory_config(MatmulIdent::Rhs));
+        let conf = config.global_memory_config(MatmulIdent::Rhs);
+        let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         Self::RhsStageLoader::new(
-            rhs.view(layout),
-            x_offset,
-            y_offset,
-            batch_offset,
+            rhs.view(layout).slice(offset, slice_size),
             MatmulIdent::Rhs,
             config,
         )
@@ -162,10 +158,10 @@ where
 
     fn init_acc_stage_loader(
         acc: CubeOption<VirtualTensor<AccG<MP>>>,
-        _m_offset: u32,
-        _n_offset: u32,
-        _nth_batch: u32,
         _batch_offset: u32,
+        _offset: Coords2d,
+        _slice_size: Coords2d,
+        _nth_batch: u32,
         #[comptime] _config: Self::Config,
     ) -> Self::AccStageLoader {
         match acc {
@@ -176,14 +172,15 @@ where
 
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        _nth_batch: u32,
         batch_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
+        _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(out.view_mut(layout), x_offset, y_offset, batch_offset)
+        let conf = config.global_memory_config(MatmulIdent::Out);
+        let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
+        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
