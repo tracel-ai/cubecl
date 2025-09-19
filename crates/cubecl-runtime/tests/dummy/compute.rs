@@ -52,6 +52,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
             mem_properties,
             topology,
             TimingMethod::System,
+            cubecl_runtime::server::AllocationKind::Contiguous,
         ),
         (),
     )

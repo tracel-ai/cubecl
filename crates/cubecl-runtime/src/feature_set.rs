@@ -8,6 +8,10 @@ use enumset::EnumSet;
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
+use crate::server::AllocationKind;
+
+/// Properties/features exposed by a device/runtime, used by higher layers for
+/// capability checks and defaults.
 #[derive(Debug)]
 pub struct DeviceProperties {
     /// The features supported by the runtime.
@@ -18,6 +22,14 @@ pub struct DeviceProperties {
     pub hardware: HardwareProperties,
     /// The method used for profiling on the device.
     pub timing_method: TimingMethod,
+    /// Default allocation preference for rank > 1 tensors when both contiguous and
+    /// inner‑contiguous row layouts are supported by the backend IO path.
+    ///
+    /// Backends can set this to `AllocationKind::Optimized` (pitched rows) when
+    /// strided IO is efficient in hardware (e.g., CUDA/HIP), or to
+    /// `AllocationKind::Contiguous` when contiguous copies are generally faster
+    /// (e.g., WGPU/CPU by default).
+    pub default_alloc_rank_gt1: AllocationKind,
 }
 
 impl DeviceProperties {
@@ -27,12 +39,14 @@ impl DeviceProperties {
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
         timing_method: TimingMethod,
+        default_alloc_rank_gt1: AllocationKind,
     ) -> Self {
         DeviceProperties {
             features,
             memory: memory_props,
             hardware,
             timing_method,
+            default_alloc_rank_gt1,
         }
     }
 

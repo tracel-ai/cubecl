@@ -1,5 +1,6 @@
+use super::controller::WgpuAllocController;
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController};
+use crate::WgpuResource;
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
@@ -9,8 +10,10 @@ use cubecl_core::{
     future::{self, DynFut},
     server::{Binding, Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
 };
+use cubecl_runtime::stride::{contiguous_strides, row_pitch_elems};
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
+    memory_management::{MemoryDeviceProperties, SliceBinding},
+    timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
@@ -163,6 +166,8 @@ impl WgpuStream {
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
 
+        // Rationale: support common row-pitched (2D) host layouts on WGPU.
+        // Limits: rank==2 and inner-most contiguous; other stride patterns remain UnsupportedStrides.
         match dispatch.clone() {
             CubeCount::Static(x, y, z) => {
                 pass.dispatch_workgroups(x, y, z);
@@ -190,44 +195,103 @@ impl WgpuStream {
         descriptors: Vec<CopyDescriptor>,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
-        let mut staging_info = Vec::with_capacity(descriptors.len());
+        enum Stored {
+            Managed {
+                staging: WgpuResource,
+                binding: SliceBinding,
+                size: usize,
+            },
+            Pitched {
+                buffer: wgpu::Buffer,
+                size: usize,
+                row_bytes: usize,
+                row_pitch: usize,
+            },
+        }
+        let mut entries: Vec<Stored> = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
         for descriptor in descriptors {
             let binding = descriptor.binding;
-            let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
-            // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-            // memory is 32 bytes aligned (see WgpuStorage).
-            let align = wgpu::COPY_BUFFER_ALIGNMENT;
+            let elem = descriptor.elem_size as u64;
             let resource = self.mem_manage.get_resource(binding);
-            let aligned_len = resource.size.div_ceil(align) * align;
-            let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
+            let align = wgpu::COPY_BUFFER_ALIGNMENT;
 
-            self.tasks_count += 1;
-            self.encoder.copy_buffer_to_buffer(
-                &resource.buffer,
-                resource.offset,
-                &staging.buffer,
-                0,
-                aligned_len,
-            );
-            staging_info.push((staging, binding, size));
+            if contiguous_strides(descriptor.shape) == descriptor.strides {
+                let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+                let aligned_len = resource.size.div_ceil(align) * align;
+                let (staging, sbinding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
+                self.tasks_count += 1;
+                self.encoder.copy_buffer_to_buffer(
+                    &resource.buffer,
+                    resource.offset,
+                    &staging.buffer,
+                    0,
+                    aligned_len,
+                );
+                entries.push(Stored::Managed {
+                    staging,
+                    binding: sbinding,
+                    size,
+                });
+                continue;
+            }
+
+            if let Some(pitch_elems) = row_pitch_elems(descriptor.shape, descriptor.strides) {
+                let last = descriptor.shape.len() - 1;
+                let rows = descriptor.shape[..last].iter().product::<usize>() as u64;
+                let cols = descriptor.shape[last] as u64;
+                let row_bytes = cols * elem;
+                let row_pitch = pitch_elems as u64 * elem;
+                let total = rows * row_pitch;
+                let aligned_total = total.div_ceil(align) * align;
+
+                let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                    label: None,
+                    size: aligned_total,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                self.tasks_count += 1;
+                self.encoder.copy_buffer_to_buffer(
+                    &resource.buffer,
+                    resource.offset,
+                    &staging_buffer,
+                    0,
+                    aligned_total,
+                );
+                let out_size = (rows * row_bytes) as usize;
+                entries.push(Stored::Pitched {
+                    buffer: staging_buffer,
+                    size: out_size,
+                    row_bytes: row_bytes as usize,
+                    row_pitch: row_pitch as usize,
+                });
+                continue;
+            }
+
+            return Box::pin(async { Err(IoError::UnsupportedStrides) });
         }
 
-        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
+        // Flush copies to queue
         self.flush();
-
-        for (staging, _binding, _size) in staging_info.iter() {
+        for entry in &entries {
             let (sender, receiver) = async_channel::bounded(1);
-            staging
-                .buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |v| {
-                    // This might fail if the channel is closed (eg. the future is dropped).
-                    // This is fine, just means results aren't needed anymore.
-                    let _ = sender.try_send(v);
-                });
-
+            match entry {
+                Stored::Managed { staging, .. } => {
+                    staging
+                        .buffer
+                        .slice(..)
+                        .map_async(wgpu::MapMode::Read, move |v| {
+                            let _ = sender.try_send(v);
+                        });
+                }
+                Stored::Pitched { buffer, .. } => {
+                    buffer.slice(..).map_async(wgpu::MapMode::Read, move |v| {
+                        let _ = sender.try_send(v);
+                    });
+                }
+            }
             callbacks.push(receiver);
         }
 
@@ -242,19 +306,40 @@ impl WgpuStream {
                     .expect("Failed to map buffer");
             }
 
-            // Can stop polling now.
             core::mem::drop(poll);
 
-            let result = {
-                staging_info
-                    .into_iter()
-                    .map(|(staging, binding, size)| {
+            let result: Vec<Bytes> = entries
+                .into_iter()
+                .map(|entry| match entry {
+                    Stored::Managed {
+                        staging,
+                        binding,
+                        size,
+                    } => {
                         let (controller, alloc) =
                             WgpuAllocController::init(binding, staging.buffer, size);
                         unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
-                    })
-                    .collect()
-            };
+                    }
+                    Stored::Pitched {
+                        buffer,
+                        size,
+                        row_bytes,
+                        row_pitch,
+                    } => {
+                        let data = buffer.slice(..).get_mapped_range();
+                        let rows = if row_bytes == 0 { 0 } else { size / row_bytes };
+                        let mut out = vec![0u8; size];
+                        for r in 0..rows {
+                            let src_off = r * row_pitch;
+                            let dst_off = r * row_bytes;
+                            out[dst_off..dst_off + row_bytes]
+                                .copy_from_slice(&data[src_off..src_off + row_bytes]);
+                        }
+                        buffer.unmap();
+                        Bytes::from_bytes_vec(out)
+                    }
+                })
+                .collect();
 
             Ok(result)
         })
@@ -382,6 +467,27 @@ impl WgpuStream {
         self.flush();
         let resource = self.mem_manage.get_resource(binding);
         self.write_to_buffer(&resource, data);
+    }
+
+    /// Writes a contiguous slice into a pitched 2D region row-by-row using queue writes.
+    /// Assumes `data` is laid out as `rows` contiguous rows of `row_bytes` each.
+    pub fn write_rows_pitched(
+        &mut self,
+        resource: &WgpuResource,
+        rows: u64,
+        row_bytes: u64,
+        row_pitch: u64,
+        data: &[u8],
+    ) {
+        // Ensure queued compute work is flushed before queue writes for ordering.
+        self.flush();
+        for r in 0..rows {
+            let src_off = (r * row_bytes) as usize;
+            let dst_off = resource.offset + r * row_pitch;
+            let end = src_off + row_bytes as usize;
+            let slice = &data[src_off..end];
+            self.queue.write_buffer(&resource.buffer, dst_off, slice);
+        }
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,

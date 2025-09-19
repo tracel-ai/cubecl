@@ -18,6 +18,7 @@ use cubecl_runtime::{
 };
 
 use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
+use cubecl_runtime::stride::{contiguous_strides, pitched_rows_layout, row_pitch_elems};
 
 use super::scheduler::Scheduler;
 
@@ -66,10 +67,43 @@ impl CpuServer {
         ) -> Result<Vec<Bytes>, IoError> {
             let mut result = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
-                let len = desc.binding.size() as usize;
-                let (controller, alloc) =
-                    CpuAllocController::init(desc.binding, &mut ctx.memory_management)?;
-                result.push(unsafe { Bytes::from_raw_parts(alloc, len, Box::new(controller)) });
+                let binding = desc.binding;
+                let elem = desc.elem_size;
+                let size = desc.shape.iter().product::<usize>() * elem;
+
+                // Contiguous: return zero-copy Bytes over the binding with logical len
+                if contiguous_strides(desc.shape) == desc.strides {
+                    let (controller, alloc) =
+                        CpuAllocController::init(binding, &mut ctx.memory_management)?;
+                    result
+                        .push(unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) });
+                    continue;
+                }
+
+                // Inner-contiguous rows: reconstruct rows into contiguous buffer
+                if let Some(row_pitch_elems) = row_pitch_elems(desc.shape, desc.strides) {
+                    let resource = ctx
+                        .memory_management
+                        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
+                        .ok_or(IoError::InvalidHandle)?;
+                    let last = desc.shape.len() - 1;
+                    let rows = desc.shape[..last].iter().product::<usize>();
+                    let cols = desc.shape[last];
+                    let row_bytes = cols * elem;
+                    let row_pitch = row_pitch_elems * elem;
+                    let src = resource.read();
+                    let mut out = vec![0u8; rows * row_bytes];
+                    for r in 0..rows {
+                        let src_off = r * row_pitch;
+                        let dst_off = r * row_bytes;
+                        out[dst_off..dst_off + row_bytes]
+                            .copy_from_slice(&src[src_off..src_off + row_bytes]);
+                    }
+                    result.push(Bytes::from_bytes_vec(out));
+                    continue;
+                }
+
+                return Err(IoError::UnsupportedStrides);
             }
             Ok(result)
         }
@@ -90,14 +124,22 @@ impl ComputeServer for CpuServer {
         descriptors: Vec<AllocationDescriptor<'_>>,
     ) -> Result<Vec<Allocation>, IoError> {
         let align = 8;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
+        let mut strides = Vec::with_capacity(descriptors.len());
+        let mut sizes = Vec::with_capacity(descriptors.len());
+
+        use cubecl_core::server::AllocationKind;
+
+        for desc in &descriptors {
+            let rank = desc.shape.len();
+            if matches!(desc.kind, AllocationKind::Optimized) && rank > 1 {
+                let (s, size) = pitched_rows_layout(desc.shape, desc.elem_size, align);
+                strides.push(s);
+                sizes.push(size);
+            } else {
+                strides.push(contiguous_strides(desc.shape));
+                sizes.push(desc.shape.iter().product::<usize>() * desc.elem_size);
+            }
+        }
         let total_size = sizes
             .iter()
             .map(|it| it.next_multiple_of(align))
@@ -123,11 +165,42 @@ impl ComputeServer for CpuServer {
 
     fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
         for (desc, data) in descriptors {
-            if desc.strides != contiguous_strides(desc.shape) {
-                return Err(IoError::UnsupportedStrides);
+            // Contiguous path
+            if contiguous_strides(desc.shape) == desc.strides {
+                self.copy_to_binding(desc.binding, data);
+                continue;
             }
 
-            self.copy_to_binding(desc.binding, data);
+            // Inner-contiguous rows: copy into pitched destination row-by-row
+            if let Some(row_pitch_elems) = row_pitch_elems(desc.shape, desc.strides) {
+                let last = desc.shape.len() - 1;
+                let rows = desc.shape[..last].iter().product::<usize>();
+                let cols = desc.shape[last];
+                let elem = desc.elem_size;
+                let row_bytes = cols * elem;
+                let row_pitch = row_pitch_elems * elem;
+
+                let resource = self
+                    .ctx
+                    .memory_management
+                    .get_resource(
+                        desc.binding.memory,
+                        desc.binding.offset_start,
+                        desc.binding.offset_end,
+                    )
+                    .ok_or(IoError::InvalidHandle)?;
+
+                let dst = resource.write();
+                for r in 0..rows {
+                    let dst_off = r * row_pitch;
+                    let src_off = r * row_bytes;
+                    dst[dst_off..dst_off + row_bytes]
+                        .copy_from_slice(&data[src_off..src_off + row_bytes]);
+                }
+                continue;
+            }
+
+            return Err(IoError::UnsupportedStrides);
         }
         Ok(())
     }
@@ -218,13 +291,4 @@ impl CpuServer {
 
         resource.write().copy_from_slice(data);
     }
-}
-
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
 }

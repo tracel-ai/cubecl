@@ -1,9 +1,10 @@
 use super::controller::PinnedMemoryManagedAllocController;
-use crate::compute::{HipContext, MB, valid_strides};
+use crate::compute::{HipContext, MB};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::server::{CopyDescriptor, IoError};
 use cubecl_hip_sys::{HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost};
 use cubecl_runtime::memory_management::MemoryHandle;
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows, row_pitch_elems};
 
 /// Registers multiple lazy buffer copies to [Bytes], potentially using pinned memory.
 ///
@@ -51,7 +52,7 @@ pub fn register_copy_to_bytes(
         elem_size,
     } = descriptor;
 
-    if !valid_strides(shape, strides) {
+    if !(is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)) {
         return Err(IoError::UnsupportedStrides);
     }
 
@@ -84,7 +85,7 @@ pub fn register_copy_to_bytes(
     let dim_x = shape[rank - 1];
     let width_bytes = dim_x * elem_size;
     let dim_y: usize = shape.iter().rev().skip(1).product();
-    let pitch = strides[rank - 2] * elem_size;
+    let pitch = row_pitch_elems(shape, strides).unwrap() * elem_size;
 
     unsafe {
         let status = cubecl_hip_sys::hipMemcpy2DAsync(

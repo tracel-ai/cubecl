@@ -1,8 +1,9 @@
 use super::controller::PinnedMemoryManagedAllocController;
-use crate::compute::{CudaContext, MB, valid_strides};
+use crate::compute::{CudaContext, MB};
 use cubecl_common::bytes::Bytes;
 use cubecl_core::server::{CopyDescriptor, IoError};
 use cubecl_runtime::memory_management::MemoryHandle;
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows, row_pitch_elems};
 use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, cuMemcpy2DAsync_v2};
 use std::{ffi::c_void, ops::DerefMut};
 
@@ -52,7 +53,7 @@ pub fn register_copy_to_bytes(
         elem_size,
     } = descriptor;
 
-    if !valid_strides(shape, strides) {
+    if !(is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)) {
         return Err(IoError::UnsupportedStrides);
     }
 
@@ -77,7 +78,7 @@ pub fn register_copy_to_bytes(
     let dim_x = shape[rank - 1];
     let width_bytes = dim_x * elem_size;
     let dim_y: usize = shape.iter().rev().skip(1).product();
-    let pitch = strides[rank - 2] * elem_size;
+    let pitch = row_pitch_elems(shape, strides).unwrap() * elem_size;
     let slice = bytes.deref_mut();
 
     let cpy = CUDA_MEMCPY2D_st {

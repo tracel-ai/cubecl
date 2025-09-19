@@ -25,6 +25,10 @@ use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::memory_management::offset_handles;
 use cubecl_runtime::storage::BindingResource;
+use cubecl_runtime::stride::{
+    contiguous_strides, is_contiguous, is_inner_contiguous_rows, pitched_rows_layout,
+    row_pitch_elems,
+};
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -139,30 +143,17 @@ impl ComputeServer for HipServer {
         let mut sizes = Vec::new();
 
         for descriptor in descriptors {
-            let pitch_align = match descriptor.kind {
-                AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized => self.mem_alignment,
-            };
-
             let rank = descriptor.shape.len();
-            let width = *descriptor.shape.last().unwrap_or(&1);
-            let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = height.max(1);
-            let width_bytes = width * descriptor.elem_size;
-            let pitch = width_bytes.next_multiple_of(pitch_align);
-            let size = height * pitch;
+            let (stride, size) = if matches!(descriptor.kind, AllocationKind::Optimized) && rank > 1
+            {
+                pitched_rows_layout(descriptor.shape, descriptor.elem_size, self.mem_alignment)
+            } else {
+                (
+                    contiguous_strides(descriptor.shape),
+                    descriptor.shape.iter().product::<usize>() * descriptor.elem_size,
+                )
+            };
             total_size += size.next_multiple_of(self.mem_alignment);
-
-            let mut stride = vec![1; rank];
-            if rank > 1 {
-                stride[rank - 2] = pitch / descriptor.elem_size;
-            }
-            if rank > 2 {
-                for i in (0..rank - 2).rev() {
-                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
-                }
-            }
-
             strides.push(stride);
             sizes.push(size);
         }
@@ -199,14 +190,16 @@ impl ComputeServer for HipServer {
             } = descriptor;
             let rank = shape.len();
 
-            if !valid_strides(shape, strides) {
+            if !(is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)) {
                 return Err(IoError::UnsupportedStrides);
             }
 
             if rank > 1 {
-                let stride = strides[rank - 2];
-
-                self.copy_to_binding_2d(binding, data, shape, stride, elem_size);
+                if let Some(pitch_elems) = row_pitch_elems(shape, strides) {
+                    self.copy_to_binding_2d(binding, data, shape, pitch_elems, elem_size);
+                } else {
+                    self.copy_to_binding(binding, data);
+                }
             } else {
                 self.copy_to_binding(binding, data);
             }
@@ -657,15 +650,6 @@ impl HipServer {
     }
 }
 
-pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
-    let rank = shape.len();
-    let mut strides = vec![1; rank];
-    for i in (0..rank - 1).rev() {
-        strides[i] = strides[i + 1] * shape[i + 1];
-    }
-    strides
-}
-
 #[derive(Debug)]
 pub(crate) enum LaunchError {
     OutOfMemory,
@@ -679,29 +663,4 @@ impl From<LaunchError> for ProfileError {
             LaunchError::Unknown(msg) => ProfileError::Unknown(msg),
         }
     }
-}
-
-pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
-    let rank = shape.len();
-    if strides[rank - 1] != 1 {
-        return false;
-    }
-    if rank <= 1 {
-        return true;
-    }
-
-    let mut sorted = strides.to_vec();
-    sorted.sort();
-    sorted.reverse();
-
-    if sorted != strides {
-        return false;
-    }
-
-    for i in 0..rank - 2 {
-        if strides[i] != shape[i + 1] * strides[i + 1] {
-            return false;
-        }
-    }
-    true
 }
