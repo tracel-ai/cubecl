@@ -6,7 +6,10 @@ use cubecl_matmul::components::{
     global::StageUnloader,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+};
 
 use crate::{
     components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},
@@ -44,7 +47,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
 
     /// The writer used to write the results to the output feature map
-    type StageWriter: StageUnloader<AccG<MP>>;
+    type StageUnloader: StageUnloader<AccG<MP>>;
     /// The type of the tile matmul accumulator
     type Accumulators: CubeType;
 
@@ -58,7 +61,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
         lhs_loader: Self::LhsStageLoader,
         rhs_loader: Self::RhsStageLoader,
         acc_loader: Self::AccStageLoader,
-        writer: Self::StageWriter,
+        writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -67,8 +70,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the loader for the input feature map with an appropriate layout
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader;
@@ -76,8 +79,8 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Initializes the loader for the weights with an appropriate layout
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader;
@@ -86,17 +89,18 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     fn init_bias_loader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
+        slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader;
 
     /// Initializes the output feature map loader with an appropriate layout
-    fn init_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::StageWriter;
+    ) -> Self::StageUnloader;
 
     /// Initializes a new accumulator for the tile matmul
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators;

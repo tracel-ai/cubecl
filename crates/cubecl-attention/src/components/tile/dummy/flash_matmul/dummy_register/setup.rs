@@ -35,7 +35,7 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
             1,
             line_sizes.query as u32,
             line_sizes.key as u32,
-            problem.seq_kv as u32 % selection.attention_tile_size.seq_kv != 0,
+            !(problem.seq_kv as u32).is_multiple_of(selection.attention_tile_size.seq_kv),
         )
     }
 }
