@@ -1,32 +1,35 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::StageReaderFamily;
-use cubecl_std::tensor::{layout::Coords3d, View};
 use cubecl_std::CubeOption;
+use cubecl_std::tensor::{View, layout::Coords3d};
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::AttentionTilingScheme;
 use crate::components::global::dummy::QueryLoader;
 use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
-use crate::components::AttentionTilingScheme;
 use crate::components::{
-    global::GlobalAttentionConfig,
-    tile::{dummy::FlashMatmulConfig, AttentionTilingLayout},
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
+    global::GlobalAttentionConfig,
+    tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
 };
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
     /// The specific [TileAttention] implementation associated with this family.
     type Attention<AP: AttentionPrecision>: StageAttention<
-        AP,
-        Config = Self::Config,
-        KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
-        ValueReader = <Self::ValueReader as StageReaderFamily>::Reader<
-            AP::ES,
-            AttentionTilingLayout,
-        >,
-    >;
+            AP,
+            Config = Self::Config,
+            KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<
+                AP::ES,
+                AttentionTilingLayout,
+            >,
+            ValueReader = <Self::ValueReader as StageReaderFamily>::Reader<
+                AP::ES,
+                AttentionTilingLayout,
+            >,
+        >;
 
     /// The configuration type associated with this Attention family.
     type Config: StageAttentionConfig;

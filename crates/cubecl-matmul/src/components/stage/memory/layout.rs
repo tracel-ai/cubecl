@@ -347,7 +347,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 .as_slice(stage_line_size)
                 .slice(start, start + tile_slice_length),
             ident,
-            config
+            config,
         )
     }
 }
