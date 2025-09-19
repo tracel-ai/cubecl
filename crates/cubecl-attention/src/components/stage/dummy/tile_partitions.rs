@@ -84,23 +84,23 @@ impl<
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
-        let mut i = comptime!(0u32);
+        let mut q = comptime!(0u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime!(p.seq_q) {
-            let mut j = comptime!(0u32);
+            let mut hd = comptime!(0u32);
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime!(p.head_dim) {
-                let tile = query_loader.get_tile::<S>(i, j, config);
+                let tile = query_loader.get_tile::<S>(q, hd, config);
                 sequence.push(TA::init_query(&tile, config.tile_config()));
 
-                comptime![j += 1];
+                comptime![hd += 1];
             }
 
-            comptime![i += 1];
+            comptime![q += 1];
         }
 
         Queries::<AP, TA, S> {
@@ -111,22 +111,22 @@ impl<
 
     pub fn get_at(
         &self,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+        #[comptime] q: u32,
+        #[comptime] hd: u32,
         #[comptime] config: S,
     ) -> &TA::Query {
         let p = config.tiling_scheme().partition_size;
-        self.sequence.index(comptime!(i * p.head_dim + j))
+        self.sequence.index(comptime!(q * p.head_dim + hd))
     }
 
     pub fn get_at_mut(
         &mut self,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
+        #[comptime] q: u32,
+        #[comptime] hd: u32,
         #[comptime] config: S,
     ) -> &mut TA::Query {
         let p = config.tiling_scheme().partition_size;
-        self.sequence.index_mut(comptime!(i * p.head_dim + j))
+        self.sequence.index_mut(comptime!(q * p.head_dim + hd))
     }
 }
 
