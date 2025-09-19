@@ -145,6 +145,7 @@ impl<B: StreamBackend> GcThread<B> {
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
                 B::wait_event_sync(event.event);
+                log::info!("Release memory: {:?}", event.ids);
                 core::mem::drop(event.ids);
             }
         });
@@ -180,9 +181,9 @@ impl<'a, B: StreamBackend> Drop for ResolvedStreams<'a, B> {
             return;
         }
 
-        for (index, ids) in self.analysis.slices.drain() {
-            let stream_origin = unsafe { self.streams.get_mut_index(index) };
-            let event_orgin = B::flush(&mut stream_origin.stream);
+        for (_index, ids) in self.analysis.slices.drain() {
+            let stream = self.streams.get_mut(&self.current);
+            let event_orgin = B::flush(&mut stream.stream);
 
             let stream_gc = self.streams.get_gc();
             B::wait_event(stream_gc, event_orgin);
@@ -254,19 +255,20 @@ impl<B: StreamBackend> MultiStream<B> {
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> SharedBindingAnalysis {
         let mut analysis = SharedBindingAnalysis::default();
-        let current = self.streams.get_mut(&stream_id);
+        // let current = self.streams.get_mut(&stream_id);
 
         for binding in bindings {
             if stream_id != binding.stream {
                 let index = stream_index(&binding.stream, self.max_streams);
+                analysis.shared(binding, index);
 
-                if let Some(last_synced) = current.last_synced.get(&index) {
-                    if *last_synced < binding.cursor {
-                        analysis.shared(binding, index);
-                    }
-                } else {
-                    analysis.shared(binding, index);
-                }
+                // if let Some(last_synced) = current.last_synced.get(&index) {
+                //     if *last_synced < binding.cursor {
+                //         analysis.shared(binding, index);
+                //     }
+                // } else {
+                //     analysis.shared(binding, index);
+                // }
             }
         }
 
