@@ -151,9 +151,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Inits the writer at the given offsets
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
     ) -> Self::StageUnloader;
 
     /// Reads the result of the accumulator and hands it to the stage writer

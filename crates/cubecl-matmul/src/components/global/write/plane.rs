@@ -6,7 +6,7 @@ use crate::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 
 use super::StageUnloader;
 
@@ -19,21 +19,16 @@ pub struct PlaneWriter<EG: Numeric> {
 
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(
-        view: View<Line<EG>, Coords3d, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
-    ) -> Self {
+    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
         PlaneWriter::<EG> {
-            tensor_writer: TensorWriter::new(view, x_offset, y_offset, batch_offset),
+            tensor_writer: TensorWriter::new(view),
         }
     }
 }
 
 #[cube]
 impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
-    type Coordinates = Coords3d;
+    type Coordinates = Coords2d;
 
     fn write<G: GlobalConfig>(
         this: &mut Self,

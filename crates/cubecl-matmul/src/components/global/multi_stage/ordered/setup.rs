@@ -8,7 +8,7 @@ use crate::components::{error::MatmulSetupError, stage::FillStageReaderFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialStageReaderFamily};
 use crate::components::{global::MaxLoaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -28,7 +28,7 @@ where
             LhsStageReader = FullStageReaderFamily,
             RhsStageReader = PartialStageReaderFamily,
             AccStageReader = FillStageReaderFamily,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
     RL: SyncPartialLoadingStrategy,
 {

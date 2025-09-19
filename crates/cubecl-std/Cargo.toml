@@ -22,3 +22,4 @@ cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = f
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false }
 half.workspace = true
 serde = { workspace = true }
+variadics_please = { workspace = true }
