@@ -1,4 +1,8 @@
-use cubecl_core::{client::ComputeClient, prelude::{ScalarArg, TensorHandleRef}, Runtime};
+use cubecl_core::{
+    Runtime,
+    client::ComputeClient,
+    prelude::{ScalarArg, TensorHandleRef},
+};
 
 use cubecl_std::tensor::TensorHandle;
 

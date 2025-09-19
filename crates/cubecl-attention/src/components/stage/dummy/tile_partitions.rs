@@ -292,7 +292,6 @@ impl<
         #[comptime] config: S,
     ) -> &TA::ScoreProb {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
-        comptime!(println!("{:?}", kv));
         self.sequence.index(index)
     }
 

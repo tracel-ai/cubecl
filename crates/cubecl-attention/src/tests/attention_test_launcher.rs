@@ -85,8 +85,6 @@ pub fn test_attention_algorithm<A, P, R>(
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
-    println!("problem_seqkv: {:?}", problem.seq_kv);
-
     unsafe {
         A::BatchAttention::launch_unchecked::<P::MP, R>(
             &client,
@@ -125,7 +123,7 @@ pub fn test_attention_algorithm<A, P, R>(
                 line_sizes.out,
             ),
             cube_count_plan.as_args(),
-            ScalarArg::new(2),
+            ScalarArg::new(problem.seq_kv as u32),
             config,
         );
     }
@@ -156,7 +154,6 @@ where
     let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
     let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
-    println!("{:?}: {:?}", ident, data);
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();

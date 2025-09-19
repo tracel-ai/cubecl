@@ -163,7 +163,6 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
     pub fn new(value: View<Line<AP::EI>, Coords3d>, #[comptime] config: G) -> Self {
         let tensor_reader =
             TensorReader::new(value, (0u32.runtime(), 0u32.runtime(), 0u32.runtime()));
-        comptime!(println!("{:?}", config.value_stage_memory_config()));
         let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
