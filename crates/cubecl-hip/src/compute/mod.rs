@@ -1,5 +1,6 @@
 mod server;
 
+pub(crate) mod command;
 pub(crate) mod context;
 pub(crate) mod fence;
 pub(crate) mod io;

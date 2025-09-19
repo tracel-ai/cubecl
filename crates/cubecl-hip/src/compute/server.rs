@@ -1,28 +1,26 @@
+use super::storage::gpu::GpuResource;
 use super::storage::gpu::GpuStorage;
-use super::{storage::gpu::GpuResource, uninit_vec};
+use crate::compute::command::Command;
 use crate::compute::context::HipContext;
-use crate::compute::io::register_copies_to_bytes;
-use crate::compute::stream::{HipStreamBackend, Stream};
+use crate::compute::stream::HipStreamBackend;
 use crate::runtime::HipCompiler;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::compute::CubeTask;
-use cubecl_core::prelude::*;
 use cubecl_core::server::{
     Allocation, AllocationKind, CopyDescriptor, DataTransferService, IoError, ProfileError,
     ProfilingToken,
 };
 use cubecl_core::server::{Binding, Bindings};
-use cubecl_hip_sys::HIP_SUCCESS;
+use cubecl_core::{MemoryConfiguration, future, prelude::*};
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::MemoryUsage;
-use cubecl_runtime::memory_management::offset_handles;
+use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
+use cubecl_runtime::memory_management::{MemoryDeviceProperties, offset_handles};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
-use std::future::Future;
 use std::sync::Arc;
 
 #[cfg(feature = "compilation-cache")]
@@ -81,12 +79,11 @@ impl ComputeServer for HipServer {
             sizes.push(size);
         }
 
-        let (ctx, _stream, cursor) = self.resolve_context_basic(stream_id);
+        let mem_alignment = self.mem_alignment;
+        let mut command = self.command_no_inputs(stream_id);
 
-        let handle = ctx.memory_management_gpu.reserve(total_size as u64)?;
-        let mem_handle =
-            server::Handle::new(handle, None, None, stream_id, cursor, total_size as u64);
-        let handles = offset_handles(mem_handle, &sizes, self.mem_alignment);
+        let handle = command.reserve(total_size as u64)?;
+        let handles = offset_handles(handle, &sizes, mem_alignment);
 
         Ok(handles
             .into_iter()
@@ -100,7 +97,9 @@ impl ComputeServer for HipServer {
         descriptors: Vec<server::CopyDescriptor>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        Box::pin(self.read_async(descriptors, stream_id))
+        let mut command = self.command(stream_id, descriptors.iter().map(|d| &d.binding));
+
+        Box::pin(command.read_async(descriptors))
     }
 
     fn write(
@@ -108,40 +107,23 @@ impl ComputeServer for HipServer {
         descriptors: Vec<(server::CopyDescriptor<'_>, &[u8])>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
-        let (ctx, stream, _cursor) = self
-            .resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
+        let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
-            let CopyDescriptor {
-                binding,
-                shape,
-                strides,
-                elem_size,
-            } = descriptor;
-            let rank = shape.len();
-
-            if !valid_strides(shape, strides) {
-                return Err(IoError::UnsupportedStrides);
-            }
-
-            if rank > 1 {
-                let stride = strides[rank - 2];
-
-                ctx.copy_to_binding_2d(stream, binding, data, shape, stride, elem_size);
-            } else {
-                ctx.copy_to_binding(stream, binding, data);
-            }
+            command.write_to_gpu(descriptor, data)?;
         }
 
         Ok(())
     }
 
-    fn memory_usage(&self) -> MemoryUsage {
-        self.ctx.memory_management_gpu.memory_usage()
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage {
+        let mut command = self.command_no_inputs(stream_id);
+        command.memory_usage()
     }
 
-    fn memory_cleanup(&mut self) {
-        self.ctx.memory_management_gpu.cleanup(true);
+    fn memory_cleanup(&mut self, stream_id: StreamId) {
+        let mut command = self.command_no_inputs(stream_id);
+        command.memory_cleanup()
     }
 
     unsafe fn execute(
@@ -155,6 +137,7 @@ impl ComputeServer for HipServer {
     ) {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
+        let mut command = self.command(stream_id, bindings.buffers.iter());
 
         let count = match count {
             CubeCount::Static(x, y, z) => (x, y, z),
@@ -162,8 +145,14 @@ impl ComputeServer for HipServer {
             // One option is to create a dummy kernel with 1 thread that launches the real kernel with the dynamic dispatch settings.
             // For now, just read the dispatch settings from the buffer.
             CubeCount::Dynamic(binding) => {
-                let data = self.read_sync(binding, stream_id);
-                let data = bytemuck::cast_slice(&data);
+                let data = future::block_on(command.read_async(vec![CopyDescriptor::new(
+                    binding,
+                    &[3],
+                    &[1],
+                    4,
+                )]))
+                .unwrap();
+                let data = bytemuck::cast_slice(&data[0]);
                 assert!(
                     data.len() == 3,
                     "Dynamic cube count should contain 3 values"
@@ -180,36 +169,38 @@ impl ComputeServer for HipServer {
         } = bindings;
 
         debug_assert!(tensor_maps.is_empty(), "Can't use tensor maps on HIP");
-        let info = self
-            .create_with_data(bytemuck::cast_slice(&metadata.data), stream_id)
+
+        let info = command
+            .create_with_data(bytemuck::cast_slice(&metadata.data))
             .unwrap();
         let scalars: Vec<_> = scalars
             .values()
-            .map(|s| self.create_with_data(s.data(), stream_id).unwrap())
+            .map(|s| command.create_with_data(s.data()).unwrap())
             .collect();
 
-        let (ctx, stream, _cursor) = self.resolve_context_bindings(stream_id, buffers.iter());
+        let mut resources: Vec<_> = buffers
+            .into_iter()
+            .map(|b| command.resource(b).expect("Resource to exist."))
+            .collect();
+        resources.push(
+            command
+                .resource(info.clone().binding())
+                .expect("Resource to exist."),
+        );
+        resources.extend(
+            scalars
+                .into_iter()
+                .map(|s| command.resource(s.binding()).expect("Resource to exist.")),
+        );
 
-        if !ctx.module_names.contains_key(&kernel_id) {
-            ctx.compile_kernel(&kernel_id, kernel, mode, logger);
-        }
-
-        let mut resources: Vec<_> = buffers.into_iter().map(|b| find_resource(ctx, b)).collect();
-        resources.push(find_resource(ctx, info.clone().binding()));
-        resources.extend(scalars.into_iter().map(|s| find_resource(ctx, s.binding())));
-
-        ctx.execute_task(stream, kernel_id, count, resources);
+        command.kernel(kernel_id, kernel, mode, count, &resources, logger)
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
     fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
-        let (_, stream, _) = self.resolve_context_basic(stream_id);
-        let fence = stream.fence();
-
-        Box::pin(async {
-            fence.wait_sync();
-        })
+        let mut command = self.command_no_inputs(stream_id);
+        command.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
@@ -226,94 +217,55 @@ impl ComputeServer for HipServer {
         self.ctx.timestamps.stop(token)
     }
 
-    fn get_resource(&mut self, binding: server::Binding) -> BindingResource<GpuResource> {
+    fn get_resource(
+        &mut self,
+        binding: server::Binding,
+        stream_id: StreamId,
+    ) -> BindingResource<GpuResource> {
+        let mut command = self.command(stream_id, [&binding].into_iter());
+
         BindingResource::new(
             binding.clone(),
-            self.ctx
-                .memory_management_gpu
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Can't find resource"),
+            command.resource(binding).expect("Failed to find resource"),
         )
     }
 
-    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
-        self.ctx.memory_management_gpu.mode(mode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        let mut command = self.command_no_inputs(stream_id);
+        command.allocation_mode(mode)
     }
-}
-
-fn find_resource(ctx: &mut HipContext, binding: server::Binding) -> GpuResource {
-    ctx.memory_management_gpu
-        .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-        .expect("Failed to find resource")
 }
 
 impl HipServer {
     /// Create a new hip server.
-    pub(crate) fn new(mem_alignment: usize, ctx: HipContext) -> Self {
+    pub(crate) fn new(
+        ctx: HipContext,
+        mem_props: MemoryDeviceProperties,
+        mem_config: MemoryConfiguration,
+        mem_alignment: usize,
+    ) -> Self {
         Self {
             ctx,
             mem_alignment,
-            streams: MultiStream::new(),
+            streams: MultiStream::new(
+                HipStreamBackend::new(mem_props, mem_config, mem_alignment),
+                1, // Still some bugs with `burn-fusion` when multiple streams are activated.
+            ),
         }
     }
 
-    fn resolve_context_basic(
-        &mut self,
-        stream_id: StreamId,
-    ) -> (&mut HipContext, &mut Stream, u64) {
-        let stream = self.streams.get(stream_id);
-
-        (&mut self.ctx, &mut stream.stream, stream.cursor)
+    fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
+        self.command(stream_id, [].into_iter())
     }
 
-    fn resolve_context_bindings<'a>(
+    fn command<'a>(
         &mut self,
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
-    ) -> (&mut HipContext, &mut Stream, u64) {
-        let stream = self.streams.resolve(stream_id, bindings);
+    ) -> Command<'_> {
+        let streams = self.streams.resolve(stream_id, bindings);
 
-        (&mut self.ctx, &mut stream.stream, stream.cursor)
-    }
-
-    fn read_sync(&mut self, binding: server::Binding, stream_id: StreamId) -> Vec<u8> {
-        let (ctx, stream, _cursor) =
-            self.resolve_context_bindings(stream_id, [&binding].into_iter());
-
-        let resource = ctx
-            .memory_management_gpu
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .expect("Failed to find resource");
-
-        let mut data = uninit_vec(resource.size as usize);
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                data.as_mut_ptr() as *mut _,
-                resource.ptr,
-                resource.size as usize,
-                stream.sys,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should copy data from device to host");
-        };
-        stream.sync();
-        data
-    }
-
-    fn read_async(
-        &mut self,
-        descriptors: Vec<server::CopyDescriptor>,
-        stream_id: StreamId,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        let (ctx, stream, _cursor) =
-            self.resolve_context_bindings(stream_id, descriptors.iter().map(|desc| &desc.binding));
-
-        let result = register_copies_to_bytes(ctx, stream, descriptors);
-        let fence = stream.fence();
-
-        async move {
-            fence.wait_sync();
-            result
-        }
+        Command::new(&mut self.ctx, streams)
     }
 }
 

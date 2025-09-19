@@ -1,19 +1,14 @@
 use super::storage::gpu::GpuResource;
-use super::storage::gpu::GpuStorage;
 use crate::compute::LaunchError;
-use crate::compute::cpu::PinnedMemoryStorage;
 use crate::compute::stream::Stream;
 use crate::runtime::HipCompiler;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
-use cubecl_core::server::Binding;
 use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::shared::CompilationOptions;
-use cubecl_hip_sys::hipMemcpyKind_hipMemcpyHostToDevice;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::MemoryManagement;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use std::collections::HashMap;
 use std::ffi::CStr;
@@ -22,8 +17,6 @@ use std::sync::Arc;
 
 #[derive(Debug)]
 pub(crate) struct HipContext {
-    pub memory_management_gpu: MemoryManagement<GpuStorage>,
-    pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
     pub module_names: HashMap<KernelId, HipCompiledKernel>,
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
@@ -47,14 +40,8 @@ pub struct CompilationCacheEntry {
 }
 
 impl HipContext {
-    pub fn new(
-        memory_management_gpu: MemoryManagement<GpuStorage>,
-        memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-        compilation_options: CompilationOptions,
-    ) -> Self {
+    pub fn new(compilation_options: CompilationOptions) -> Self {
         Self {
-            memory_management_gpu,
-            memory_management_cpu,
             module_names: HashMap::new(),
             timestamps: TimestampProfiler::default(),
             compilation_options,
@@ -253,8 +240,8 @@ impl HipContext {
         stream: &mut Stream,
         kernel_id: KernelId,
         dispatch_count: (u32, u32, u32),
-        resources: Vec<GpuResource>,
-    ) {
+        resources: &[GpuResource],
+    ) -> Result<(), LaunchError> {
         let mut bindings = resources
             .iter()
             .map(|memory| memory.binding)
@@ -263,7 +250,7 @@ impl HipContext {
         let kernel = self.module_names.get(&kernel_id).unwrap();
         let cube_dim = kernel.cube_dim;
 
-        let result = unsafe {
+        unsafe {
             let status = cubecl_hip_sys::hipModuleLaunchKernel(
                 kernel.func,
                 dispatch_count.0,
@@ -289,65 +276,6 @@ impl HipContext {
             } else {
                 Ok(())
             }
-        };
-
-        match result {
-            Ok(_) => {}
-            Err(err) => match self.timestamps.is_empty() {
-                true => panic!("{err:?}"),
-                false => self.timestamps.error(err.into()),
-            },
-        }
-    }
-
-    pub fn copy_to_binding(&mut self, stream: &mut Stream, binding: Binding, data: &[u8]) {
-        let resource = self
-            .memory_management_gpu
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpyHtoDAsync(
-                resource.ptr,
-                data as *const _ as *mut _,
-                data.len(),
-                stream.sys,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-        }
-    }
-
-    pub fn copy_to_binding_2d(
-        &mut self,
-        stream: &mut Stream,
-        binding: Binding,
-        data: &[u8],
-        shape: &[usize],
-        stride: usize,
-        elem_size: usize,
-    ) {
-        let resource = self
-            .memory_management_gpu
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-
-        let width = *shape.last().unwrap_or(&1);
-        let height: usize = shape.iter().rev().skip(1).product();
-        let width_bytes = width * elem_size;
-        let stride_bytes = stride * elem_size;
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpy2DAsync(
-                resource.ptr,
-                stride_bytes,
-                data as *const _ as *mut _,
-                width_bytes,
-                width_bytes,
-                height.max(1),
-                hipMemcpyKind_hipMemcpyHostToDevice,
-                stream.sys,
-            );
-            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
         }
     }
 }
