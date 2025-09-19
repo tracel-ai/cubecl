@@ -12,7 +12,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryManagement, offset_handles},
+    memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
@@ -118,11 +118,16 @@ impl ComputeServer for CpuServer {
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
+        _stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         Box::pin(self.read_async(descriptors))
     }
 
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        _stream_id: StreamId,
+    ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if desc.strides != contiguous_strides(desc.shape) {
                 return Err(IoError::UnsupportedStrides);
@@ -133,11 +138,11 @@ impl ComputeServer for CpuServer {
         Ok(())
     }
 
-    fn memory_usage(&self) -> MemoryUsage {
+    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
         self.ctx.memory_management.memory_usage()
     }
 
-    fn memory_cleanup(&mut self) {
+    fn memory_cleanup(&mut self, _stream_id: StreamId) {
         self.ctx.memory_management.cleanup(true)
     }
 
@@ -174,27 +179,32 @@ impl ComputeServer for CpuServer {
         );
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self, _stream_id: StreamId) {}
 
-    fn sync(&mut self) -> DynFut<()> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
         self.logger.profile_summary();
         Box::pin(async move {})
     }
 
-    fn start_profile(&mut self) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync());
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+        cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
         self.logger.profile_summary();
-        cubecl_common::future::block_on(self.sync());
+        cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.stop(token)
     }
 
     fn get_resource(
         &mut self,
         binding: Binding,
+        _stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
         BindingResource::new(
             binding.clone(),
@@ -205,7 +215,7 @@ impl ComputeServer for CpuServer {
         )
     }
 
-    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.ctx.memory_management.mode(mode);
     }
 }
