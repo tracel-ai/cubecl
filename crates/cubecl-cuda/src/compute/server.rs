@@ -112,10 +112,11 @@ impl ComputeServer for CudaServer {
             sizes.push(size);
         }
 
+        let mem_alignment = self.mem_alignment;
         let mut command = self.command_no_inputs(stream_id);
 
         let handle = command.reserve(total_size as u64)?;
-        let handles = offset_handles(handle, &sizes, self.mem_alignment);
+        let handles = offset_handles(handle, &sizes, mem_alignment);
 
         Ok(handles
             .into_iter()
@@ -444,7 +445,7 @@ impl CudaServer {
             ctx,
             streams: MultiStream::new(
                 CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
-                1, // Still some bugs when multi-streams is activated.
+                8,
             ),
         }
     }
