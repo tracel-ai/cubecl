@@ -51,7 +51,7 @@ impl SmAllocation {
                     let mut i = 1;
 
                     while i * i <= n {
-                        if n % i == 0 {
+                        if n.is_multiple_of(i) {
                             divs.push(i);
                             if i != n / i {
                                 divs.push(n / i);

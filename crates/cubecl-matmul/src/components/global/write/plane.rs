@@ -50,7 +50,7 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
 
         let unit_step = config.plane_dim() * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
-        let balanced_workload = comptime!(tile_size % unit_step == 0);
+        let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {
@@ -100,7 +100,8 @@ fn write_line<EG: Numeric>(
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
     } else if comptime!(
-        out_smem_line_size < output_line_size && output_line_size % out_smem_line_size == 0
+        out_smem_line_size < output_line_size
+            && output_line_size.is_multiple_of(out_smem_line_size)
     ) {
         let mut value = Line::empty(output_line_size);
         #[unroll]

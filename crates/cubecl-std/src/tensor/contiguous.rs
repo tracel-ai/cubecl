@@ -217,7 +217,7 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     let is_padded = rank > 1 && last_dim != output.strides[rank - 2];
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
-    while is_padded && last_dim % num_elems_per_unit as usize != 0 {
+    while is_padded && !last_dim.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
         num_elems_per_unit /= 2;
     }
@@ -227,7 +227,7 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     } else {
         *R::supported_line_sizes()
             .iter()
-            .filter(|it| num_elems_per_unit % **it as u32 == 0)
+            .filter(|it| num_elems_per_unit.is_multiple_of(**it as u32))
             .max()
             .unwrap_or(&1)
     };

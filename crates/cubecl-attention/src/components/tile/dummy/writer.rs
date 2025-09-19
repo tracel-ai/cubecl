@@ -48,7 +48,7 @@ impl<EO: Numeric> DummyWriter<EO> {
 
         let unit_step = config.plane_dim() * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
-        let balanced_workload = comptime!(tile_size % unit_step == 0);
+        let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]
         for i in 0..num_unit_writes {

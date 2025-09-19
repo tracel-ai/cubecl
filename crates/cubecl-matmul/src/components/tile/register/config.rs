@@ -120,14 +120,14 @@ impl RegisterConfig {
 
         match self.matrix_layout(StageIdent::Lhs) {
             MatrixLayout::RowMajor => {
-                if k % lhs != 0 {
+                if !k.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {k:?} should be divisible by line size {lhs:?}"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
-                if m % lhs != 0 {
+                if !m.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {m:?} should be divisible by line size {lhs:?}"
                     ))));
@@ -136,14 +136,14 @@ impl RegisterConfig {
         }
         match self.matrix_layout(StageIdent::Rhs) {
             MatrixLayout::RowMajor => {
-                if n % rhs != 0 {
+                if !n.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
-                if k % rhs != 0 {
+                if !k.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {k:?} should be divisible by line size {rhs:?}"
                     ))));
@@ -151,7 +151,7 @@ impl RegisterConfig {
             }
         }
 
-        if n % out != 0 {
+        if !n.is_multiple_of(out) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                 "Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
             ))));

@@ -76,13 +76,13 @@ impl HypercubeConfig {
         match self.global_order {
             RowMajor | ColMajor => Ok(()),
 
-            SwizzleRowMajor(w) if m_cubes % w != 0 => {
+            SwizzleRowMajor(w) if !m_cubes.is_multiple_of(w) => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                     "In swizzle row major, number of cubes in m {m_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
             }
 
-            SwizzleColMajor(w) if n_cubes % w != 0 => {
+            SwizzleColMajor(w) if !n_cubes.is_multiple_of(w) => {
                 Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                     "In swizzle col major, number of cubes in n {n_cubes:?} must be divisible by swizzle step length {w:?}."
                 ))))
