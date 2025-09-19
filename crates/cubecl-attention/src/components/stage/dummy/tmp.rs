@@ -90,9 +90,30 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 comptime![hd += 1];
             }
 
-            let mut q = comptime![0u32];
+            let mut vd = comptime![0u32];
 
-            let mut row_stats: Sequence<RowStats<AP::EA>> = Sequence::new();
+            // TODO: if p.seq_q=1 skip preloading, do on the fly
+            // TODO: maybe put back in the middle, cutting the q loop?
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..p.val_dim {
+                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
+                    value_reader,
+                    kv,
+                    vd,
+                    config.value_stage_memory_config(),
+                );
+
+                TA::fill_value(
+                    &value_tile,
+                    key_value.get_value_at_mut(kv, vd, config),
+                    config.tile_config(),
+                );
+
+                comptime![vd += 1];
+            }
+
+            let mut q = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
@@ -113,55 +134,35 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                     comptime![hd += 1];
                 }
 
-                row_stats.push(TA::score_to_prob(
-                    score_frag,
-                    out_of_bound_mask,
-                    state.get_at(q),
-                    config.tiling_scheme().head_dim(),
-                ));
+                TA::scale_score(score_frag, config.tiling_scheme().head_dim());
 
-                comptime![q += 1];
-            }
+                // mnew​=max(mprev​,mtile​)
+                let m_new = TA::get_new_running_max(score_frag, state.get_at(q));
 
-            let mut vd = comptime![0u32];
+                //∑​exp(score_tile[j]−mnew​)
+                let prob_row_sum = TA::get_prob_row_sum(score_frag, m_new);
 
-            // TODO: if p.seq_q=1 skip preloading, do on the fly
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.val_dim {
-                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
-                    value_reader,
-                    kv,
-                    vd,
-                    config.value_stage_memory_config(),
-                );
+                // ℓnew​=ℓprev​⋅emprev​−mnew​+j∑​exp(score_tile[j]−mnew​)
+                let lprev_exp_m_diff = TA::get_lprev_exp_m_diff(state.get_at(q), m_new);
+                let l_new = lprev_exp_m_diff + prob_row_sum;
 
-                TA::fill_value(
-                    &value_tile,
-                    key_value.get_value_at_mut(vd, config),
-                    config.tile_config(),
-                );
+                TA::update_state(state.get_at_mut(q), m_new, l_new);
 
-                comptime![vd += 1];
-            }
+                TA::score_to_prob(score_frag, out_of_bound_mask, m_new, l_new);
 
-            let mut q = comptime![0u32];
+                let scale = lprev_exp_m_diff / l_new;
 
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
-
-                let scale = TA::update_state(row_stats.index(q), state.get_at_mut(q));
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
+                    TA::scale_accumulator(accumulator.get_at_mut(q, vd, config), scale);
+
                     TA::accumulate_value(
                         key_value.get_value_at(kv, vd, config),
                         score_prob.get_at(q, kv, config),
                         accumulator.get_at_mut(q, vd, config),
-                        scale,
                         config.tile_config(),
                     );
 
