@@ -173,6 +173,32 @@ impl<D: Dialect> Binary<D> for HiMul {
     }
 }
 
+pub struct SaturatingAdd;
+
+impl<D: Dialect> Binary<D> for SaturatingAdd {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        out: Item<D>,
+    ) -> std::fmt::Result {
+        D::compile_saturating_add(f, lhs, rhs, out)
+    }
+}
+
+pub struct SaturatingSub;
+
+impl<D: Dialect> Binary<D> for SaturatingSub {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        out: Item<D>,
+    ) -> std::fmt::Result {
+        D::compile_saturating_sub(f, lhs, rhs, out)
+    }
+}
+
 pub struct Powf;
 
 impl<D: Dialect> Binary<D> for Powf {

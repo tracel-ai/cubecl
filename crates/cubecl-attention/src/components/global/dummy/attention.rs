@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
 use cubecl_matmul::components::stage::FullStageReader;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
@@ -69,7 +69,7 @@ impl<
             .attention_tile_size()
             .seq_q;
 
-        let num_stage_iterations = div_ceil(seq_kv, seq_kv_tile);
+        let num_stage_iterations = seq_kv.div_ceil(seq_kv_tile);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {

@@ -86,12 +86,10 @@ where
         let stage_config = config.stage_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
-        #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-        #[allow(clippy::manual_div_ceil)]
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = range.div_ceil(k_step);
         // Loop once for each full set of stages, then once for each stage in an inner loop,
         // so the stage index is comptime. This is needed to make `Sequence` work.
-        let num_loops = (num_loops + num_stages - 1) / num_stages;
+        let num_loops = num_loops.div_ceil(num_stages);
 
         let lhs_elem_size = LhsS::<MP>::elem_size();
         let rhs_elem_size = RhsS::<MP>::elem_size();

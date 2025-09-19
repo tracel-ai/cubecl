@@ -2,7 +2,10 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::{
+    ir::{Id, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+};
 
 use crate::shared::DialectWarpReduceCompiler;
 use crate::{
@@ -400,6 +403,24 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         write!(f, ")")
     }
 
+    fn compile_saturating_add(
+        _f: &mut std::fmt::Formatter<'_>,
+        _lhs: impl Display,
+        _rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+    }
+
+    fn compile_saturating_sub(
+        _f: &mut std::fmt::Formatter<'_>,
+        _lhs: impl Display,
+        _rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+    }
+
     // others
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
@@ -569,6 +590,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
-        vec![Box::new(HipMmaProcessor)]
+        vec![
+            Box::new(HipMmaProcessor),
+            Box::new(SaturatingArithmeticProcessor::new(true)),
+        ]
     }
 }

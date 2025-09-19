@@ -1,7 +1,10 @@
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, ir as core,
-    post_processing::{checked_io::CheckedIoProcessor, unroll::UnrollProcessor},
+    post_processing::{
+        checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
+        unroll::UnrollProcessor,
+    },
     prelude::FastMath,
 };
 use cubecl_opt::{BasicBlock, NodeIndex, Optimizer, OptimizerBuilder, Uniformity};
@@ -227,6 +230,7 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
             .with_transformer(BitwiseTransform)
             .with_processor(CheckedIoProcessor::new(self.mode))
             .with_processor(UnrollProcessor::new(MAX_VECTORIZATION))
+            .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body, kernel.cube_dim);
 
         self.uniformity = opt.analysis::<Uniformity>();

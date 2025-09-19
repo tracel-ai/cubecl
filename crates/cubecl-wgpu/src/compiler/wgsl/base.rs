@@ -218,6 +218,15 @@ impl Item {
         }
     }
 
+    pub fn with_elem(self, elem: Elem) -> Self {
+        match self {
+            Item::Vec4(_) => Item::Vec4(elem),
+            Item::Vec3(_) => Item::Vec3(elem),
+            Item::Vec2(_) => Item::Vec2(elem),
+            Item::Scalar(_) => Item::Scalar(elem),
+        }
+    }
+
     pub fn fmt_cast_to(&self, item: Item, text: String) -> String {
         if *self != item {
             format!("{item}({text})")

@@ -65,7 +65,7 @@ where
     ) {
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = range.div_ceil(k_step);
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());

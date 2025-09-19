@@ -9,7 +9,6 @@ use crate::components::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
-use cubecl_std::div_ceil;
 
 use super::{AsyncLoadingJob, LoadingValidation};
 

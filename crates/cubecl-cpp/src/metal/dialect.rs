@@ -751,6 +751,24 @@ impl DialectInstructions<Self> for MslDialect {
         )
     }
 
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "addsat({lhs}, {rhs})")
+    }
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "subsat({lhs}, {rhs})")
+    }
+
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,

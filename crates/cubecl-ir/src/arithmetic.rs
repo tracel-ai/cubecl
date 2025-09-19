@@ -11,8 +11,11 @@ use crate::{BinaryOperator, OperationArgs, OperationReflect, UnaryOperator, Vari
 pub enum Arithmetic {
     #[operation(commutative)]
     Add(BinaryOperator),
+    #[operation(commutative)]
+    SaturatingAdd(BinaryOperator),
     Fma(FmaOperator),
     Sub(BinaryOperator),
+    SaturatingSub(BinaryOperator),
     #[operation(commutative)]
     Mul(BinaryOperator),
     Div(BinaryOperator),
@@ -51,8 +54,10 @@ impl Display for Arithmetic {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Arithmetic::Add(op) => write!(f, "{} + {}", op.lhs, op.rhs),
+            Arithmetic::SaturatingAdd(op) => write!(f, "saturating_add({}, {})", op.lhs, op.rhs),
             Arithmetic::Fma(op) => write!(f, "{} * {} + {}", op.a, op.b, op.c),
             Arithmetic::Sub(op) => write!(f, "{} - {}", op.lhs, op.rhs),
+            Arithmetic::SaturatingSub(op) => write!(f, "saturating_sub({}, {})", op.lhs, op.rhs),
             Arithmetic::Mul(op) => write!(f, "{} * {}", op.lhs, op.rhs),
             Arithmetic::Div(op) => write!(f, "{} / {}", op.lhs, op.rhs),
             Arithmetic::Abs(op) => write!(f, "{}.abs()", op.input),

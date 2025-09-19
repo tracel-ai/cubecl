@@ -28,6 +28,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     };
                 });
             }
+            Arithmetic::SaturatingAdd(_) => {
+                unimplemented!("Should be replaced by polyfill");
+            }
             Arithmetic::Sub(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
@@ -40,6 +43,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         _ => unreachable!(),
                     };
                 });
+            }
+            Arithmetic::SaturatingSub(_) => {
+                unimplemented!("Should be replaced by polyfill");
             }
             Arithmetic::Mul(op) => {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {

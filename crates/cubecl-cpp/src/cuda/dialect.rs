@@ -1,6 +1,9 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::{
+    ir::{Id, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+};
 
 use crate::{
     Dialect,
@@ -439,6 +442,55 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         write!(f, ")")
     }
 
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let elem = item.elem();
+        match elem {
+            Elem::I32 => {
+                write!(
+                    f,
+                    r#"[&]() -> {elem} {{
+    {elem} result;
+    asm("add.sat.s32 %0, %1, %2;"
+        : "=r"(result)
+        : "r"({lhs}), "r"({rhs}));
+    return result;
+        }}()"#
+                )
+            }
+            _ => unreachable!("Should be replaced by polyfill"),
+        }
+    }
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let elem = item.elem();
+        // Native instruction only exists for signed int, unsigned should be removed in a preprocessor
+        match elem {
+            Elem::I32 => {
+                write!(
+                    f,
+                    r#"[&]() -> {elem} {{
+    {elem} result;
+    asm("sub.sat.s32 %0, %1, %2;"
+        : "=r"(result)
+        : "r"({lhs}), "r"({rhs}));
+    return result;
+        }}()"#
+                )
+            }
+            _ => unreachable!("Should be replaced by polyfill"),
+        }
+    }
+
     // others
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
@@ -605,6 +657,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
-        vec![Box::new(CudaMmaProcessor)]
+        vec![
+            Box::new(CudaMmaProcessor),
+            Box::new(SaturatingArithmeticProcessor::new(false)),
+        ]
     }
 }

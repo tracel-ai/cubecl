@@ -1,8 +1,5 @@
 //! Cubecl standard library.
 
-#![allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-#![allow(clippy::manual_div_ceil, clippy::manual_is_multiple_of)]
-
 extern crate alloc;
 
 mod reinterpret_slice;
@@ -15,14 +12,5 @@ pub use option::*;
 
 pub mod tensor;
 
-use cubecl::prelude::*;
-use cubecl_core as cubecl;
-
 #[cfg(feature = "export_tests")]
 pub mod tests;
-
-#[cube]
-#[allow(clippy::manual_div_ceil)]
-pub fn div_ceil(a: u32, b: u32) -> u32 {
-    (a + b - 1) / b
-}

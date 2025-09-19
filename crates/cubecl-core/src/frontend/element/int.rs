@@ -4,7 +4,7 @@ use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::BitwiseNot;
-use crate::prelude::{FindFirstSet, LeadingZeros};
+use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub};
 use crate::{
     compute::{KernelBuilder, KernelLauncher},
     prelude::{CountOnes, ReverseBits},
@@ -26,6 +26,8 @@ pub trait Int:
     + BitwiseNot
     + LeadingZeros
     + FindFirstSet
+    + SaturatingAdd
+    + SaturatingSub
     + std::ops::Rem<Output = Self>
     + core::ops::Add<Output = Self>
     + core::ops::Sub<Output = Self>

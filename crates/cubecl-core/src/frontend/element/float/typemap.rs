@@ -295,6 +295,8 @@ impl<const POS: u8> CountOnes for ElemExpand<POS> {}
 impl<const POS: u8> BitwiseNot for ElemExpand<POS> {}
 impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
+impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
+impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
 
 impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;
