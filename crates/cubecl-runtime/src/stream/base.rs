@@ -1,6 +1,6 @@
-use crate::server::Binding;
+use crate::{memory_management::SliceId, server::Binding};
 use cubecl_common::stream_id::StreamId;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 
 /// Trait defining the backend operations for managing streams and events.
 ///
@@ -31,6 +31,7 @@ pub trait StreamBackend {
 pub struct MultiStream<B: StreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: StreamPool<B>,
+    max_streams: usize,
 }
 
 /// A wrapper around a backend stream that includes synchronization metadata.
@@ -44,6 +45,12 @@ struct StreamWrapper<B: StreamBackend> {
     cursor: u64,
     /// A map tracking the last synchronized cursor positions from other streams.
     last_synced: HashMap<usize, u64>,
+    /// Shared bindings that need to be cleaned.
+    shareds: Vec<SharedBindings<B>>,
+    /// The number of bindings that are shared.
+    num_shared: u64,
+    /// A map tracking the last synchronized cursor positions from other streams.
+    last_gc: u64,
 }
 
 /// Streams that are synchronized correctly after a [MultiStream::resolve] is called.
@@ -55,6 +62,15 @@ pub struct ResolvedStreams<'a, B: StreamBackend> {
     streams: &'a mut StreamPool<B>,
     /// The current stream where new tasks can be sent safely.
     pub current: StreamId,
+}
+
+struct SharedBindings<B: StreamBackend> {
+    /// All the bindings shared in a single execution.
+    ///
+    /// We keep the binding alive so it won't be allocated in other concurrent streams.
+    _batch: Vec<SliceId>,
+    /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
+    event: Option<B::Event>,
 }
 
 #[derive(Debug)]
@@ -91,6 +107,9 @@ impl<B: StreamBackend> StreamPool<B> {
                         stream,
                         cursor: 0,
                         last_synced: Default::default(),
+                        shareds: Default::default(),
+                        num_shared: 0,
+                        last_gc: 0,
                     };
 
                     *entry = Some(stream);
@@ -105,8 +124,12 @@ impl<B: StreamBackend> StreamPool<B> {
     }
 
     fn stream_index(&self, stream_id: &StreamId) -> usize {
-        stream_id.value as usize % self.streams.len()
+        stream_index(stream_id, self.streams.len())
     }
+}
+
+fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
+    stream_id.value as usize % max_streams
 }
 
 impl<'a, B: StreamBackend> ResolvedStreams<'a, B> {
@@ -128,6 +151,7 @@ impl<B: StreamBackend> MultiStream<B> {
     pub fn new(backend: B, max_streams: u8) -> Self {
         Self {
             streams: StreamPool::new(backend, max_streams),
+            max_streams: max_streams as usize,
         }
     }
 
@@ -145,6 +169,7 @@ impl<B: StreamBackend> MultiStream<B> {
 
         let stream = self.streams.get_mut(&stream_id);
         stream.cursor += 1;
+        stream.maybe_run_gc();
 
         ResolvedStreams {
             cursor: stream.cursor,
@@ -177,19 +202,20 @@ impl<B: StreamBackend> MultiStream<B> {
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> SharedBindingAnalysis {
         let mut analysis = SharedBindingAnalysis::default();
-        // current.ensure_shared_events();
+        let current = self.streams.get_mut(&stream_id);
+        current.ensure_shared_events();
 
         for binding in bindings {
             if stream_id != binding.stream {
-                let index = self.streams.stream_index(&binding.stream);
-                analysis.shared(index);
-                // if let Some(last_synced) = current.last_synced.get(&binding.stream) {
-                //     if *last_synced < binding.cursor {
-                //         analysis.shared(binding);
-                //     }
-                // } else {
-                //     analysis.shared(binding);
-                // }
+                let index = stream_index(&binding.stream, self.max_streams);
+
+                if let Some(last_synced) = current.last_synced.get(&index) {
+                    if *last_synced < binding.cursor {
+                        analysis.shared(binding, index);
+                    }
+                } else {
+                    analysis.shared(binding, index);
+                }
             }
         }
 
@@ -197,19 +223,25 @@ impl<B: StreamBackend> MultiStream<B> {
     }
 
     pub(crate) fn apply_analysis(&mut self, stream_id: StreamId, analysis: SharedBindingAnalysis) {
-        if analysis.index.is_empty() {
+        if analysis.slices.is_empty() {
             return;
         }
 
         log::info!("Analysis for stream {stream_id} => {analysis:?}");
         // println!("Analysis for stream {stream_id} => {analysis:?}");
 
-        let mut events = Vec::with_capacity(analysis.index.len());
+        let mut events = Vec::with_capacity(analysis.slices.len());
 
         unsafe {
-            for origin in analysis.index {
+            for (origin, slices) in analysis.slices {
                 let stream = self.streams.get_mut_index(origin);
                 let event = B::flush(&mut stream.stream);
+
+                stream.num_shared += slices.len() as u64;
+                stream.shareds.push(SharedBindings {
+                    _batch: slices,
+                    event: None,
+                });
 
                 events.push(((origin, stream.cursor), event));
             }
@@ -226,6 +258,54 @@ impl<B: StreamBackend> MultiStream<B> {
     }
 }
 
+const GC_BATCH_SIZE: usize = 2;
+const GC_MAX_QUEUED: usize = 32;
+const GC_MAX_QUEUED_FACTOR: usize = 2;
+
+impl<B: StreamBackend> StreamWrapper<B> {
+    /// Maybe run garbage collector on the current stream.
+    fn maybe_run_gc(&mut self) {
+        let frequency = self.cursor / (self.num_shared + 1);
+
+        let should_run_time = frequency > self.cursor - self.last_gc;
+        let should_run_batch = self.shareds.len() >= GC_MAX_QUEUED;
+
+        if should_run_time || should_run_batch {
+            self.last_gc = self.cursor;
+            let batch_size = match should_run_batch {
+                true => GC_MAX_QUEUED_FACTOR * GC_BATCH_SIZE,
+                false => GC_BATCH_SIZE,
+            };
+
+            self.run_gc(batch_size);
+        }
+    }
+
+    fn ensure_shared_events(&mut self) {
+        for shared in self.shareds.iter_mut().rev() {
+            match shared.event {
+                Some(..) => break,
+                None => {
+                    // We need to create an event _after_ the stream has executed something that
+                    // needed the bindings. Otherwise bindings that are written too might not be
+                    // correctly synchronized.
+                    shared.event = Some(B::flush(&mut self.stream));
+                }
+            }
+        }
+    }
+
+    fn run_gc(&mut self, batch_size: usize) {
+        let batch_size = usize::min(batch_size, self.shareds.len());
+        let dropped = self.shareds.drain(0..batch_size);
+
+        //  We wait on the last event recorded.
+        if let Some(shared) = dropped.last() {
+            B::wait_event_sync(shared.event.expect("The event to be initialized"));
+        }
+    }
+}
+
 impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("StreamWrapper")
@@ -238,12 +318,17 @@ impl<B: StreamBackend> core::fmt::Debug for StreamWrapper<B> {
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub(crate) struct SharedBindingAnalysis {
-    index: HashSet<usize>,
+    slices: HashMap<usize, Vec<SliceId>>,
 }
 
 impl SharedBindingAnalysis {
-    fn shared(&mut self, index: usize) {
-        self.index.insert(index);
+    fn shared(&mut self, binding: &Binding, index: usize) {
+        match self.slices.get_mut(&index) {
+            Some(bindings) => bindings.push(binding.memory.id().clone()),
+            None => {
+                self.slices.insert(index, vec![binding.memory.id().clone()]);
+            }
+        }
     }
 }
 
@@ -269,7 +354,7 @@ mod tests {
         let analysis = ms.update_shared_bindings(stream_1, [&binding_1, &binding_2].into_iter());
 
         let mut expected = SharedBindingAnalysis::default();
-        expected.shared(ms.streams.stream_index(&binding_2.stream));
+        expected.shared(&binding_2, ms.streams.stream_index(&binding_2.stream));
 
         assert_eq!(analysis, expected);
     }
@@ -291,7 +376,7 @@ mod tests {
             ms.update_shared_bindings(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 
         let mut expected = SharedBindingAnalysis::default();
-        expected.shared(ms.streams.stream_index(&binding_2.stream));
+        expected.shared(&binding_2, ms.streams.stream_index(&binding_2.stream));
 
         assert_eq!(analysis, expected);
     }
@@ -317,38 +402,39 @@ mod tests {
         assert_eq!(analysis, expected);
     }
 
-    // #[test]
-    // fn test_state() {
-    //     let stream_1 = StreamId { value: 1 };
-    //     let stream_2 = StreamId { value: 2 };
+    #[test]
+    fn test_state() {
+        let stream_1 = StreamId { value: 1 };
+        let stream_2 = StreamId { value: 2 };
 
-    //     let binding_1 = binding(stream_1);
-    //     let binding_2 = binding(stream_2);
-    //     let binding_3 = binding(stream_1);
+        let binding_1 = binding(stream_1);
+        let binding_2 = binding(stream_2);
+        let binding_3 = binding(stream_1);
 
-    //     let mut ms = MultiStream::new(TestBackend, 4);
-    //     ms.resolve(stream_1, [].into_iter());
-    //     ms.resolve(stream_2, [].into_iter());
+        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        ms.resolve(stream_1, [].into_iter());
+        ms.resolve(stream_2, [].into_iter());
 
-    //     ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
+        ms.resolve(stream_1, [&binding_1, &binding_2, &binding_3].into_iter());
 
-    //     let stream1 = ms.streams.remove(&stream_1).unwrap();
-    //     assert_eq!(stream1.last_synced.get(&stream_2), Some(&1));
-    //     assert_eq!(stream1.cursor, 2);
+        let stream1 = ms.streams.get_mut(&stream_1);
+        let index_2 = stream_index(&stream_2, MAX_STREAMS as usize);
+        assert_eq!(stream1.last_synced.get(&index_2), Some(&1));
+        assert_eq!(stream1.cursor, 2);
 
-    //     // assert!(stream1.shareds.is_empty());
-    //     // assert_eq!(stream1.num_shared, 0);
-    //     // assert_eq!(stream1.last_gc, 0);
+        assert!(stream1.shareds.is_empty());
+        assert_eq!(stream1.num_shared, 0);
+        assert_eq!(stream1.last_gc, 0);
 
-    //     let stream2 = ms.streams.remove(&stream_2).unwrap();
-    //     assert!(stream2.last_synced.is_empty());
-    //     assert_eq!(stream2.cursor, 1);
-    //     // for shared in stream2.shareds {
-    //     //     assert_eq!(shared._batch, vec![binding_2.memory.id().clone()]);
-    //     // }
-    //     // assert_eq!(stream2.num_shared, 1);
-    //     // assert_eq!(stream2.last_gc, 0);
-    // }
+        let stream2 = ms.streams.get_mut(&stream_2);
+        assert!(stream2.last_synced.is_empty());
+        assert_eq!(stream2.cursor, 1);
+        for shared in stream2.shareds.iter() {
+            assert_eq!(shared._batch, vec![binding_2.memory.id().clone()]);
+        }
+        assert_eq!(stream2.num_shared, 1);
+        assert_eq!(stream2.last_gc, 0);
+    }
 
     fn binding(stream: StreamId) -> Binding {
         Handle::new(SliceHandle::new(), None, None, stream, 0, 10).binding()
