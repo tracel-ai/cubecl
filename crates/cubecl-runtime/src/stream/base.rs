@@ -255,20 +255,19 @@ impl<B: StreamBackend> MultiStream<B> {
         bindings: impl Iterator<Item = &'a Binding>,
     ) -> SharedBindingAnalysis {
         let mut analysis = SharedBindingAnalysis::default();
-        // let current = self.streams.get_mut(&stream_id);
+        let current = self.streams.get_mut(&stream_id);
 
         for binding in bindings {
             if stream_id != binding.stream {
                 let index = stream_index(&binding.stream, self.max_streams);
-                analysis.shared(binding, index);
 
-                // if let Some(last_synced) = current.last_synced.get(&index) {
-                //     if *last_synced < binding.cursor {
-                //         analysis.shared(binding, index);
-                //     }
-                // } else {
-                //     analysis.shared(binding, index);
-                // }
+                if let Some(last_synced) = current.last_synced.get(&index) {
+                    if *last_synced < binding.cursor {
+                        analysis.shared(binding, index);
+                    }
+                } else {
+                    analysis.shared(binding, index);
+                }
             }
         }
 
