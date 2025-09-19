@@ -6,7 +6,7 @@ use crate::components::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
-use cubecl_std::{div_ceil, tensor::layout::Coords3d};
+use cubecl_std::tensor::layout::Coords3d;
 
 use super::StageUnloader;
 
@@ -49,7 +49,7 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
         let out_smem_line_size = config.stage_config().stage_line_size(StageIdent::Acc);
 
         let unit_step = config.plane_dim() * output_line_size;
-        let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
+        let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]

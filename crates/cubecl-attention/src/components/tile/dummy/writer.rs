@@ -1,10 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{global::memory::TensorWriter, stage::StageMemoryConfig as _};
-use cubecl_std::{
-    div_ceil,
-    tensor::{View, layout::Coords3d},
-};
+use cubecl_std::tensor::{View, layout::Coords3d};
 
 use crate::components::{FlashIdent, global::GlobalAttentionConfig};
 
@@ -47,7 +44,7 @@ impl<EO: Numeric> DummyWriter<EO> {
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let unit_step = config.plane_dim() * output_line_size;
-        let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
+        let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]

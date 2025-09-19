@@ -19,8 +19,8 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords3d;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
-use cubecl_std::{div_ceil, tensor::layout::Coords3d};
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -76,7 +76,7 @@ where
         let stage_step = config.tiling_scheme().elements_in_stage_k();
         let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
-        let needed_stage_matmuls = div_ceil(range, stage_step);
+        let needed_stage_matmuls = range.div_ceil(stage_step);
 
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
