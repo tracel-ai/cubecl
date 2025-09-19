@@ -493,7 +493,7 @@ impl<EI: Numeric, EO: Numeric, GA: AttentionArgs> TensorOutput<EI, EO, GA> {
 
     /// Get the buffer length of the tensor.
     pub fn buffer_len(&self) -> u32 {
-        unsafe { GA::len_out(&(*self.state)) }
+        unsafe { GA::buffer_len_out(&(*self.state)) }
     }
 
     /// Get the line size of the tensor.

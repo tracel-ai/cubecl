@@ -8,7 +8,7 @@ use crate::components::{
     stage::{FillStageReaderFamily, NoTilingLayout, StageConfig},
 };
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -34,7 +34,7 @@ where
             LhsStageReader = FullStageReaderFamily,
             RhsStageReader = FullStageReaderFamily,
             AccStageReader = FillStageReaderFamily,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,

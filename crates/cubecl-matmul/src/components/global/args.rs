@@ -797,7 +797,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, GA: MatmulArgs> TensorOutput<Lhs, 
 
     /// Get the buffer length of the tensor.
     pub fn buffer_len(&self) -> u32 {
-        unsafe { GA::len_out(&(*self.state)) }
+        unsafe { GA::buffer_len_out(&(*self.state)) }
     }
 
     /// Get the buffer length of the tensor.

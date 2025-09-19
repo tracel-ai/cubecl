@@ -2,17 +2,16 @@ use crate::components::MatrixLayout;
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_std::tensor::{View, layout::Coords2d};
 
 #[derive(Clone, CubeType)]
 /// A view of a tensor that starts reading data from a specified offset.
 /// Ensures safe access by preventing out-of-bounds errors.
 /// Includes pre-fetched shapes and strides for optimized performance.
 pub struct TensorReader<EI: Numeric> {
-    pub view: View<Line<EI>, Coords3d>,
+    pub view: View<Line<EI>, Coords2d>,
     pub row_offset: RuntimeCell<u32>,
     pub col_offset: RuntimeCell<u32>,
-    pub batch_offset: u32,
 }
 
 unsafe impl<EG: Numeric> Sync for TensorReader<EG> {}
@@ -36,13 +35,11 @@ pub enum ViewDirection {
 #[cube]
 impl<EG: Numeric> TensorReader<EG> {
     /// Instantiate a read view over the given tensor, pre-fetching needed strides and shapes
-    pub fn new(view: View<Line<EG>, Coords3d>, offset_global: Coords3d) -> Self {
-        let (b, row, col) = offset_global;
+    pub fn new(view: View<Line<EG>, Coords2d>) -> Self {
         TensorReader::<EG> {
             view,
-            row_offset: RuntimeCell::new(row),
-            col_offset: RuntimeCell::new(col),
-            batch_offset: b,
+            row_offset: RuntimeCell::new(0),
+            col_offset: RuntimeCell::new(0),
         }
     }
 
@@ -146,47 +143,26 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_row = view_tile_row + load_row;
         let view_col = view_tile_col + load_col;
 
-        let (_, rows, columns) = self.view.shape();
-
-        let (check_h_bounds, view_h, shape_h, check_w_bounds, view_w, shape_w) =
-            match config.matrix_layout {
-                MatrixLayout::RowMajor => (
-                    config.check_row_bounds,
-                    view_row,
-                    rows,
-                    config.check_col_bounds,
-                    view_col,
-                    columns,
-                ),
-                MatrixLayout::ColMajor => (
-                    config.check_col_bounds,
-                    view_col,
-                    columns,
-                    config.check_row_bounds,
-                    view_row,
-                    rows,
-                ),
-            };
-
-        // There are 0 lines if out-of-bounds vertically
-        let max_lines_in_window = if comptime!(check_h_bounds) {
-            num_lines_in_window * u32::cast_from(view_h < shape_h)
-        } else {
-            num_lines_in_window.runtime()
+        let (size_h, size_w) = match config.matrix_layout {
+            MatrixLayout::RowMajor => (1u32, num_lines_in_window * line_size).runtime(),
+            MatrixLayout::ColMajor => (num_lines_in_window * line_size, 1u32).runtime(),
         };
 
-        // Window is clamped if partially out-of-bounds horizontally
-        let size = if comptime!(check_w_bounds) {
-            slice_length_clamp(shape_w / line_size, view_w / line_size, max_lines_in_window)
+        if comptime![config.check_row_bounds || config.check_col_bounds] {
+            let view = self.view.slice((view_row, view_col), (size_h, size_w));
+            let (size_h, size_w) = view.shape();
+            Window::<EG> {
+                slice: view.to_linear_slice(),
+                size: (size_h * size_w) / line_size,
+            }
         } else {
-            max_lines_in_window
-        };
-
-        Window::<EG> {
-            slice: self
+            let view = self
                 .view
-                .slice((self.batch_offset, view_row, view_col), size),
-            size,
+                .slice_unchecked((view_row, view_col), (size_h, size_w));
+            Window::<EG> {
+                slice: view.to_linear_slice(),
+                size: num_lines_in_window,
+            }
         }
     }
 
@@ -250,7 +226,7 @@ impl<EG: Numeric> TensorReader<EG> {
         let view_x = load_offsets.0 + self.row_offset.read();
         let view_y = load_offsets.1 + self.col_offset.read();
 
-        self.view.read_checked((self.batch_offset, view_x, view_y))
+        self.view.read_checked((view_x, view_y))
     }
 }
 

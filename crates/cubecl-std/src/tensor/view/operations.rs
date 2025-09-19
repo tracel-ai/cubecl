@@ -28,7 +28,7 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     /// Create a slice starting from `pos`, with `size`.
     /// The layout handles translation into concrete indices.
     #[allow(unused)]
-    fn slice(&self, pos: C, size: u32) -> Slice<T, ReadOnly> {
+    fn to_linear_slice(&self, pos: C, size: C) -> Slice<T, ReadOnly> {
         unexpanded!()
     }
 
@@ -54,6 +54,13 @@ pub trait ViewOperationsMut<T: CubePrimitive, C: Coordinates>: ViewOperations<T,
 
     #[allow(unused)]
     fn write_checked(&self, pos: C, value: T) {
+        unexpanded!()
+    }
+
+    /// Create a mutable slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    #[allow(unused, clippy::wrong_self_convention)]
+    fn to_linear_slice_mut(&self, pos: C, size: C) -> Slice<T, ReadWrite> {
         unexpanded!()
     }
 }
@@ -167,7 +174,7 @@ macro_rules! impl_operations_1d {
                 <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
             }
 
-            fn __expand_slice_method(
+            fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
@@ -214,6 +221,18 @@ macro_rules! impl_operations_1d {
                     <Self as ListMutExpand<T>>::__expand_write_method(&self, scope, pos, value)
                 })
             }
+
+            fn __expand_to_linear_slice_mut_method(
+                &self,
+                scope: &mut Scope,
+                pos: ExpandElementTyped<u32>,
+                size: ExpandElementTyped<u32>,
+            ) -> SliceExpand<T, ReadWrite> {
+                let end = add::expand(scope, pos.clone(), size);
+                <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(
+                    self, scope, pos, end,
+                )
+            }
         }
     };
 }
@@ -257,7 +276,7 @@ mod slice {
             <Self as ListExpand<T>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
@@ -304,6 +323,16 @@ mod slice {
                 <Self as ListMutExpand<T>>::__expand_write_method(self, scope, pos, value)
             })
         }
+
+        fn __expand_to_linear_slice_mut_method(
+            &self,
+            scope: &mut Scope,
+            pos: ExpandElementTyped<u32>,
+            size: ExpandElementTyped<u32>,
+        ) -> SliceExpand<T, ReadWrite> {
+            let end = add::expand(scope, pos.clone(), size);
+            <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(self, scope, pos, end)
+        }
     }
 }
 
@@ -342,7 +371,7 @@ mod virtual_tensor {
             <Self as ListExpand<Line<T>>>::__expand_read_unchecked_method(self, scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
@@ -388,6 +417,18 @@ mod virtual_tensor {
             if_expand(scope, in_bounds.into(), |scope| {
                 <Self as ListMutExpand<Line<T>>>::__expand_write_method(self, scope, pos, value)
             })
+        }
+
+        fn __expand_to_linear_slice_mut_method(
+            &self,
+            scope: &mut Scope,
+            pos: ExpandElementTyped<u32>,
+            size: ExpandElementTyped<u32>,
+        ) -> SliceExpand<Line<T>, ReadWrite> {
+            let end = add::expand(scope, pos.clone(), size);
+            <Self as SliceMutOperatorExpand<Line<T>>>::__expand_slice_mut_method(
+                self, scope, pos, end,
+            )
         }
     }
 }
@@ -533,17 +574,21 @@ macro_rules! impl_virtual_read {
                 self.view.__expand_read_unchecked_method(scope, pos)
             }
 
-            fn __expand_slice_method(
+            fn __expand_to_linear_slice_method(
                 &self,
                 scope: &mut Scope,
                 pos: <C>::ExpandType,
-                size: ExpandElementTyped<u32>,
+                size: <C>::ExpandType,
             ) -> SliceExpand<T, ReadOnly> {
                 let pos = self
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, pos);
-                self.view.__expand_slice_method(scope, pos, size)
+                let size = self
+                    .layout
+                    .clone()
+                    .__expand_to_source_shape_method(scope, size);
+                self.view.__expand_to_linear_slice_method(scope, pos, size)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
@@ -600,8 +645,26 @@ where
             .clone()
             .__expand_to_source_pos_checked_method(scope, pos);
         if_expand(scope, in_bounds.into(), |scope| {
-            self.view.__expand_write_method(scope, pos, value);
+            self.view.__expand_write_checked_method(scope, pos, value);
         });
+    }
+
+    fn __expand_to_linear_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        pos: <C>::ExpandType,
+        size: <C>::ExpandType,
+    ) -> SliceExpand<T, ReadWrite> {
+        let pos = self
+            .layout
+            .clone()
+            .__expand_to_source_pos_method(scope, pos);
+        let size = self
+            .layout
+            .clone()
+            .__expand_to_source_shape_method(scope, size);
+        self.view
+            .__expand_to_linear_slice_mut_method(scope, pos, size)
     }
 }
 
@@ -641,17 +704,17 @@ mod view {
             ViewExpand::__expand_read_unchecked_method(self.clone(), scope, pos)
         }
 
-        fn __expand_slice_method(
+        fn __expand_to_linear_slice_method(
             &self,
             scope: &mut Scope,
             pos: <C>::ExpandType,
-            size: ExpandElementTyped<u32>,
+            end: <C>::ExpandType,
         ) -> SliceExpand<T, ReadOnly> {
-            ViewExpand::__expand_slice_method(self.clone(), scope, pos, size)
+            ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
-            ViewExpand::__expand_shape_method(self.clone(), scope)
+            ViewExpand::__expand_shape_method(self, scope)
         }
 
         fn __expand_is_in_bounds_method(
@@ -659,7 +722,7 @@ mod view {
             scope: &mut Scope,
             pos: <C>::ExpandType,
         ) -> ExpandElementTyped<bool> {
-            ViewExpand::__expand_is_in_bounds_method(self.clone(), scope, pos)
+            ViewExpand::__expand_is_in_bounds_method(self, scope, pos)
         }
     }
 
@@ -683,6 +746,15 @@ mod view {
             value: <T>::ExpandType,
         ) {
             ViewExpand::__expand_write_checked_method(self.clone(), scope, pos, value);
+        }
+
+        fn __expand_to_linear_slice_mut_method(
+            &self,
+            scope: &mut Scope,
+            pos: <C>::ExpandType,
+            end: <C>::ExpandType,
+        ) -> SliceExpand<T, ReadWrite> {
+            ViewExpand::__expand_to_linear_slice_mut_inner_method(self.clone(), scope, pos, end)
         }
     }
 }

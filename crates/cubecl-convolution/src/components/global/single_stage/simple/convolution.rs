@@ -13,7 +13,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -44,7 +44,7 @@ where
             LhsStageReader = FullStageReader<LhsS<MP>, ConvTilingLayout>,
             RhsStageReader = FullStageReader<RhsS<MP>, ConvTilingLayout>,
             AccStageReader = BiasStageReader<AccS<MP>>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type LhsStageLoader = SyncFullStageLoader<
@@ -60,14 +60,14 @@ where
     >;
     type AccStageLoader = BiasStageLoader<MP::Acc>;
 
-    type StageWriter = SMM::StageUnloader;
+    type StageUnloader = SMM::StageUnloader;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
         mut lhs_loader: Self::LhsStageLoader,
         mut rhs_loader: Self::RhsStageLoader,
         mut acc_loader: Self::AccStageLoader,
-        mut out_writer: Self::StageWriter,
+        mut out_writer: Self::StageUnloader,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
@@ -124,19 +124,17 @@ where
 
     fn init_lhs_loader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
         let check_spatial = comptime![config.check_spatial_bounds()];
         let layout_global = NhwcLayout::new(lhs, comptime![config.dimensionality()], check_spatial);
         let layout_im2col = Im2colLayout::new(runtime_args, config);
+        let lhs = lhs.view(layout_global).view(layout_im2col);
         Self::LhsStageLoader::new(
-            lhs.view(layout_global).view(layout_im2col),
-            x_offset,
-            y_offset,
-            0,
+            lhs.slice_unchecked(offset, slice_size),
             MatmulIdent::Lhs,
             config,
         )
@@ -144,18 +142,16 @@ where
 
     fn init_rhs_loader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
         let layout_global = NhwcLayout::new(rhs, comptime![config.dimensionality()], false);
         let layout_weight = WeightLayout::new(&rhs, runtime_args, config);
+        let rhs = rhs.view(layout_global).view(layout_weight);
         Self::RhsStageLoader::new(
-            rhs.view(layout_global).view(layout_weight),
-            x_offset,
-            y_offset,
-            0,
+            rhs.slice_unchecked(offset, slice_size),
             MatmulIdent::Rhs,
             config,
         )
@@ -164,27 +160,24 @@ where
     fn init_bias_loader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
+        _slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader {
         Self::AccStageLoader::new::<Self::Config>(bias, n_offset, config)
     }
 
-    fn init_writer(
+    fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::StageWriter {
+    ) -> Self::StageUnloader {
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out =
             OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout_global).view_mut(layout_out),
-            x_offset,
-            y_offset,
-            0,
-        )
+        let out = out.view_mut(layout_global).view_mut(layout_out);
+        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size))
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {
