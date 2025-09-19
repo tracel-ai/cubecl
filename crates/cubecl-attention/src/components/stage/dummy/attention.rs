@@ -165,7 +165,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         state: StageState<AP>,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Stage: Rescale");
         let p = config.tiling_scheme().partition_size;
 
         let mut q = comptime!(0u32);
@@ -192,7 +191,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     }
 
     fn init_state(#[comptime] config: Self::Config) -> StageState<AP> {
-        comment!("Stage: Init Stage");
         StageState::<AP>::init::<Self::Config>(config)
     }
 
@@ -206,7 +204,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        comment!("Stage: Write");
         let p = stage_config.tiling_scheme().partition_size;
         let t = stage_config.tiling_scheme().tile_size;
 

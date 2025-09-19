@@ -46,8 +46,6 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Global: Execute");
-
         let key_reader = key_loader.reader();
         let value_reader = value_loader.reader();
 
@@ -85,7 +83,7 @@ impl<
             );
 
             sync_cube();
-            comment!("Advance view");
+
             key_loader.advance_view(seq_kv_stage);
             value_loader.advance_view(seq_kv_stage);
         }
@@ -104,7 +102,6 @@ impl<
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> QueryLoader<AP> {
-        comment!("Global: Init Query Loader");
         let layout =
             SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
         QueryLoader::<AP>::new(q_offset, query.view(layout))
@@ -114,7 +111,6 @@ impl<
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyLoader {
-        comment!("Global: Init Key Loader");
         let layout = SimpleGlobalLayout::new(&key, config.global_memory_config(FlashIdent::Key));
         DummyKeyLoader::new(key.view(layout), config)
     }
@@ -123,7 +119,6 @@ impl<
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueLoader {
-        comment!("Global: Init Value Loader");
         let layout =
             SimpleGlobalLayout::new(&value, config.global_memory_config(FlashIdent::Value));
         DummyValueLoader::new(value.view(layout), config)
@@ -134,7 +129,6 @@ impl<
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        comment!("Global: Init Writer");
         let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
         SA::init_writer(q_offset, out.view_mut(layout))
     }

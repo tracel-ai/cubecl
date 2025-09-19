@@ -15,7 +15,6 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> QueryFragment<FP, FM> {
         tile: &Tile<E>,
         #[comptime] config: FM::Config,
     ) -> QueryFragment<FP, FM> {
-        comment!("Reading query");
         QueryFragment::<FP, FM> {
             fragment: FM::allocate_fill_query(tile, config),
         }

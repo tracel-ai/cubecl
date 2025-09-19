@@ -96,9 +96,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
     }
 
     pub fn load_transposed(&mut self, #[comptime] config: G) {
-        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
-
-        comment!("Loading Key");
+        // TODO this loader is bad, not coalesced
         let memory_config = config.global_memory_config(FlashIdent::Key);
 
         let mut slice = self.stage_memory.as_slice_mut(1u32);
@@ -184,9 +182,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
     }
 
     pub fn load(&mut self, #[comptime] config: G) {
-        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
-
-        comment!("Loading Value");
+        // TODO this loader is bad, it's not coalesced
         let memory_config = config.global_memory_config(FlashIdent::Value);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 

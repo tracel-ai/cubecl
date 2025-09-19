@@ -30,8 +30,6 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Batch: Execute");
-
         let q_index = CUBE_POS;
 
         let q_offset = q_index * config.global_config().tiling_scheme().seq_q();
