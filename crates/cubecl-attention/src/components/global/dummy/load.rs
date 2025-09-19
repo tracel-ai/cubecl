@@ -54,13 +54,17 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
     ) -> Tile<AP::EI> {
         let attention_tile_size = config.tiling_scheme().tile_size;
         let tile = Tile::<AP::EI> {
-            slice: self.tensor_reader.view.slice(
-                (
-                    self.tensor_reader.row_offset.read() + row * attention_tile_size.seq_q,
-                    col * attention_tile_size.head_dim,
-                ),
-                (1u32, attention_tile_size.query_size()).runtime(),
-            ).to_linear_slice(),
+            slice: self
+                .tensor_reader
+                .view
+                .slice(
+                    (
+                        self.tensor_reader.row_offset.read() + row * attention_tile_size.seq_q,
+                        col * attention_tile_size.head_dim,
+                    ),
+                    (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
+                )
+                .to_linear_slice(),
             stride: config.tiling_scheme().head_dim(),
             layout: MatrixLayout::RowMajor,
         };
