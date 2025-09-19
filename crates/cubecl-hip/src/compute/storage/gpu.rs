@@ -147,6 +147,6 @@ unsafe impl Send for GpuResource {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(format!("GpuStorage").as_str())
+        f.write_str("GpuStorage".to_string().as_str())
     }
 }
