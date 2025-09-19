@@ -138,7 +138,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
                 TA::fill_value(
                     &value_tile,
-                    key_value.get_value_at_mut(vd, config),
+                    key_value.get_value_at_mut(kv, vd, config),
                     config.tile_config(),
                 );
 
