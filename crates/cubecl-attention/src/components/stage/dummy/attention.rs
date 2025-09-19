@@ -17,7 +17,6 @@ use crate::components::stage::dummy::{
 };
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
-use crate::components::tile::dummy::RunningState;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
@@ -248,72 +247,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
             comptime![q += 1];
         }
-    }
-
-    fn tmp_write_score<G: GlobalAttentionConfig>(
-        score: &Self::Score,
-        writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let q = 0u32;
-        let kv = 0u32;
-
-        TA::tmp_write_score::<G>(
-            Self::Score::get_at(score, q, kv, stage_config),
-            writer,
-            stage_config.tile_config(),
-            global_config,
-        );
-    }
-    fn tmp_write_query<G: GlobalAttentionConfig>(
-        query: &Self::Query,
-        writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let q = 0u32;
-        let hd = 0u32;
-
-        TA::tmp_write_query::<G>(
-            Self::Query::get_at(query, q, hd, stage_config),
-            writer,
-            stage_config.tile_config(),
-            global_config,
-        );
-    }
-    fn tmp_write_key<G: GlobalAttentionConfig>(
-        key: &Self::KeyValue,
-        writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let hd = 0u32;
-        let kv = 0u32;
-
-        TA::tmp_write_key::<G>(
-            Self::KeyValue::get_key_at(key, hd, kv, stage_config),
-            writer,
-            stage_config.tile_config(),
-            global_config,
-        );
-    }
-
-    fn tmp_write_value<G: GlobalAttentionConfig>(
-        value: &Self::KeyValue,
-        writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let kv = 1u32;
-        let vd = 0u32;
-
-        TA::tmp_write_value::<G>(
-            Self::KeyValue::get_value_at(value, kv, vd, stage_config),
-            writer,
-            stage_config.tile_config(),
-            global_config,
-        );
     }
 
     fn init_fragments(

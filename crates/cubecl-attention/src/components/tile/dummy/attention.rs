@@ -1,21 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::PlaneWriter;
-use cubecl_matmul::components::global::StageUnloader as _;
 use cubecl_matmul::components::tile::Tile;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
-use crate::components::tile::dummy::{
-    FlashMatmul, FlashMatmulConfig, FlashPrecision, ScoreFragment,
-};
 use crate::components::tile::RowStats;
 use crate::components::tile::TileAttention;
-use crate::components::FlashIdent;
+use crate::components::tile::dummy::{FlashMatmul, FlashPrecision, ScoreFragment};
 use crate::components::{
-    global::GlobalAttentionConfig,
-    tile::dummy::{AccumulatorFragment, KeyValueFragment, QueryFragment},
     AttentionPrecision,
+    tile::dummy::{AccumulatorFragment, KeyValueFragment, QueryFragment},
 };
 
 pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
@@ -49,106 +43,6 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         #[comptime] tile_config: Self::Config,
     ) {
         FM::write_results(&acc.fragment, slice, tile_config)
-    }
-    fn tmp_write_score<G: GlobalAttentionConfig>(
-        score: &Self::ScoreProb,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
-
-        FM::tmp_write_score::<AP::EA>(
-            &score.fragment,
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            tile_config,
-        );
-
-        PlaneWriter::<AP::EO>::write(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            1u32,
-            tile_config.plane_dim(),
-            global_config.global_memory_config(FlashIdent::Out),
-        )
-    }
-    fn tmp_write_query<G: GlobalAttentionConfig>(
-        query: &Self::Query,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
-
-        FM::tmp_write_query::<AP::EA>(
-            &query.fragment,
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            tile_config,
-        );
-
-        PlaneWriter::<AP::EO>::write(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            1u32,
-            tile_config.plane_dim(),
-            global_config.global_memory_config(FlashIdent::Out),
-        )
-    }
-    fn tmp_write_key<G: GlobalAttentionConfig>(
-        key: &Self::KeyValue,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
-
-        FM::tmp_write_key::<AP::EA>(
-            &key.key(),
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            tile_config,
-        );
-
-        PlaneWriter::<AP::EO>::write(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            1u32,
-            tile_config.plane_dim(),
-            global_config.global_memory_config(FlashIdent::Out),
-        )
-    }
-    fn tmp_write_value<G: GlobalAttentionConfig>(
-        value: &Self::KeyValue,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
-
-        FM::tmp_write_key::<AP::EA>(
-            &value.value(),
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            tile_config,
-        );
-
-        PlaneWriter::<AP::EO>::write(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            1u32,
-            tile_config.plane_dim(),
-            global_config.global_memory_config(FlashIdent::Out),
-        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

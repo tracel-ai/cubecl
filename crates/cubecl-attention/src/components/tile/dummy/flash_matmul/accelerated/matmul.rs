@@ -199,26 +199,4 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
             cmma::MatrixLayout::RowMajor,
         );
     }
-
-    fn tmp_write_score<E: Numeric>(
-        out: &Self::ScoreProb,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        panic!()
-    }
-    fn tmp_write_query<E: Numeric>(
-        out: &Self::Query,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        panic!()
-    }
-    fn tmp_write_key<E: Numeric>(
-        out: &Self::KeyValue,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        panic!()
-    }
 }

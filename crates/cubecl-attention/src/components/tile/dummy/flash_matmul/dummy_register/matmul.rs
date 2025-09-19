@@ -165,48 +165,6 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
 
         sync_cube();
     }
-    fn tmp_write_score<E: Numeric>(
-        out: &Self::ScoreProb,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        if UNIT_POS == 0 {
-            let size = config.attention_tile_size().score_prob_size();
-            for i in 0..size {
-                slice[i] = Line::cast_from(out[i]);
-            }
-        }
-
-        sync_cube();
-    }
-    fn tmp_write_query<E: Numeric>(
-        out: &Self::Query,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        if UNIT_POS == 0 {
-            let size = config.attention_tile_size().query_size();
-            for i in 0..size {
-                slice[i] = Line::cast_from(out[i]);
-            }
-        }
-
-        sync_cube();
-    }
-    fn tmp_write_key<E: Numeric>(
-        out: &Self::KeyValue,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    ) {
-        if UNIT_POS == 0 {
-            let size = config.attention_tile_size().key_size();
-            for i in 0..size {
-                slice[i] = Line::cast_from(out[i]);
-            }
-        }
-
-        sync_cube();
-    }
 
     fn tmp_fill_accumulator(
         tile: &Tile<FP::A>,

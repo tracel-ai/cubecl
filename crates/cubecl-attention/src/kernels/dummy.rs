@@ -6,10 +6,7 @@ use crate::{
         batch::dummy::DummyBatchAttentionFamily,
         global::dummy::DummyGlobalAttentionFamily,
         stage::dummy::DummyStageAttentionFamily,
-        tile::dummy::{
-            DummyTileAttentionFamily, accelerated::AcceleratedFlashMatmul,
-            dummy_register::DummyRegisterFlashMatmul,
-        },
+        tile::dummy::{DummyTileAttentionFamily, dummy_register::DummyRegisterFlashMatmul},
     },
     kernels::Algorithm,
 };

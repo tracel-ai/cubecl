@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::PlaneWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
@@ -10,8 +9,7 @@ use cubecl_std::CubeOption;
 use crate::components::tile::dummy::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
-    tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AvailableLineSizes, tile::dummy::FlashMatmulConfig,
 };
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
@@ -63,30 +61,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         acc: &Self::Accumulator,
         slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
-    );
-    fn tmp_write_score<G: GlobalAttentionConfig>(
-        acc: &Self::ScoreProb,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    );
-    fn tmp_write_query<G: GlobalAttentionConfig>(
-        acc: &Self::Query,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    );
-    fn tmp_write_key<G: GlobalAttentionConfig>(
-        acc: &Self::KeyValue,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
-    );
-    fn tmp_write_value<G: GlobalAttentionConfig>(
-        value: &Self::KeyValue,
-        writer: &mut PlaneWriter<AP::EO>,
-        #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     );
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
