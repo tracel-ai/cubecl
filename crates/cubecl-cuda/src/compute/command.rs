@@ -159,11 +159,17 @@ impl<'a> Command<'a> {
         &mut self,
         descriptors: Vec<CopyDescriptor<'_>>,
     ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
+        let descriptors_moved = descriptors
+            .iter()
+            .map(|b| b.binding.clone())
+            .collect::<Vec<_>>();
         let result = self.copies_to_bytes(descriptors, true);
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
             fence.wait_sync();
+            // Release memory handle.
+            core::mem::drop(descriptors_moved);
             result
         }
     }

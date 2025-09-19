@@ -5,28 +5,17 @@ use crate::compute::{
     },
     sync::Fence,
 };
-use cubecl_common::stream_id::StreamId;
 use cubecl_core::MemoryConfiguration;
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     stream::StreamBackend,
 };
 
+#[derive(Debug)]
 pub struct Stream {
     pub sys: cudarc::driver::sys::CUstream,
-    id: StreamId,
     pub memory_management_gpu: MemoryManagement<GpuStorage>,
     pub memory_management_cpu: MemoryManagement<PinnedMemoryStorage>,
-}
-
-impl core::fmt::Debug for Stream {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Stream")
-            .field("id", &self.id)
-            .field("memory_management_gpu", &self.memory_management_gpu)
-            .field("memory_management_cpu", &self.memory_management_cpu)
-            .finish()
-    }
 }
 
 #[derive(new, Debug)]
@@ -40,7 +29,7 @@ impl StreamBackend for CudaStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
-    fn create_stream(&self, id: StreamId) -> Self::Stream {
+    fn create_stream(&self) -> Self::Stream {
         let stream = cudarc::driver::result::stream::create(
             cudarc::driver::result::stream::StreamKind::NonBlocking,
         )
@@ -63,7 +52,6 @@ impl StreamBackend for CudaStreamBackend {
 
         Stream {
             sys: stream,
-            id,
             memory_management_gpu,
             memory_management_cpu,
         }
