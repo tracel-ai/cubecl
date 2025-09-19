@@ -27,6 +27,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         value: VirtualTensor<AP::EI>,
         out: VirtualTensor<AP::EO, ReadWrite>,
         _cube_count_args: CubeCountInput,
+        seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
         comment!("Batch: Execute");
@@ -34,8 +35,6 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         let q_index = CUBE_POS;
 
         let q_offset = q_index * config.global_config().tiling_scheme().seq_q();
-
-        let seq_kv = value.shape(1);
 
         let global_config = config.global_config();
         GA::execute(

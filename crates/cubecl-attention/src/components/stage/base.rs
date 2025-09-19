@@ -116,6 +116,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     );
+    fn tmp_write_value<G: GlobalAttentionConfig>(
+        value: &Self::KeyValue,
+        writer: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 
     fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
 

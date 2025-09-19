@@ -17,6 +17,7 @@ use crate::components::stage::dummy::{
 };
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
+use crate::components::tile::dummy::RunningState;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
@@ -263,14 +264,12 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 let row_stats = TA::score_to_prob(
                     score_frag,
                     out_of_bound_mask,
-                    state_q,
+                    state_q.m,
                     config.tiling_scheme().head_dim(),
                 );
 
-                // let mut vd = comptime![0u32];
                 let (exp_m_diff, m_new, l_new) =
                     TA::get_new_state(&row_stats, state_q.m, state_q.l);
-                state_q.update(m_new, l_new);
 
                 let mut vd = comptime![0u32];
 
@@ -287,6 +286,8 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
                     comptime![vd += 1];
                 }
+
+                state_q.update(m_new, l_new);
 
                 comptime![q += 1];
             }
@@ -390,38 +391,15 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        comment!("Stage: Write");
-        let p = stage_config.tiling_scheme().partition_size;
+        let q = 0u32;
+        let kv = 0u32;
 
         TA::tmp_write_score::<G>(
-            Self::Score::get_at(score, 0u32, 0u32, stage_config),
+            Self::Score::get_at(score, q, kv, stage_config),
             writer,
             stage_config.tile_config(),
             global_config,
         );
-
-        // let mut q = comptime!(0u32);
-
-        // #[unroll]
-        // #[allow(clippy::explicit_counter_loop)]
-        // for _ in 0..p.seq_q {
-        //     let mut kv = comptime!(0u32);
-
-        //     #[unroll]
-        //     #[allow(clippy::explicit_counter_loop)]
-        //     for _ in 0..p.seq_kv {
-        //         TA::tmp_write_score::<G>(
-        //             Self::Score::get_at(score, q, kv, stage_config),
-        //             writer,
-        //             stage_config.tile_config(),
-        //             global_config,
-        //         );
-
-        //         comptime![kv += 1];
-        //     }
-
-        //     comptime![q += 1];
-        // }
     }
     fn tmp_write_query<G: GlobalAttentionConfig>(
         query: &Self::Query,
@@ -429,31 +407,15 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        comment!("Stage: Write");
-        let p = stage_config.tiling_scheme().partition_size;
+        let q = 0u32;
+        let hd = 0u32;
 
-        let mut i = comptime!(0u32);
-
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_q {
-            let mut j = comptime!(0u32);
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.head_dim {
-                TA::tmp_write_query::<G>(
-                    Self::Query::get_at(query, i, j, stage_config),
-                    writer,
-                    stage_config.tile_config(),
-                    global_config,
-                );
-
-                comptime![j += 1];
-            }
-
-            comptime![i += 1];
-        }
+        TA::tmp_write_query::<G>(
+            Self::Query::get_at(query, q, hd, stage_config),
+            writer,
+            stage_config.tile_config(),
+            global_config,
+        );
     }
     fn tmp_write_key<G: GlobalAttentionConfig>(
         key: &Self::KeyValue,
@@ -461,31 +423,32 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        comment!("Stage: Write");
-        let p = stage_config.tiling_scheme().partition_size;
+        let hd = 0u32;
+        let kv = 0u32;
 
-        let mut hd = comptime!(0u32);
+        TA::tmp_write_key::<G>(
+            Self::KeyValue::get_key_at(key, hd, kv, stage_config),
+            writer,
+            stage_config.tile_config(),
+            global_config,
+        );
+    }
 
-        #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.head_dim {
-            let mut kv = comptime!(0u32);
+    fn tmp_write_value<G: GlobalAttentionConfig>(
+        value: &Self::KeyValue,
+        writer: &mut Self::Writer,
+        #[comptime] stage_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let kv = 1u32;
+        let vd = 0u32;
 
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.seq_kv {
-                TA::tmp_write_key::<G>(
-                    Self::KeyValue::get_key_at(key, hd, kv, stage_config),
-                    writer,
-                    stage_config.tile_config(),
-                    global_config,
-                );
-
-                comptime![kv += 1];
-            }
-
-            comptime![hd += 1];
-        }
+        TA::tmp_write_value::<G>(
+            Self::KeyValue::get_value_at(value, kv, vd, stage_config),
+            writer,
+            stage_config.tile_config(),
+            global_config,
+        );
     }
 
     fn init_fragments(

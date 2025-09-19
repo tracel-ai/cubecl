@@ -85,6 +85,8 @@ pub fn test_attention_algorithm<A, P, R>(
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
+    println!("problem_seqkv: {:?}", problem.seq_kv);
+
     unsafe {
         A::BatchAttention::launch_unchecked::<P::MP, R>(
             &client,
@@ -123,6 +125,7 @@ pub fn test_attention_algorithm<A, P, R>(
                 line_sizes.out,
             ),
             cube_count_plan.as_args(),
+            ScalarArg::new(2),
             config,
         );
     }

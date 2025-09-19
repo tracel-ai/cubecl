@@ -30,6 +30,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
         input: InputRuntimeArg<'a, MS, R>,
         output: OutputRuntimeArg<'a, MS, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
+        seq_kv: ScalarArg<u32>,
         config: Self::Config,
     );
 
@@ -62,6 +63,7 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         value: VirtualTensor<AP::EI>,
         out: VirtualTensor<AP::EO, ReadWrite>,
         cube_count_args: CubeCountInput,
+        seq_kv: u32,
         #[comptime] config: Self::Config,
     );
 }

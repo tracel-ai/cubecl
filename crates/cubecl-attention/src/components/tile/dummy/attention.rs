@@ -6,16 +6,16 @@ use cubecl_matmul::components::tile::Tile;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
-use crate::components::FlashIdent;
-use crate::components::tile::RowStats;
-use crate::components::tile::TileAttention;
 use crate::components::tile::dummy::{
     FlashMatmul, FlashMatmulConfig, FlashPrecision, ScoreFragment,
 };
+use crate::components::tile::RowStats;
+use crate::components::tile::TileAttention;
+use crate::components::FlashIdent;
 use crate::components::{
-    AttentionPrecision,
     global::GlobalAttentionConfig,
     tile::dummy::{AccumulatorFragment, KeyValueFragment, QueryFragment},
+    AttentionPrecision,
 };
 
 pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
@@ -125,6 +125,31 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             global_config.global_memory_config(FlashIdent::Out),
         )
     }
+    fn tmp_write_value<G: GlobalAttentionConfig>(
+        value: &Self::KeyValue,
+        writer: &mut PlaneWriter<AP::EO>,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    ) {
+        let mut out_smem =
+            SharedMemory::<AP::EA>::new(tile_config.attention_tile_size().accumulator_size());
+
+        FM::tmp_write_key::<AP::EA>(
+            &value.value(),
+            &mut out_smem.to_slice_mut().try_cast_unchecked(),
+            tile_config,
+        );
+
+        PlaneWriter::<AP::EO>::write(
+            writer,
+            out_smem.to_slice().try_cast_unchecked(),
+            0,
+            0,
+            1u32,
+            tile_config.plane_dim(),
+            global_config.global_memory_config(FlashIdent::Out),
+        )
+    }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         Self::Accumulator::new(config)
@@ -187,7 +212,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
-        state: &RunningState<AP::EA>,
+        m: AP::EA,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA> {
         let inv_sqrt_dk = AP::EA::new(comptime!(1.0 / (dk as f32).sqrt()));
@@ -199,12 +224,15 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
             CubeOption::None => {}
         }
 
-        let m = score_prob.row_max(state.m);
+        let max = score_prob.row_max(m);
 
-        score_prob.to_prob(m);
+        score_prob.to_prob(max);
         let prob_row_sum = score_prob.row_sum();
 
-        RowStats::<AP::EA> { m, prob_row_sum }
+        RowStats::<AP::EA> {
+            m: max,
+            prob_row_sum,
+        }
     }
 
     fn get_new_state(
@@ -212,16 +240,10 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         prev_m: AP::EA,
         prev_l: AP::EA,
     ) -> (AP::EA, AP::EA, AP::EA) {
-        // let prev_m = state.m;
-        // let prev_l = state.l;
         let new_m = score_prob_row_stats.m;
-        let row_sum = score_prob_row_stats.prob_row_sum;
 
         let exp_m_diff = Exp::exp(prev_m - new_m);
-        let new_l = exp_m_diff * prev_l + row_sum;
-
-        // state.m = new_m;
-        // state.l = new_l;
+        let new_l = exp_m_diff * prev_l + score_prob_row_stats.prob_row_sum;
 
         (exp_m_diff, new_m, new_l)
     }

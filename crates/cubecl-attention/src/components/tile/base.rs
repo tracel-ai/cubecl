@@ -82,6 +82,12 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] tile_config: Self::Config,
         #[comptime] global_config: G,
     );
+    fn tmp_write_value<G: GlobalAttentionConfig>(
+        value: &Self::KeyValue,
+        writer: &mut PlaneWriter<AP::EO>,
+        #[comptime] tile_config: Self::Config,
+        #[comptime] global_config: G,
+    );
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
@@ -117,7 +123,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
-        state: &RunningState<AP::EA>,
+        m: AP::EA,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;
 
