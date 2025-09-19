@@ -11,6 +11,7 @@ pub struct StreamId {
 
 #[cfg(feature = "std")]
 static STREAM_COUNT: AtomicU64 = AtomicU64::new(0);
+
 #[cfg(feature = "std")]
 std::thread_local! {
         static ID: std::cell::RefCell::<Option<u64>> = const { std::cell::RefCell::new(None) };
@@ -28,9 +29,13 @@ impl StreamId {
     }
 
     #[cfg(feature = "std")]
-    pub fn swap(stream: StreamId) -> StreamId {
+    /// Swap the current stream id for the given one.
+    ///
+    /// # Safety
+    ///
+    /// Unknown at this point, don't use that if you don't know what you are doing.
+    pub unsafe fn swap(stream: StreamId) -> StreamId {
         let old = Self::current();
-        // variable, which is very fast.
         ID.with(|cell| {
             let mut val = cell.borrow_mut();
             *val = Some(stream.value)
@@ -41,8 +46,6 @@ impl StreamId {
 
     #[cfg(feature = "std")]
     fn from_current_thread() -> u64 {
-        // Getting the current thread is expensive, so we cache the value into a thread local
-        // variable, which is very fast.
         ID.with(|cell| {
             let mut val = cell.borrow_mut();
             match val.as_mut() {

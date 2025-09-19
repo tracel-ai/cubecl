@@ -62,7 +62,6 @@ impl WgpuStorage {
 
 impl ComputeStorage for WgpuStorage {
     type Resource = WgpuResource;
-    type Context = ();
 
     fn alignment(&self) -> usize {
         self.mem_alignment
@@ -92,9 +91,5 @@ impl ComputeStorage for WgpuStorage {
 
     fn dealloc(&mut self, id: StorageId) {
         self.memory.remove(&id);
-    }
-
-    fn context(&mut self, _context: Self::Context) {
-        // Nothing to do.
     }
 }

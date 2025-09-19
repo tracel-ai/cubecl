@@ -17,7 +17,7 @@ use cubecl_core::{
     server::{Allocation, AllocationDescriptor, IoError},
 };
 use cubecl_runtime::logging::ServerLogger;
-use cubecl_runtime::memory_management::offset_handles;
+use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
 };
@@ -156,6 +156,7 @@ impl ComputeServer for WgpuServer {
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
+        _stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         for desc in &descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
@@ -165,7 +166,11 @@ impl ComputeServer for WgpuServer {
         self.stream.read_buffers(descriptors)
     }
 
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        _stream_id: StreamId,
+    ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides);
@@ -175,7 +180,11 @@ impl ComputeServer for WgpuServer {
         Ok(())
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<WgpuResource> {
+    fn get_resource(
+        &mut self,
+        binding: Binding,
+        _stream_id: StreamId,
+    ) -> BindingResource<WgpuResource> {
         let resource = self.stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
@@ -187,39 +196,46 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-        stream_id: StreamId,
+        _stream_id: StreamId,
     ) {
         let pipeline = self.pipeline(kernel, mode, logger);
         self.stream.register(pipeline, bindings, &count);
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, _stream_id: StreamId) {
         // End the current compute pass.
         self.stream.flush();
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self) -> DynFut<()> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
         self.stream.sync()
     }
 
-    fn start_profile(&mut self) -> ProfilingToken {
+    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
         self.stream.start_profile()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    fn end_profile(
+        &mut self,
+        _stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
         self.stream.end_profile(token)
     }
 
-    fn memory_usage(&self) -> cubecl_runtime::memory_management::MemoryUsage {
+    fn memory_usage(
+        &mut self,
+        _stream_id: StreamId,
+    ) -> cubecl_runtime::memory_management::MemoryUsage {
         self.stream.mem_manage.memory_usage()
     }
 
-    fn memory_cleanup(&mut self) {
+    fn memory_cleanup(&mut self, _stream_id: StreamId) {
         self.stream.mem_manage.memory_cleanup(true);
     }
 
-    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.stream.mem_manage.mode(mode);
     }
 }

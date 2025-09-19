@@ -164,7 +164,7 @@ fn stream_index(stream_id: &StreamId, max_streams: usize) -> usize {
 impl<'a, B: StreamBackend> ResolvedStreams<'a, B> {
     /// Get the stream associated to the given [stream_id](StreamId).
     pub fn get(&mut self, stream_id: &StreamId) -> &mut B::Stream {
-        let stream = self.streams.get_mut(&stream_id);
+        let stream = self.streams.get_mut(stream_id);
         &mut stream.stream
     }
 
@@ -329,9 +329,9 @@ pub(crate) struct SharedBindingAnalysis {
 impl SharedBindingAnalysis {
     fn shared(&mut self, binding: &Binding, index: usize) {
         match self.slices.get_mut(&index) {
-            Some(bindings) => bindings.push(binding.memory.id().clone()),
+            Some(bindings) => bindings.push(*binding.memory.id()),
             None => {
-                self.slices.insert(index, vec![binding.memory.id().clone()]);
+                self.slices.insert(index, vec![*binding.memory.id()]);
             }
         }
     }

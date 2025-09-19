@@ -57,7 +57,7 @@ where
         Self {
             channel: self.channel.clone(),
             state: self.state.clone(),
-            stream_id: self.stream_id.clone(),
+            stream_id: self.stream_id,
         }
     }
 }
@@ -111,7 +111,7 @@ where
 
     fn stream_id(&self) -> StreamId {
         match self.stream_id {
-            Some(val) => val.clone(),
+            Some(val) => val,
             None => StreamId::current(),
         }
     }
