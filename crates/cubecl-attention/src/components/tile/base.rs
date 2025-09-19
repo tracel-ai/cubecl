@@ -97,15 +97,14 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
         out_of_bound_mask: CubeOption<(u32, u32)>,
-        m: AP::EA,
+        state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;
 
-    fn get_new_state(
+    fn update_state(
+        state: &mut RunningState<AP::EA>,
         score_prob_row_stats: &RowStats<AP::EA>,
-        prev_m: AP::EA,
-        prev_l: AP::EA,
-    ) -> (AP::EA, AP::EA, AP::EA);
+    ) -> AP::EA;
 
     fn accumulate_value(
         score_prob: &Self::ScoreProb,

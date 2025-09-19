@@ -91,10 +91,6 @@ impl<
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
 
         SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
-        // SA::tmp_write_query::<Self::Config>(&query, &mut writer, config.stage_config(), config)
-        // SA::tmp_write_key::<Self::Config>(&key_value, &mut writer, config.stage_config(), config)
-        // SA::tmp_write_score::<Self::Config>(&score_prob, &mut writer, config.stage_config(), config)
-        // SA::tmp_write_value::<Self::Config>(&key_value, &mut writer, config.stage_config(), config)
     }
 
     fn init_query_loader(

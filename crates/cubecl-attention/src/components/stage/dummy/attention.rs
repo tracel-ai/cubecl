@@ -128,12 +128,11 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 let row_stats = TA::score_to_prob(
                     score_frag,
                     out_of_bound_mask,
-                    state_q.m,
+                    state_q,
                     config.tiling_scheme().head_dim(),
                 );
 
-                let (exp_m_diff, m_new, l_new) =
-                    TA::get_new_state(&row_stats, state_q.m, state_q.l);
+                let scale = TA::update_state(state_q, &row_stats);
 
                 let mut vd = comptime![0u32];
 
@@ -144,14 +143,12 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                         score_frag,
                         key_value.get_value_at(kv, vd, config),
                         accumulator.get_at_mut(q, vd, config),
-                        exp_m_diff,
+                        scale,
                         config.tile_config(),
                     );
 
                     comptime![vd += 1];
                 }
-
-                state_q.update(m_new, l_new);
 
                 comptime![q += 1];
             }
