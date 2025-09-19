@@ -62,12 +62,20 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
+                    Arithmetic::SaturatingAdd(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
                     Arithmetic::Fma(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.a, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.b, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.c, &inst.out.unwrap());
                     }
                     Arithmetic::Sub(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Arithmetic::SaturatingSub(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }

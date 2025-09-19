@@ -1,6 +1,9 @@
-use std::{collections::HashSet, marker::PhantomData};
+use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::{
+    ir::{Id, Processor},
+    post_processing::saturating::SaturatingArithmeticProcessor,
+};
 
 use crate::{
     Dialect,
@@ -439,6 +442,93 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         write!(f, ")")
     }
 
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let elem = item.elem();
+        match elem {
+            Elem::I32 => {
+                write!(
+                    f,
+                    r#"[&]() -> {elem} {{
+    {elem} result;
+    asm("add.sat.s32 %0, %1, %2;"
+        : "=r"(result)
+        : "r"({lhs}), "r"({rhs}));
+    return result;
+        }}()"#
+                )
+            }
+            Elem::U32 => {
+                // Assembly level polyfill for optimal performance
+                // Adds with carry flag output
+                // Subtract 0 from 0 with the carry flag from the addition, resulting in -1 if carry is 1
+                // Applies bitwise or to set all bits if carry flag was 1
+
+                // Seems to be miscompiled at least right now, presumably because using a carry flag
+                // from `add` in `subc` was never intended. Use the polyfill for now.
+                unimplemented!("Broken right now, use polyfill");
+
+                //             write!(
+                //                 f,
+                //                 r#"[&]() -> {elem} {{
+                // {elem} result;
+                // asm("{{ .reg .s32 r0; add.cc.u32 %0, %1, %2; subc.s32 r0, 0, 0; not.b32 r0, r0; or.b32 %0, %0, r0; }}"
+                //     : "=r"(result)
+                //     : "r"({lhs}), "r"({rhs}));
+                // return result;
+                //     }}()"#
+                //             )
+            }
+            _ => unreachable!("Saturating add is only available for i32/u32"),
+        }
+    }
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<Self>,
+    ) -> std::fmt::Result {
+        let elem = item.elem();
+        // Native instruction only exists for signed int, unsigned should be removed in a preprocessor
+        match elem {
+            Elem::I32 => {
+                write!(
+                    f,
+                    r#"[&]() -> {elem} {{
+    {elem} result;
+    asm("sub.sat.s32 %0, %1, %2;"
+        : "=r"(result)
+        : "r"({lhs}), "r"({rhs}));
+    return result;
+        }}()"#
+                )
+            }
+            Elem::U32 => {
+                // Assembly level polyfill for optimal performance
+                // Adds with carry flag output
+                // Subtract 0 from 0 with the carry flag from the addition, resulting in -1 if carry is 1
+                // Inverts carry
+                // Applies bitwise and to zero out if carry was 1
+                write!(
+                    f,
+                    r#"[&]() -> {elem} {{
+    {elem} result;
+    asm("{{ .reg .s32 r0; sub.cc.u32 %0, %1, %2; subc.s32 r0, 0, 0; not.b32 r0, r0; and.b32 %0, %0, r0; }}"
+        : "=r"(result)
+        : "r"({lhs}), "r"({rhs}));
+    return result;
+        }}()"#
+                )
+            }
+            _ => unreachable!("Saturating sub is only available for i32/u32"),
+        }
+    }
+
     // others
     fn compile_instruction_max_function_name(
         f: &mut std::fmt::Formatter<'_>,
@@ -605,6 +695,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for CudaDialect<M> 
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for CudaDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
-        vec![Box::new(CudaMmaProcessor)]
+        vec![
+            Box::new(CudaMmaProcessor),
+            Box::new(SaturatingArithmeticProcessor::new(false)),
+        ]
     }
 }
