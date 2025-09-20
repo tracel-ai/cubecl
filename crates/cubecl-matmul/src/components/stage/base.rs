@@ -5,7 +5,7 @@ use cubecl_std::{
     tensor::{View, layout::Coordinates},
 };
 
-use crate::components::{AccG, error::MatmulSetupError};
+use crate::components::{AccG, error::MatmulSetupError, global::memory::GlobalMemoryConfig};
 use crate::components::{AccS, global::MaxLoaderPlanes};
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
@@ -151,6 +151,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Inits the writer at the given offsets
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Self::StageUnloader;
 
     /// Reads the result of the accumulator and hands it to the stage writer

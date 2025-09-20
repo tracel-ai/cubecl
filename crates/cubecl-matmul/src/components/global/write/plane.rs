@@ -1,5 +1,7 @@
-use crate::components::global::GlobalConfig;
-use crate::components::global::memory::TensorWriter;
+use crate::components::global::{
+    GlobalConfig,
+    load::tiled::{TiledCoords, TiledLayout},
+};
 use crate::components::{
     MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
 };
@@ -14,14 +16,17 @@ use super::StageUnloader;
 /// Writes tiles from out shared memory to output global memory
 /// using a plane for each tile
 pub struct PlaneWriter<EG: Numeric> {
-    pub tensor_writer: TensorWriter<EG>,
+    pub view: View<Line<EG>, TiledCoords, ReadWrite>,
 }
 
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
+    pub fn new(
+        view: View<Line<EG>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self {
         PlaneWriter::<EG> {
-            tensor_writer: TensorWriter::new(view),
+            view: view.view_mut(TiledLayout::new(config)),
         }
     }
 }
@@ -39,7 +44,6 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
         let output_line_size = config.global_line_size(MatmulIdent::Out);
-        let out_config = config.global_memory_config(MatmulIdent::Out);
 
         let out_smem_line_size = config.stage_config().stage_line_size(StageIdent::Acc);
 
@@ -54,26 +58,24 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
                 write_line(
-                    &mut this.tensor_writer,
+                    &mut this.view,
                     &out_smem_slice,
                     unit_write,
                     tile_row,
                     tile_col,
                     output_line_size,
                     out_smem_line_size,
-                    out_config,
                 );
             } else {
                 if unit_write < tile_size {
                     write_line(
-                        &mut this.tensor_writer,
+                        &mut this.view,
                         &out_smem_slice,
                         unit_write,
                         tile_row,
                         tile_col,
                         output_line_size,
                         out_smem_line_size,
-                        out_config,
                     );
                 }
             }
@@ -83,14 +85,13 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
 
 #[cube]
 fn write_line<EG: Numeric>(
-    tensor_writer: &mut TensorWriter<EG>,
+    view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
     out_smem_slice: &Slice<Line<EG>>,
     unit_write: u32,
     tile_row: u32,
     tile_col: u32,
     #[comptime] output_line_size: u32,
     #[comptime] out_smem_line_size: u32,
-    #[comptime] out_config: GlobalMemoryConfig,
 ) {
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
@@ -111,5 +112,5 @@ fn write_line<EG: Numeric>(
         unimplemented!()
     };
 
-    tensor_writer.write_coalesced(tile_row, tile_col, unit_write, value, out_config);
+    view.write_checked(((tile_row, tile_col), unit_write), value);
 }

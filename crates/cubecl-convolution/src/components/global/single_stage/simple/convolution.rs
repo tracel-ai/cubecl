@@ -172,11 +172,11 @@ where
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
+        let global_conf = config.global_memory_config(MatmulIdent::Out);
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
-        let layout_out =
-            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
+        let layout_out = OutLayout::new(runtime_args, global_conf);
         let out = out.view_mut(layout_global).view_mut(layout_out);
-        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size))
+        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size), global_conf)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

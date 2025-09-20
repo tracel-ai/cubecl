@@ -4,6 +4,8 @@ use cubecl_std::tensor::layout::{Coords2d, Layout, LayoutExpand};
 
 use crate::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 
+pub type TiledCoords = (Coords2d, u32);
+
 /// Tiling mapping on a 2D layout. Unit offset is translated to a 2D offset within the tile.
 #[derive(CubeType)]
 pub struct TiledLayout {
@@ -20,7 +22,7 @@ impl TiledLayout {
 
 #[cube]
 impl Layout for TiledLayout {
-    type Coordinates = (Coords2d, u32);
+    type Coordinates = TiledCoords;
     type SourceCoordinates = Coords2d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {

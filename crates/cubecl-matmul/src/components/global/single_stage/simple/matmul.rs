@@ -157,13 +157,13 @@ where
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         batch_offset: u32,
         offset: Coords2d,
-        slice_size: Coords2d,
+        size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
     ) -> Self::StageUnloader {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
+        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

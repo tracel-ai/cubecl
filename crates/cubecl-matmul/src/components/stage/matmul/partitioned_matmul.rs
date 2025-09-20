@@ -1,4 +1,3 @@
-use crate::components::AccG;
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
@@ -10,6 +9,7 @@ use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
 use crate::components::tile::loader::LoaderKind;
+use crate::components::{AccG, global::memory::GlobalMemoryConfig};
 use crate::components::{InputPrecision, stage::StageReader};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -28,6 +28,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer<EO>;
 
     /// Returns the (row, col) of the current compute primitive within the stage.
@@ -227,8 +228,9 @@ where
 
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Self::StageUnloader {
-        SP::init_writer(tensor)
+        SP::init_writer(tensor, config)
     }
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {

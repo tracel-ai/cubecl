@@ -1,4 +1,3 @@
-use crate::components::InputPrecision;
 use crate::components::MatmulPrecision;
 use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
@@ -7,6 +6,7 @@ use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul
 use crate::components::stage::matmul::partitioned_matmul::StagePartitioner;
 use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConfig;
 use crate::components::tile::TileMatmul;
+use crate::components::{InputPrecision, global::memory::GlobalMemoryConfig};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{View, layout::Coords2d};
@@ -43,8 +43,9 @@ impl StagePartitioner for UnitPartitioner {
 
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer<EO> {
-        UnitWriter::<EO>::new(tensor)
+        UnitWriter::<EO>::new(tensor, config)
     }
 
     fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {

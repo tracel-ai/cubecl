@@ -143,9 +143,10 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         comment!("Global: Init Writer");
-        let layout = SimpleGlobalLayout::new(&out, 0, config.global_memory_config(FlashIdent::Out));
+        let conf = config.global_memory_config(FlashIdent::Out);
+        let layout = SimpleGlobalLayout::new(&out, 0, conf);
         let out = out.view_mut(layout);
-        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()))
+        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()), conf)
     }
 }
 
