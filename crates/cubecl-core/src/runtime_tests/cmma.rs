@@ -597,8 +597,8 @@ pub fn test_simple_tf32<R: Runtime>(
         return;
     }
 
-    let lhs: Vec<f32> = (0..128).map(|i| i as f32).collect();
-    let rhs: Vec<f32> = (0..128).map(|i| (i % 8) as f32).collect();
+    let lhs: Vec<f32> = (0..128).map(|i| (i as f32)).collect();
+    let rhs: Vec<f32> = (0..128).map(|i| ((i % 8) as f32)).collect();
 
     let lhs = client.create(f32::as_bytes(&lhs));
     let rhs = client.create(f32::as_bytes(&rhs));

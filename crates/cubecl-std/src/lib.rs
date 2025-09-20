@@ -1,7 +1,6 @@
 //! Cubecl standard library.
 
-#![allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-#![allow(clippy::manual_div_ceil, clippy::manual_is_multiple_of)]
+#![allow(clippy::manual_is_multiple_of)]
 
 extern crate alloc;
 

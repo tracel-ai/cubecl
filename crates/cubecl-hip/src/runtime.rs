@@ -1,5 +1,13 @@
-use std::{ffi::CStr, mem::MaybeUninit};
-
+use crate::{
+    HipWmmaCompiler,
+    compute::{HipServer, context::HipContext, contiguous_strides},
+    device::AmdDevice,
+};
+use cubecl_common::profile::TimingMethod;
+use cubecl_core::{
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    ir::{MatrixLayout, MmaProperties, TargetProperties},
+};
 use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
@@ -8,29 +16,14 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-
-use cubecl_common::profile::TimingMethod;
-use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    ir::{MatrixLayout, MmaProperties, TargetProperties},
-};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane,
-    channel::MutexComputeChannel,
+    channel::MpscComputeChannel,
     client::ComputeClient,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-
-use crate::{
-    HipWmmaCompiler,
-    compute::{
-        HipContext, HipServer, contiguous_strides,
-        cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-        storage::gpu::GpuStorage,
-    },
-    device::AmdDevice,
-};
+use std::{ffi::CStr, mem::MaybeUninit};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -42,13 +35,13 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct HipRuntime;
 
-static RUNTIME: ComputeRuntime<AmdDevice, Server, MutexComputeChannel<Server>> =
+static RUNTIME: ComputeRuntime<AmdDevice, Server, MpscComputeChannel<Server>> =
     ComputeRuntime::new();
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
-type Channel = MutexComputeChannel<Server>;
+type Channel = MpscComputeChannel<Server>;
 
 fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &AmdDevice,
@@ -105,13 +98,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
     }
 
-    let stream = unsafe {
-        let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-        let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-        assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-        stream
-    };
-
     let max_memory = unsafe {
         let free: usize = 0;
         let total: usize = 0;
@@ -125,7 +111,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
@@ -152,26 +137,10 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             Some(16)
         },
     };
-    let memory_management_gpu = MemoryManagement::from_configuration(
-        storage,
-        &mem_properties,
-        options.memory_config.clone(),
-    );
-    // We use the same page size and memory pools configuration for CPU pinned memory, since we
-    // expect the CPU to have at least the same amount of RAM as GPU memory.
-    let memory_management_cpu = MemoryManagement::from_configuration(
-        PinnedMemoryStorage::new(),
-        &MemoryDeviceProperties {
-            max_page_size: mem_properties.max_page_size,
-            alignment: PINNED_MEMORY_ALIGNMENT as u64,
-            data_transfer_async: false,
-        },
-        options.memory_config,
-    );
 
     let mut device_props = DeviceProperties::new(
         Default::default(),
-        mem_properties,
+        mem_properties.clone(),
         topology,
         TimingMethod::System,
     );
@@ -193,20 +162,20 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         grid_constants: false,
         supports_clusters: false,
     };
-    let hip_ctx = HipContext::new(
-        memory_management_gpu,
-        memory_management_cpu,
-        comp_opts,
-        stream,
+    let hip_ctx = HipContext::new(comp_opts);
+    let server = HipServer::new(
+        hip_ctx,
+        mem_properties,
+        options.memory_config,
+        mem_alignment,
     );
-    let server = HipServer::new(mem_alignment, hip_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    ComputeClient::new(MpscComputeChannel::new(server), device_props, ())
 }
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
     type Server = HipServer;
-    type Channel = MutexComputeChannel<HipServer>;
+    type Channel = MpscComputeChannel<HipServer>;
     type Device = AmdDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
