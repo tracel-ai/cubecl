@@ -20,8 +20,6 @@ use cubecl_common::{ExecutionMode, bytes::Bytes, profile::ProfileDuration};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-
-#[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.

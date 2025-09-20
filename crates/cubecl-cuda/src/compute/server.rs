@@ -35,8 +35,7 @@ use cudarc::driver::sys::{
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
     cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
 };
-use serde::{Deserialize, Serialize};
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 use std::mem::MaybeUninit;
 use std::sync::Arc;
 
@@ -47,15 +46,6 @@ pub struct CudaServer {
     ctx: CudaContext,
     streams: MultiStream<CudaStreamBackend>,
     mem_alignment: usize,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
-pub struct PtxCacheEntry {
-    entrypoint_name: String,
-    cube_dim: (u32, u32, u32),
-    shared_mem_bytes: usize,
-    cluster_dim: Option<(u32, u32, u32)>,
-    ptx: Vec<c_char>,
 }
 
 unsafe impl Send for CudaServer {}

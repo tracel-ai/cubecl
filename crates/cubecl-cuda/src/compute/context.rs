@@ -38,6 +38,16 @@ pub struct CompiledKernel {
     func: *mut CUfunc_st,
 }
 
+#[cfg(feature = "compilation-cache")]
+#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+pub struct PtxCacheEntry {
+    entrypoint_name: String,
+    cube_dim: (u32, u32, u32),
+    shared_mem_bytes: usize,
+    cluster_dim: Option<(u32, u32, u32)>,
+    ptx: Vec<std::ffi::c_char>,
+}
+
 impl CudaContext {
     pub fn new(
         compilation_options: CompilationOptions,

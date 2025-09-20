@@ -1,4 +1,4 @@
-#[cfg(feature = "std")]
+#[cfg(multi_threading)]
 use core::sync::atomic::AtomicU64;
 
 /// Unique identifier that can represent a stream based on the current thread id.
@@ -9,10 +9,10 @@ pub struct StreamId {
     pub value: u64,
 }
 
-#[cfg(feature = "std")]
+#[cfg(multi_threading)]
 static STREAM_COUNT: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(feature = "std")]
+#[cfg(multi_threading)]
 std::thread_local! {
         static ID: std::cell::RefCell::<Option<u64>> = const { std::cell::RefCell::new(None) };
 }
@@ -21,14 +21,14 @@ impl StreamId {
     /// Get the current thread id.
     pub fn current() -> Self {
         Self {
-            #[cfg(feature = "std")]
+            #[cfg(multi_threading)]
             value: Self::from_current_thread(),
-            #[cfg(not(feature = "std"))]
+            #[cfg(not(multi_threading))]
             value: 0,
         }
     }
 
-    #[cfg(not(feature = "std"))]
+    #[cfg(not(multi_threading))]
     /// Swap the current stream id for the given one.
     ///
     /// # Safety
@@ -39,7 +39,7 @@ impl StreamId {
         stream
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(multi_threading)]
     /// Swap the current stream id for the given one.
     ///
     /// # Safety
@@ -55,7 +55,7 @@ impl StreamId {
         old
     }
 
-    #[cfg(feature = "std")]
+    #[cfg(multi_threading)]
     fn from_current_thread() -> u64 {
         ID.with(|cell| {
             let mut val = cell.borrow_mut();

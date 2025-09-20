@@ -336,23 +336,6 @@ impl Logger {
     }
 }
 
-/// Binary log level for enabling or disabling logging.
-///
-/// This enum provides a simple on/off toggle for logging.
-#[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BinaryLogLevel {
-    /// Logging is disabled.
-    #[default]
-    #[serde(rename = "disabled")]
-    Disabled,
-
-    /// Logging is fully enabled.
-    #[serde(rename = "full")]
-    Full,
-}
-
-impl LogLevel for BinaryLogLevel {}
-
 /// Represents different types of loggers.
 #[derive(Debug)]
 enum LoggerKind {
