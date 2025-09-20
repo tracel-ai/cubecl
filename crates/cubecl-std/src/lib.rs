@@ -1,5 +1,7 @@
 //! Cubecl standard library.
 
+#![allow(clippy::manual_is_multiple_of)]
+
 extern crate alloc;
 
 mod reinterpret_slice;
