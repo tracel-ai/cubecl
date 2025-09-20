@@ -181,10 +181,10 @@ impl<'a, B: StreamBackend> Drop for ResolvedStreams<'a, B> {
         }
 
         let stream = self.streams.get_mut(&self.current);
-        let event_orgin = B::flush(&mut stream.stream);
+        let event_origin = B::flush(&mut stream.stream);
 
         let stream_gc = self.streams.get_gc();
-        B::wait_event(stream_gc, event_orgin);
+        B::wait_event(stream_gc, event_origin);
         let event = B::flush(stream_gc);
 
         let mut ids = Vec::new();
