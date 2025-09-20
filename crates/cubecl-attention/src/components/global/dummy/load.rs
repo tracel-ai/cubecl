@@ -46,7 +46,7 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
     pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
-        let offset = (q_offset * attention_tile_size.seq_q, 0);
+        let offset = (q_offset, 0);
         let size = (1u32, attention_tile_size.query_size()).runtime();
         let query = query.slice(offset, size);
 
