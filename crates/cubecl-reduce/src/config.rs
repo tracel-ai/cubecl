@@ -160,7 +160,7 @@ impl ReduceConfig {
                     && output.strides[rank - 1] == 1;
             let shape = output.shape.get(axis + 1).cloned().unwrap_or(1) as u32;
 
-            if is_contiguous && shape % self.line_size_input == 0 {
+            if is_contiguous && shape.is_multiple_of(self.line_size_input) {
                 self.line_size_output = self.line_size_input;
             }
         }

@@ -231,7 +231,7 @@ impl ComputeServer for CudaServer {
                     .expect("Tensor map resource exists.");
                 let device_ptr = resource.ptr as *mut c_void;
                 debug_assert!(
-                    device_ptr as usize % 16 == 0,
+                    (device_ptr as usize).is_multiple_of(16),
                     "Tensor pointer must be 16 byte aligned"
                 );
                 let mut map_ptr = MaybeUninit::zeroed();
