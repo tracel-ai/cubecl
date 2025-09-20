@@ -14,7 +14,7 @@ use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords3d},
+    tensor::{View, layout::Coords2d},
 };
 
 #[cube]
@@ -63,10 +63,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
 {
     /// Create a new AsyncPartialLoader
     pub fn new(
-        tensor: View<Line<IP::Global>, Coords3d>,
-        x_offset: u32,
-        y_offset: u32,
-        batch_offset: u32,
+        tensor: View<Line<IP::Global>, Coords2d>,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
@@ -75,7 +72,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor, (batch_offset, x_offset, y_offset));
+        let tensor_reader = TensorReader::new(tensor);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((

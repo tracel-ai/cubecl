@@ -9,7 +9,7 @@ use cubecl_matmul::components::{
         StageMatmulFamily,
     },
 };
-use cubecl_std::tensor::layout::Coords3d;
+use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
@@ -29,7 +29,7 @@ where
             LhsStageReader = FullStageReaderFamily,
             RhsStageReader = FullStageReaderFamily,
             AccStageReader = Option<FullStageReaderFamily>,
-            WriteCoords = Coords3d,
+            WriteCoords = Coords2d,
         >,
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<

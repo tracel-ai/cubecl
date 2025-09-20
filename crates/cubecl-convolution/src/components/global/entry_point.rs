@@ -79,32 +79,37 @@ pub(crate) fn implicit_conv<
     let out =
         VirtualTensor::<AccG, ReadWrite>::new::<TensorOutput<LhsG, RhsG, AccG, Args>>(&mut out);
 
-    let x_offset = CUBE_POS_X * config.tiling_scheme().elements_in_stage_m();
-    let y_offset = CUBE_POS_Y * config.tiling_scheme().elements_in_stage_n();
+    let stage_m = config.tiling_scheme().elements_in_stage_m().runtime();
+    let stage_n = config.tiling_scheme().elements_in_stage_n().runtime();
+
+    let m_offset = CUBE_POS_X * stage_m;
+    let n_offset = CUBE_POS_Y * stage_n;
+
     let k_range = (0, runtime_args.shape_k);
+    let k_size = runtime_args.shape_k;
 
     GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_loader(
             lhs,
-            x_offset,
-            k_range.0,
+            (m_offset, k_range.0),
+            (stage_m, k_size),
             &runtime_args,
             config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_loader(
             rhs,
-            k_range.0,
-            y_offset,
+            (k_range.0, n_offset),
+            (k_size, stage_n),
             &runtime_args,
             config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_loader(
-            bias, y_offset, config,
+            bias, n_offset, stage_n, config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_writer(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(
             out,
-            x_offset,
-            y_offset,
+            (m_offset, n_offset),
+            (stage_m, stage_n),
             &runtime_args,
             config,
         ),

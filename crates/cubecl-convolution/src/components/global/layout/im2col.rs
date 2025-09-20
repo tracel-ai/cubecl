@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     FastDivmod,
-    tensor::layout::{Coords3d, Layout, LayoutExpand},
+    tensor::layout::{Coords2d, Layout, LayoutExpand},
 };
 
 use crate::{
@@ -77,11 +77,11 @@ impl Im2colLayout {
 
 #[cube]
 impl Layout for Im2colLayout {
-    type Coordinates = Coords3d;
+    type Coordinates = Coords2d;
     type SourceCoordinates = NhwcCoords;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> NhwcCoords {
-        let (_, view_m, view_k) = pos;
+        let (view_m, view_k) = pos;
 
         let (batch, out_offs) = div_mod_seq(view_m, &self.shape_out);
 
@@ -117,7 +117,17 @@ impl Layout for Im2colLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        (1, self.shape_m, self.shape_k)
+        (self.shape_m, self.shape_k)
+    }
+
+    #[allow(unreachable_code)]
+    fn to_source_shape(&self, _shape: Self::Coordinates) -> Self::SourceCoordinates {
+        panic!("im2col cannot transform an (m, k) shape to NHWC");
+        NhwcCoords {
+            batch: 0,
+            spatial: Sequence::new(),
+            channel: 0,
+        }
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (NhwcCoords, bool) {
@@ -125,7 +135,7 @@ impl Layout for Im2colLayout {
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        let (_, view_m, view_k) = pos;
+        let (view_m, view_k) = pos;
         // Shouldn't be relied on because it doesn't check spatial
         let m_in_bounds = comptime!(!self.config.check_row_bounds) || view_m < self.shape_m;
         let k_in_bounds = comptime!(!self.config.check_col_bounds) || view_k < self.shape_k;

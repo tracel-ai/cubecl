@@ -123,6 +123,10 @@ impl Layout for PermutedLayout {
         self.len
     }
 
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        shape / comptime![self.line_size as u32]
+    }
+
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         pos < self.len
     }

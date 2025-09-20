@@ -14,6 +14,27 @@ pub struct NhwcCoords {
     pub channel: u32,
 }
 
+type NhwcTuple = (u32, Sequence<i32>, u32);
+
+#[cube]
+impl NhwcCoords {
+    pub fn new(batch: u32, spatial: Sequence<i32>, channel: u32) -> Self {
+        NhwcCoords {
+            batch,
+            spatial,
+            channel,
+        }
+    }
+
+    fn into_tuple(self) -> NhwcTuple {
+        (self.batch, self.spatial, self.channel)
+    }
+
+    fn from_tuple(tuple: NhwcTuple) -> Self {
+        NhwcCoords::new(tuple.0, tuple.1, tuple.2)
+    }
+}
+
 impl NhwcCoordsExpand {
     pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {
         NhwcCoordsExpand {
@@ -24,7 +45,37 @@ impl NhwcCoordsExpand {
     }
 }
 
-impl Coordinates for NhwcCoords {}
+#[cube]
+impl Coordinates for NhwcCoords {
+    fn add(this: Self, other: Self) -> Self {
+        let tuple = NhwcTuple::add(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
+    }
+
+    fn sub(this: Self, other: Self) -> Self {
+        let tuple = NhwcTuple::sub(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
+    }
+
+    fn min(this: Self, other: Self) -> Self {
+        let tuple = <NhwcTuple as Coordinates>::min(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
+    }
+
+    fn max(this: Self, other: Self) -> Self {
+        let tuple = <NhwcTuple as Coordinates>::max(this.into_tuple(), other.into_tuple());
+        NhwcCoords::from_tuple(tuple)
+    }
+
+    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+        NhwcTuple::is_in_bounds(&pos.clone().into_tuple(), &bounds.clone().into_tuple())
+    }
+
+    fn origin(this: &Self) -> Self {
+        let tuple = NhwcTuple::origin(&this.clone().into_tuple());
+        NhwcCoords::from_tuple(tuple)
+    }
+}
 
 /// Layout for a spatial (i.e. NHWC) tensor. Bounds check only applies to spatial dimensions, not
 /// channel or batch (because these are implicitly checked in the layouts used with spatial tensors).
@@ -138,6 +189,17 @@ impl Layout for NhwcLayout {
             spatial: cast_seq(self.shapes_spatial.clone()),
             channel: self.shape_channel,
         }
+    }
+
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        let spatial_dims = self.shapes_spatial.len();
+        let mut size = shape.batch * shape.channel;
+
+        for i in 0..spatial_dims {
+            size *= *shape.spatial.index(i) as u32;
+        }
+
+        size / comptime![self.line_size]
     }
 }
 

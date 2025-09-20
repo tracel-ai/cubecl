@@ -7,23 +7,25 @@ use crate::tensor::layout::{Coords1d, Layout, LayoutExpand};
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct PlainLayout {
     len: u32,
+    #[cube(comptime)]
+    line_size: u8,
 }
 
 #[cube]
 impl PlainLayout {
-    pub fn new(len: u32) -> Self {
-        PlainLayout { len }
+    pub fn new(len: u32, #[comptime] line_size: u8) -> Self {
+        PlainLayout { len, line_size }
     }
 }
 
 impl<'a, R: Runtime> PlainLayoutLaunch<'a, R> {
-    pub fn from_shape(shape: &[usize], line_size: &u8) -> Self {
+    pub fn from_shape(shape: &[usize], line_size: &'a u8) -> Self {
         let len = shape.iter().product::<usize>();
         let len = len / *line_size as usize;
-        Self::new(ScalarArg::new(len as u32))
+        Self::new(ScalarArg::new(len as u32), line_size)
     }
 
-    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: &u8) -> Self {
+    pub fn from_handle(handle: &TensorHandleRef<'_, R>, line_size: &'a u8) -> Self {
         Self::from_shape(handle.shape, line_size)
     }
 }
@@ -43,6 +45,10 @@ impl Layout for PlainLayout {
 
     fn shape(&self) -> Self::Coordinates {
         self.len
+    }
+
+    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
+        shape / comptime![self.line_size as u32]
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
