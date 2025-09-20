@@ -28,6 +28,17 @@ impl StreamId {
         }
     }
 
+    #[cfg(not(feature = "std"))]
+    /// Swap the current stream id for the given one.
+    ///
+    /// # Safety
+    ///
+    /// Unknown at this point, don't use that if you don't know what you are doing.
+    pub unsafe fn swap(stream: StreamId) -> StreamId {
+        // Only a single stream without std.
+        stream
+    }
+
     #[cfg(feature = "std")]
     /// Swap the current stream id for the given one.
     ///

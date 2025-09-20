@@ -1,8 +1,7 @@
-use std::sync::mpsc::SyncSender;
-
 use crate::{memory_management::SliceId, server::Binding};
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
+use std::sync::mpsc::SyncSender;
 
 /// Trait defining the backend operations for managing streams and events.
 ///
