@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, FlashIdent,
-    tile::dummy::{AttentionTileSize, FlashMatmulConfig, FlashPrecision},
+    AttentionPrecision, AttentionSetupError, AttentionTileSize, FlashIdent,
+    tile::dummy::{FlashMatmulConfig, FlashPrecision},
 };
 use cubecl_core::frontend::CubePrimitive;
 
@@ -89,27 +89,12 @@ impl TileConfig for ValueConfig {
 }
 
 impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
-    type ScoreConfig = ScoreConfig;
-    type ValueConfig = ValueConfig;
-
-    fn score_config(&self) -> Self::ScoreConfig {
-        self.score_config
-    }
-
-    fn value_config(&self) -> Self::ValueConfig {
-        self.value_config
-    }
-
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
 
     fn num_planes(&self) -> u32 {
         self.num_planes
-    }
-
-    fn reuse_key_value(&self) -> bool {
-        true
     }
 
     fn stage_line_size(&self, ident: FlashIdent) -> u32 {
@@ -157,13 +142,13 @@ impl AcceleratedFlashMatmulConfig {
     ) -> Result<Self, AttentionSetupError> {
         let score_config = ScoreConfig {
             plane_dim,
-            tile_size: attention_tile_size.to_score_matmul(),
+            tile_size: attention_tile_size.to_score_matmul_tile_size(),
             query_stage_line_size,
             key_value_stage_line_size,
         };
         let value_config = ValueConfig {
             plane_dim,
-            tile_size: attention_tile_size.to_value_matmul(),
+            tile_size: attention_tile_size.to_value_matmul_tile_size(),
             key_value_stage_line_size,
         };
 

@@ -2,8 +2,9 @@ use cubecl_core::CubeDim;
 use cubecl_matmul::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, FlashIdent, global::GlobalAttentionConfig, stage::StageAttentionConfig,
-    tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AttentionTilingScheme, FlashIdent,
+    global::GlobalAttentionConfig,
+    stage::{StageAttentionConfig, dummy::AttentionStageMemoryConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -14,14 +15,12 @@ pub struct DummyGlobalConfig<S: StageAttentionConfig> {
 
 impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     type StageConfig = S;
-    type ScoreStageMemoryConfig = S::ScoreStageMemoryConfig;
-    type ValueStageMemoryConfig = S::ValueStageMemoryConfig;
 
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig {
+    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
         self.stage_config.score_stage_memory_config()
     }
 
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig {
+    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig {
         self.stage_config.value_stage_memory_config()
     }
 
@@ -37,26 +36,30 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
         self.stage_config.plane_dim()
     }
 
-    fn num_stage_iterations(&self) -> u32 {
-        // TODO probably won't be comptime
-        1
-    }
-
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig {
-        let attention_tile_size = self.stage_config.tile_config().attention_tile_size();
-        let num_rows = attention_tile_size.num_rows(ident);
-        let num_cols = attention_tile_size.num_cols(ident);
+        let tiling_scheme = self.stage_config.tiling_scheme();
+
+        let elements_in_tile_row = tiling_scheme.tile_size.num_rows(ident);
+        let elements_in_tile_col = tiling_scheme.tile_size.num_cols(ident);
+        let elements_in_stage_row =
+            tiling_scheme.partition_size.num_rows(ident) * elements_in_tile_row;
+        let elements_in_stage_col =
+            tiling_scheme.partition_size.num_cols(ident) * elements_in_tile_col;
 
         GlobalMemoryConfig {
-            elements_in_tile_row: num_rows,
-            elements_in_tile_col: num_cols,
-            elements_in_stage_row: num_rows,
-            elements_in_stage_col: num_cols,
+            elements_in_tile_row,
+            elements_in_tile_col,
+            elements_in_stage_row,
+            elements_in_stage_col,
             global_line_size: 1,
             check_row_bounds: false,
             check_col_bounds: false,
             matrix_layout: MatrixLayout::RowMajor,
         }
+    }
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme {
+        self.stage_config.tiling_scheme()
     }
 }
 

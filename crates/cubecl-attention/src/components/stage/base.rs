@@ -1,14 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{StageMemoryConfig, StageReaderFamily};
+use cubecl_matmul::components::stage::StageReaderFamily;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::AttentionTilingScheme;
+use crate::components::global::dummy::QueryLoader;
+use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
-    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
+    global::GlobalAttentionConfig,
     tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
 };
 
@@ -69,7 +72,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type Writer: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
+    fn init_state(#[comptime] config: Self::Config) -> StageState<AP>;
 
     fn execute(
         key_reader: &Self::KeyReader,
@@ -78,14 +81,14 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_value: &mut Self::KeyValue,
         score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
-        prev_state: &mut Self::State,
+        prev_state: &mut StageState<AP>,
         out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
         acc: &mut Self::Accumulator,
-        prev_state: Self::State,
+        state: StageState<AP>,
         #[comptime] config: Self::Config,
     );
 
@@ -99,7 +102,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_writer(tensor: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer;
 
     fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
+        query_loader: QueryLoader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }
@@ -109,13 +112,14 @@ pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     type FlashMatmulConfig: FlashMatmulConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
     fn tile_config(&self) -> Self::FlashMatmulConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
+    fn reuse_key_value(&self) -> bool;
 }

@@ -5,13 +5,11 @@ use cubecl_matmul::components::{
     tile::Tile,
 };
 use cubecl_std::CubeOption;
-use cubecl_std::tensor::{View, layout::Coords2d};
 
-use crate::components::global::dummy::QueryRegisterReader;
+use crate::components::tile::dummy::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
-    tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AvailableLineSizes, tile::dummy::FlashMatmulConfig,
 };
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
@@ -44,50 +42,81 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    type Writer: CubeType;
-
     /// The configuration type associated with this Attention.
     type Config: FlashMatmulConfig;
 
-    type State: CubeType;
-
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Score: CubeType;
+    type ScoreProb: CubeType;
     type Accumulator: CubeType;
     type OutOfBoundMask: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
-
-    fn execute(
-        key_tile: &Tile<AP::ES>,
-        value_tile: &Tile<AP::ES>,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score: &mut Self::Score,
-        accumulator: &mut Self::Accumulator,
-        state: &mut Self::State,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
-        #[comptime] config: Self::Config,
-    );
-
     fn rescale(
         acc: &mut Self::Accumulator,
-        prev_state: Self::State,
+        prev_state: &RunningState<AP::EA>,
         #[comptime] config: Self::Config,
     );
 
-    fn write<G: GlobalAttentionConfig>(
+    fn write_results(
         acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+        slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
+    fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
+
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+
+    fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb;
+
+    fn fill_key<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
+    );
+
+    fn fill_value<E: Numeric>(
+        tile: &Tile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+
+    fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config);
+
+    fn accumulate_score(
+        query: &Self::Query,
+        key_value: &Self::KeyValue,
+        score_prob: &mut Self::ScoreProb,
+        #[comptime] config: Self::Config,
+    );
+
+    fn score_to_prob(
+        score_prob: &mut Self::ScoreProb,
+        out_of_bound_mask: CubeOption<(u32, u32)>,
+        state: &RunningState<AP::EA>,
+        #[comptime] dk: u32,
+    ) -> RowStats<AP::EA>;
+
+    fn update_state(
+        state: &mut RunningState<AP::EA>,
+        score_prob_row_stats: &RowStats<AP::EA>,
+    ) -> AP::EA;
+
+    fn accumulate_value(
+        score_prob: &Self::ScoreProb,
+        key_value: &Self::KeyValue,
+        accumulator: &mut Self::Accumulator,
+        scale: AP::EA,
+        #[comptime] config: Self::Config,
+    );
+}
+
+#[derive(CubeType)]
+pub struct RowStats<E: Numeric> {
+    pub m: E,
+    pub prob_row_sum: E,
 }

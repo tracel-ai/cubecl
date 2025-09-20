@@ -1,4 +1,4 @@
-use crate::components::global::GlobalConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coordinates;
@@ -12,11 +12,13 @@ pub trait StageUnloader<EO: Numeric>: CubeType + 'static + Send + Sync {
 
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
-    fn write<G: GlobalConfig>(
+    fn write(
         this: &mut Self,
-        slice: Slice<Line<EO>>,
-        tile_m: u32,
-        tile_n: u32,
-        #[comptime] config: G,
+        out_smem_slice: Slice<Line<EO>>,
+        tile_row: u32,
+        tile_col: u32,
+        #[comptime] smem_line_size: u32,
+        #[comptime] plane_dim: u32,
+        #[comptime] config: GlobalMemoryConfig,
     );
 }

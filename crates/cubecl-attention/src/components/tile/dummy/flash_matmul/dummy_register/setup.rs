@@ -31,11 +31,11 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
     ) -> Result<Self::Config, AttentionSetupError> {
         DummyRegisterFlashMatmulConfig::new::<AP>(
             selection.plane_dim,
-            selection.attention_tile_size,
+            selection.tiling_scheme.tile_size,
             1,
             line_sizes.query as u32,
             line_sizes.key as u32,
-            !(problem.seq_kv as u32).is_multiple_of(selection.attention_tile_size.seq_kv),
+            !(problem.seq_kv as u32).is_multiple_of(selection.tiling_scheme.tile_size.seq_kv),
         )
     }
 }

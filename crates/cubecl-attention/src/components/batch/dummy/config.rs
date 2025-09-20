@@ -27,10 +27,6 @@ impl<G: GlobalAttentionConfig> BatchAttentionConfig for DummyBatchConfig<G> {
     fn cube_dim(&self) -> CubeDim {
         self.global_config.cube_dim()
     }
-
-    fn seq_k(&self) -> u32 {
-        self.seq_k
-    }
 }
 
 impl<G: GlobalAttentionConfig> DummyBatchConfig<G> {

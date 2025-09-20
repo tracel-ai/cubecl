@@ -1,12 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
-use cubecl_matmul::components::tile::{Tile, TileConfig};
+use cubecl_matmul::components::tile::Tile;
 
-use crate::components::tile::dummy::AttentionTileSize;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, InvalidConfigError,
+    AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
 };
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -89,14 +88,8 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
 pub trait FlashMatmulConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type ScoreConfig: TileConfig;
-    type ValueConfig: TileConfig;
-
-    fn score_config(&self) -> Self::ScoreConfig;
-    fn value_config(&self) -> Self::ValueConfig;
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
-    fn reuse_key_value(&self) -> bool;
     fn stage_line_size(&self, ident: FlashIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q

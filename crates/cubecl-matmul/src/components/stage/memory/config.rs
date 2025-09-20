@@ -1,14 +1,10 @@
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::{MatrixLayout, StageIdent, TilingScheme, tile::TileConfig};
+use crate::components::{MatrixLayout, StageIdent, TilingScheme};
 
 pub trait StageMemoryConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type TileConfig: TileConfig;
-
-    fn tile_config(self) -> Self::TileConfig;
-
     /// Number of planes participating in the main computation flow
     fn num_main_flow_planes(&self) -> u32;
 

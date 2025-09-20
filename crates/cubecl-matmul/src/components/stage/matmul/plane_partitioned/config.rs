@@ -92,12 +92,6 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
 }
 
 impl<T: TileConfig> StageMemoryConfig for PlanePartitionedStageConfig<T> {
-    type TileConfig = T;
-
-    fn tile_config(self) -> Self::TileConfig {
-        <Self as StageConfig>::tile_config(self)
-    }
-
     fn num_main_flow_planes(&self) -> u32 {
         <Self as StageConfig>::num_main_flow_planes(self)
     }

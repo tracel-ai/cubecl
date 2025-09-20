@@ -1,12 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
+use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryLoader,
-    stage::StageAttentionConfig,
+    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, FlashIdent,
+    global::dummy::QueryLoader,
+    stage::{StageAttentionConfig, dummy::AttentionStageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -50,7 +51,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
+        query_loader: QueryLoader<AP>,
         key_loader: Self::KeyLoader,
         value_loader: Self::ValueLoader,
         writer: Self::Writer,
@@ -62,7 +63,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config>;
+    ) -> QueryLoader<AP>;
 
     fn init_key_loader(
         key: VirtualTensor<AP::EI>,
@@ -86,15 +87,14 @@ pub trait GlobalAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     type StageConfig: StageAttentionConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
-    fn num_stage_iterations(&self) -> u32;
     fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
 }

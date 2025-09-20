@@ -4,9 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::{AttentionProblem, AttentionSelection};
 
 #[derive(Debug, Clone)]
-pub struct HypercubeSelection {
-    pub tile_seq_q: u32,
-}
+pub struct HypercubeSelection {}
 
 impl HypercubeSelection {
     pub fn to_hypercube_config(
@@ -14,16 +12,12 @@ impl HypercubeSelection {
         _problem: &AttentionProblem,
         _max_cube_count: CubeCount,
     ) -> HypercubeConfig {
-        HypercubeConfig {
-            tile_seq_q: self.tile_seq_q,
-        }
+        HypercubeConfig {}
     }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct HypercubeConfig {
-    tile_seq_q: u32,
-}
+pub struct HypercubeConfig {}
 
 impl HypercubeConfig {
     pub fn cube_count_plan(
@@ -32,7 +26,7 @@ impl HypercubeConfig {
         selection: &AttentionSelection,
     ) -> CubeCountPlan {
         CubeCountPlan {
-            inner: (problem.seq_q as u32).div_ceil(selection.attention_tile_size.seq_q),
+            inner: (problem.seq_q as u32).div_ceil(selection.tiling_scheme.seq_q()),
             outer: (problem.batch * problem.num_heads) as u32,
         }
     }
