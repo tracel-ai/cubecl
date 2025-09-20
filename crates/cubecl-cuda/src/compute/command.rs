@@ -248,7 +248,7 @@ impl<'a> Command<'a> {
     ///
     /// # Parameters
     ///
-    /// * `descriptor` - Describes the srouce GPU memory, its shape, strides, and element size.
+    /// * `descriptor` - Describes the source GPU memory, its shape, strides, and element size.
     /// * `bytes` - The host bytes to write from the GPU.
     ///
     /// # Returns
