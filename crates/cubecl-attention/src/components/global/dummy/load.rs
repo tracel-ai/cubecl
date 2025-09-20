@@ -44,8 +44,11 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
-    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] _config: G) -> Self {
-        let query = query.slice((q_offset, 0), query.shape());
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
+        let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
+        let offset = (q_offset * attention_tile_size.seq_q, 0);
+        let size = (1u32, attention_tile_size.query_size()).runtime();
+        let query = query.slice(offset, size);
 
         DummyQueryLoader::<AP, G> {
             query,
@@ -58,13 +61,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
 
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let tile = Tile::<AP::EI> {
-            slice: self
-                .query
-                .slice(
-                    (attention_tile_size.seq_q, 0u32).runtime(),
-                    (1u32, attention_tile_size.query_size()).runtime(),
-                )
-                .to_linear_slice(),
+            slice: self.query.to_linear_slice(),
             stride: attention_tile_size.num_cols(FlashIdent::Query),
             layout: MatrixLayout::RowMajor,
         };
