@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncPartialLoadingStrategy;
-use crate::components::global::memory::TensorReader;
+use crate::components::global::load::{SyncPartialLoadingStrategy, tiled::TiledLayout};
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
@@ -136,7 +136,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -161,7 +161,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
 pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<IP::Global>,
+    global_iter: &GlobalIterator<IP::Global>,
     stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
@@ -211,12 +211,10 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
         MatmulIdent::Out => comptime!(unreachable!()),
     };
 
-    let line_read = tensor_reader.load_coalesced_in_tile(
-        tile_x,
-        tile_y,
-        pos_within_tile,
-        comptime!(config.global_memory_config(job.ident)),
-    );
+    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
+    let view = global_iter.view().view(layout);
+
+    let line_read = view.read_checked(((tile_x, tile_y), pos_within_tile));
 
     let nth_tile_in_stage = TO::to_nth_tile::<G::StageMemoryConfig>(
         tile_x,

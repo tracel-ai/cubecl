@@ -1,5 +1,5 @@
-use crate::components::global::load::SyncFullLoadingStrategy;
-use crate::components::global::memory::TensorReader;
+use crate::components::global::load::{SyncFullLoadingStrategy, stage::FullStageLayout};
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
@@ -93,16 +93,16 @@ impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStrided
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let line_read = tensor_reader.load_coalesced_in_stage(
-            unit_position * this.line_size,
-            comptime!(config.global_memory_config(this.ident)),
-        );
+        let layout = FullStageLayout::new(comptime![config.global_memory_config(this.ident)]);
+        let view = global_iter.view().view(layout);
+
+        let line_read = view.read_checked(unit_position * this.line_size);
 
         stage.as_slice_mut(this.line_size)[unit_position] = Line::cast_from(line_read);
     }

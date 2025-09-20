@@ -2,7 +2,7 @@ use super::StageBuffer;
 use crate::components::global::CopyMechanism;
 use crate::components::global::base::GlobalConfig;
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
-use crate::components::global::memory::TensorReader;
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::stage::PartialStageReader;
 use crate::components::stage::TilingLayout;
@@ -48,7 +48,7 @@ pub struct AsyncBufferStageLoader<
     CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
 > {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: GlobalIterator<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
@@ -64,6 +64,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
     /// Create a new AsyncPartialLoader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
+        k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
@@ -72,7 +73,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor);
+        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), true);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
@@ -106,10 +107,9 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
         )
     }
 
-    /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
-    pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_reader
-            .update_view(k_offset, comptime!(this.ident.view_direction()));
+    /// Advance the view over global memory along the k dimension.
+    pub fn advance_view(this: &mut Self) {
+        this.tensor_reader.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory

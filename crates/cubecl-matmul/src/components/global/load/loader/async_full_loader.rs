@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
-use crate::components::global::memory::TensorReader;
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageReader;
 use crate::components::stage::TilingLayout;
@@ -46,7 +46,7 @@ pub struct AsyncFullStageLoader<
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
 > {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: GlobalIterator<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -67,6 +67,7 @@ impl<
     /// Create a new AsyncFullLoader
     pub fn new(
         view: View<Line<IP::Global>, Coords2d>,
+        k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -75,22 +76,22 @@ impl<
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let (shape_x, shape_y) = view.shape();
-        let tensor_reader = TensorReader::new(view);
+        let (shape_row, shape_col) = view.shape();
+        let tensor_reader = GlobalIterator::new(view, k_step, ident.view_direction(), true);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
             false => CubeOption::new_None(),
         };
 
+        // Slices are clamped to the shape, so if the slice size is smaller than the stage size
+        // we are partially out of bounds.
         match ident {
             MatmulIdent::Lhs =>
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_row_bounds(ident) {
-                    if tensor_reader.row_offset.read()
-                        > shape_x - config.tiling_scheme().elements_in_stage_m()
-                    {
+                    if shape_row < config.tiling_scheme().elements_in_stage_m() {
                         stage_memory.clear_all::<G>(ident, config);
                     }
                 }
@@ -99,9 +100,7 @@ impl<
             {
                 #[allow(clippy::collapsible_if)]
                 if config.check_col_bounds(ident) {
-                    if tensor_reader.col_offset.read()
-                        > shape_y - config.tiling_scheme().elements_in_stage_n()
-                    {
+                    if shape_col < config.tiling_scheme().elements_in_stage_n() {
                         stage_memory.clear_all::<G>(ident, config);
                     }
                 }
@@ -149,8 +148,7 @@ impl<
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
-    pub fn advance_view(&mut self, k_offset: u32) {
-        self.tensor_reader
-            .update_view(k_offset, comptime!(self.ident.view_direction()));
+    pub fn advance_view(&mut self) {
+        self.tensor_reader.advance();
     }
 }

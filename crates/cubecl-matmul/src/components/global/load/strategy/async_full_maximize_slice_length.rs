@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
-        memory::{TensorReader, Window},
+        memory::{GlobalIterator, load_window_in_stage},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -75,7 +75,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -114,14 +114,17 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 #[cube]
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
     nth_slice: u32,
-    tensor_reader: &TensorReader<EG>,
+    global_iter: &GlobalIterator<EG>,
     stage: &mut StageMemory<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] ident: MatmulIdent,
     #[comptime] config: G,
 ) {
-    let window: Window<EG> = tensor_reader
-        .load_window_in_stage(nth_slice, comptime!(config.global_memory_config(ident)));
+    let window = load_window_in_stage(
+        &global_iter.view(),
+        nth_slice,
+        comptime!(config.global_memory_config(ident)),
+    );
     let mut destination: SliceMut<Line<ES>> =
         StridedTilingLayout::nth_slice::<ES, G::StageMemoryConfig>(
             stage,
@@ -130,9 +133,5 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
             config.stage_memory_config(),
         );
 
-    CM::memcpy_async(
-        mechanism,
-        &window.slice.try_cast_unchecked(),
-        &mut destination,
-    );
+    CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
 }

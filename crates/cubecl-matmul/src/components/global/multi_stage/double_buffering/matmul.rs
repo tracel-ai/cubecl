@@ -70,7 +70,6 @@ where
         #[comptime] config: Self::Config,
     ) {
         let stage_step = config.tiling_scheme().elements_in_stage_k();
-        let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = div_ceil(range, stage_step);
 
@@ -122,10 +121,8 @@ where
                 config,
             );
 
-            // We always advance by 2 * k because stage B shares the same global memory state as stage A,
-            // but it is implicitly offset by one stage's worth (k elements) when reading.
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, loop_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, loop_step);
+            Self::LhsStageLoader::advance_view(&mut lhs_loader);
+            Self::RhsStageLoader::advance_view(&mut rhs_loader);
 
             sync_cube();
 
@@ -196,9 +193,11 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
         let conf = config.global_memory_config(MatmulIdent::Lhs);
+        let k_step = k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         SyncPartialStageLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Lhs,
             config,
         )
@@ -213,9 +212,11 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
         let conf = config.global_memory_config(MatmulIdent::Rhs);
+        let k_step = k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         SyncPartialStageLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Rhs,
             config,
         )
@@ -251,4 +252,12 @@ where
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         SMM::init_accumulators(config.stage_config())
     }
+}
+
+/// We always advance by 2 * k because stage B shares the same global memory state as stage A,
+/// but it is implicitly offset by one stage's worth (k elements) when reading.
+#[cube]
+fn k_step<C: GlobalConfig>(#[comptime] config: C) -> u32 {
+    let step = config.tiling_scheme().elements_in_stage_k() * 2;
+    step.runtime()
 }

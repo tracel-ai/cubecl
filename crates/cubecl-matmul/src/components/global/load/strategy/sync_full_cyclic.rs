@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncFullLoadingStrategy;
-use crate::components::global::memory::TensorReader;
+use crate::components::global::load::{SyncFullLoadingStrategy, tiled::TiledLayout};
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
@@ -120,7 +120,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -145,25 +145,23 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
 pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    tensor_reader: &TensorReader<IP::Global>,
+    global_iter: &GlobalIterator<IP::Global>,
     stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
+    let layout = TiledLayout::new(comptime![config.global_memory_config(job.ident)]);
+    let view = global_iter.view().view(layout);
+
+    let (tile_row, tile_col) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
         nth_tile,
         comptime!(job.ident.into_stage()),
         comptime!(config.stage_memory_config()),
     );
 
-    let line_read = tensor_reader.load_coalesced_in_tile(
-        tile_x,
-        tile_y,
-        pos_within_tile,
-        comptime!(config.global_memory_config(job.ident)),
-    );
+    let line_read = view.read_checked(((tile_row, tile_col), pos_within_tile));
 
     stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
 }

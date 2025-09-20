@@ -1,6 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::{TensorReader, ViewDirection};
+use cubecl_matmul::components::global::{
+    load::tiled::TiledLayout,
+    memory::{GlobalIterator, ViewDirection},
+};
 use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
@@ -15,7 +18,7 @@ use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
 pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    tensor_reader: TensorReader<AP::EI>,
+    query: View<Line<AP::EI>, Coords2d>,
 
     #[cube(comptime)]
     _phantom: PhantomData<G>,
@@ -23,7 +26,7 @@ pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[derive(CubeType)]
 pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    tensor_reader: TensorReader<AP::EI>,
+    global_iter: GlobalIterator<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
@@ -32,7 +35,7 @@ pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[derive(CubeType)]
 pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    tensor_reader: TensorReader<AP::EI>,
+    global_iter: GlobalIterator<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
     #[cube(comptime)]
@@ -43,10 +46,9 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
     pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] _config: G) -> Self {
         let query = query.slice((q_offset, 0), query.shape());
-        let tensor_reader = TensorReader::new(query);
 
         DummyQueryLoader::<AP, G> {
-            tensor_reader,
+            query,
             _phantom: PhantomData,
         }
     }
@@ -57,13 +59,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let tile = Tile::<AP::EI> {
             slice: self
-                .tensor_reader
-                .view
+                .query
                 .slice(
-                    (
-                        self.tensor_reader.row_offset.read() * attention_tile_size.seq_q,
-                        0u32.runtime(),
-                    ),
+                    (attention_tile_size.seq_q, 0u32).runtime(),
                     (1u32, attention_tile_size.query_size()).runtime(),
                 )
                 .to_linear_slice(),
@@ -77,8 +75,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
-    pub fn new(key: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
-        let tensor_reader = TensorReader::new(key);
+    pub fn new(key: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
+        let global_iter = GlobalIterator::new(key, k_step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
@@ -86,7 +84,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         );
 
         DummyKeyLoader::<AP, G> {
-            tensor_reader,
+            global_iter,
             stage_memory,
             _phantom: PhantomData,
         }
@@ -116,6 +114,9 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
         if row < num_rows {
+            let layout = TiledLayout::new(memory_config);
+            let view = self.global_iter.view().view(layout);
+
             #[unroll]
             for i in 0..num_cols_per_unit {
                 let col = col_start + i;
@@ -124,27 +125,21 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
                     let index_load = row * num_cols + col;
                     let index_store = col * num_rows + row;
                     slice[index_store] =
-                        Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
-                            0u32,
-                            0u32,
-                            index_load,
-                            memory_config,
-                        ));
+                        Line::cast_from(view.read_checked(((0u32, 0u32).runtime(), index_load)));
                 }
             }
         }
     }
 
-    pub fn advance_view(&mut self, offset: u32) {
-        self.tensor_reader
-            .update_view(offset, comptime!(ViewDirection::Row));
+    pub fn advance_view(&mut self) {
+        self.global_iter.advance();
     }
 }
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
-    pub fn new(value: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
-        let tensor_reader = TensorReader::new(value);
+    pub fn new(value: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
+        let global_iter = GlobalIterator::new(value, k_step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
@@ -152,7 +147,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         );
 
         DummyValueLoader::<AP, G> {
-            tensor_reader,
+            global_iter,
             stage_memory,
             _phantom: PhantomData,
         }
@@ -186,26 +181,24 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
         if row < num_rows {
+            let layout = TiledLayout::new(memory_config);
+            let view = self.global_iter.view().view(layout);
+
             #[unroll]
             for i in 0..num_cols_per_unit {
                 let col = col_start + i;
 
                 if col < num_cols {
                     let index = row * num_cols + col;
-                    slice[index] = Line::cast_from(self.tensor_reader.load_coalesced_in_tile(
-                        0u32,
-                        0u32,
-                        index,
-                        memory_config,
-                    ));
+                    slice[index] =
+                        Line::cast_from(view.read_checked(((0u32, 0u32).runtime(), index)));
                 }
             }
         }
     }
 
-    pub fn advance_view(&mut self, offset: u32) {
-        self.tensor_reader
-            .update_view(offset, comptime!(ViewDirection::Row));
+    pub fn advance_view(&mut self) {
+        self.global_iter.advance();
     }
 }
 

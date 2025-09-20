@@ -78,7 +78,7 @@ where
         #[allow(clippy::manual_div_ceil)]
         let num_loops = (range + k_step - 1) / k_step;
 
-        Self::AccStageLoader::load_stage::<Self::Config>(&mut acc_loader, config);
+        acc_loader.load_stage::<Self::Config>(config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
@@ -89,17 +89,14 @@ where
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsStageLoader::load_stage(&mut lhs_loader, config);
-            Self::RhsStageLoader::load_stage(&mut rhs_loader, config);
-
-            let lhs_stage_reader = &Self::LhsStageLoader::reader(&lhs_loader);
-            let rhs_stage_reader = &Self::RhsStageLoader::reader(&rhs_loader);
+            lhs_loader.load_stage(config);
+            rhs_loader.load_stage(config);
 
             sync_cube();
 
             SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                &lhs_loader.reader(),
+                &rhs_loader.reader(),
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
@@ -107,8 +104,8 @@ where
                 &partition_scheduler,
             );
 
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, k_step);
+            lhs_loader.advance_view();
+            rhs_loader.advance_view();
         }
 
         sync_cube();
@@ -135,6 +132,7 @@ where
         let lhs = lhs.view(layout_global).view(layout_im2col);
         Self::LhsStageLoader::new(
             lhs.slice_unchecked(offset, slice_size),
+            config.k_step,
             MatmulIdent::Lhs,
             config,
         )
@@ -152,6 +150,7 @@ where
         let rhs = rhs.view(layout_global).view(layout_weight);
         Self::RhsStageLoader::new(
             rhs.slice_unchecked(offset, slice_size),
+            config.k_step,
             MatmulIdent::Rhs,
             config,
         )
@@ -160,10 +159,10 @@ where
     fn init_bias_loader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
-        _slice_size: u32,
+        slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader {
-        Self::AccStageLoader::new::<Self::Config>(bias, n_offset, config)
+        Self::AccStageLoader::new::<Self::Config>(bias, n_offset, slice_size, config)
     }
 
     fn init_global_writer(

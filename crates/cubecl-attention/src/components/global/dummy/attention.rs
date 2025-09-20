@@ -96,8 +96,8 @@ impl<
 
             sync_cube();
             comment!("Advance view");
-            key_loader.advance_view(seq_kv_tile);
-            value_loader.advance_view(seq_kv_tile);
+            key_loader.advance_view();
+            value_loader.advance_view();
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
@@ -122,7 +122,8 @@ impl<
     ) -> Self::KeyLoader {
         comment!("Global: Init Key Loader");
         let layout = SimpleGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
-        DummyKeyLoader::new(key.view(layout), config)
+        let k_step = k_step::<Self::Config>(config);
+        DummyKeyLoader::new(key.view(layout), k_step, config)
     }
 
     fn init_value_loader(
@@ -132,7 +133,8 @@ impl<
         comment!("Global: Init Value Loader");
         let layout =
             SimpleGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
-        DummyValueLoader::new(value.view(layout), config)
+        let k_step = k_step::<Self::Config>(config);
+        DummyValueLoader::new(value.view(layout), k_step, config)
     }
 
     fn init_writer(
@@ -145,4 +147,14 @@ impl<
         let out = out.view_mut(layout);
         SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()))
     }
+}
+
+#[cube]
+fn k_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
+    config
+        .stage_config()
+        .tile_config()
+        .attention_tile_size()
+        .seq_kv
+        .runtime()
 }

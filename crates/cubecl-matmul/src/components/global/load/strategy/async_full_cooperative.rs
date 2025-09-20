@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
-        memory::{TensorReader, Window},
+        memory::{GlobalIterator, load_window_in_stage},
     },
     stage::{StageMemory, StridedTilingLayout},
 };
@@ -62,13 +62,17 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullC
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let window: Window<IP::Global> = tensor_reader
-            .load_window_in_stage(task_id, comptime!(config.global_memory_config(this.ident)));
+        let window = load_window_in_stage(
+            &global_iter.view(),
+            task_id,
+            comptime!(config.global_memory_config(this.ident)),
+        );
+
         let mut destination: SliceMut<Line<IP::Stage>> =
             StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
                 stage,
@@ -77,11 +81,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullC
                 config.stage_memory_config(),
             );
 
-        CM::memcpy_async(
-            mechanism,
-            &window.slice.try_cast_unchecked(),
-            &mut destination,
-        );
+        CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

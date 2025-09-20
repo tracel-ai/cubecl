@@ -10,8 +10,10 @@
 //!   - **Full**: Loads the entire shared memory region.
 //!   - **Partial**: Loads only a single stage, when multiple stages share the same memory.
 
+mod layout;
 mod loader;
 mod strategy;
 
+pub use layout::*;
 pub use loader::*;
 pub use strategy::*;

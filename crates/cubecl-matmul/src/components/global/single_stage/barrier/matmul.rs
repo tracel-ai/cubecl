@@ -83,15 +83,15 @@ where
             #[allow(clippy::collapsible_if)]
             if comptime!(config.check_k_bounds()) {
                 if loop_iter == num_loops - 1 {
-                    Self::LhsStageLoader::clear_stage(&mut lhs_loader, config);
-                    Self::RhsStageLoader::clear_stage(&mut rhs_loader, config);
+                    lhs_loader.clear_stage(config);
+                    rhs_loader.clear_stage(config);
                     sync_cube();
                 }
             }
 
             // Start loading
-            Self::LhsStageLoader::load_stage(&mut lhs_loader, &lhs_barrier, config);
-            Self::RhsStageLoader::load_stage(&mut rhs_loader, &rhs_barrier, config);
+            lhs_loader.load_stage(&lhs_barrier, config);
+            rhs_loader.load_stage(&rhs_barrier, config);
 
             let lhs_stage_reader = &lhs_loader.reader();
             let rhs_stage_reader = &rhs_loader.reader();
@@ -109,8 +109,8 @@ where
                 &partition_scheduler,
             );
 
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, k_step);
+            lhs_loader.advance_view();
+            rhs_loader.advance_view();
         }
 
         SMM::write_results::<Self::Config>(
@@ -134,6 +134,7 @@ where
         let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         Self::LhsStageLoader::new(
             lhs.view(layout).slice(offset, slice_size),
+            config.k_step,
             MatmulIdent::Lhs,
             config,
         )
@@ -151,6 +152,7 @@ where
         let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         Self::RhsStageLoader::new(
             rhs.view(layout).slice(offset, slice_size),
+            config.k_step,
             MatmulIdent::Rhs,
             config,
         )

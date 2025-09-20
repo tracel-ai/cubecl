@@ -74,7 +74,6 @@ where
         #[comptime] config: Self::Config,
     ) {
         let stage_step = config.tiling_scheme().elements_in_stage_k();
-        let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = div_ceil(range, stage_step);
 
@@ -82,15 +81,15 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        let acc_reader = Self::AccStageLoader::reader(&acc_loader);
+        let acc_reader = acc_loader.reader();
         SMM::load_accumulators(&acc_reader, acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let lhs_reader = Self::LhsStageLoader::reader(&lhs_loader);
-        let rhs_reader_a = Self::RhsStageLoader::reader(&rhs_loader, StageBuffer::A);
-        let rhs_reader_b = Self::RhsStageLoader::reader(&rhs_loader, StageBuffer::B);
+        let lhs_reader = lhs_loader.reader();
+        let rhs_reader_a = rhs_loader.reader(StageBuffer::A);
+        let rhs_reader_b = rhs_loader.reader(StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
@@ -102,7 +101,7 @@ where
             config,
         );
 
-        Self::LhsStageLoader::advance_view(&mut lhs_loader, stage_step);
+        lhs_loader.advance_view();
 
         sync_cube();
 
@@ -127,8 +126,8 @@ where
                 config,
             );
 
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, stage_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, loop_step);
+            lhs_loader.advance_view();
+            rhs_loader.advance_view();
 
             sync_cube();
 
@@ -152,7 +151,7 @@ where
                 config,
             );
 
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, stage_step);
+            lhs_loader.advance_view();
 
             sync_cube();
         }
@@ -201,9 +200,11 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsStageLoader {
         let conf = config.global_memory_config(MatmulIdent::Lhs);
+        let k_step = lhs_k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         SyncFullStageLoader::<MP::Lhs, Self::Config, LL>::new(
             lhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Lhs,
             config,
         )
@@ -218,9 +219,11 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsStageLoader {
         let conf = config.global_memory_config(MatmulIdent::Rhs);
+        let k_step = rhs_k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         SyncPartialStageLoader::<MP::Rhs, Self::Config, RL>::new(
             rhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Rhs,
             config,
         )
@@ -256,4 +259,15 @@ where
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         SMM::init_accumulators(config.stage_config())
     }
+}
+
+#[cube]
+fn lhs_k_step<C: GlobalConfig>(#[comptime] config: C) -> u32 {
+    let step = config.tiling_scheme().elements_in_stage_k();
+    step.runtime()
+}
+#[cube]
+fn rhs_k_step<C: GlobalConfig>(#[comptime] config: C) -> u32 {
+    let step = config.tiling_scheme().elements_in_stage_k() * 2;
+    step.runtime()
 }

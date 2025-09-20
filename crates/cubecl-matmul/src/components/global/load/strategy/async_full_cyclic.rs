@@ -3,7 +3,9 @@ use std::marker::PhantomData;
 use crate::components::{
     InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule, load::AsyncFullLoadingStrategy, memory::TensorReader,
+        CopyMechanism, GlobalConfig, RoleRule,
+        load::AsyncFullLoadingStrategy,
+        memory::{GlobalIterator, load_window_in_tile},
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -112,7 +114,7 @@ impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLa
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -129,7 +131,8 @@ impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLa
 
         // TODO make branching comptime conditional (using Loader Mode)
         if slice_index < this.num_slices {
-            let window = tensor_reader.load_window_in_tile(
+            let window = load_window_in_tile(
+                &global_iter.view(),
                 (tile_x, tile_y),
                 nth_slice,
                 comptime!(config.global_memory_config(this.ident)),
@@ -145,11 +148,7 @@ impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLa
                 slice_destination_offset + this.slice_length_in_lines,
             );
 
-            CM::memcpy_async(
-                mechanism,
-                &window.slice.try_cast_unchecked(),
-                &mut destination,
-            );
+            CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
         }
     }
 

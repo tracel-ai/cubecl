@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncPartialLoadingStrategy,
-        memory::{TensorReader, Window},
+        memory::{GlobalIterator, load_window_in_stage},
     },
     stage::{StageConfig, StageMemory, StridedTilingLayout},
 };
@@ -114,7 +114,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -123,7 +123,8 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 
         let nth_slice = nth_slice_in_stage + this.num_slices_stage_offset;
 
-        let window: Window<IP::Global> = tensor_reader.load_window_in_stage(
+        let window = load_window_in_stage(
+            &global_iter.view(),
             nth_slice,
             comptime!(config.global_memory_config(this.ident)),
         );
@@ -137,13 +138,13 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 
         let start = this.slice_stage_offset;
         let limit = select(
-            this.slice_stage_offset < window.size,
+            this.slice_stage_offset < window.len(),
             this.slice_stage_offset,
-            window.size,
+            window.len(),
         );
-        let end = start + Min::min(window.size - limit, this.slice_length);
+        let end = start + Min::min(window.len() - limit, this.slice_length);
 
-        let src = window.slice.slice(start, end);
+        let src = window.slice(start, end);
         let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]

@@ -75,8 +75,8 @@ where
         for _ in 0..num_loops {
             sync_cube();
 
-            Self::LhsStageLoader::load_stage(&mut lhs_loader, config);
-            Self::RhsStageLoader::load_stage(&mut rhs_loader, config);
+            lhs_loader.load_stage(config);
+            rhs_loader.load_stage(config);
 
             sync_cube();
 
@@ -90,8 +90,8 @@ where
                 &partition_scheduler,
             );
 
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, k_step);
+            lhs_loader.advance_view();
+            rhs_loader.advance_view();
         }
 
         SMM::write_results::<Self::Config>(
@@ -115,6 +115,7 @@ where
         let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
         Self::LhsStageLoader::new(
             lhs.view(layout).slice_unchecked(offset, slice_size),
+            config.k_step,
             MatmulIdent::Lhs,
             config,
         )
@@ -132,6 +133,7 @@ where
         let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
         Self::RhsStageLoader::new(
             rhs.view(layout).slice_unchecked(offset, slice_size),
+            config.k_step,
             MatmulIdent::Rhs,
             config,
         )

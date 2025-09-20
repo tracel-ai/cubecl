@@ -1,4 +1,4 @@
-use crate::components::global::memory::TensorReader;
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::{StageMemory, TilingLayout};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent};
@@ -16,7 +16,7 @@ pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Cl
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage_memory: &mut StageMemory<IP::Stage, TL>,
         #[comptime] config: G,
     );
@@ -36,7 +36,7 @@ pub trait AsyncLoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage_memory: &mut StageMemory<IP::Stage, TL>,
         mechanism: &CM,
         #[comptime] config: G,

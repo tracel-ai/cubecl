@@ -3,7 +3,7 @@ use crate::components::{
     global::{
         CopyMechanism, GlobalConfig,
         load::AsyncFullLoadingStrategy,
-        memory::{TensorReader, Window},
+        memory::{GlobalIterator, load_window_in_stage},
     },
     stage::{StageConfig, StageMemory, StridedTilingLayout},
 };
@@ -112,7 +112,7 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -125,14 +125,15 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
                 config.stage_memory_config(),
             );
 
-        let window: Window<IP::Global> = tensor_reader.load_window_in_stage(
+        let window = load_window_in_stage(
+            &global_iter.view(),
             this.nth_slice,
             comptime!(config.global_memory_config(this.ident)),
         );
-        let seg_start = Min::min(this.nth_segment * this.segment_length, window.size);
-        let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.size);
+        let seg_start = Min::min(this.nth_segment * this.segment_length, window.len());
+        let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.len());
 
-        let src_segment = window.slice.slice(seg_start, seg_end);
+        let src_segment = window.slice(seg_start, seg_end);
         let mut dest_segment = destination.slice_mut(seg_start, seg_end);
 
         CM::memcpy_async(

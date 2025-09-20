@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::components::global::RoleRule;
 use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::{RoleRule, load::tiled::TiledLayout};
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{
-    global::{GlobalConfig, memory::TensorReader},
+    global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
@@ -133,7 +133,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        tensor_reader: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -172,16 +172,15 @@ impl SyncFullTilewiseJob {
         tile: (u32, u32),
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
-        tensor_reader: &TensorReader<IP::Global>,
+        global_iter: &GlobalIterator<IP::Global>,
         stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
-        let line_read = tensor_reader.load_coalesced_in_tile(
-            tile.0,
-            tile.1,
-            line_index_within_tile * this.line_size,
-            comptime!(config.global_memory_config(this.ident)),
-        );
+        let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
+        let view = global_iter.view().view(layout);
+
+        let line_read =
+            view.read_checked(((tile.0, tile.1), line_index_within_tile * this.line_size));
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
 

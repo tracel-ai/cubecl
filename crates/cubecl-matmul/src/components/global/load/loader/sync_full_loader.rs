@@ -7,7 +7,7 @@ use crate::components::global::load::LoadingJob;
 use crate::components::global::load::LoadingValidation;
 use crate::components::global::load::StageBuffer;
 use crate::components::global::load::TaskCounter;
-use crate::components::global::memory::TensorReader;
+use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
@@ -45,7 +45,7 @@ pub trait SyncFullLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncFullStageLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
-    tensor_reader: TensorReader<IP::Global>,
+    tensor_reader: GlobalIterator<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
@@ -61,6 +61,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
     /// Create a new SyncFullLoader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
+        k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
@@ -69,7 +70,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
             comptime!(ident.into_stage()),
             config.stage_memory_config(),
         );
-        let tensor_reader = TensorReader::new(tensor);
+        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
@@ -91,9 +92,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
-    pub fn advance_view(&mut self, k_offset: u32) {
-        self.tensor_reader
-            .update_view(k_offset, comptime!(self.ident.view_direction()));
+    pub fn advance_view(&mut self) {
+        self.tensor_reader.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory

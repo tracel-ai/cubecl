@@ -167,10 +167,10 @@ where
     fn init_bias_loader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
-        _slice_size: u32,
+        slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccStageLoader {
-        Self::AccStageLoader::new::<Self::Config>(bias, n_offset, config)
+        Self::AccStageLoader::new::<Self::Config>(bias, n_offset, slice_size, config)
     }
 
     fn init_global_writer(
