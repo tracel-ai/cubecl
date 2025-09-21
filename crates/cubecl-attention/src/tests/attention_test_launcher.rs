@@ -123,7 +123,6 @@ pub fn test_attention_algorithm<A, P, R>(
                 line_sizes.out,
             ),
             cube_count_plan.as_args(),
-            ScalarArg::new(problem.seq_kv as u32),
             config,
         );
     }

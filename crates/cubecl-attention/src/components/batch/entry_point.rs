@@ -26,7 +26,6 @@ pub(crate) fn attention<
     inputs: &Input<Args, EI>,
     output: &mut Output<Args, EO>,
     cube_count_args: CubeCountInput,
-    seq_kv: u32,
     #[comptime] config: BMMF::Config,
 ) {
     let mut state = Args::init_state(inputs, output);
@@ -47,7 +46,6 @@ pub(crate) fn attention<
         value,
         out,
         cube_count_args,
-        seq_kv,
         config,
     );
 }

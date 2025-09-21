@@ -1,7 +1,6 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_core::prelude::ScalarArg;
 
 use crate::components::{
     Args, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, EA, EI, EM,
@@ -54,7 +53,6 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
         input: crate::components::InputRuntimeArg<'a, AS, R>,
         output: crate::components::OutputRuntimeArg<'a, AS, R>,
         cube_count_input: crate::components::batch::CubeCountInputArgs<'a, R>,
-        seq_kv: ScalarArg<u32>,
         config: Self::Config,
     ) {
         unsafe {
@@ -65,7 +63,6 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
                 input,
                 output,
                 cube_count_input,
-                seq_kv,
                 config,
             );
         }

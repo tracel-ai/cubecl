@@ -176,7 +176,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             for _ in 0..p.val_dim {
                 TA::rescale(
                     Self::Accumulator::get_at_mut(acc, q, vd, config),
-                    &state.get_at(q),
+                    state.get_at(q),
                     config.tile_config(),
                 );
 

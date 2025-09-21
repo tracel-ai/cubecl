@@ -153,9 +153,9 @@ impl DummyRegisterFlashMatmulConfig {
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
         if self.attention_tile_size.head_dim < self.attention_tile_size.val_dim {
-            return Err(AttentionSetupError::InvalidConfig(Box::new(format!(
-                "Can't have tile head_dim < tile val dim (not sure why)"
-            ))));
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Can't have tile head_dim < tile val dim (not sure why)",
+            )));
         }
         Ok(self)
     }

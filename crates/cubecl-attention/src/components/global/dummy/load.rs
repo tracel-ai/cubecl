@@ -53,7 +53,8 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
         #[comptime] config: S,
     ) -> Tile<AP::EI> {
         let attention_tile_size = config.tiling_scheme().tile_size;
-        let tile = Tile::<AP::EI> {
+
+        Tile::<AP::EI> {
             slice: self
                 .tensor_reader
                 .view
@@ -67,9 +68,7 @@ impl<AP: AttentionPrecision> QueryLoader<AP> {
                 .to_linear_slice(),
             stride: config.tiling_scheme().head_dim(),
             layout: MatrixLayout::RowMajor,
-        };
-
-        tile
+        }
     }
 }
 

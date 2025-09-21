@@ -1,8 +1,4 @@
-use cubecl_core::{
-    Runtime,
-    client::ComputeClient,
-    prelude::{ScalarArg, TensorHandleRef},
-};
+use cubecl_core::{Runtime, client::ComputeClient, prelude::TensorHandleRef};
 
 use cubecl_std::tensor::TensorHandle;
 
@@ -128,7 +124,6 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
             ),
             out.as_tensor_arg(line_sizes.out),
             cube_count_plan.as_args(),
-            ScalarArg::new(problem.seq_kv as u32),
             config,
         );
     }
