@@ -342,12 +342,12 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 config,
             );
 
-        Tile::new_contiguous::<S::TileConfig>(
+        Tile::new_contiguous::<S>(
             stage_memory
                 .as_slice(stage_line_size)
                 .slice(start, start + tile_slice_length),
             ident,
-            config.tile_config(),
+            config,
         )
     }
 }

@@ -1,4 +1,5 @@
 use crate::components::AccG;
+use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
@@ -211,12 +212,14 @@ where
                 );
 
                 // Write the current tile result to global memory
-                Self::StageUnloader::write::<G>(
+                Self::StageUnloader::write(
                     out,
                     smem_slice.to_slice(),
                     m_load_iter,
                     n_load_iter,
-                    global_config,
+                    out_smem_line_size,
+                    global_config.plane_dim(),
+                    global_config.global_memory_config(MatmulIdent::Out),
                 );
 
                 comptime![n_iter += 1];

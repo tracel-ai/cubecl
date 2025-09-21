@@ -40,7 +40,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         #[comptime] config: Self::Config,
     ) -> Self::Query {
         let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
-        let size = config.attention_tile_size().to_score_matmul();
+        let size = config.attention_tile_size().to_score_matmul_tile_size();
 
         if config.cast_query() {
             let query = unsafe {
@@ -141,7 +141,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        let size = config.attention_tile_size().to_value_matmul();
+        let size = config.attention_tile_size().to_value_matmul_tile_size();
         unsafe {
             cmma::Matrix::<FP::A>::uninitialized(
                 cmma::MatrixIdent::Accumulator,
