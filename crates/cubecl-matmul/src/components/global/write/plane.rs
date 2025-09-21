@@ -1,8 +1,5 @@
-use crate::components::global::GlobalConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::global::memory::TensorWriter;
-use crate::components::{
-    MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
-};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
@@ -30,20 +27,19 @@ impl<EG: Numeric> PlaneWriter<EG> {
 impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
     type Coordinates = Coords2d;
 
-    fn write<G: GlobalConfig>(
+    fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
         tile_row: u32,
         tile_col: u32,
-        #[comptime] config: G,
+        #[comptime] smem_line_size: u32,
+        #[comptime] plane_dim: u32,
+        #[comptime] config: GlobalMemoryConfig,
     ) {
-        let tile_size = config.tiling_scheme().elements_in_tile_mn();
-        let output_line_size = config.global_line_size(MatmulIdent::Out);
-        let out_config = config.global_memory_config(MatmulIdent::Out);
+        let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+        let output_line_size = config.global_line_size;
 
-        let out_smem_line_size = config.stage_config().stage_line_size(StageIdent::Acc);
-
-        let unit_step = config.plane_dim() * output_line_size;
+        let unit_step = plane_dim * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
@@ -60,8 +56,8 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
                     tile_row,
                     tile_col,
                     output_line_size,
-                    out_smem_line_size,
-                    out_config,
+                    smem_line_size,
+                    config,
                 );
             } else {
                 if unit_write < tile_size {
@@ -72,8 +68,8 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
                         tile_row,
                         tile_col,
                         output_line_size,
-                        out_smem_line_size,
-                        out_config,
+                        smem_line_size,
+                        config,
                     );
                 }
             }
