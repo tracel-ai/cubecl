@@ -38,8 +38,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     fn write<G: GlobalConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
-        tile_row: u32,
-        tile_col: u32,
+        tile: Coords2d,
         #[comptime] config: G,
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
@@ -61,8 +60,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
                     &mut this.view,
                     &out_smem_slice,
                     unit_write,
-                    tile_row,
-                    tile_col,
+                    tile,
                     output_line_size,
                     out_smem_line_size,
                 );
@@ -72,8 +70,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
                         &mut this.view,
                         &out_smem_slice,
                         unit_write,
-                        tile_row,
-                        tile_col,
+                        tile,
                         output_line_size,
                         out_smem_line_size,
                     );
@@ -88,8 +85,7 @@ fn write_line<EG: Numeric>(
     view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
     out_smem_slice: &Slice<Line<EG>>,
     unit_write: u32,
-    tile_row: u32,
-    tile_col: u32,
+    tile: Coords2d,
     #[comptime] output_line_size: u32,
     #[comptime] out_smem_line_size: u32,
 ) {
@@ -112,5 +108,5 @@ fn write_line<EG: Numeric>(
         unimplemented!()
     };
 
-    view.write_checked(((tile_row, tile_col), unit_write), value);
+    view.write_checked((tile, unit_write), value);
 }

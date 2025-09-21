@@ -35,8 +35,7 @@ impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
     fn write<G: GlobalConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
-        tile_row: u32,
-        tile_col: u32,
+        tile: Coords2d,
         #[comptime] config: G,
     ) {
         let tile_size = config.tiling_scheme().elements_in_tile_mn();
@@ -47,8 +46,7 @@ impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
 
         for i in 0..num_lines {
             let value = out_smem_slice[i];
-            this.view
-                .write_checked(((tile_row, tile_col), i * output_line_size), value);
+            this.view.write_checked((tile, i * output_line_size), value);
         }
     }
 }

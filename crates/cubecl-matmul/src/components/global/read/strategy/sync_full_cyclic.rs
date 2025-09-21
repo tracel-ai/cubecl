@@ -155,13 +155,13 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
     let layout = TiledLayout::new(comptime![config.global_memory_config(job.ident)]);
     let view = global_iter.view().view(layout);
 
-    let (tile_row, tile_col) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
+    let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
         nth_tile,
         comptime!(job.ident.into_stage()),
         comptime!(config.stage_memory_config()),
     );
 
-    let line_read = view.read_checked(((tile_row, tile_col), pos_within_tile));
+    let line_read = view.read_checked((tile, pos_within_tile));
 
     stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
 }

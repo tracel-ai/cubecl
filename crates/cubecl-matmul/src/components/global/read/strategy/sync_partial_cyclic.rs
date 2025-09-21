@@ -199,7 +199,7 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
         comptime!(config.stage_memory_config()),
     );
 
-    let (tile_x, tile_y) = match comptime!(job.ident) {
+    let tile = match comptime!(job.ident) {
         MatmulIdent::Lhs => (
             tile_x_within_stage,
             job.stage_index * tile_count_col + tile_y_within_stage,
@@ -214,11 +214,10 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
     let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
     let view = global_iter.view().view(layout);
 
-    let line_read = view.read_checked(((tile_x, tile_y), pos_within_tile));
+    let line_read = view.read_checked((tile, pos_within_tile));
 
     let nth_tile_in_stage = TO::to_nth_tile::<G::StageMemoryConfig>(
-        tile_x,
-        tile_y,
+        tile,
         total_tile_count_row,
         total_tile_count_col,
         stage_ident,

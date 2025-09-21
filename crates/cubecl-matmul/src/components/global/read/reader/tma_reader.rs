@@ -2,6 +2,7 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
+use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::MatrixLayout;
 use crate::components::stage::{
@@ -32,7 +33,7 @@ impl TilingOrder for TmaTilingOrder {
         #[comptime] tile_count_cols: u32,
         #[comptime] ident: StageIdent,
         #[comptime] config: C,
-    ) -> (u32, u32) {
+    ) -> Coords2d {
         match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => ColMajorTilingOrder::to_row_col::<C>(
                 nth,
@@ -52,8 +53,7 @@ impl TilingOrder for TmaTilingOrder {
     }
 
     fn to_nth_tile<C: StageMemoryConfig>(
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] tile_count_rows: u32,
         #[comptime] tile_count_cols: u32,
         #[comptime] ident: StageIdent,
@@ -61,16 +61,14 @@ impl TilingOrder for TmaTilingOrder {
     ) -> u32 {
         match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => ColMajorTilingOrder::to_nth_tile::<C>(
-                row,
-                col,
+                tile,
                 tile_count_rows,
                 tile_count_cols,
                 ident,
                 config,
             ),
             MatrixLayout::ColMajor => RowMajorTilingOrder::to_nth_tile::<C>(
-                row,
-                col,
+                tile,
                 tile_count_rows,
                 tile_count_cols,
                 ident,

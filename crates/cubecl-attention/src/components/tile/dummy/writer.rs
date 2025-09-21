@@ -35,8 +35,7 @@ impl<EO: Numeric> DummyWriter<EO> {
     pub fn write<G: GlobalAttentionConfig>(
         this: &mut Self,
         out_smem_slice: Slice<Line<EO>>,
-        tile_row: u32,
-        tile_col: u32,
+        tile: Coords2d,
         #[comptime] config: G,
     ) {
         let tile_size = config
@@ -60,13 +59,11 @@ impl<EO: Numeric> DummyWriter<EO> {
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
                 let value = out_smem_slice[unit_write / output_line_size];
-                this.view
-                    .write_checked(((tile_row, tile_col), unit_write), value);
+                this.view.write_checked((tile, unit_write), value);
             } else {
                 if unit_write < tile_size {
                     let value = out_smem_slice[unit_write / output_line_size];
-                    this.view
-                        .write_checked(((tile_row, tile_col), unit_write), value);
+                    this.view.write_checked((tile, unit_write), value);
                 }
             }
         }

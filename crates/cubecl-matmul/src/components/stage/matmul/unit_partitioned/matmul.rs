@@ -48,7 +48,7 @@ impl StagePartitioner for UnitPartitioner {
         UnitWriter::<EO>::new(tensor, config)
     }
 
-    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d {
         let plane_id = RoleRule::new(config.role_rule_config()).compute_index();
 
         let absolute_index = UNIT_POS_X + config.plane_dim() * plane_id;

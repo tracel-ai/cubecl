@@ -13,6 +13,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -225,7 +226,7 @@ impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
     fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
-        tile: (u32, u32),
+        tile: Coords2d,
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
         global_iter: &GlobalIterator<IP::Global>,
@@ -235,8 +236,7 @@ impl SyncPartialTilewiseJob {
         let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
         let view = global_iter.view().view(layout);
 
-        let line_read =
-            view.read_checked(((tile.0, tile.1), line_index_within_tile * this.line_size));
+        let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));
 
         let offset = line_index_within_tile + num_lines_to_skip_global;
 

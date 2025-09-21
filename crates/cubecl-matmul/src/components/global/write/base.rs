@@ -1,7 +1,7 @@
 use crate::components::global::GlobalConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coordinates;
+use cubecl_std::tensor::layout::{Coordinates, Coords2d};
 
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
@@ -15,8 +15,7 @@ pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
     fn write<G: GlobalConfig>(
         this: &mut Self,
         slice: Slice<Line<EO>>,
-        tile_m: u32,
-        tile_n: u32,
+        tile: Coords2d,
         #[comptime] config: G,
     );
 }

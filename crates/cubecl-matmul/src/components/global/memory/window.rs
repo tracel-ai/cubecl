@@ -16,7 +16,7 @@ use crate::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 #[cube]
 pub fn load_window_in_tile<EG: Numeric>(
     view: &View<Line<EG>, Coords2d>,
-    tile: (u32, u32),
+    tile: Coords2d,
     nth_window: u32,
     #[comptime] config: GlobalMemoryConfig,
 ) -> Slice<Line<EG>> {

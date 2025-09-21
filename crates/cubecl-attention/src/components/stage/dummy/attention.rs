@@ -47,10 +47,18 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     ) {
         let key_tile = <R as StageReader<AP::ES>>::read_tile::<
             <Self::Config as StageAttentionConfig>::ScoreStageMemoryConfig,
-        >(key_reader, 0, 0, config.score_stage_memory_config());
+        >(
+            key_reader,
+            (0u32, 0u32).runtime(),
+            config.score_stage_memory_config(),
+        );
         let value_tile = <R as StageReader<AP::ES>>::read_tile::<
             <Self::Config as StageAttentionConfig>::ValueStageMemoryConfig,
-        >(value_reader, 0, 0, config.value_stage_memory_config());
+        >(
+            value_reader,
+            (0u32, 0u32).runtime(),
+            config.value_stage_memory_config(),
+        );
 
         TA::execute(
             &key_tile,

@@ -129,8 +129,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         DummyWriter::<AP::EO>::write::<G>(
             writer,
             out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
+            (0u32, 0u32).runtime(),
             global_config,
         )
     }

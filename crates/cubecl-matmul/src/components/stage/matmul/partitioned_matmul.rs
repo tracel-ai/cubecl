@@ -14,7 +14,10 @@ use crate::components::{InputPrecision, stage::StageReader};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, layout::Coordinates};
+use cubecl_std::tensor::{
+    View,
+    layout::{Coordinates, Coords2d},
+};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
@@ -32,7 +35,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
     ) -> Self::Writer<EO>;
 
     /// Returns the (row, col) of the current compute primitive within the stage.
-    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32);
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d;
 
     /// Returns the total number of compute primitives in the stage.
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
@@ -215,8 +218,7 @@ where
                 Self::GlobalWriter::write::<G>(
                     out,
                     smem_slice.to_slice(),
-                    m_load_iter,
-                    n_load_iter,
+                    (m_load_iter, n_load_iter),
                     global_config,
                 );
 

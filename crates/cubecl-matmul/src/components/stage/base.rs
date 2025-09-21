@@ -2,7 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coordinates},
+    tensor::{
+        View,
+        layout::{Coordinates, Coords2d},
+    },
 };
 
 use crate::components::{AccG, error::MatmulSetupError, global::memory::GlobalMemoryConfig};
@@ -234,8 +237,7 @@ pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
     /// Slices a tile with offset (`row`, `col`) from the stage and returns it
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> <Self::TileKind as TileKind>::Tile<ES>;
 }
@@ -254,13 +256,12 @@ impl<ES: Numeric, Inner: StageReader<ES>> StageReader<ES> for CubeOption<Inner> 
 
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> <Self::TileKind as TileKind>::Tile<ES> {
         match this {
             CubeOption::Some(reader) => {
-                CubeOption::new_Some(Inner::read_tile::<S>(reader, row, col, config))
+                CubeOption::new_Some(Inner::read_tile::<S>(reader, tile, config))
             }
             CubeOption::None => CubeOption::new_None(),
         }

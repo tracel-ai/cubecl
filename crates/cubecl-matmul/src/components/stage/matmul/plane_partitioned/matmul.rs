@@ -48,7 +48,7 @@ impl StagePartitioner for PlanePartitioner {
         PlaneWriter::<EO>::new(tensor, config)
     }
 
-    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d {
         let absolute_index = RoleRule::new(config.role_rule_config()).compute_index();
         let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
         (

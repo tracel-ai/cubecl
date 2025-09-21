@@ -162,8 +162,7 @@ where
 
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    m_load_iter,
-                    k_load_iter,
+                    (m_load_iter, k_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_lhs(
@@ -193,8 +192,7 @@ where
 
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_load_iter,
-                    n_load_iter,
+                    (k_load_iter, n_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
@@ -288,8 +286,7 @@ where
 
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    m_load_iter,
-                    k_load_iter,
+                    (m_load_iter, k_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_lhs(
@@ -315,8 +312,7 @@ where
 
             let rhs_tile_first = RR::read_tile::<S::StageMemoryConfig>(
                 rhs_reader,
-                k_load_iter,
-                n_load_iter,
+                (k_load_iter, n_load_iter),
                 config.stage_memory_config(),
             );
             TM::load_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
@@ -342,8 +338,7 @@ where
                 let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_load_iter,
-                    n_load_iter,
+                    (k_load_iter, n_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_rhs(rhs_tile_next, next, config.tile_config());
