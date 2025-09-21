@@ -13,8 +13,8 @@ use crate::{
         ConvolutionConfig, ConvolutionProblem,
         global::{
             GlobalConvolutionFamily,
-            read::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
             multi_stage::tma::{MultiStageTmaConvolution, num_stages},
+            read::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
         },
         stage::reader::BiasTilingLayout,
     },

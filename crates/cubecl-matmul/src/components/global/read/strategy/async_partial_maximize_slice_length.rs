@@ -2,8 +2,8 @@ use crate::components::{
     InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
-        read::AsyncPartialLoadingStrategy,
         memory::{GlobalIterator, load_window_in_stage},
+        read::AsyncPartialLoadingStrategy,
     },
     stage::{StageConfig, StageMemory, StridedTilingLayout},
 };

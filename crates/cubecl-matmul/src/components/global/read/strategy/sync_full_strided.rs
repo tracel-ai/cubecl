@@ -1,6 +1,6 @@
-use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageMemory, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};

@@ -94,10 +94,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
         }
     }
 
-    pub fn load_transposed(&mut self, #[comptime] config: G) {
-        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
+    pub fn read_transposed(&mut self, #[comptime] config: G) {
+        // TODO this reader is bad, it's hardcoded to tile size (not stage) and is not coalesced
 
-        comment!("Loading Key");
+        comment!("Reading Key");
         let memory_config = config.global_memory_config(FlashIdent::Key);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 
@@ -157,10 +157,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
         }
     }
 
-    pub fn load(&mut self, #[comptime] config: G) {
-        // TODO this loader is bad, it's hardcoded to tile size (not stage) and is not coalesced
+    pub fn read(&mut self, #[comptime] config: G) {
+        // TODO this reader is bad, it's hardcoded to tile size (not stage) and is not coalesced
 
-        comment!("Loading Value");
+        comment!("Reading Value");
         let memory_config = config.global_memory_config(FlashIdent::Value);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 

@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     global::{
-        read::tiled::{TiledCoords, TiledLayout},
         memory::GlobalMemoryConfig,
+        read::tiled::{TiledCoords, TiledLayout},
     },
     stage::StageMemoryConfig as _,
 };

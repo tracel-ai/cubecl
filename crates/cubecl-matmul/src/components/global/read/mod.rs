@@ -4,11 +4,11 @@
 //!
 //! - **Synchronization**
 //!   - **Synchronous**: Performs direct memory accesses.
-//!   - **Asynchronous**: Uses `memcpy_async` for loading.
+//!   - **Asynchronous**: Uses `memcpy_async` for reading.
 //!
 //! - **Coverage**
-//!   - **Full**: Loads the entire shared memory region.
-//!   - **Partial**: Loads only a single stage, when multiple stages share the same memory.
+//!   - **Full**: Reads the entire shared memory region.
+//!   - **Partial**: Reads only a single stage, when multiple stages share the same memory.
 
 mod layout;
 mod reader;

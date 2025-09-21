@@ -63,7 +63,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
 /// It is therefore important that Readers and Writers perform checks to avoid out-of-bounds
-/// before loading data.
+/// before reading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
     /// Global reader for matrix A (Lhs)

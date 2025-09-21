@@ -1,6 +1,6 @@
 use crate::components::global::{
-    read::tiled::{TiledCoords, TiledLayout},
     memory::GlobalMemoryConfig,
+    read::tiled::{TiledCoords, TiledLayout},
 };
 use crate::components::{MatmulIdent, global::GlobalConfig};
 use cubecl_core as cubecl;

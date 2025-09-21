@@ -78,8 +78,8 @@ impl<
                 CubeOption::new_None()
             };
 
-            key_reader.load_transposed(config);
-            value_reader.load(config);
+            key_reader.read_transposed(config);
+            value_reader.read(config);
             sync_cube();
 
             SA::execute(

@@ -5,8 +5,8 @@ use crate::components::stage::PartialStageReader;
 use crate::components::{
     AccG,
     global::read::{
-        StageBuffer, SyncFullStageGlobalReader, SyncFullLoadingStrategy, SyncPartialStageGlobalReader,
-        SyncPartialLoadingStrategy, ZeroGlobalReader,
+        StageBuffer, SyncFullLoadingStrategy, SyncFullStageGlobalReader,
+        SyncPartialLoadingStrategy, SyncPartialStageGlobalReader, ZeroGlobalReader,
     },
 };
 use crate::components::{AccS, global::multi_stage::ordered::LL};

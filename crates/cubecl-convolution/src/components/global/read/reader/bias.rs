@@ -28,7 +28,7 @@ pub type BiasStageReader<E> = CubeOption<FullStageReader<E, BiasTilingLayout>>;
 
 #[cube]
 impl<IP: InputPrecision> BiasGlobalReader<IP> {
-    /// Loads all bias tiles into the stage. Unlike normal readers, bias only loads a 1D vector along
+    /// Reads all bias tiles into the stage. Unlike normal readers, bias only reads a 1D vector along
     /// the `n` dimension.
     pub fn load_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
         match self {
