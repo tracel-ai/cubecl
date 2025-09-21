@@ -9,8 +9,6 @@ use crate::components::{
         BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
     },
     global::{GlobalAttention, GlobalAttentionConfig as _},
-    stage::StageAttentionConfig as _,
-    tile::dummy::FlashMatmulConfig as _,
 };
 
 pub struct DummyBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {
@@ -31,19 +29,10 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         _cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Batch: Execute");
-
         let q_index = CUBE_POS;
 
-        let q_offset = q_index
-            * config
-                .global_config()
-                .stage_config()
-                .tile_config()
-                .attention_tile_size()
-                .seq_q;
-
-        let seq_kv = value.shape(1);
+        let q_offset = q_index * config.global_config().tiling_scheme().seq_q();
+        let seq_kv = key.shape(1);
 
         let global_config = config.global_config();
         GA::execute(

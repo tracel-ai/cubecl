@@ -76,6 +76,4 @@ pub trait BatchAttentionConfig:
 
     fn hypercube_config(&self) -> HypercubeConfig;
     fn cube_dim(&self) -> CubeDim;
-    // TMP, seq_k=seq_q=N
-    fn seq_k(&self) -> u32;
 }

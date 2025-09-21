@@ -4,9 +4,9 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionPrecision, AttentionProblem, AttentionSelection, AttentionSetupError,
+        AttentionPartitionSize, AttentionPrecision, AttentionProblem, AttentionSelection,
+        AttentionSetupError, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
         AvailableLineSizes, FlashIdent, args::TensorInputsLaunch, batch::HypercubeSelection,
-        tile::dummy::AttentionTileSize,
     },
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
@@ -79,10 +79,11 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         seq_kv: key.shape[1],
         num_heads: query.shape[2],
         head_dim: query.shape[3],
+        val_dim: value.shape[3],
         masked: false,
     };
 
-    let attention_tile_size = AttentionTileSize {
+    let tile_size = AttentionTileSize {
         seq_q: 8,
         head_dim: 8,
         seq_kv: 8,
@@ -90,16 +91,19 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     };
 
     let selection = AttentionSelection {
-        hypercube_selection: HypercubeSelection {
-            tile_seq_q: attention_tile_size.seq_q,
-        },
-        attention_tile_size: AttentionTileSize {
-            seq_q: 8,
-            head_dim: 8,
-            seq_kv: 8,
-            val_dim: 8,
+        hypercube_selection: HypercubeSelection {},
+        tiling_scheme: AttentionTilingScheme {
+            tile_size,
+            partition_size: AttentionPartitionSize {
+                seq_q: 1,
+                head_dim: 1,
+                seq_kv: 1,
+                val_dim: 1,
+            },
+            stage_size: AttentionStageSize { seq_q: 1 },
         },
         plane_dim: 32,
+        reuse_key_value: false,
     };
 
     let config = DummyAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
