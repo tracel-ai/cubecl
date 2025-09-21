@@ -113,6 +113,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
+        // println!("{:?}: {:?}, {:?}", i, a, e);
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
         if f32::is_nan(a.to_f32().unwrap())
@@ -130,6 +131,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     }
 
     Ok(())
+    // Err("".to_string())
 }
 
 pub trait CastInto<E> {
@@ -333,6 +335,7 @@ where
     let seq_k = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
+    let val_dim = problem.val_dim;
     let masked = mask.is_some();
 
     // Precompute strides for indexing
@@ -355,7 +358,7 @@ where
                 // m = -inf, l = 0, accumulator O (unnormalized numerator) = 0
                 let mut m = P::EA::new(f32::NEG_INFINITY);
                 let mut l = P::EA::from_int(0);
-                let mut acc_row = vec![P::EA::from_int(0); head_dim];
+                let mut acc_row = vec![P::EA::from_int(0); val_dim];
 
                 // For each K/V block
                 let mut k_block_start = 0usize;
@@ -379,6 +382,7 @@ where
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
+
                             dot += (q_val * k_val).cast_into();
                         }
                         // apply scale (1/sqrt(dk))
@@ -435,15 +439,13 @@ where
                     // Step E: update numerator accumulator:
                     // acc = exp(m - m_new) * acc + Ptilde @ V_block
                     // First scale old accumulator by epm
-                    #[allow(clippy::needless_range_loop)]
-                    for d in 0..head_dim {
+                    for d in 0..val_dim {
                         acc_row[d] = epm * acc_row[d];
                     }
                     // Add Ptilde @ V_block
                     for (bj, j) in (k_block_start..k_block_end).enumerate() {
                         let p_val = p_tilde[bj];
-                        #[allow(clippy::needless_range_loop)]
-                        for d in 0..head_dim {
+                        for d in 0..val_dim {
                             let v_idx = b * value_strides[0]
                                 + j * value_strides[1]
                                 + h * value_strides[2]
@@ -469,8 +471,7 @@ where
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);
                 let denom = if l > eps { l } else { eps };
-                #[allow(clippy::needless_range_loop)]
-                for d in 0..head_dim {
+                for d in 0..val_dim {
                     let out_idx = out_base + d * out_strides[3];
                     out[out_idx] = (acc_row[d] / denom).cast_into();
                 }

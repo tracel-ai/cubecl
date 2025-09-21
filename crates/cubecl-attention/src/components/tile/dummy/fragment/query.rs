@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::tile::Tile;
 
-use crate::components::global::dummy::QueryRegisterReader;
 use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
 
 #[derive(CubeType)]
@@ -12,11 +12,11 @@ pub struct QueryFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> QueryFragment<FP, FM> {
     pub fn new<E: Numeric>(
-        query_reader: QueryRegisterReader<E>,
+        tile: &Tile<E>,
         #[comptime] config: FM::Config,
     ) -> QueryFragment<FP, FM> {
-        comment!("Reading query");
-        let fragment = query_reader.read_tile::<FP, FM>(config);
-        QueryFragment::<FP, FM> { fragment }
+        QueryFragment::<FP, FM> {
+            fragment: FM::allocate_fill_query(tile, config),
+        }
     }
 }
