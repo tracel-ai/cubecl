@@ -21,7 +21,7 @@ use crate::{
         global::{
             GlobalConvolution,
             layout::{NhwcLayout, OutLayout},
-            load::{
+            read::{
                 bias::{BiasGlobalReader, BiasStageReader},
                 im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
                 weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},

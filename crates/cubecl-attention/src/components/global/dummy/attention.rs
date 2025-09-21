@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyReader, DummyQueryReader, DummyValueReader};
+use crate::components::global::dummy::read::{DummyKeyReader, DummyQueryReader, DummyValueReader};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::dummy::FlashMatmulConfig;

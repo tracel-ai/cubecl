@@ -22,7 +22,7 @@ use crate::{
         global::{
             ConvTilingLayout, GlobalConvolution,
             layout::{Im2colLayout, NhwcLayout, OutLayout, WeightLayout},
-            load::bias::{BiasGlobalReader, BiasStageReader},
+            read::bias::{BiasGlobalReader, BiasStageReader},
         },
     },
     kernels::layered::selector::RuntimeArgs,

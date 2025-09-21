@@ -14,7 +14,7 @@ use crate::{
         ConvolutionConfig,
         global::{
             layout::{NhwcCoords, unwrap},
-            load::im2col_tma::div_mod_seq,
+            read::im2col_tma::div_mod_seq,
         },
     },
     kernels::layered::selector::RuntimeArgs,
