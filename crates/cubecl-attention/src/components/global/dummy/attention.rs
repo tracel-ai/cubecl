@@ -48,8 +48,6 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Global: Execute");
-
         let key_stage_reader = key_reader.stage_reader();
         let value_stage_reader = value_reader.stage_reader();
 
@@ -87,7 +85,6 @@ impl<
             );
 
             sync_cube();
-            comment!("Advance view");
             key_reader.advance_view();
             value_reader.advance_view();
         }

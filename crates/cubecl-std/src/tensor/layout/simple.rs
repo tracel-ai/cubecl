@@ -14,6 +14,10 @@ pub struct SimpleLayout {
 
 #[cube]
 impl SimpleLayout {
+    /// Create a new simple layout with a length and line size.
+    ///
+    /// # Note
+    /// Length should be in elements, not lines!
     pub fn new(len: u32, #[comptime] line_size: u32) -> Self {
         SimpleLayout {
             len,
