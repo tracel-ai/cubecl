@@ -30,16 +30,18 @@ pub fn test_attention_algorithm<A, P, R>(
     P: TestPrecision,
     R: Runtime,
 {
-    let env = std::env::var("ATTENTION_TEST_MODE");
+    // let env = std::env::var("ATTENTION_TEST_MODE");
 
-    let panic_on_launch_err = match env {
-        Ok(val) => match val.as_str() {
-            "panic" => true,
-            "skip" => false,
-            _ => false,
-        },
-        Err(_) => false,
-    };
+    // let panic_on_launch_err = match env {
+    //     Ok(val) => match val.as_str() {
+    //         "panic" => true,
+    //         "skip" => false,
+    //         _ => false,
+    //     },
+    //     Err(_) => false,
+    // };
+    let panic_on_launch_err = true;
+
     let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Query, 12);
     let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Key, 34);
     let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, FlashIdent::Value, 56);
@@ -208,7 +210,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.batch,
             problem.seq_kv,
             problem.num_heads,
-            problem.head_dim,
+            problem.val_dim,
         ],
         FlashIdent::Mask => [
             problem.batch,
@@ -220,7 +222,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.batch,
             problem.seq_q,
             problem.num_heads,
-            problem.head_dim,
+            problem.val_dim,
         ],
         FlashIdent::ScoreProb => unreachable!("Not a materialized tensor"),
     }

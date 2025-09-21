@@ -1,11 +1,11 @@
+use cubecl_core as cubecl;
+use cubecl_core::prelude::*;
+use cubecl_std::tensor::{View, layout::Coords2d};
+
 use crate::components::global::{
     memory::GlobalMemoryConfig,
     read::tiled::{TiledCoords, TiledLayout},
 };
-use crate::components::{MatmulIdent, global::GlobalConfig};
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use cubecl_std::tensor::{View, layout::Coords2d};
 
 use super::GlobalWriter;
 
@@ -32,14 +32,15 @@ impl<EG: Numeric> UnitWriter<EG> {
 impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
     type Coordinates = Coords2d;
 
-    fn write<G: GlobalConfig>(
+    fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
         tile: Coords2d,
-        #[comptime] config: G,
+        #[comptime] _plane_dim: u32,
+        #[comptime] config: GlobalMemoryConfig,
     ) {
-        let tile_size = config.tiling_scheme().elements_in_tile_mn();
-        let output_line_size = config.global_line_size(MatmulIdent::Out);
+        let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+        let output_line_size = config.global_line_size;
         let out_smem_slice = out_smem_slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;

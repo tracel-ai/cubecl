@@ -1,9 +1,6 @@
 use crate::components::global::{
-    GlobalConfig,
+    memory::GlobalMemoryConfig,
     read::tiled::{TiledCoords, TiledLayout},
-};
-use crate::components::{
-    MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -35,18 +32,17 @@ impl<EG: Numeric> PlaneWriter<EG> {
 impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     type Coordinates = Coords2d;
 
-    fn write<G: GlobalConfig>(
+    fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
         tile: Coords2d,
-        #[comptime] config: G,
+        #[comptime] plane_dim: u32,
+        #[comptime] config: GlobalMemoryConfig,
     ) {
-        let tile_size = config.tiling_scheme().elements_in_tile_mn();
-        let output_line_size = config.global_line_size(MatmulIdent::Out);
+        let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+        let output_line_size = config.global_line_size;
 
-        let out_smem_line_size = config.stage_config().stage_line_size(StageIdent::Acc);
-
-        let unit_step = config.plane_dim() * output_line_size;
+        let unit_step = plane_dim * output_line_size;
         let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
@@ -56,24 +52,10 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                write_line(
-                    &mut this.view,
-                    &out_smem_slice,
-                    unit_write,
-                    tile,
-                    output_line_size,
-                    out_smem_line_size,
-                );
+                write_line(&mut this.view, &out_smem_slice, unit_write, tile);
             } else {
                 if unit_write < tile_size {
-                    write_line(
-                        &mut this.view,
-                        &out_smem_slice,
-                        unit_write,
-                        tile,
-                        output_line_size,
-                        out_smem_line_size,
-                    );
+                    write_line(&mut this.view, &out_smem_slice, unit_write, tile);
                 }
             }
         }
@@ -86,9 +68,10 @@ fn write_line<EG: Numeric>(
     out_smem_slice: &Slice<Line<EG>>,
     unit_write: u32,
     tile: Coords2d,
-    #[comptime] output_line_size: u32,
-    #[comptime] out_smem_line_size: u32,
 ) {
+    let output_line_size = view.line_size();
+    let out_smem_line_size = out_smem_slice.line_size();
+
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
     } else if comptime!(

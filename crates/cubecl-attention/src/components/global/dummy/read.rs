@@ -7,21 +7,19 @@ use cubecl_matmul::components::global::{
 use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
+use cubecl_std::div_ceil;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
+use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecision};
 use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
-pub struct DummyQueryReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct QueryReader<AP: AttentionPrecision> {
     query: View<Line<AP::EI>, Coords2d>,
-
-    #[cube(comptime)]
-    _phantom: PhantomData<G>,
 }
 
 #[derive(CubeType)]
@@ -43,30 +41,35 @@ pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryReader<AP, G> {
-    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
-        let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
-        let offset = (q_offset, 0);
-        let size = (1u32, attention_tile_size.query_size()).runtime();
-        let query = query.slice(offset, size);
+impl<AP: AttentionPrecision> QueryReader<AP> {
+    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>) -> Self {
+        let query = query.slice((q_offset, 0), query.shape());
 
-        DummyQueryReader::<AP, G> {
-            query,
-            _phantom: PhantomData,
-        }
+        QueryReader::<AP> { query }
     }
 
-    pub fn stage_reader(&self, #[comptime] config: G) -> QueryRegisterReader<AP::EI> {
-        comment!("Loading Query");
+    pub fn get_tile<S: StageAttentionConfig>(
+        &self,
+        tile: Coords2d,
+        #[comptime] config: S,
+    ) -> Tile<AP::EI> {
+        let (row, col) = tile;
+        let attention_tile_size = config.tiling_scheme().tile_size;
 
-        let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
-        let tile = Tile::<AP::EI> {
-            slice: self.query.to_linear_slice(),
-            stride: attention_tile_size.num_cols(FlashIdent::Query),
+        Tile::<AP::EI> {
+            slice: self
+                .query
+                .slice(
+                    (
+                        row * attention_tile_size.seq_q,
+                        col * attention_tile_size.head_dim,
+                    ),
+                    (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
+                )
+                .to_linear_slice(),
+            stride: config.tiling_scheme().head_dim(),
             layout: MatrixLayout::RowMajor,
-        };
-
-        QueryRegisterReader::<AP::EI> { tile }
+        }
     }
 }
 
@@ -74,7 +77,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryReader<AP, G> {
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
     pub fn new(key: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(key, k_step, ViewDirection::Row, false);
-        let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
+        let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
             config.score_stage_memory_config(),
@@ -97,32 +100,53 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
     pub fn read_transposed(&mut self, #[comptime] config: G) {
         // TODO this reader is bad, it's hardcoded to tile size (not stage) and is not coalesced
 
-        comment!("Reading Key");
         let memory_config = config.global_memory_config(FlashIdent::Key);
+
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 
-        let tile_config = config.stage_config().tile_config();
-        let num_rows = tile_config.attention_tile_size().num_rows(FlashIdent::Key);
-        let num_cols = tile_config.attention_tile_size().num_cols(FlashIdent::Key);
-        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Key);
-        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Key);
+        let tile_rows_load = memory_config.elements_in_tile_row;
+        let tile_cols_load = memory_config.elements_in_tile_col;
+        let partition_rows_load = memory_config.elements_in_stage_row / tile_rows_load;
+        let partition_cols_load = memory_config.elements_in_stage_col / tile_cols_load;
 
-        let row = UNIT_POS_X / num_units_per_row;
-        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+        let units_per_tile_row = comptime!(config.plane_dim() / tile_rows_load);
+        let tile_cols_per_unit = comptime!(div_ceil(tile_cols_load, units_per_tile_row));
 
-        if row < num_rows {
-            let layout = TiledLayout::new(memory_config);
-            let view = self.global_iter.view().view(layout);
+        let row_load_in_tile = UNIT_POS_X / units_per_tile_row;
+        let col_load_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
 
+        // Assumes row tiling order
+        let num_elements_per_tile = tile_rows_load * tile_cols_load;
+        let tile_row_stride_store = partition_rows_load * num_elements_per_tile;
+        let tile_col_stride_store = num_elements_per_tile;
+
+        let layout = TiledLayout::new(memory_config);
+        let view = self.global_iter.view().view(layout);
+
+        #[unroll]
+        for tile_row_load in 0..partition_rows_load {
             #[unroll]
-            for i in 0..num_cols_per_unit {
-                let col = col_start + i;
+            for tile_col_load in 0..partition_cols_load {
+                if row_load_in_tile < tile_rows_load {
+                    #[unroll]
+                    for i in 0..tile_cols_per_unit {
+                        let col_load = col_load_in_tile_start + i;
 
-                if col < num_cols {
-                    let index_load = row * num_cols + col;
-                    let index_store = col * num_rows + row;
-                    slice[index_store] =
-                        Line::cast_from(view.read_checked(((0u32, 0u32).runtime(), index_load)));
+                        if col_load < tile_cols_load {
+                            let tile_row_store = tile_col_load;
+                            let tile_col_store = tile_row_load;
+                            let tile_row_store_offset = tile_row_store * tile_row_stride_store;
+                            let tile_col_store_offset = tile_col_store * tile_col_stride_store;
+                            let store_offset = tile_row_store_offset + tile_col_store_offset;
+
+                            let index_load = row_load_in_tile * tile_cols_load + col_load;
+                            let index_store = col_load * tile_rows_load + row_load_in_tile;
+
+                            slice[index_store + store_offset] = Line::cast_from(
+                                view.read_checked(((tile_row_load, tile_col_load), index_load)),
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -137,7 +161,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
     pub fn new(value: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(value, k_step, ViewDirection::Row, false);
-        let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(
+        let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
             config.value_stage_memory_config(),
@@ -158,37 +182,49 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
     }
 
     pub fn read(&mut self, #[comptime] config: G) {
-        // TODO this reader is bad, it's hardcoded to tile size (not stage) and is not coalesced
-
-        comment!("Reading Value");
+        // TODO this reader is bad, it's not coalesced
         let memory_config = config.global_memory_config(FlashIdent::Value);
         let mut slice = self.stage_memory.as_slice_mut(1u32);
 
-        let tile_config = config.stage_config().tile_config();
-        let num_rows = tile_config
-            .attention_tile_size()
-            .num_rows(FlashIdent::Value);
-        let num_cols = tile_config
-            .attention_tile_size()
-            .num_cols(FlashIdent::Value);
-        let num_units_per_row = tile_config.num_units_per_row(FlashIdent::Value);
-        let num_cols_per_unit = tile_config.num_cols_per_unit(FlashIdent::Value);
+        let tile_rows = memory_config.elements_in_tile_row;
+        let tile_cols = memory_config.elements_in_tile_col;
+        let partition_rows = memory_config.elements_in_stage_row / tile_rows;
+        let partition_cols = memory_config.elements_in_stage_col / tile_cols;
 
-        let row = UNIT_POS_X / num_units_per_row;
-        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
+        let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
+        let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
 
-        if row < num_rows {
-            let layout = TiledLayout::new(memory_config);
-            let view = self.global_iter.view().view(layout);
+        let row_in_tile = UNIT_POS_X / units_per_tile_row;
+        let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
 
+        // Assumes row tiling order
+        let num_elements_per_tile = tile_rows * tile_cols;
+        let tile_row_stride = partition_cols * num_elements_per_tile;
+        let tile_col_stride = num_elements_per_tile;
+
+        let layout = TiledLayout::new(memory_config);
+        let view = self.global_iter.view().view(layout);
+
+        #[unroll]
+        for tile_row in 0..partition_rows {
             #[unroll]
-            for i in 0..num_cols_per_unit {
-                let col = col_start + i;
+            for tile_col in 0..partition_cols {
+                if row_in_tile < tile_rows {
+                    #[unroll]
+                    for i in 0..tile_cols_per_unit {
+                        let col = col_in_tile_start + i;
 
-                if col < num_cols {
-                    let index = row * num_cols + col;
-                    slice[index] =
-                        Line::cast_from(view.read_checked(((0u32, 0u32).runtime(), index)));
+                        if col < tile_cols {
+                            let tile_row_offset = tile_row * tile_row_stride;
+                            let tile_col_offset = tile_col * tile_col_stride;
+                            let offset = tile_row_offset + tile_col_offset;
+
+                            let index = row_in_tile * tile_cols + col;
+
+                            slice[index + offset] =
+                                Line::cast_from(view.read_checked(((tile_row, tile_col), index)));
+                        }
+                    }
                 }
             }
         }
@@ -196,20 +232,5 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
 
     pub fn advance_view(&mut self) {
         self.global_iter.advance();
-    }
-}
-
-#[derive(CubeType)]
-pub struct QueryRegisterReader<E: Numeric> {
-    tile: Tile<E>,
-}
-
-#[cube]
-impl<E: Numeric> QueryRegisterReader<E> {
-    pub fn read_tile<FP: FlashPrecision, FM: FlashMatmul<FP>>(
-        &self,
-        #[comptime] config: FM::Config,
-    ) -> FM::Query {
-        FM::allocate_fill_query(&self.tile, config)
     }
 }

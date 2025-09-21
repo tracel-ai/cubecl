@@ -1,4 +1,4 @@
-use crate::components::global::GlobalConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::{Coordinates, Coords2d};
@@ -12,10 +12,11 @@ pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
 
     /// Writes the given slice to global memory, at a position that depends on
     /// plane and accumulator indexes.
-    fn write<G: GlobalConfig>(
+    fn write(
         this: &mut Self,
-        slice: Slice<Line<EO>>,
+        out_smem_slice: Slice<Line<EO>>,
         tile: Coords2d,
-        #[comptime] config: G,
+        #[comptime] plane_dim: u32,
+        #[comptime] config: GlobalMemoryConfig,
     );
 }

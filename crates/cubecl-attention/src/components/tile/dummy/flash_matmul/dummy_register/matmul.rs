@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
@@ -25,7 +27,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul().into(); (m, n, k)};
+            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
                 for j in 0..n {
@@ -50,7 +52,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul().into(); (m, n, k)};
+            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
                 for j in 0..n {
@@ -72,13 +74,17 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         tile: &Tile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
-        let size = config.attention_tile_size().query_size();
-        let mut query = Array::<FP::Q>::new(size);
+        let seq_q = config.attention_tile_size().seq_q;
+        let head_dim = config.attention_tile_size().head_dim;
+
+        let mut query = Array::<FP::Q>::new(seq_q * head_dim);
 
         if UNIT_POS == 0 {
             // Only lane 0 fills the data
-            for i in 0..size {
-                query[i] = FP::Q::cast_from(tile.slice[i]);
+            for q in 0..seq_q {
+                for hd in 0..head_dim {
+                    query[q * head_dim + hd] = FP::Q::cast_from(tile.get_line(q, hd));
+                }
             }
         }
 
@@ -87,7 +93,10 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        Array::<FP::KV>::new(config.attention_tile_size().key_size())
+        Array::<FP::KV>::new(comptime!(max(
+            config.attention_tile_size().key_size(),
+            config.attention_tile_size().value_size(),
+        )))
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
