@@ -7,7 +7,7 @@ use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
         Tile, TileConfig,
-        loader::{Filled, Strided, TileKind, TileLoader},
+        reader::{Filled, Strided, TileKind, TileReader},
         register::{
             RegisterMatmul,
             config::{ProductType, RegisterConfig},
@@ -15,16 +15,16 @@ use crate::components::{
     },
 };
 
-/// Loader for the register matmul fragments. Implementation depends on the tile kind.
+/// Reader for the register matmul fragments. Implementation depends on the tile kind.
 #[derive(CubeType)]
-pub struct RegisterTileLoader<Kind: TileKind> {
+pub struct RegisterTileReader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
-/// Generic register loader over any tile kind
+/// Generic register reader over any tile kind
 #[cube]
-pub(super) trait RegisterFragmentLoader: TileLoader {
+pub(super) trait RegisterFragmentReader: TileReader {
     /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
@@ -35,7 +35,7 @@ pub(super) trait RegisterFragmentLoader: TileLoader {
 }
 
 #[cube]
-impl RegisterFragmentLoader for RegisterTileLoader<Strided> {
+impl RegisterFragmentReader for RegisterTileReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         frag: &mut Array<E>,
@@ -134,7 +134,7 @@ fn load_acc<E: Numeric, V: Numeric>(
 }
 
 #[cube]
-impl RegisterFragmentLoader for RegisterTileLoader<Filled> {
+impl RegisterFragmentReader for RegisterTileReader<Filled> {
     fn load_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut Array<E>,
@@ -155,9 +155,9 @@ impl RegisterFragmentLoader for RegisterTileLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> RegisterFragmentLoader for RegisterTileLoader<CubeOption<Inner>>
+impl<Inner: TileKind> RegisterFragmentReader for RegisterTileReader<CubeOption<Inner>>
 where
-    RegisterTileLoader<Inner>: RegisterFragmentLoader<TileKind = Inner>,
+    RegisterTileReader<Inner>: RegisterFragmentReader<TileKind = Inner>,
 {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
@@ -167,9 +167,9 @@ where
     ) {
         match tile {
             CubeOption::Some(tile) => {
-                RegisterTileLoader::<Inner>::load_fragment(tile, fragment, ident, config)
+                RegisterTileReader::<Inner>::load_fragment(tile, fragment, ident, config)
             }
-            CubeOption::None => RegisterTileLoader::<Filled>::load_fragment::<E, V>(
+            CubeOption::None => RegisterTileReader::<Filled>::load_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 ident,
@@ -179,6 +179,6 @@ where
     }
 }
 
-impl<Kind: TileKind> TileLoader for RegisterTileLoader<Kind> {
+impl<Kind: TileKind> TileReader for RegisterTileReader<Kind> {
     type TileKind = Kind;
 }

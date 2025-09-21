@@ -10,7 +10,7 @@ use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
     global::args::TensorMapArgs,
     stage::{FullStageReaderFamily, NumStages, PlaneMatmulFamily},
-    tile::{TileMatmulFamily, loader::Strided},
+    tile::{TileMatmulFamily, reader::Strided},
 };
 
 use cubecl_std::{CubeOption, tensor::TensorHandle};

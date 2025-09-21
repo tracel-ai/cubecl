@@ -6,12 +6,12 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::tile::{
     Tile,
-    loader::{Filled, Strided, TileKind, TileLoader},
+    reader::{Filled, Strided, TileKind, TileReader},
 };
 
-/// Generic CMMA loader over any tile type
+/// Generic CMMA reader over any tile type
 #[cube]
-pub(crate) trait CmmaFragmentLoader: TileLoader {
+pub(crate) trait CmmaFragmentReader: TileReader {
     /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
@@ -21,15 +21,15 @@ pub(crate) trait CmmaFragmentLoader: TileLoader {
     );
 }
 
-/// Loader using the cmma load/fill functions. Tile kind determines implementation.
+/// Reader using the cmma load/fill functions. Tile kind determines implementation.
 #[derive(CubeType)]
-pub struct CmmaTileLoader<Kind: TileKind> {
+pub struct CmmaTileReader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
 #[cube]
-impl CmmaFragmentLoader for CmmaTileLoader<Strided> {
+impl CmmaFragmentReader for CmmaTileReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: Tile<V>,
         fragment: &mut cmma::Matrix<E>,
@@ -45,7 +45,7 @@ impl CmmaFragmentLoader for CmmaTileLoader<Strided> {
 }
 
 #[cube]
-impl CmmaFragmentLoader for CmmaTileLoader<Filled> {
+impl CmmaFragmentReader for CmmaTileReader<Filled> {
     fn load_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut cmma::Matrix<E>,
@@ -57,9 +57,9 @@ impl CmmaFragmentLoader for CmmaTileLoader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> CmmaFragmentLoader for CmmaTileLoader<CubeOption<Inner>>
+impl<Inner: TileKind> CmmaFragmentReader for CmmaTileReader<CubeOption<Inner>>
 where
-    CmmaTileLoader<Inner>: CmmaFragmentLoader<TileKind = Inner>,
+    CmmaTileReader<Inner>: CmmaFragmentReader<TileKind = Inner>,
 {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
@@ -69,9 +69,9 @@ where
     ) {
         match tile {
             CubeOption::Some(tile) => {
-                CmmaTileLoader::<Inner>::load_fragment(tile, fragment, layout, line_size)
+                CmmaTileReader::<Inner>::load_fragment(tile, fragment, layout, line_size)
             }
-            CubeOption::None => CmmaTileLoader::<Filled>::load_fragment::<E, V>(
+            CubeOption::None => CmmaTileReader::<Filled>::load_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 layout,
@@ -81,6 +81,6 @@ where
     }
 }
 
-impl<Kind: TileKind> TileLoader for CmmaTileLoader<Kind> {
+impl<Kind: TileKind> TileReader for CmmaTileReader<Kind> {
     type TileKind = Kind;
 }

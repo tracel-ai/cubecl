@@ -86,7 +86,7 @@ impl TilingOrder for TmaTilingOrder {
 
 #[derive(CubeType)]
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
-pub struct TmaStageLoader<IP: InputPrecision, G: GlobalConfig> {
+pub struct TmaGlobalReader<IP: InputPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
     pub stage: StageMemory<IP::Stage, TmaTiling>,
     #[cube(comptime)]
@@ -96,8 +96,8 @@ pub struct TmaStageLoader<IP: InputPrecision, G: GlobalConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
-    /// Create a TmaLoader
+impl<IP: InputPrecision, G: GlobalConfig> TmaGlobalReader<IP, G> {
+    /// Create a TmaGlobalReader
     pub fn new(
         tensor: TensorMap<IP::Global>,
         x: u32,
@@ -114,7 +114,7 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
 
-        TmaStageLoader::<IP, G> {
+        TmaGlobalReader::<IP, G> {
             tensor_view,
             stage,
             ident,
@@ -123,14 +123,14 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
     }
 
     /// Load data into the full stage memory
-    pub fn load_stage(this: &mut Self, barrier: &Barrier, #[comptime] config: G) {
+    pub fn load_stage(&mut self, barrier: &Barrier, #[comptime] config: G) {
         if UNIT_POS == 0 {
-            let ident = comptime!(this.ident);
+            let ident = comptime!(self.ident);
             let stage_ident = comptime!(ident.into_stage());
             // The tensor map is encoded as the transposed shape, so we need to swap coordinates
             let (row, col) = match config.matrix_layout(ident) {
-                MatrixLayout::RowMajor => (this.tensor_view.tile_x, this.tensor_view.tile_y),
-                MatrixLayout::ColMajor => (this.tensor_view.tile_y, this.tensor_view.tile_x),
+                MatrixLayout::RowMajor => (self.tensor_view.tile_x, self.tensor_view.tile_y),
+                MatrixLayout::ColMajor => (self.tensor_view.tile_y, self.tensor_view.tile_x),
             };
 
             let size_row = match config.matrix_layout(ident) {
@@ -146,10 +146,10 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
                 MatrixLayout::ColMajor => config.tiling_scheme().tiles_in_stage_row(stage_ident),
             };
 
-            let tensor = this.tensor_view.tensor.try_cast_unchecked();
-            let mut stage = this.stage.as_slice_mut(1u32);
+            let tensor = self.tensor_view.tensor.try_cast_unchecked();
+            let mut stage = self.stage.as_slice_mut(1u32);
             let slice_size = size_row * size_col;
-            let batch = this.tensor_view.batch as i32;
+            let batch = self.tensor_view.batch as i32;
 
             #[unroll]
             for tile_col in 0..tile_count_col {
@@ -163,13 +163,13 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaStageLoader<IP, G> {
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(this: &Self) -> TmaStageReader<IP> {
-        TmaStageReader::<IP>::new(this.stage, comptime!(this.ident.into_stage()))
+    pub fn stage_reader(&self) -> TmaStageReader<IP> {
+        TmaStageReader::<IP>::new(self.stage, comptime!(self.ident.into_stage()))
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
-    pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, this.ident);
+    pub fn advance_view(&mut self, k_offset: u32) {
+        self.tensor_view.update_view(k_offset, self.ident);
     }
 }
 

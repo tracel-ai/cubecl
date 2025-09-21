@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::{stage::StageReaderFamily, tile::loader::Strided};
+use cubecl_matmul::components::{stage::StageReaderFamily, tile::reader::Strided};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,

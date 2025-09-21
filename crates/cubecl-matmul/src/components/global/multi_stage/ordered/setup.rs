@@ -1,12 +1,12 @@
-use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
+use crate::components::global::read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
 use crate::components::stage::FullStageReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{error::MatmulSetupError, stage::FillStageReaderFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::PartialStageReaderFamily};
-use crate::components::{global::MaxLoaderPlanes, stage::NoTilingLayout};
+use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
@@ -50,11 +50,11 @@ where
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let max_loaders = selection
+        let max_global_readers = selection
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                MaxLoaderPlanes::new::<LL, RL>(
+                MaxGlobalReaderPlanes::new::<LL, RL>(
                     &selection.tiling_scheme,
                     line_sizes,
                     selection.plane_dim,
@@ -67,7 +67,7 @@ where
             selection,
             line_sizes,
             (1, 2).into(),
-            max_loaders,
+            max_global_readers,
             true,
         )?;
 
@@ -85,7 +85,7 @@ where
             !(problem.n as u32).is_multiple_of(stage_shape_n),
             !(problem.k as u32).is_multiple_of(2 * stage_shape_k),
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
             selection.load_specialization_config.into(),
         )
     }

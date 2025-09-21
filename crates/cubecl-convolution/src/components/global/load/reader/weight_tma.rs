@@ -18,7 +18,7 @@ pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 pub type TmaWeightReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
-pub struct TmaWeightLoader<IP: InputPrecision, S: StageConfig> {
+pub struct TmaWeightGlobalReader<IP: InputPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
     pub stages: Sequence<StageMemory<IP::Stage, TmaWeightTiling>>,
     padded_channels: FastDivmod,
@@ -27,7 +27,7 @@ pub struct TmaWeightLoader<IP: InputPrecision, S: StageConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
+impl<IP: InputPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
     pub fn new<G: global::GlobalConfig>(
         tensor: TensorMap<IP::Global>,
         x: u32,
@@ -49,7 +49,7 @@ impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, 0);
 
-        TmaWeightLoader::<IP, S> {
+        TmaWeightGlobalReader::<IP, S> {
             tensor_view,
             stages,
             padded_channels: runtime_args.padded_channels,
@@ -58,18 +58,18 @@ impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
     }
 
     pub fn fill_stage(
-        this: &mut Self,
+        &mut self,
         barrier: &Barrier,
         #[comptime] stage_idx: u32,
         #[comptime] config: S,
     ) {
-        let stage = this.stages.index_mut(stage_idx);
+        let stage = self.stages.index_mut(stage_idx);
 
         if UNIT_POS == 0 {
-            let k = this.tensor_view.tile_x;
-            let out_c = this.tensor_view.tile_y;
+            let k = self.tensor_view.tile_x;
+            let out_c = self.tensor_view.tile_y;
 
-            let tensor = this.tensor_view.tensor.try_cast_unchecked();
+            let tensor = self.tensor_view.tensor.try_cast_unchecked();
             let mut stage = stage.as_slice_mut(1u32);
             let slice_size = config.tiling_scheme().elements_in_stage_n()
                 * config.tiling_scheme().elements_in_tile_k();
@@ -80,18 +80,18 @@ impl<IP: InputPrecision, S: StageConfig> TmaWeightLoader<IP, S> {
                 let mut slice = stage.slice_mut(slice_start, slice_size);
 
                 let k = k + tile_k * config.tiling_scheme().elements_in_tile_k();
-                let (k_idx, in_c) = this.padded_channels.div_mod(k);
+                let (k_idx, in_c) = self.padded_channels.div_mod(k);
 
                 barrier.tma_load_3d(&tensor, &mut slice, out_c as i32, k_idx as i32, in_c as i32);
             }
         }
     }
 
-    pub fn reader(this: &Self, #[comptime] stage_idx: u32) -> TmaWeightReader<IP> {
-        TmaWeightReader::<IP>::new(*this.stages.index(stage_idx), StageIdent::Rhs)
+    pub fn stage_reader(&self, #[comptime] stage_idx: u32) -> TmaWeightReader<IP> {
+        TmaWeightReader::<IP>::new(*self.stages.index(stage_idx), StageIdent::Rhs)
     }
 
-    pub fn advance_view(this: &mut Self, k_offset: u32) {
-        this.tensor_view.update_view(k_offset, MatmulIdent::Rhs);
+    pub fn advance_view(&mut self, k_offset: u32) {
+        self.tensor_view.update_view(k_offset, MatmulIdent::Rhs);
     }
 }

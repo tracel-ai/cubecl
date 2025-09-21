@@ -1,6 +1,6 @@
-//! Loaders read from global memory and write to stage memory
+//! Readers read from global memory and write to stage memory
 //!
-//! Loaders fall into two axes:
+//! Readers fall into two axes:
 //!
 //! - **Synchronization**
 //!   - **Synchronous**: Performs direct memory accesses.
@@ -10,6 +10,6 @@
 //!   - **Full**: Loads the entire shared memory region.
 //!   - **Partial**: Loads only a single stage, when multiple stages share the same memory.
 
-mod loader;
+mod reader;
 
-pub use loader::*;
+pub use reader::*;

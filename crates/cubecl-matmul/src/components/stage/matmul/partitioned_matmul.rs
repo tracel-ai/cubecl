@@ -1,14 +1,14 @@
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
-use crate::components::global::StageUnloader;
+use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::tile::loader::LoaderKind;
+use crate::components::tile::reader::ReaderKind;
 use crate::components::{AccG, global::memory::GlobalMemoryConfig};
 use crate::components::{InputPrecision, stage::StageReader};
 use core::marker::PhantomData;
@@ -21,7 +21,7 @@ use cubecl_std::tensor::{View, layout::Coordinates};
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: StageUnloader<EO, Coordinates = Self::WriteCoords>;
+    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -50,15 +50,15 @@ pub struct PartitionedStageMatmul<
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsTileLoader>,
+            TileKind = ReaderKind<TM::LhsTileReader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsTileLoader>,
+            TileKind = ReaderKind<TM::RhsTileReader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccTileLoader>,
+            TileKind = ReaderKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -78,15 +78,15 @@ where
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsTileLoader>,
+            TileKind = ReaderKind<TM::LhsTileReader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsTileLoader>,
+            TileKind = ReaderKind<TM::RhsTileReader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccTileLoader>,
+            TileKind = ReaderKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -99,7 +99,7 @@ where
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
-    type StageUnloader = SP::Writer<AccG<MP>>;
+    type GlobalWriter = SP::Writer<AccG<MP>>;
     type WriteCoords = SP::WriteCoords;
 
     fn execute(
@@ -163,7 +163,7 @@ where
 
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
-        out: &mut Self::StageUnloader,
+        out: &mut Self::GlobalWriter,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
@@ -212,7 +212,7 @@ where
                 );
 
                 // Write the current tile result to global memory
-                Self::StageUnloader::write::<G>(
+                Self::GlobalWriter::write::<G>(
                     out,
                     smem_slice.to_slice(),
                     m_load_iter,
@@ -229,7 +229,7 @@ where
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::StageUnloader {
+    ) -> Self::GlobalWriter {
         SP::init_writer(tensor, config)
     }
 

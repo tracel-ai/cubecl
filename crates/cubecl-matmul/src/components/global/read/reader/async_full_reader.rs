@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::GlobalIterator;
+use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::FullStageReader;
 use crate::components::stage::TilingLayout;
@@ -39,7 +39,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct AsyncFullStageLoader<
+pub struct AsyncFullStageGlobalReader<
     IP: InputPrecision,
     CM: CopyMechanism,
     S: stage::StageConfig,
@@ -62,9 +62,9 @@ impl<
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
-> AsyncFullStageLoader<IP, CM, S, L, G>
+> AsyncFullStageGlobalReader<IP, CM, S, L, G>
 {
-    /// Create a new AsyncFullLoader
+    /// Create a new AsyncFullStageGlobalReader
     pub fn new(
         view: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
@@ -108,7 +108,7 @@ impl<
             MatmulIdent::Out => comptime!(unreachable!()),
         }
 
-        AsyncFullStageLoader::<IP, CM, S, L, G> {
+        AsyncFullStageGlobalReader::<IP, CM, S, L, G> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -143,7 +143,7 @@ impl<
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
+    pub fn stage_reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
         FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
     }
 

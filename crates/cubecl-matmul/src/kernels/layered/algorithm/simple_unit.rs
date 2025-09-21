@@ -7,14 +7,14 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
             ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily, RowMajorTilingOrder,
             UnitMatmulFamily,
         },
-        tile::{loader::Filled, register::RegisterMatmul},
+        tile::{reader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -26,7 +26,7 @@ use crate::{
 
 use super::Algorithm;
 
-/// Unit single stage matmul with configurable loaders (default to cyclic)
+/// Unit single stage matmul with configurable readers (default to cyclic)
 pub struct SimpleUnitAlgorithm<
     LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
     RL = SyncFullCyclicLoading<RowMajorTilingOrder>,

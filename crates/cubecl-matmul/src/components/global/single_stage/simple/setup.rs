@@ -2,7 +2,7 @@ use crate::components::{
     MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
-        load::SyncFullLoadingStrategy,
+        read::SyncFullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
     stage::{FillStageReaderFamily, NoTilingLayout, StageConfig},
@@ -84,7 +84,7 @@ where
             !(problem.k as u32).is_multiple_of(stage_shape_k),
             stage_shape_k,
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
         )
     }
 }

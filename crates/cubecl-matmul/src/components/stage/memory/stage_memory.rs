@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::StageBuffer;
+use crate::components::global::read::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::base::StageConfig;
 use crate::components::stage::{StageMemoryConfig, TilingLayout};

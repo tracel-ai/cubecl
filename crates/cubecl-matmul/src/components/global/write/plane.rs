@@ -1,6 +1,6 @@
 use crate::components::global::{
     GlobalConfig,
-    load::tiled::{TiledCoords, TiledLayout},
+    read::tiled::{TiledCoords, TiledLayout},
 };
 use crate::components::{
     MatmulIdent, StageIdent, global::memory::GlobalMemoryConfig, stage::StageConfig,
@@ -10,7 +10,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
 use cubecl_std::{div_ceil, tensor::layout::Coords2d};
 
-use super::StageUnloader;
+use super::GlobalWriter;
 
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
@@ -32,7 +32,7 @@ impl<EG: Numeric> PlaneWriter<EG> {
 }
 
 #[cube]
-impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     type Coordinates = Coords2d;
 
     fn write<G: GlobalConfig>(

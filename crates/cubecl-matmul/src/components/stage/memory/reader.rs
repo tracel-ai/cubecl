@@ -3,8 +3,8 @@ use crate::components::stage::StageReaderFamily;
 use crate::components::stage::TilingLayout;
 use crate::components::tile::Tile;
 use crate::components::{StageIdent, stage::StageReader};
-use crate::components::{global::load::StageBuffer, tile::loader::Strided};
-use crate::components::{stage::StageMemory, tile::loader::Filled};
+use crate::components::{global::read::StageBuffer, tile::reader::Strided};
+use crate::components::{stage::StageMemory, tile::reader::Filled};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

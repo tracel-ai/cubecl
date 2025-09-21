@@ -4,8 +4,8 @@ use crate::components::{
     InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig, RoleRule,
-        load::AsyncFullLoadingStrategy,
         memory::{GlobalIterator, load_window_in_tile},
+        read::AsyncFullLoadingStrategy,
     },
     stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
 };
@@ -129,7 +129,7 @@ impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLa
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
 
-        // TODO make branching comptime conditional (using Loader Mode)
+        // TODO make branching comptime conditional (using Reader Mode)
         if slice_index < this.num_slices {
             let window = load_window_in_tile(
                 &global_iter.view(),

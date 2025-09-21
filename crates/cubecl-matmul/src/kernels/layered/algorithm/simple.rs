@@ -11,7 +11,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
@@ -20,7 +20,7 @@ use crate::{
         },
         tile::{
             TileMatmulFamily,
-            loader::{Filled, Strided},
+            reader::{Filled, Strided},
         },
     },
     kernels::layered::{
@@ -29,7 +29,7 @@ use crate::{
     },
 };
 
-/// Plane accelerated single stage matmul with configurable loaders (default to cyclic)
+/// Plane accelerated single stage matmul with configurable readers (default to cyclic)
 pub struct SimpleAlgorithm<
     TMM,
     LL = SyncFullCyclicLoading<ColMajorTilingOrder>,

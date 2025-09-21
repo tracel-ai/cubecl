@@ -3,11 +3,11 @@ use cubecl_core::{self as cubecl};
 
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
-    resource::ComputeResources, tile::loader::TileKind,
+    resource::ComputeResources, tile::reader::TileKind,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
-use crate::components::{StageIdent, tile::loader::TileLoader};
-use crate::components::{error::MatmulSetupError, tile::loader::LoaderTile};
+use crate::components::{StageIdent, tile::reader::TileReader};
+use crate::components::{error::MatmulSetupError, tile::reader::ReaderTile};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -18,9 +18,9 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
             R,
             A,
             Config = Self::Config,
-            LhsTileLoader: TileLoader<TileKind = Self::LhsTile>,
-            RhsTileLoader: TileLoader<TileKind = Self::RhsTile>,
-            AccTileLoader: TileLoader<TileKind = Self::AccTile>,
+            LhsTileReader: TileReader<TileKind = Self::LhsTile>,
+            RhsTileReader: TileReader<TileKind = Self::RhsTile>,
+            AccTileReader: TileReader<TileKind = Self::AccTile>,
         >;
 
     /// Tile kind for Lhs
@@ -78,12 +78,12 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// Contains and accumulates results of the Tile Matmul execution
     type AccFragment: CubeType;
 
-    /// Loader for the lhs data
-    type LhsTileLoader: TileLoader;
-    /// Loader for the rhs data
-    type RhsTileLoader: TileLoader;
-    /// Loader for the accumulator data
-    type AccTileLoader: TileLoader;
+    /// Reader for the lhs data
+    type LhsTileReader: TileReader;
+    /// Reader for the rhs data
+    type RhsTileReader: TileReader;
+    /// Reader for the accumulator data
+    type AccTileReader: TileReader;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
@@ -103,7 +103,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
-        tile: LoaderTile<Self::LhsTileLoader, E>,
+        tile: ReaderTile<Self::LhsTileReader, E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -118,7 +118,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
-        tile: LoaderTile<Self::RhsTileLoader, E>,
+        tile: ReaderTile<Self::RhsTileReader, E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -134,7 +134,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(
-        tile: LoaderTile<Self::AccTileLoader, E>,
+        tile: ReaderTile<Self::AccTileReader, E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );

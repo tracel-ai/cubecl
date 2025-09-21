@@ -7,7 +7,7 @@ use crate::components::tile::TileMatmul;
 use crate::components::{AccS, stage::StageEvent};
 use crate::components::{InputPrecision, stage::StageReader};
 use crate::components::{LhsS, MatmulPrecision, RhsS};
-use crate::components::{stage::StageConfig, tile::loader::LoaderKind};
+use crate::components::{stage::StageConfig, tile::reader::ReaderKind};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TMM::LhsTileLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TMM::RhsTileLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TMM::AccTileLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TMM::LhsTileReader>>,
+    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TMM::RhsTileReader>>,
+    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TMM::AccTileReader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TM::LhsTileLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TM::RhsTileLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccTileLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TM::LhsTileReader>>,
+    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TM::RhsTileReader>>,
+    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TM::AccTileReader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
@@ -116,7 +116,7 @@ where
         Accumulators::<MP, TM, S>::new(config)
     }
 
-    /// Fill accumulators through an AccumulatorLoader
+    /// Fill accumulators through an AccumulatorReader
     pub fn load_accumulator(reader: &RA, acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
         acc.load::<RA>(reader, config);
     }

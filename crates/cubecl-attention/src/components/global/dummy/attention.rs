@@ -8,7 +8,7 @@ use std::marker::PhantomData;
 
 use crate::components::FlashIdent;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
+use crate::components::global::dummy::load::{DummyKeyReader, DummyQueryReader, DummyValueReader};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::dummy::FlashMatmulConfig;
@@ -31,26 +31,26 @@ impl<
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
 {
-    type KeyLoader = DummyKeyLoader<AP, Self::Config>;
-    type ValueLoader = DummyValueLoader<AP, Self::Config>;
+    type KeyReader = DummyKeyReader<AP, Self::Config>;
+    type ValueReader = DummyValueReader<AP, Self::Config>;
 
     type Writer = SA::Writer;
 
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
-        mut key_loader: Self::KeyLoader,
-        mut value_loader: Self::ValueLoader,
+        query_reader: DummyQueryReader<AP, Self::Config>,
+        mut key_reader: Self::KeyReader,
+        mut value_reader: Self::ValueReader,
         mut writer: Self::Writer,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
         comment!("Global: Execute");
 
-        let query_reader = query_loader.reader(config);
-        let key_reader = key_loader.reader();
-        let value_reader = value_loader.reader();
+        let query_reader = query_reader.stage_reader(config);
+        let key_stage_reader = key_reader.stage_reader();
+        let value_stage_reader = value_reader.stage_reader();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
@@ -78,13 +78,13 @@ impl<
                 CubeOption::new_None()
             };
 
-            key_loader.load_transposed(config);
-            value_loader.load(config);
+            key_reader.load_transposed(config);
+            value_reader.load(config);
             sync_cube();
 
             SA::execute(
-                &key_reader,
-                &value_reader,
+                &key_stage_reader,
+                &value_stage_reader,
                 &query,
                 &mut key_value,
                 &mut score_prob,
@@ -96,8 +96,8 @@ impl<
 
             sync_cube();
             comment!("Advance view");
-            key_loader.advance_view();
-            value_loader.advance_view();
+            key_reader.advance_view();
+            value_reader.advance_view();
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
@@ -105,36 +105,36 @@ impl<
         SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
     }
 
-    fn init_query_loader(
+    fn init_query_reader(
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config> {
-        comment!("Global: Init Query Loader");
+    ) -> DummyQueryReader<AP, Self::Config> {
+        comment!("Global: Init Query Reader");
         let layout =
             SimpleGlobalLayout::new(&query, 0, config.global_memory_config(FlashIdent::Query));
-        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout), config)
+        DummyQueryReader::<AP, Self::Config>::new(q_offset, query.view(layout), config)
     }
 
-    fn init_key_loader(
+    fn init_key_reader(
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::KeyLoader {
-        comment!("Global: Init Key Loader");
+    ) -> Self::KeyReader {
+        comment!("Global: Init Key Reader");
         let layout = SimpleGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
         let k_step = k_step::<Self::Config>(config);
-        DummyKeyLoader::new(key.view(layout), k_step, config)
+        DummyKeyReader::new(key.view(layout), k_step, config)
     }
 
-    fn init_value_loader(
+    fn init_value_reader(
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::ValueLoader {
-        comment!("Global: Init Value Loader");
+    ) -> Self::ValueReader {
+        comment!("Global: Init Value Reader");
         let layout =
             SimpleGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
         let k_step = k_step::<Self::Config>(config);
-        DummyValueLoader::new(value.view(layout), k_step, config)
+        DummyValueReader::new(value.view(layout), k_step, config)
     }
 
     fn init_writer(

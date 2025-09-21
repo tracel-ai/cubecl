@@ -5,7 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryLoader,
+    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryReader,
     stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
@@ -42,37 +42,37 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// Loads to SMEM transposed
-    type KeyLoader: CubeType;
+    type KeyReader: CubeType;
     /// Loads to SMEM as is
-    type ValueLoader: CubeType;
+    type ValueReader: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
-        key_loader: Self::KeyLoader,
-        value_loader: Self::ValueLoader,
+        query_reader: DummyQueryReader<AP, Self::Config>,
+        key_reader: Self::KeyReader,
+        value_reader: Self::ValueReader,
         writer: Self::Writer,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     );
 
-    fn init_query_loader(
+    fn init_query_reader(
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config>;
+    ) -> DummyQueryReader<AP, Self::Config>;
 
-    fn init_key_loader(
+    fn init_key_reader(
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::KeyLoader;
+    ) -> Self::KeyReader;
 
-    fn init_value_loader(
+    fn init_value_reader(
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::ValueLoader;
+    ) -> Self::ValueReader;
 
     fn init_writer(
         q_offset: u32,

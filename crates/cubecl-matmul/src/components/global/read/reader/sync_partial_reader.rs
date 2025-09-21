@@ -5,12 +5,12 @@ use super::TaskCounter;
 use crate::components::InputPrecision;
 use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
-use crate::components::global::load::LoadingJob;
-use crate::components::global::load::LoadingValidation;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::LoadingJob;
+use crate::components::global::read::LoadingValidation;
 use crate::components::stage::PartialStageReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
@@ -45,7 +45,7 @@ pub trait SyncPartialLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncPartialStageLoader<
+pub struct SyncPartialStageGlobalReader<
     IP: InputPrecision,
     G: GlobalConfig,
     L: SyncPartialLoadingStrategy,
@@ -61,9 +61,9 @@ pub struct SyncPartialStageLoader<
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
-    SyncPartialStageLoader<IP, G, L>
+    SyncPartialStageGlobalReader<IP, G, L>
 {
-    /// Create a new SyncPartialLoader
+    /// Create a new SyncPartialStageGlobalReader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
@@ -85,7 +85,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             false => CubeOption::new_None(),
         };
 
-        SyncPartialStageLoader::<IP, G, L> {
+        SyncPartialStageGlobalReader::<IP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -95,7 +95,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(
+    pub fn stage_reader(
         &self,
         #[comptime] stage_buffer: StageBuffer,
     ) -> PartialStageReader<IP::Stage, L::TilingLayout> {
@@ -145,9 +145,9 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
-    for SyncPartialStageLoader<IP, G, L>
+    for SyncPartialStageGlobalReader<IP, G, L>
 {
-    type JobIterator = SyncPartialLoaderJobIterator<IP, L>;
+    type JobIterator = SyncPartialJobIterator<IP, L>;
 
     fn create_job_iterator(
         this: &Self,
@@ -167,7 +167,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
 
         let num_tasks = L::Job::task_count(&job);
 
-        SyncPartialLoaderJobIterator::<IP, L> {
+        SyncPartialJobIterator::<IP, L> {
             job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
@@ -176,7 +176,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
 
     fn execute_task(
         this: &mut Self,
-        job_iterator: &mut SyncPartialLoaderJobIterator<IP, L>,
+        job_iterator: &mut SyncPartialJobIterator<IP, L>,
         #[comptime] config: G,
     ) {
         let task_id = job_iterator.current.read().counter;
@@ -236,7 +236,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
 
 #[derive(CubeType)]
 /// Accomplish the entire job of filling the stage
-pub struct SyncPartialLoaderJobIterator<IP: InputPrecision, L: SyncPartialLoadingStrategy> {
+pub struct SyncPartialJobIterator<IP: InputPrecision, L: SyncPartialLoadingStrategy> {
     job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
@@ -245,7 +245,7 @@ pub struct SyncPartialLoaderJobIterator<IP: InputPrecision, L: SyncPartialLoadin
 
 #[cube]
 impl<IP: InputPrecision, L: SyncPartialLoadingStrategy> JobIterator
-    for SyncPartialLoaderJobIterator<IP, L>
+    for SyncPartialJobIterator<IP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter

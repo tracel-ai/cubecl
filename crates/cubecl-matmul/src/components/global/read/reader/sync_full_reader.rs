@@ -3,14 +3,14 @@ use std::marker::PhantomData;
 use crate::components::InputPrecision;
 use crate::components::MatmulIdent;
 use crate::components::global::GlobalConfig;
-use crate::components::global::load::LoadingJob;
-use crate::components::global::load::LoadingValidation;
-use crate::components::global::load::StageBuffer;
-use crate::components::global::load::TaskCounter;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::LoadingJob;
+use crate::components::global::read::LoadingValidation;
+use crate::components::global::read::StageBuffer;
+use crate::components::global::read::TaskCounter;
 use crate::components::stage::FullStageReader;
 use crate::components::stage::StageMemory;
 use crate::components::stage::TilingLayout;
@@ -44,7 +44,11 @@ pub trait SyncFullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncFullStageLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> {
+pub struct SyncFullStageGlobalReader<
+    IP: InputPrecision,
+    G: GlobalConfig,
+    L: SyncFullLoadingStrategy,
+> {
     tensor_reader: GlobalIterator<IP::Global>,
     stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
@@ -56,9 +60,9 @@ pub struct SyncFullStageLoader<IP: InputPrecision, G: GlobalConfig, L: SyncFullL
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
-    SyncFullStageLoader<IP, G, L>
+    SyncFullStageGlobalReader<IP, G, L>
 {
-    /// Create a new SyncFullLoader
+    /// Create a new SyncFullStageGlobalReader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
@@ -77,7 +81,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
             false => CubeOption::new_None(),
         };
 
-        SyncFullStageLoader::<IP, G, L> {
+        SyncFullStageGlobalReader::<IP, G, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -87,7 +91,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
+    pub fn stage_reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
         FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
     }
 
@@ -123,9 +127,9 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 
 #[cube]
 impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
-    for SyncFullStageLoader<IP, G, L>
+    for SyncFullStageGlobalReader<IP, G, L>
 {
-    type JobIterator = SyncFullLoaderJobIterator<IP, L>;
+    type JobIterator = SyncFullStageJobIterator<IP, L>;
 
     fn create_job_iterator(
         this: &Self,
@@ -139,7 +143,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecuto
 
         let num_tasks = L::Job::task_count(&job);
 
-        SyncFullLoaderJobIterator::<IP, L> {
+        SyncFullStageJobIterator::<IP, L> {
             job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
@@ -148,7 +152,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecuto
 
     fn execute_task(
         this: &mut Self,
-        job_iterator: &mut SyncFullLoaderJobIterator<IP, L>,
+        job_iterator: &mut SyncFullStageJobIterator<IP, L>,
         #[comptime] config: G,
     ) {
         let task_id = job_iterator.current.read().counter;
@@ -207,8 +211,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecuto
 }
 
 #[derive(CubeType)]
-/// A comptime iterator over a job for sync full loader
-pub struct SyncFullLoaderJobIterator<IP: InputPrecision, L: SyncFullLoadingStrategy> {
+/// A comptime iterator over a job for sync full stage reader
+pub struct SyncFullStageJobIterator<IP: InputPrecision, L: SyncFullLoadingStrategy> {
     job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
@@ -217,7 +221,7 @@ pub struct SyncFullLoaderJobIterator<IP: InputPrecision, L: SyncFullLoadingStrat
 
 #[cube]
 impl<IP: InputPrecision, L: SyncFullLoadingStrategy> JobIterator
-    for SyncFullLoaderJobIterator<IP, L>
+    for SyncFullStageJobIterator<IP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter

@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
-    load::tiled::TiledLayout,
     memory::{GlobalIterator, ViewDirection},
+    read::tiled::TiledLayout,
 };
 use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
@@ -17,7 +17,7 @@ use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecis
 use crate::components::{AttentionPrecision, FlashIdent};
 
 #[derive(CubeType)]
-pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct DummyQueryReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     query: View<Line<AP::EI>, Coords2d>,
 
     #[cube(comptime)]
@@ -25,7 +25,7 @@ pub struct DummyQueryLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[derive(CubeType)]
-pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct DummyKeyReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     global_iter: GlobalIterator<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
@@ -34,7 +34,7 @@ pub struct DummyKeyLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[derive(CubeType)]
-pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     global_iter: GlobalIterator<AP::EI>,
     stage_memory: StageMemory<AP::ES, AttentionTilingLayout>,
 
@@ -43,20 +43,20 @@ pub struct DummyValueLoader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryReader<AP, G> {
     pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>, #[comptime] config: G) -> Self {
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
         let offset = (q_offset, 0);
         let size = (1u32, attention_tile_size.query_size()).runtime();
         let query = query.slice(offset, size);
 
-        DummyQueryLoader::<AP, G> {
+        DummyQueryReader::<AP, G> {
             query,
             _phantom: PhantomData,
         }
     }
 
-    pub fn reader(&self, #[comptime] config: G) -> QueryRegisterReader<AP::EI> {
+    pub fn stage_reader(&self, #[comptime] config: G) -> QueryRegisterReader<AP::EI> {
         comment!("Loading Query");
 
         let attention_tile_size = config.stage_config().tile_config().attention_tile_size();
@@ -71,7 +71,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyQueryLoader<AP, G> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
     pub fn new(key: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(key, k_step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<G::ScoreStageMemoryConfig>(
@@ -80,14 +80,14 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
             config.score_stage_memory_config(),
         );
 
-        DummyKeyLoader::<AP, G> {
+        DummyKeyReader::<AP, G> {
             global_iter,
             stage_memory,
             _phantom: PhantomData,
         }
     }
 
-    pub fn reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
+    pub fn stage_reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
         FullStageReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: self.stage_memory,
             stage_ident: StageIdent::Rhs,
@@ -134,7 +134,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyLoader<AP, G> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
     pub fn new(value: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(value, k_step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<G::ValueStageMemoryConfig>(
@@ -143,14 +143,14 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueLoader<AP, G> {
             config.value_stage_memory_config(),
         );
 
-        DummyValueLoader::<AP, G> {
+        DummyValueReader::<AP, G> {
             global_iter,
             stage_memory,
             _phantom: PhantomData,
         }
     }
 
-    pub fn reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
+    pub fn stage_reader(&self) -> FullStageReader<AP::ES, AttentionTilingLayout> {
         FullStageReader::<AP::ES, AttentionTilingLayout> {
             stage_memory: self.stage_memory,
             stage_ident: StageIdent::Rhs,

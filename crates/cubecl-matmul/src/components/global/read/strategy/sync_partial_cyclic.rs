@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use super::{LoaderMode, LoadingJob, LoadingValidation};
+use super::{LoadingJob, LoadingValidation, ReaderMode};
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage using all planes.
@@ -21,7 +21,7 @@ pub struct SyncPartialCyclicLoading<T: TilingOrder> {
 
 impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
-        if let LoaderMode::Strict = config.loader_mode() {
+        if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
             let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
             let num_tiles_in_stage = config.tiling_scheme().tiles_in_stage(ident);
@@ -102,7 +102,7 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
             ident,
             balanced_workload,
             num_stage_elements,
-            loader_mode: comptime!(config.loader_mode()),
+            reader_mode: comptime!(config.reader_mode()),
         }
     }
 }
@@ -126,7 +126,7 @@ pub struct SyncPartialCyclicJob {
     #[cube(comptime)]
     num_stage_elements: u32,
     #[cube(comptime)]
-    loader_mode: LoaderMode,
+    reader_mode: ReaderMode,
 }
 
 #[cube]
@@ -143,7 +143,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
-        if comptime!(this.loader_mode == LoaderMode::Strict || this.balanced_workload) {
+        if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
             load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
         } else {
             if unit_position < this.num_stage_elements {

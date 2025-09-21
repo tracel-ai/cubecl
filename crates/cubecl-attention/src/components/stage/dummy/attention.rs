@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::memory::GlobalMemoryConfig, stage::StageReader, tile::loader::Strided,
+    global::memory::GlobalMemoryConfig, stage::StageReader, tile::reader::Strided,
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;

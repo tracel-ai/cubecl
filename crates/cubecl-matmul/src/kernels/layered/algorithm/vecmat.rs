@@ -9,18 +9,18 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
-            load::{
+            multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+            read::{
                 sync_full_cyclic::SyncFullCyclicLoading,
                 sync_partial_cyclic::SyncPartialCyclicLoading,
             },
-            multi_stage::double_buffering::DoubleBufferingMatmulFamily,
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
             ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily,
             PartialStageReaderFamily, PartitionBuffering, PlaneMatmulFamily, RowMajorTilingOrder,
         },
-        tile::{loader::Filled, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
+        tile::{plane_vec_mat_inner_product::PlaneVecMatInnerProduct, reader::Filled},
     },
     kernels::layered::Algorithm,
 };

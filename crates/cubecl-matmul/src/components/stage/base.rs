@@ -6,18 +6,18 @@ use cubecl_std::{
 };
 
 use crate::components::{AccG, error::MatmulSetupError, global::memory::GlobalMemoryConfig};
-use crate::components::{AccS, global::MaxLoaderPlanes};
+use crate::components::{AccS, global::MaxGlobalReaderPlanes};
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
 };
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{self, PlaneRoleConfig, RoleRuleConfig, StageUnloader},
+    global::{self, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
 use crate::components::{
     stage::{NumStages, PartitionScheduler, PartitionSchedulerScheme, StageMemoryConfig},
-    tile::loader::TileKind,
+    tile::reader::TileKind,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -57,7 +57,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaderPlanes>,
+        max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 
@@ -105,7 +105,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type RhsTile: CubeType;
 
     /// How to write to global memory after computation
-    type StageUnloader: StageUnloader<AccG<MP>, Coordinates = Self::WriteCoords>;
+    type GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -143,7 +143,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Load all accumulators in the stage from data
     fn load_accumulators(
-        loader: &Self::AccStageReader,
+        reader: &Self::AccStageReader,
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     );
@@ -152,12 +152,12 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::StageUnloader;
+    ) -> Self::GlobalWriter;
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulators,
-        out: &mut Self::StageUnloader,
+        out: &mut Self::GlobalWriter,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
@@ -225,7 +225,7 @@ pub enum PartitionBuffering {
 }
 
 /// Reader used to load the stage memory (if applicable) into tiles, with the same kind used by the
-/// tile matmul loaders.
+/// tile matmul readers.
 #[cube]
 pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
     /// The kind (or family) of the tiles being returned by this reader

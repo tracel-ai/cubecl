@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{
     AvailableLineSizes, LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatmulLineSizes,
     MatmulPrecision, MatmulSelection, MatmulSetupError, MultiRowStrategy,
-    global::{LoadSpecializationConfig, args::MatmulArgs, load::LoaderMode},
+    global::{LoadSpecializationConfig, args::MatmulArgs, read::ReaderMode},
     stage::{NumStages, PartitionBuffering, StageMatmulFamily},
     tile::TileMatmulFamily,
 };
@@ -46,8 +46,8 @@ pub trait Algorithm {
         LoadingPrecomputeStrategy::Never
     }
 
-    fn loader_mode() -> LoaderMode {
-        LoaderMode::Relaxed
+    fn reader_mode() -> ReaderMode {
+        ReaderMode::Relaxed
     }
 
     fn load_specialization() -> LoadSpecializationConfig {

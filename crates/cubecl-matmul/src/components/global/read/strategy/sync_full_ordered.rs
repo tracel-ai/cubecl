@@ -1,6 +1,6 @@
 use crate::components::global::RoleRule;
-use crate::components::global::load::SyncFullLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
@@ -107,7 +107,7 @@ impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
             * num_tiles_per_plane;
         let num_lines_to_skip = num_tiles_to_skip * num_lines_per_tile;
 
-        // Ordered is just a tilewise loader using the ordered tiling order
+        // Ordered is just a tilewise reader using the ordered tiling order
         sync_full_tilewise::SyncFullTilewiseJob {
             num_tiles_to_skip,
             num_lines_to_skip,

@@ -1,9 +1,9 @@
 use super::StageBuffer;
 use crate::components::global::CopyMechanism;
 use crate::components::global::base::GlobalConfig;
-use crate::components::global::load::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
+use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::stage::PartialStageReader;
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StageMemory};
@@ -42,7 +42,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct AsyncBufferStageLoader<
+pub struct AsyncBufferGlobalReader<
     IP: InputPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism,
@@ -59,9 +59,9 @@ pub struct AsyncBufferStageLoader<
 
 #[cube]
 impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
-    AsyncBufferStageLoader<IP, S, CM, L>
+    AsyncBufferGlobalReader<IP, S, CM, L>
 {
-    /// Create a new AsyncPartialLoader
+    /// Create a new AsyncBufferGlobalReader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
@@ -83,7 +83,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             false => CubeOption::new_None(),
         };
 
-        AsyncBufferStageLoader::<IP, S, CM, L> {
+        AsyncBufferGlobalReader::<IP, S, CM, L> {
             tensor_reader,
             stage_memory,
             loading_job,
@@ -93,7 +93,7 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn reader(
+    pub fn stage_reader(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
     ) -> PartialStageReader<IP::Stage, L::TilingLayout> {

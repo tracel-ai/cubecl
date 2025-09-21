@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::SyncPartialLoadingStrategy;
+use crate::components::global::read::SyncPartialLoadingStrategy;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::{RoleRule, load::tiled::TiledLayout};
+use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,

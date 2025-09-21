@@ -1,4 +1,4 @@
-use crate::components::global::load::{SyncFullLoadingStrategy, stage::FullStageLayout};
+use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::{GlobalConfig, RoleRule};

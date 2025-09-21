@@ -6,21 +6,21 @@ use cubecl_core::{CubeType, prelude::*};
 use crate::components::{InputPrecision, stage::FillStageReader};
 
 #[derive(CubeType)]
-/// Accumulator loader that zeros the accumulator
-pub struct ZeroStageLoader<IP: InputPrecision> {
+/// Accumulator reader that zeros the accumulator
+pub struct ZeroGlobalReader<IP: InputPrecision> {
     #[cube(comptime)]
     _ty: PhantomData<IP>,
 }
 
 #[cube]
-impl<IP: InputPrecision> ZeroStageLoader<IP> {
+impl<IP: InputPrecision> ZeroGlobalReader<IP> {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        ZeroStageLoader::<IP> { _ty: PhantomData }
+        ZeroGlobalReader::<IP> { _ty: PhantomData }
     }
 
     /// Give a reader to the loaded data.
-    pub fn reader(&self) -> FillStageReader<IP::Stage> {
+    pub fn stage_reader(&self) -> FillStageReader<IP::Stage> {
         FillStageReader::new(IP::Stage::from_int(0))
     }
 }
