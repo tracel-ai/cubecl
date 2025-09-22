@@ -29,7 +29,6 @@ pub struct ScoreFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
-        comment!("Allocating score-prob");
         let mut fragment = FM::allocate_score_prob(config);
         FM::zero_score_prob(&mut fragment, config);
 
