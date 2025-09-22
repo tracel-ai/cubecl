@@ -9,7 +9,6 @@ mod memory_manage;
 use cubecl_common::CubeDim;
 pub use memory_manage::*;
 
-
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 
