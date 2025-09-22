@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use std::fmt::Display;
 
 use cubecl_core::{
