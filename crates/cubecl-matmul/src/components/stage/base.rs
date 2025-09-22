@@ -2,22 +2,25 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coordinates},
+    tensor::{
+        View,
+        layout::{Coordinates, Coords2d},
+    },
 };
 
-use crate::components::{AccG, error::MatmulSetupError};
-use crate::components::{AccS, global::MaxLoaderPlanes};
+use crate::components::{AccG, error::MatmulSetupError, global::memory::GlobalMemoryConfig};
+use crate::components::{AccS, global::MaxGlobalReaderPlanes};
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
 };
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{self, PlaneRoleConfig, RoleRuleConfig, StageUnloader},
+    global::{self, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
 };
 use crate::components::{
     stage::{NumStages, PartitionScheduler, PartitionSchedulerScheme, StageMemoryConfig},
-    tile::loader::TileKind,
+    tile::reader::TileKind,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -57,7 +60,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaderPlanes>,
+        max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError>;
 
@@ -105,7 +108,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type RhsTile: CubeType;
 
     /// How to write to global memory after computation
-    type StageUnloader: StageUnloader<AccG<MP>, Coordinates = Self::WriteCoords>;
+    type GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
@@ -143,7 +146,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Load all accumulators in the stage from data
     fn load_accumulators(
-        loader: &Self::AccStageReader,
+        reader: &Self::AccStageReader,
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     );
@@ -151,12 +154,13 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Inits the writer at the given offsets
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
-    ) -> Self::StageUnloader;
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self::GlobalWriter;
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn write_results<G: global::GlobalConfig>(
         acc: &Self::Accumulators,
-        out: &mut Self::StageUnloader,
+        out: &mut Self::GlobalWriter,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
@@ -224,7 +228,7 @@ pub enum PartitionBuffering {
 }
 
 /// Reader used to load the stage memory (if applicable) into tiles, with the same kind used by the
-/// tile matmul loaders.
+/// tile matmul readers.
 #[cube]
 pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
     /// The kind (or family) of the tiles being returned by this reader
@@ -233,8 +237,7 @@ pub trait StageReader<ES: Numeric>: CubeType + Send + Sync + 'static {
     /// Slices a tile with offset (`row`, `col`) from the stage and returns it
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> <Self::TileKind as TileKind>::Tile<ES>;
 }
@@ -253,13 +256,12 @@ impl<ES: Numeric, Inner: StageReader<ES>> StageReader<ES> for CubeOption<Inner> 
 
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> <Self::TileKind as TileKind>::Tile<ES> {
         match this {
             CubeOption::Some(reader) => {
-                CubeOption::new_Some(Inner::read_tile::<S>(reader, row, col, config))
+                CubeOption::new_Some(Inner::read_tile::<S>(reader, tile, config))
             }
             CubeOption::None => CubeOption::new_None(),
         }

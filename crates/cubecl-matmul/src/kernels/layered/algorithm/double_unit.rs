@@ -5,13 +5,13 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::sync_partial_cyclic::SyncPartialCyclicLoading,
             multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+            read::sync_partial_cyclic::SyncPartialCyclicLoading,
         },
         stage::{
             FillStageReaderFamily, PartialStageReaderFamily, RowMajorTilingOrder, UnitMatmulFamily,
         },
-        tile::{loader::Filled, register::RegisterMatmul},
+        tile::{reader::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         Algorithm,
@@ -19,7 +19,7 @@ use crate::{
     },
 };
 
-/// Unit double buffered matmul with cyclic loaders
+/// Unit double buffered matmul with cyclic readers
 pub struct DoubleUnitAlgorithm {}
 
 #[derive(Default, Clone, Debug)]

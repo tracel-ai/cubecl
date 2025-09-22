@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::load::StageBuffer;
+use crate::components::global::read::StageBuffer;
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{MatmulIdent, TilingScheme};
@@ -24,8 +24,8 @@ pub enum EventLoadingMode {
 pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
     #[cube(comptime)]
     stage_buffer: StageBuffer,
-    loader_lhs: Lhs,
-    loader_rhs: Rhs,
+    reader_lhs: Lhs,
+    reader_rhs: Rhs,
     #[cube(comptime)]
     config: G,
     state_lhs: Sequence<Lhs::JobIterator>,
@@ -66,15 +66,15 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
     /// Create a new DoubleBufferingEventListener
     pub fn new(
         #[comptime] stage_buffer: StageBuffer,
-        loader_lhs: &Lhs,
-        loader_rhs: &Rhs,
+        reader_lhs: &Lhs,
+        reader_rhs: &Rhs,
         #[comptime] config: G,
         #[comptime] event_loading_side: LoadingSides,
     ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
         DoubleBufferingEventListener::<Lhs, Rhs, G> {
             stage_buffer,
-            loader_lhs: comptime![loader_lhs.clone()],
-            loader_rhs: comptime![loader_rhs.clone()],
+            reader_lhs: comptime![reader_lhs.clone()],
+            reader_rhs: comptime![reader_rhs.clone()],
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
@@ -118,7 +118,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                     sync_plane();
                 }
 
-                L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+                L::execute_task(&mut this.reader_lhs, lhs_job, this.config);
             }
 
             if comptime![analysis.rhs.should_execute(current)] {
@@ -128,7 +128,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                     sync_plane();
                 }
 
-                R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+                R::execute_task(&mut this.reader_rhs, rhs_job, this.config);
             }
         }
 
@@ -170,7 +170,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                 let lhs_job = this.state_lhs.index_mut(0);
                 #[unroll]
                 for _ in lhs_num_task_executed..lhs_num_tasks {
-                    L::execute_task(&mut this.loader_lhs, lhs_job, this.config);
+                    L::execute_task(&mut this.reader_lhs, lhs_job, this.config);
                 }
             }
 
@@ -178,7 +178,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                 let rhs_job = this.state_rhs.index_mut(0);
                 #[unroll]
                 for _ in rhs_num_task_executed..rhs_num_tasks {
-                    R::execute_task(&mut this.loader_rhs, rhs_job, this.config);
+                    R::execute_task(&mut this.reader_rhs, rhs_job, this.config);
                 }
             }
         }
@@ -190,7 +190,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs.push(L::create_job_iterator(
-                &self.loader_lhs,
+                &self.reader_lhs,
                 self.stage_buffer,
                 self.config,
             ));
@@ -198,7 +198,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 
         if comptime!(self.event_loading_side.includes_rhs()) {
             self.state_rhs.push(R::create_job_iterator(
-                &self.loader_rhs,
+                &self.reader_rhs,
                 self.stage_buffer,
                 self.config,
             ));
@@ -268,7 +268,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 }
 
 #[cube]
-/// Something that can execute a job, i.e. a loader
+/// Something that can execute a job, i.e. a reader
 pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     /// The job to execute
     type JobIterator: JobIterator;

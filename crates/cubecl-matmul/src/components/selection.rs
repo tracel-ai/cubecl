@@ -1,7 +1,7 @@
 use crate::components::{
     TilingScheme,
     batch::HypercubeSelection,
-    global::{LoadSpecializationConfig, load::LoaderMode},
+    global::{LoadSpecializationConfig, read::ReaderMode},
     stage::PartitionBuffering,
 };
 
@@ -12,7 +12,7 @@ pub struct MatmulSelection {
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
-    pub loader_mode: LoaderMode,
+    pub reader_mode: ReaderMode,
     pub load_specialization_config: LoadSpecializationConfig,
     pub hypercube_selection: HypercubeSelection,
 }
@@ -34,7 +34,7 @@ pub struct MatmulSelectionBuilder {
     quantized: bool,
     partition_buffering: PartitionBuffering,
     loading_precompute_strategy: LoadingPrecomputeStrategy,
-    loader_mode: LoaderMode,
+    reader_mode: ReaderMode,
     load_specialization_config: LoadSpecializationConfig,
 }
 
@@ -47,7 +47,7 @@ impl MatmulSelectionBuilder {
             quantized: false,
             partition_buffering: PartitionBuffering::default(),
             loading_precompute_strategy: LoadingPrecomputeStrategy::default(),
-            loader_mode: LoaderMode::default(),
+            reader_mode: ReaderMode::default(),
             load_specialization_config: LoadSpecializationConfig::default(),
         }
     }
@@ -85,8 +85,8 @@ impl MatmulSelectionBuilder {
         self
     }
 
-    pub fn loader_mode(mut self, loader_mode: LoaderMode) -> Self {
-        self.loader_mode = loader_mode;
+    pub fn reader_mode(mut self, reader_mode: ReaderMode) -> Self {
+        self.reader_mode = reader_mode;
         self
     }
 
@@ -106,7 +106,7 @@ impl MatmulSelectionBuilder {
             quantized: self.quantized,
             partition_buffering: self.partition_buffering,
             loading_precompute_strategy: self.loading_precompute_strategy,
-            loader_mode: self.loader_mode,
+            reader_mode: self.reader_mode,
             load_specialization_config: self.load_specialization_config,
         }
     }

@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::global::load::sync_partial_tilewise::SyncPartialTilewiseLoading;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingMatmulFamily;
+use crate::components::global::read::sync_partial_tilewise::SyncPartialTilewiseLoading;
 use crate::components::stage::{
     ColMajorTilingOrder, PartialStageReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
 };
@@ -12,26 +12,26 @@ use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSet
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    tile::loader::{Filled, Strided},
+    tile::reader::{Filled, Strided},
 };
 use crate::components::{
-    global::load::sync_partial_cyclic::SyncPartialCyclicLoading, stage::FillStageReaderFamily,
+    global::read::sync_partial_cyclic::SyncPartialCyclicLoading, stage::FillStageReaderFamily,
 };
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
-/// Plane accelerated double buffered matmul with cyclic loaders
+/// Plane accelerated double buffered matmul with cyclic readers
 pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
-/// Plane accelerated double buffered matmul with tilewise loaders
+/// Plane accelerated double buffered matmul with tilewise readers
 pub struct TilewiseDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
-/// Plane accelerated double buffered matmul with tilewise loader on Lhs and cyclic on Rhs
+/// Plane accelerated double buffered matmul with tilewise reader on Lhs and cyclic on Rhs
 pub struct HybridDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }

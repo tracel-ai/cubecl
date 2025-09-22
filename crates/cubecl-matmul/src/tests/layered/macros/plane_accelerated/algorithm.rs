@@ -7,7 +7,7 @@ macro_rules! testgen_matmul_plane_accelerated_algorithm {
             double_buffering::{CyclicDoubleBufferingAlgorithm, TilewiseDoubleBufferingAlgorithm, HybridDoubleBufferingAlgorithm},
             ordered_double_buffering::OrderedDoubleBufferingAlgorithm
         };
-        use $crate::components::global::load::{
+        use $crate::components::global::read::{
             async_full_cyclic,
             async_full_maximize_slice_length,
             async_full_maximize_unit_count,

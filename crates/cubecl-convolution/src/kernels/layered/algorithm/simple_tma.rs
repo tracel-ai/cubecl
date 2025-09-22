@@ -6,7 +6,7 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, tile::loader::Strided,
+    MatmulElems, MatmulSelection, MatmulSetupError, tile::reader::Strided,
 };
 
 use cubecl_matmul::components::stage::NumStages;

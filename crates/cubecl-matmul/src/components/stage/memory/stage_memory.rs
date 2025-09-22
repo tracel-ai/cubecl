@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::StageBuffer;
+use crate::components::global::read::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::base::StageConfig;
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
@@ -8,6 +8,7 @@ use crate::components::tile::Tile;
 use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
 
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
@@ -74,13 +75,12 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
     /// Get the tile at position (row, col)
     pub fn get_tile<S: StageMemoryConfig>(
         &self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] buffer_index: u32,
         #[comptime] ident: StageIdent,
         #[comptime] config: S,
     ) -> Tile<ES> {
-        T::get_tile::<ES, S>(self, row, col, buffer_index, ident, config)
+        T::get_tile::<ES, S>(self, tile, buffer_index, ident, config)
     }
 
     /// Return the whole stage as a slice, for reading

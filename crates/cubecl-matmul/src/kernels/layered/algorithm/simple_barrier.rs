@@ -7,12 +7,12 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
+            read::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
         },
         stage::{FillStageReaderFamily, FullStageReaderFamily, PlaneMatmulFamily},
         tile::{
             self,
-            loader::{Filled, Strided},
+            reader::{Filled, Strided},
         },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},

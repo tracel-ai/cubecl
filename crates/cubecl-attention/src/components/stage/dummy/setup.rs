@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{
-    GlobalPartitionSize, TilingScheme, stage::StageReaderFamily, tile::loader::Strided,
+    GlobalPartitionSize, TilingScheme, stage::StageReaderFamily, tile::reader::Strided,
 };
 
 use crate::components::{

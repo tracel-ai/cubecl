@@ -1,36 +1,41 @@
-use crate::components::global::memory::{GlobalMemoryConfig, TensorWriter};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
-use super::StageUnloader;
+use crate::components::global::{
+    memory::GlobalMemoryConfig,
+    read::tiled::{TiledCoords, TiledLayout},
+};
+
+use super::GlobalWriter;
 
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
 /// using a unit for each tile
 pub struct UnitWriter<EG: Numeric> {
-    pub tensor_view: TensorWriter<EG>,
+    pub view: View<Line<EG>, TiledCoords, ReadWrite>,
 }
 
 #[cube]
 impl<EG: Numeric> UnitWriter<EG> {
-    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
+    pub fn new(
+        view: View<Line<EG>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self {
         UnitWriter::<EG> {
-            tensor_view: TensorWriter::new(view),
+            view: view.view_mut(TiledLayout::new(config)),
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric> StageUnloader<EG> for UnitWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for UnitWriter<EG> {
     type Coordinates = Coords2d;
 
     fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
-        tile_row: u32,
-        tile_col: u32,
-        #[comptime] _smem_line_size: u32,
+        tile: Coords2d,
         #[comptime] _plane_dim: u32,
         #[comptime] config: GlobalMemoryConfig,
     ) {
@@ -42,13 +47,7 @@ impl<EG: Numeric> StageUnloader<EG> for UnitWriter<EG> {
 
         for i in 0..num_lines {
             let value = out_smem_slice[i];
-            this.tensor_view.write_coalesced(
-                tile_row,
-                tile_col,
-                i * output_line_size,
-                value,
-                config,
-            );
+            this.view.write_checked((tile, i * output_line_size), value);
         }
     }
 }

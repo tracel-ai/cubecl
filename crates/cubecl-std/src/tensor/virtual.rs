@@ -5,7 +5,9 @@ use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
     ViewExpand,
-    layout::{Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand},
+    layout::{
+        Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand, simple::SimpleLayout,
+    },
     view::View,
 };
 
@@ -243,6 +245,18 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     }
 }
 
+#[cube]
+impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
+    /// Create a conceptual view over this tensor, with a simple linear layout
+    pub fn as_view(&self) -> View<Line<E>, u32, ReadOnly> {
+        let line_size = self.line_size();
+        View::new::<VirtualTensor<E, IO>, u32>(
+            self,
+            SimpleLayout::new(self.len() * line_size, line_size),
+        )
+    }
+}
+
 impl<E: Numeric, IO: Clone + 'static> VirtualTensorExpand<E, IO> {
     /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
     /// layouts
@@ -280,6 +294,18 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Line<E>, C, ReadWrite> {
         View::__expand_new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(scope, self, layout)
+    }
+}
+
+#[cube]
+impl<E: Numeric> VirtualTensor<E, ReadWrite> {
+    /// Create a conceptual mutable view over this tensor, with a simple linear layout
+    pub fn as_view_mut(&mut self) -> View<Line<E>, u32, ReadWrite> {
+        let line_size = self.line_size();
+        View::new_mut::<VirtualTensor<E, ReadWrite>, u32>(
+            self,
+            SimpleLayout::new(self.len() * line_size, line_size),
+        )
     }
 }
 
