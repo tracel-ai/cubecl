@@ -2,5 +2,7 @@
 pub mod scheduler;
 
 mod base;
+mod event;
 
-pub use base::*;
+pub(crate) use base::*;
+pub use event::*;
