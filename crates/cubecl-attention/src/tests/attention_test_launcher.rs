@@ -153,7 +153,6 @@ where
     let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
     let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
-    println!("{:?}: {:?}", ident, data);
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
