@@ -105,7 +105,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                     score_frag,
                     out_of_bound_mask,
                     state_q,
-                    config.tiling_scheme().head_dim(),
+                    config.tiling_scheme().elements_in_partition_head_dim(),
                 );
 
                 scales.push(TA::update_state(state_q, &row_stats));
@@ -210,9 +210,9 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         #[comptime] global_config: G,
     ) {
         let p = stage_config.tiling_scheme().partition_size;
-        let t = stage_config.tiling_scheme().tile_size;
 
-        let out_smem_num_elements = p.seq_q * t.seq_q * p.val_dim * t.val_dim;
+        let out_smem_num_elements = stage_config.tiling_scheme().elements_in_partition_seq_q()
+            * stage_config.tiling_scheme().elements_in_partition_val_dim();
 
         let mut out_smem = SharedMemory::<AP::EO>::new_lined(
             comptime!(out_smem_num_elements * stage_config.num_planes()),

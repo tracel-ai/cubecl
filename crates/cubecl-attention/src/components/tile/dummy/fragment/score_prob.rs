@@ -43,7 +43,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
-        let score_size = config.attention_tile_size().accumulator_size();
+        let score_size = config.attention_tile_size().score_prob_size();
         let tmp_smem_start = UNIT_POS_Y * score_size;
         let tmp_smem_end = tmp_smem_start + score_size;
 

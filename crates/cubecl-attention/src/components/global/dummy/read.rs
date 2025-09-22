@@ -68,7 +68,7 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
                     (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
                 )
                 .to_linear_slice(),
-            stride: config.tiling_scheme().head_dim(),
+            stride: config.tiling_scheme().elements_in_partition_head_dim(),
             layout: MatrixLayout::RowMajor,
         }
     }
