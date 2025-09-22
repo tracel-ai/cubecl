@@ -45,7 +45,7 @@ impl ComputeResources {
     /// Get the number of planes
     ///
     /// Will fail if the number of units does not correspond to an exact number of planes
-    pub(crate) fn num_planes(self, plane_dim: u32) -> Result<u32, InvalidConfigError> {
+    pub fn num_planes(self, plane_dim: u32) -> Result<u32, InvalidConfigError> {
         let plane_resources = self.as_plane_resources(plane_dim)?;
         if let ComputeResources::Planes(num_planes) = plane_resources {
             Ok(num_planes)
