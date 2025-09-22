@@ -28,6 +28,9 @@ impl<'a> Visitor<'a> {
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
             }
+            Arithmetic::SaturatingAdd(_) => {
+                unreachable!("Should be removed by preprocessor")
+            }
             Arithmetic::Ceil(ceil) => {
                 let value = self.get_variable(ceil.input);
                 let result = self.append_operation_with_result(llvm_ods::intr_ceil(
@@ -413,6 +416,9 @@ impl<'a> Visitor<'a> {
                 };
                 let result = self.append_operation_with_result(operation);
                 self.insert_variable(out, result);
+            }
+            Arithmetic::SaturatingSub(_) => {
+                unreachable!("Should be removed by preprocessor")
             }
             Arithmetic::Tanh(tanh) => {
                 let input = self.get_variable(tanh.input);

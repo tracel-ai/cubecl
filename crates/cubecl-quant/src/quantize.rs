@@ -101,7 +101,7 @@ fn write_scale_per_block<F: Float, FS: Float>(
     let scale = FS::cast_from(scale[scale_pos]);
 
     // Write the scale into the output buffer
-    if in_pos % block_size == 0 {
+    if in_pos.is_multiple_of(block_size) {
         out_scale[scale_pos] = Line::cast_from(scale);
     }
 
