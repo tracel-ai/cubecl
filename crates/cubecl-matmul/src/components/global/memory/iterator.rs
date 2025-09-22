@@ -6,7 +6,7 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 /// An iterator over global memory, advancing along k.
 pub struct GlobalIterator<EI: Numeric> {
     global_view: View<Line<EI>, Coords2d>,
-    k_offset: RuntimeCell<u32>,
+    offset: RuntimeCell<u32>,
     /// The amount to advance by on each iteration
     step: u32,
     view_size: Coords2d,
@@ -49,7 +49,7 @@ impl<EG: Numeric> GlobalIterator<EG> {
 
         GlobalIterator::<EG> {
             global_view,
-            k_offset: RuntimeCell::new(0),
+            offset: RuntimeCell::new(0),
             step,
             view_size,
             view_direction,
@@ -59,14 +59,14 @@ impl<EG: Numeric> GlobalIterator<EG> {
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
     pub fn advance(&self) {
-        self.k_offset.store(self.k_offset.read() + self.step);
+        self.offset.store(self.offset.read() + self.step);
     }
 
     /// Returns the current view slice of the iterator
     pub fn view(&self) -> View<Line<EG>, Coords2d> {
         let offset = match comptime![self.view_direction] {
-            ViewDirection::Row => (self.k_offset.read(), 0u32),
-            ViewDirection::Col => (0u32, self.k_offset.read()),
+            ViewDirection::Row => (self.offset.read(), 0u32),
+            ViewDirection::Col => (0u32, self.offset.read()),
             ViewDirection::None => (0u32, 0u32).runtime(),
         };
         if comptime![self.checked] {
