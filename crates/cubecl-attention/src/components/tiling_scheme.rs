@@ -11,7 +11,7 @@ pub struct AttentionTilingScheme {
 
 impl AttentionTilingScheme {
     pub fn seq_q(&self) -> u32 {
-        self.tile_size.seq_q * self.partition_size.seq_q * self.stage_size.seq_q
+        self.stage_size.seq_q * self.elements_in_partition_seq_q()
     }
 
     pub fn head_dim(&self) -> u32 {
@@ -24,6 +24,10 @@ impl AttentionTilingScheme {
 
     pub fn val_dim(&self) -> u32 {
         self.tile_size.val_dim * self.partition_size.val_dim
+    }
+
+    pub fn elements_in_partition_seq_q(&self) -> u32 {
+        self.tile_size.seq_q * self.partition_size.seq_q
     }
 }
 

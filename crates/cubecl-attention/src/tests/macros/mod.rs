@@ -574,10 +574,10 @@ macro_rules! testgen_attention {
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 1,
-                    seq_kv: 1,
-                    head_dim: 1,
-                    val_dim: 1,
+                    seq_q: 2,
+                    seq_kv: 2,
+                    head_dim: 2,
+                    val_dim: 2,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,

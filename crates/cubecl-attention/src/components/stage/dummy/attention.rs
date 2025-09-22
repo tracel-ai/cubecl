@@ -214,9 +214,14 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
         let out_smem_num_elements = p.seq_q * t.seq_q * p.val_dim * t.val_dim;
 
-        let mut out_smem = SharedMemory::<AP::EO>::new_lined(out_smem_num_elements, 1u32);
-        // TODO change indexes when we have planes>1
-        let mut smem_slice = out_smem.slice_mut(0u32, out_smem_num_elements);
+        let mut out_smem = SharedMemory::<AP::EO>::new_lined(
+            comptime!(out_smem_num_elements * stage_config.num_planes()),
+            1u32,
+        );
+
+        let start = UNIT_POS_Y * out_smem_num_elements;
+        let end = start + out_smem_num_elements;
+        let mut smem_slice = out_smem.slice_mut(start, end);
 
         let mut q = comptime!(0u32);
 
@@ -237,7 +242,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 Self::Writer::write(
                     writer,
                     smem_slice.to_slice(),
-                    (q, kv).runtime(),
+                    (q + UNIT_POS_Y * p.seq_q, kv.runtime()),
                     stage_config.plane_dim(),
                     global_config.global_memory_config(FlashIdent::Out),
                 );
