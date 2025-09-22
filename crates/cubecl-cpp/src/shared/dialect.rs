@@ -1,5 +1,5 @@
-use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
+use std::{fmt::Display, hash::Hash};
 
 use cubecl_core::ir::{Id, Processor};
 
@@ -487,6 +487,20 @@ pub trait DialectInstructions<D: Dialect> {
         let out = out.fmt_left();
         writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
     }
+
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<D>,
+    ) -> std::fmt::Result;
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<D>,
+    ) -> std::fmt::Result;
 
     // debug
     fn compile_instruction_printf(

@@ -17,6 +17,7 @@ pub mod line;
 pub mod metadata;
 pub mod minifloat;
 pub mod plane;
+pub mod saturating;
 pub mod sequence;
 pub mod slice;
 pub mod stream;
@@ -41,6 +42,7 @@ macro_rules! testgen_all {
 
         $crate::testgen_float!();
         $crate::testgen_int!();
+        $crate::testgen_uint!();
         $crate::testgen_untyped!();
     };
     ($f_def:ident: [$($float:ident),*], $i_def:ident: [$($int:ident),*], $u_def:ident: [$($uint:ident),*]) => {
@@ -87,7 +89,6 @@ macro_rules! testgen_float {
         cubecl_core::testgen_barrier!();
         cubecl_core::testgen_binary!();
         cubecl_core::testgen_branch!();
-        cubecl_core::testgen_const_match!();
         cubecl_core::testgen_different_rank!();
         cubecl_core::testgen_index!();
         cubecl_core::testgen_launch!();
@@ -110,6 +111,7 @@ macro_rules! testgen_int {
     () => {
         cubecl_core::testgen_unary_int!();
         cubecl_core::testgen_atomic_int!();
+        cubecl_core::testgen_saturating_int!();
     };
 }
 
@@ -118,6 +120,7 @@ macro_rules! testgen_int {
 macro_rules! testgen_uint {
     () => {
         cubecl_core::testgen_const_match!();
+        cubecl_core::testgen_saturating_uint!();
     };
 }
 

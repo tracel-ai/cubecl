@@ -1,6 +1,3 @@
-#![cfg_attr(not(feature = "std"), no_std)]
-#![allow(clippy::manual_is_multiple_of)]
-
 extern crate alloc;
 
 #[cfg(feature = "kernels")]

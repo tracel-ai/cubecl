@@ -3,8 +3,12 @@ use cubecl_ir::{
     IndexOperator, Instruction, LineSize, Operation, Operator, Scope, Type, UnaryOperator,
     Variable, VariableKind,
 };
+use cubecl_macros::cube;
 
-use crate::prelude::{CubeIndex, CubeType, ExpandElementTyped};
+use crate::{
+    self as cubecl,
+    prelude::{CubeIndex, CubeType, ExpandElementTyped, Int, eq, rem},
+};
 
 pub(crate) fn binary_expand<F, Op>(
     scope: &mut Scope,
@@ -311,4 +315,29 @@ pub fn array_assign_binary_op_expand<
     scope.register(read);
     scope.register(calculate);
     scope.register(Instruction::new(write, *array));
+}
+
+// Utilities for clippy lint compatibility
+impl<E: Int> ExpandElementTyped<E> {
+    pub fn __expand_div_ceil_method(
+        self,
+        scope: &mut Scope,
+        divisor: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<E> {
+        div_ceil::expand::<E>(scope, self, divisor)
+    }
+
+    pub fn __expand_is_multiple_of_method(
+        self,
+        scope: &mut Scope,
+        factor: ExpandElementTyped<E>,
+    ) -> ExpandElementTyped<bool> {
+        let modulo = rem::expand(scope, self, factor);
+        eq::expand(scope, modulo, E::from_int(0).into())
+    }
+}
+
+#[cube]
+pub fn div_ceil<E: Int>(a: E, b: E) -> E {
+    (a + b - E::new(1)) / b
 }
