@@ -415,7 +415,7 @@ impl<V: VirtualStorage> VirtualPool<V> {
             .expect("Virtual storage hashmap is not initialized");
         let final_handle = storage.defragment().ok_or(IoError::InvalidHandle)?;
         let slice = self.create_slice(final_handle, block_size);
-        self.slices.insert(slice.id(), slice)
+        self.slices.insert(slice.id(), slice);
 
         Ok(())
     }

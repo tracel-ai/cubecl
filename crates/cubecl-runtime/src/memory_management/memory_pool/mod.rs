@@ -3,7 +3,7 @@ mod ring;
 
 mod base;
 mod exclusive_pool;
-mod expandable_pool;
+mod virtual_pool;
 pub(crate) mod handle;
 mod sliced_pool;
 mod static_pool;
