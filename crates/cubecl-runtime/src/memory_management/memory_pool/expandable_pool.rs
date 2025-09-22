@@ -1,4 +1,4 @@
-use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId, calculate_padding};
+use super::{MemoryPool,  SliceBinding, SliceHandle, SliceId, calculate_padding};
 use crate::memory_management::MemoryUsage;
 use crate::server::IoError;
 use crate::storage::{StorageHandle, StorageId, VirtualStorage};
@@ -6,8 +6,13 @@ use alloc::vec::Vec;
 use hashbrown::HashMap;
 use std::collections::HashSet;
 
+
+/// An slice represents a virtual memory address range.
+/// This slice can be either mapped or unmapped to physical memory.
+/// At allocation time, [`VirtualSlices`] are automatically mapped, to guarantee it is available for use.
+/// When the [`SliceHandle`] becomes free, [`VirtualSlices`] can be unmapped, allowing for potential memory defragmentation.
 #[derive(Debug, Clone)]
-pub(crate) struct VirtualSlice {
+struct VirtualSlice {
     pub storage: StorageHandle,
     pub handle: SliceHandle,
     pub padding: u64,
@@ -16,12 +21,13 @@ pub(crate) struct VirtualSlice {
 }
 
 impl VirtualSlice {
-    pub(crate) fn new(
+    fn new(
         storage: StorageHandle,
         handle: SliceHandle,
         padding: u64,
         block_size: u64,
     ) -> Self {
+
         Self {
             storage,
             handle,
@@ -31,59 +37,79 @@ impl VirtualSlice {
         }
     }
 
-    pub(crate) fn is_free(&self) -> bool {
+    fn is_free(&self) -> bool {
         self.handle.is_free()
     }
 
-    pub(crate) fn effective_size(&self) -> u64 {
+    fn effective_size(&self) -> u64 {
         self.storage.size() + self.padding
     }
 
-    pub(crate) fn id(&self) -> SliceId {
+    fn id(&self) -> SliceId {
         *self.handle.id()
     }
 
-    pub(crate) fn block_size(&self) -> u64 {
+    fn block_size(&self) -> u64 {
         self.block_size
     }
 
-    pub(crate) fn is_mapped(&self) -> bool {
+    fn is_mapped(&self) -> bool {
         self.is_mapped
     }
 
-    pub(crate) fn set_mapped(&mut self, mapped: bool) {
+    fn set_mapped(&mut self, mapped: bool) {
         self.is_mapped = mapped;
     }
 
-    pub(crate) fn storage_size(&self) -> u64 {
+    fn storage_size(&self) -> u64 {
         self.storage.size()
     }
 
-    pub(crate) fn storage_id(&self) -> StorageId {
+    fn storage_id(&self) -> StorageId {
         self.storage.id
     }
 }
 
-/// A memory pool that manages multiple VirtualStorage instances with different block sizes
-/// to optimize memory allocation efficiency and reduce fragmentation.
-pub(crate) struct VirtualPool<V: VirtualStorage> {
+/// This memory pool manages multiple [`VirtualStorages`] of different block sizes.
+/// The main purpose of having multiple backing storages is to reduce to potential extra padding
+/// which can be associated with using virtual memory.
+/// Each VirtualStorage allocates physical memory blocks of size [`physical_block_size`]
+///
+/// At runtime, the memory pool selects the most optimal storage to minimize this padding.
+///
+/// The rule is:
+///    1. Prioritize the virtual storage with lower padding.
+///    2. If there is a tie, prioritize the storage with the highest physical_block_size.ç
+///
+/// The main difference between this pool and the [`SlicedPool`] is that
+/// memory defragmentation happens at the [`VirtualStorage`] level.
+/// This allows for potentially more effective and finer grained merging and splitting of memory blocks.
+///
+/// # Memory allocation workflow:
+///
+/// At allocation time, the storage that minimizes the ratio padding / physical - block - size is chosen.
+/// Inside the storage, the pool searches for all free slices.
+/// If it found an exact match, returns the free slice of the exact size as the requested size.
+/// If no exact match found, retrieves an slice that has a larger size than the requested size, calling the [`split_range`] method of the virtual storage to split the memory range at the required offset. Note that slices must be unmapped before this happens.
+struct VirtualPool<V: VirtualStorage> {
     /// Maps block size to its corresponding VirtualStorage instance
     virtual_storages: HashMap<u64, V>,
     /// Maps slice IDs to their corresponding slices
     slices: HashMap<SliceId, VirtualSlice>,
-    /// To query the slices on each storage.
+    /// Maintains state about the location of each slice.
     storage_to_slice: HashMap<u64, HashSet<SliceId>>,
-
     /// Maximum allocation size supported
     max_alloc_size: u64,
-    /// Memory alignment requirement
+    /// Memory alignment requirement.
+    /// This should be the allocation granularity of the target device.
+    /// However, in practice, each virtual storage will align allocations to [`physical_block_size`]
     alignment: u64,
-    //
+    /// To keep track of free slices and where they are.
     free_slices: HashMap<u64, Vec<SliceId>>,
 }
 
 impl<V: VirtualStorage> VirtualPool<V> {
-    pub(crate) fn new(
+    fn new(
         max_alloc_size: u64,
         alignment: u64,
         virtual_storages: HashMap<u64, V>,
@@ -113,6 +139,7 @@ impl<V: VirtualStorage> MemoryPool for VirtualPool<V> {
         self.max_alloc_size
     }
 
+    /// Get a new slice.
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         self.slices
             .get(binding.id())
@@ -121,6 +148,7 @@ impl<V: VirtualStorage> MemoryPool for VirtualPool<V> {
 
     /// Attempt to get a free slice.
     fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
+        // Runtime check to validate the size parameter
         if size == 0 {
             panic!(
                 "Cannot allocate zero-sized memory");
@@ -130,29 +158,35 @@ impl<V: VirtualStorage> MemoryPool for VirtualPool<V> {
             return None;
         }
 
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-        let block_size = self.select_optimal_block_size(effective_size).expect("Storage hashmap not initialized!");
+        // Select the best fit storage for this reservation
+        let block_size = self.select_optimal_block_size(size).expect("Storage hashmap not initialized!");
 
-        if let (Some(reused_slice_id), need_to_split) = self.find_slice_in_storage( block_size, effective_size).ok()? {
+        // Try to reuse a free slice.
+        if let (Some(reused_slice_id), need_to_split) = self.find_slice_in_storage( block_size, size).ok()? {
 
 
+            // If the result of the find_slice algorithm indicates that we need to split the slice, split it using the virtual storage and insert the resulting slice in the free list.
             if need_to_split {
                 let storage = self.virtual_storages.get_mut(&block_size).expect("Storage not found!");
                 let slice = self.slices.get_mut(&reused_slice_id).expect("Slice not found");
 
-                if let Ok(storage_handle) = storage.split_range(&mut slice.storage, effective_size as usize){
+                if let Ok(storage_handle) = storage.split_range(&mut slice.storage, size){
+
+                    // Create a new slice and push it to the free list.
                     let new_slice = self.create_slice(storage_handle);
-                    self.free_slices.entry(block_size).or_insert_with(Vec::new).push(new_slice.id());
+                    self.free_slices.entry(block_size).or_default().push(new_slice.id());
                     self.slices.insert(new_slice.id(), new_slice);
                 }
             }
 
-            let slice = self.slices.get_mut(&reused_slice_id).expect("Slice not found");
 
+            // Map the slice if not already mapped
+            let slice = self.slices.get_mut(&reused_slice_id).expect("Slice not found");
             if !slice.is_mapped() {
                 let storage = self.virtual_storages.get_mut(&block_size).expect("Storage not found!");
-                storage.map(&mut slice.storage);
+                if storage.map(&mut slice.storage).is_err() {
+                    return None
+                };
             };
 
             return Some(slice.handle.clone());
@@ -176,9 +210,7 @@ impl<V: VirtualStorage> MemoryPool for VirtualPool<V> {
             return Err(IoError::BufferTooBig(size as usize));
         }
 
-        let padding = calculate_padding(size, self.alignment);
-        let effective_size = size + padding;
-        self.allocate_new_slice(effective_size, padding)
+        self.allocate_new_slice(size)
     }
 
     fn get_memory_usage(&self) -> MemoryUsage {
@@ -200,15 +232,12 @@ impl<V: VirtualStorage> MemoryPool for VirtualPool<V> {
 
 impl<V: VirtualStorage> VirtualPool<V> {
 
-
     /// Creates a virtual slice of size `size` upon the given page with the given offset.
     fn create_slice(&mut self, storage_handle: StorageHandle) -> VirtualSlice {
         // Find the best virtual storage for this size
         let block_size = self.select_optimal_block_size(storage_handle.size()).expect("Storage hashmap not initialized!");
-        let storage = self.virtual_storages.get_mut(&block_size).expect("Storage not found!");
-
         let padding = calculate_padding(storage_handle.size(), block_size);
-        let effective_size = storage_handle.size() + padding;
+
 
         assert_eq!(
             storage_handle.offset() % self.alignment,
@@ -229,7 +258,7 @@ impl<V: VirtualStorage> VirtualPool<V> {
 
         self.storage_to_slice
             .entry(block_size)
-            .or_insert_with(HashSet::new)
+            .or_default()
             .insert(slice.id());
 
         slice
@@ -240,11 +269,14 @@ impl<V: VirtualStorage> VirtualPool<V> {
         block_size: u64,
         required_size: u64,
     ) -> Result<(Option<SliceId>, bool), IoError> {
+        // Get the free list of slices of this storage.
         let free_list = match self.free_slices.get_mut(&block_size) {
             Some(list) => list,
             None => return Ok((None, false)),
         };
 
+
+        // Iterate over the free list and check if we can
         for (index, &slice_id) in free_list.iter().enumerate() {
             if let Some(slice) = self.slices.get_mut(&slice_id) {
                 if !slice.is_free() {
@@ -261,7 +293,6 @@ impl<V: VirtualStorage> VirtualPool<V> {
 
                 // Case 2. Slice is bigger, need to split
                 if slice_size > required_size {
-
                     free_list.remove(index);
                     return Ok((Some(slice_id), true));
                 }
@@ -274,18 +305,19 @@ impl<V: VirtualStorage> VirtualPool<V> {
     /// Alocates a completely new slice.
     fn allocate_new_slice(
         &mut self,
-        effective_size: u64,
-        padding: u64,
+        size: u64,
     ) -> Result<SliceHandle, IoError> {
         let block_size = self
-            .select_optimal_block_size(effective_size)
+            .select_optimal_block_size(size)
             .ok_or_else(|| IoError::Unknown("No suitable virtual storage found".to_string()))?;
         let storage = self
             .virtual_storages
             .get_mut(&block_size)
             .ok_or_else(|| IoError::Unknown("Virtual storage not found".to_string()))?;
 
-        let mut storage_handle = storage.reserve(effective_size as usize, 0u64)?;
+
+        // Reserve and map a range of virtual addresses using the virtual storage.
+        let mut storage_handle = storage.reserve(size, 0u64)?;
         storage.map(&mut storage_handle)?;
 
         let mut slice = self.create_slice(storage_handle);
@@ -359,22 +391,21 @@ impl<V: VirtualStorage> VirtualPool<V> {
 
         let block_size = slice.block_size();
         let free_slice_ids: Vec<SliceId> = self.free_slices
-            .get(&block_size)
-            .map(|list| list.clone())
+            .get(&block_size).cloned()
             .unwrap_or_default();
 
         // Try to merge with any adjacent slice
         for &other_id in free_slice_ids.iter() {
-            if other_id != slice_id && self.slices.contains_key(&other_id) {
-                if self.are_slices_adjacent(slice_id, other_id)? {
+            if other_id != slice_id && self.slices.contains_key(&other_id) && self.are_slices_adjacent(slice_id, other_id)? {
                     return self.merge_slice(slice_id, other_id);
                 }
             }
+            // No adjacent slice found
+        Ok(slice_id)
         }
 
-        // No adjacent slice found
-        Ok(slice_id)
-    }
+
+
 
 
 
@@ -392,18 +423,18 @@ impl<V: VirtualStorage> VirtualPool<V> {
 
             // Add to free list if not already there
             let block_size = slice.block_size();
-            if let Some(free_list) = self.free_slices.get_mut(&block_size) {
-                if !free_list.contains(&slice_id) {
+            if let Some(free_list) = self.free_slices.get_mut(&block_size) && !free_list.contains(&slice_id) {
                     free_list.push(slice_id);
                 }
             }
 
             // Try to merge with adjacent slices
             self.try_merge_with_adjacent(slice_id)?;
+            Ok(())
         }
 
-        Ok(())
-    }
+
+
  pub fn merge_slice(&mut self, first_id: SliceId, second_id: SliceId) -> Result<SliceId, IoError> {
         // Basic validations
         let first_slice = self.slices.get(&first_id)
@@ -510,8 +541,7 @@ impl<V: VirtualStorage> VirtualPool<V> {
 
             // Get all free slices for this storage
             let free_slice_ids: Vec<SliceId> = self.free_slices
-                .get(&block_size)
-                .map(|list| list.clone())
+                .get(&block_size).cloned()
                 .unwrap_or_default();
 
             // Try to find adjacent pairs to merge
@@ -527,18 +557,17 @@ impl<V: VirtualStorage> VirtualPool<V> {
                     continue;
                 }
 
-                for j in (i + 1)..free_slice_ids.len() {
-                    let second_id = free_slice_ids[j];
+                for second_id in free_slice_ids.iter().skip(i + 1) {
 
                     // Skip if slice was already merged
-                    if !self.slices.contains_key(&second_id) {
+                    if !self.slices.contains_key(second_id) {
                         continue;
                     }
 
                     // Check if slices are adjacent
-                    if self.are_slices_adjacent(first_id, second_id)? {
+                    if self.are_slices_adjacent(first_id, *second_id)? {
                         // Attempt to merge
-                        match self.merge_slice(first_id, second_id) {
+                        match self.merge_slice(first_id, *second_id) {
                             Ok(_) => {
                                 merges_count += 1;
                                 made_progress = true;
