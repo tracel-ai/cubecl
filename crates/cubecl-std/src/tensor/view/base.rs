@@ -270,6 +270,18 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_checked_method(scope, pos)
     }
 
+    /// Expand method for [TensorView::read_masked]
+    pub fn __expand_read_masked_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        mask_value: E::ExpandType,
+    ) -> ExpandElementTyped<E> {
+        self.inner
+            .read()
+            .__expand_read_masked_method(scope, pos, mask_value)
+    }
+
     /// Expand method for [TensorView::line_size]
     pub fn __expand_line_size_method(self, _scope: &mut Scope) -> u32 {
         self.inner.read().line_size()

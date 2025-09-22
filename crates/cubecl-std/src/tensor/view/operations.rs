@@ -21,6 +21,11 @@ pub trait ViewOperations<T: CubePrimitive, C: Coordinates>: Lined {
     }
 
     #[allow(unused)]
+    fn read_masked(&self, pos: C, value: T) -> T {
+        unexpanded!()
+    }
+
+    #[allow(unused)]
     fn read_unchecked(&self, pos: C) -> T {
         unexpanded!()
     }
@@ -166,6 +171,18 @@ macro_rules! impl_operations_1d {
                 read_masked::expand::<T>(scope, in_bounds, slice, pos, zero)
             }
 
+            fn __expand_read_masked_method(
+                &self,
+                scope: &mut Scope,
+                pos: ExpandElementTyped<u32>,
+                mask_value: <T>::ExpandType,
+            ) -> <T>::ExpandType {
+                let len = self.clone().__expand_buffer_len_method(scope);
+                let in_bounds = lt::expand(scope, pos.clone(), len);
+                let slice = self.clone().__expand_to_slice_method(scope);
+                read_masked::expand::<T>(scope, in_bounds, slice, pos, mask_value)
+            }
+
             fn __expand_read_unchecked_method(
                 &self,
                 scope: &mut Scope,
@@ -268,6 +285,18 @@ mod slice {
             read_masked::expand::<T>(scope, in_bounds, slice, pos, zero)
         }
 
+        fn __expand_read_masked_method(
+            &self,
+            scope: &mut Scope,
+            pos: ExpandElementTyped<u32>,
+            mask_value: <T>::ExpandType,
+        ) -> <T>::ExpandType {
+            let len = self.__expand_len_method(scope);
+            let in_bounds = lt::expand(scope, pos.clone(), len);
+            let slice = self.clone().__expand_to_slice_method(scope);
+            read_masked::expand::<T>(scope, in_bounds, slice, pos, mask_value)
+        }
+
         fn __expand_read_unchecked_method(
             &self,
             scope: &mut Scope,
@@ -361,6 +390,18 @@ mod virtual_tensor {
             let slice = self.clone().__expand_to_slice_method(scope);
             let zero = Line::__expand_cast_from(scope, 0.into());
             read_masked::expand::<Line<T>>(scope, in_bounds, slice, pos, zero)
+        }
+
+        fn __expand_read_masked_method(
+            &self,
+            scope: &mut Scope,
+            pos: ExpandElementTyped<u32>,
+            mask_value: <Line<T> as CubeType>::ExpandType,
+        ) -> <Line<T> as CubeType>::ExpandType {
+            let len = self.__expand_len_method(scope);
+            let in_bounds = lt::expand(scope, pos.clone(), len);
+            let slice = self.clone().__expand_to_slice_method(scope);
+            read_masked::expand::<Line<T>>(scope, in_bounds, slice, pos, mask_value)
         }
 
         fn __expand_read_unchecked_method(
@@ -562,6 +603,20 @@ macro_rules! impl_virtual_read {
                 select::expand::<T>(scope, in_bounds, value, zero)
             }
 
+            fn __expand_read_masked_method(
+                &self,
+                scope: &mut Scope,
+                pos: <C>::ExpandType,
+                mask_value: <T>::ExpandType,
+            ) -> <T>::ExpandType {
+                let (read_pos, in_bounds) = self
+                    .layout
+                    .clone()
+                    .__expand_to_source_pos_checked_method(scope, pos);
+                let value = self.view.__expand_read_checked_method(scope, read_pos);
+                select::expand::<T>(scope, in_bounds, value, mask_value)
+            }
+
             fn __expand_read_unchecked_method(
                 &self,
                 scope: &mut Scope,
@@ -694,6 +749,15 @@ mod view {
             pos: <C>::ExpandType,
         ) -> <T>::ExpandType {
             ViewExpand::__expand_read_checked_method(self.clone(), scope, pos)
+        }
+
+        fn __expand_read_masked_method(
+            &self,
+            scope: &mut Scope,
+            pos: <C>::ExpandType,
+            mask_value: <T>::ExpandType,
+        ) -> <T>::ExpandType {
+            ViewExpand::__expand_read_masked_method(self.clone(), scope, pos, mask_value)
         }
 
         fn __expand_read_unchecked_method(
