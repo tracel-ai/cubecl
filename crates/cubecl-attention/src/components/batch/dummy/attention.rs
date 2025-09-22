@@ -31,7 +31,11 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     ) {
         let q_index = CUBE_POS;
 
-        let q_offset = q_index * config.global_config().tiling_scheme().elements_in_stage_seq_q();
+        let q_offset = q_index
+            * config
+                .global_config()
+                .tiling_scheme()
+                .elements_in_stage_seq_q();
         let seq_kv = key.shape(1);
 
         let global_config = config.global_config();
