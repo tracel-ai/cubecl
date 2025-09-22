@@ -1,6 +1,6 @@
 use crate::components::{
     MatmulIdent,
-    global::{MaxLoaderPlanes, specialization::roles::PlaneRoles},
+    global::{MaxGlobalReaderPlanes, specialization::roles::PlaneRoles},
 };
 
 /// Configuration for how each input tensor (Lhs and Rhs) is loaded,
@@ -48,18 +48,22 @@ impl SpecializationTensorConfig {
 impl LoadSpecializationConfig {
     /// Computes how many planes of each role there should be,
     /// using the number of planes needed for main execution, and how
-    /// many planes each loader can handle
+    /// many planes each reader can handle
     ///
-    /// The strategy is to find a balanced divisor for loader planes that stays as
+    /// The strategy is to find a balanced divisor for reader planes that stays as
     /// close as possible to the main execution plane count.
-    pub fn to_plane_roles(&self, main_flow: u32, loader_tasks: MaxLoaderPlanes) -> PlaneRoles {
+    pub fn to_plane_roles(
+        &self,
+        main_flow: u32,
+        reader_tasks: MaxGlobalReaderPlanes,
+    ) -> PlaneRoles {
         use SpecializationTensorConfig::*;
 
         let ideal_load_only = match (self.lhs, self.rhs) {
             (MainFlowOnly, MainFlowOnly) => 0,
-            (MainFlowOnly, LoadFlowOnly) => loader_tasks.rhs,
-            (LoadFlowOnly, MainFlowOnly) => loader_tasks.lhs,
-            (LoadFlowOnly, LoadFlowOnly) => gcd(loader_tasks.lhs, loader_tasks.rhs),
+            (MainFlowOnly, LoadFlowOnly) => reader_tasks.rhs,
+            (LoadFlowOnly, MainFlowOnly) => reader_tasks.lhs,
+            (LoadFlowOnly, LoadFlowOnly) => gcd(reader_tasks.lhs, reader_tasks.rhs),
         };
 
         // Don't stray too far from main_flow

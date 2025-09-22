@@ -3,10 +3,11 @@ use crate::components::stage::StageReaderFamily;
 use crate::components::stage::TilingLayout;
 use crate::components::tile::Tile;
 use crate::components::{StageIdent, stage::StageReader};
-use crate::components::{global::load::StageBuffer, tile::loader::Strided};
-use crate::components::{stage::StageMemory, tile::loader::Filled};
+use crate::components::{global::read::StageBuffer, tile::reader::Strided};
+use crate::components::{stage::StageMemory, tile::reader::Filled};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
 
 /// Full reader family for any precision
 pub struct FullStageReaderFamily;
@@ -44,12 +45,11 @@ impl<ES: Numeric, T: TilingLayout> StageReader<ES> for FullStageReader<ES, T> {
 
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> Tile<ES> {
         this.stage_memory
-            .get_tile::<S>(row, col, 0u32, this.stage_ident, config)
+            .get_tile::<S>(tile, 0u32, this.stage_ident, config)
     }
 }
 
@@ -93,13 +93,11 @@ impl<ES: Numeric, T: TilingLayout> StageReader<ES> for PartialStageReader<ES, T>
 
     fn read_tile<S: StageMemoryConfig>(
         this: &Self,
-        row: u32,
-        col: u32,
+        tile: Coords2d,
         #[comptime] config: S,
     ) -> Tile<ES> {
         this.stage_memory.get_tile::<S>(
-            row,
-            col,
+            tile,
             comptime!(this.stage_buffer.to_index()),
             this.stage_ident,
             config,
@@ -133,12 +131,7 @@ impl<ES: Numeric> FillStageReader<ES> {
 impl<ES: Numeric> StageReader<ES> for FillStageReader<ES> {
     type TileKind = Filled;
 
-    fn read_tile<S: StageMemoryConfig>(
-        this: &Self,
-        _row: u32,
-        _col: u32,
-        #[comptime] _config: S,
-    ) -> ES {
+    fn read_tile<S: StageMemoryConfig>(this: &Self, _tile: Coords2d, #[comptime] _config: S) -> ES {
         this.value
     }
 }

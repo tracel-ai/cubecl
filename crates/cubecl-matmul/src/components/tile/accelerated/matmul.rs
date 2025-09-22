@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
 use crate::components::tile::tile_data::Tile;
-use crate::components::tile::{TileConfig, TileMatmul, accelerated::loader::CmmaFragmentLoader};
+use crate::components::tile::{TileConfig, TileMatmul, accelerated::reader::CmmaFragmentReader};
 use crate::components::tile::{
-    accelerated::{config::AcceleratedConfig, loader::CmmaTileLoader},
-    loader::{Strided, TileKind},
+    accelerated::{config::AcceleratedConfig, reader::CmmaTileReader},
+    reader::{Strided, TileKind},
 };
 use crate::components::{StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
@@ -20,16 +20,16 @@ pub struct AcceleratedMatmul<Acc: TileKind> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for AcceleratedMatmul<Acc>
 where
-    CmmaTileLoader<Acc>: CmmaFragmentLoader<TileKind = Acc>,
+    CmmaTileReader<Acc>: CmmaFragmentReader<TileKind = Acc>,
 {
     type Config = AcceleratedConfig;
     type LhsFragment = cmma::Matrix<L>;
     type RhsFragment = cmma::Matrix<R>;
     type AccFragment = cmma::Matrix<A>;
 
-    type LhsTileLoader = CmmaTileLoader<Strided>;
-    type RhsTileLoader = CmmaTileLoader<Strided>;
-    type AccTileLoader = CmmaTileLoader<Acc>;
+    type LhsTileReader = CmmaTileReader<Strided>;
+    type RhsTileReader = CmmaTileReader<Strided>;
+    type AccTileReader = CmmaTileReader<Acc>;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -73,7 +73,7 @@ where
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsTileLoader::load_fragment(
+        Self::LhsTileReader::load_fragment(
             tile,
             lhs,
             CubeOption::new_None(),
@@ -86,7 +86,7 @@ where
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsTileLoader::load_fragment(
+        Self::RhsTileReader::load_fragment(
             tile,
             rhs,
             CubeOption::new_None(),
@@ -100,7 +100,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        Self::AccTileLoader::load_fragment(
+        Self::AccTileReader::load_fragment(
             tile,
             acc,
             CubeOption::new_Some(layout),

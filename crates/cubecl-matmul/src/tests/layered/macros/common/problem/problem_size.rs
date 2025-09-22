@@ -3,7 +3,6 @@ macro_rules! testgen_matmul_problem_size {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection: expr, $layouts: expr) => {
         use $crate::components::MatmulProblem;
 
-        #[cfg(feature = "matmul_tests_vecmat")]
         mod g256x256x256 {
             use super::*;
             $crate::testgen_matmul_launch!(

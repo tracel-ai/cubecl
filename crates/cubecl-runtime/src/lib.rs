@@ -14,6 +14,10 @@ pub mod id;
 /// Kernel related traits.
 pub mod kernel;
 
+/// Stream related utilities.
+#[cfg(feature = "std")]
+pub mod stream;
+
 /// Compute channel module.
 pub mod channel;
 /// Compute client module.

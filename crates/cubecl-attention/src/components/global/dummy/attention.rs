@@ -5,10 +5,11 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
-use crate::components::FlashIdent;
-use crate::components::global::AttentionGlobalLayout;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyLoader, DummyValueLoader, QueryLoader};
+use crate::components::global::{
+    AttentionGlobalLayout,
+    dummy::{DummyKeyReader, DummyValueReader},
+};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::tile::dummy::FlashMatmulConfig;
@@ -16,6 +17,7 @@ use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
 };
+use crate::components::{FlashIdent, global::dummy::QueryReader};
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
     _phantom: PhantomData<(AP, SA)>,
@@ -31,28 +33,28 @@ impl<
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
 {
-    type KeyLoader = DummyKeyLoader<AP, Self::Config>;
-    type ValueLoader = DummyValueLoader<AP, Self::Config>;
+    type KeyReader = DummyKeyReader<AP, Self::Config>;
+    type ValueReader = DummyValueReader<AP, Self::Config>;
 
     type Writer = SA::Writer;
 
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: QueryLoader<AP>,
-        mut key_loader: Self::KeyLoader,
-        mut value_loader: Self::ValueLoader,
+        query_reader: QueryReader<AP>,
+        mut key_reader: Self::KeyReader,
+        mut value_reader: Self::ValueReader,
         mut writer: Self::Writer,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        let key_reader = key_loader.reader();
-        let value_reader = value_loader.reader();
+        let key_stage_reader = key_reader.stage_reader();
+        let value_stage_reader = value_reader.stage_reader();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
         let (query, mut key_value, mut score_prob, mut accumulator) =
-            SA::init_fragments(query_loader, config.stage_config());
+            SA::init_fragments(query_reader, config.stage_config());
 
         let seq_kv_stage = config.tiling_scheme().seq_kv();
 
@@ -66,13 +68,13 @@ impl<
                 CubeOption::new_None()
             };
 
-            key_loader.load_transposed(config);
-            value_loader.load(config);
+            key_reader.read_transposed(config);
+            value_reader.read(config);
             sync_cube();
 
             SA::execute(
-                &key_reader,
-                &value_reader,
+                &key_stage_reader,
+                &value_stage_reader,
                 &query,
                 &mut key_value,
                 &mut score_prob,
@@ -83,9 +85,8 @@ impl<
             );
 
             sync_cube();
-
-            key_loader.advance_view(seq_kv_stage);
-            value_loader.advance_view(seq_kv_stage);
+            key_reader.advance_view();
+            value_reader.advance_view();
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
@@ -93,33 +94,35 @@ impl<
         SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
     }
 
-    fn init_query_loader(
+    fn init_query_reader(
         q_offset: u32,
         query: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> QueryLoader<AP> {
+    ) -> QueryReader<AP> {
         let layout =
             AttentionGlobalLayout::new(&query, 0, config.global_memory_config(FlashIdent::Query));
 
-        QueryLoader::<AP>::new(q_offset, query.view(layout))
+        QueryReader::<AP>::new(q_offset, query.view(layout))
     }
 
-    fn init_key_loader(
+    fn init_key_reader(
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::KeyLoader {
+    ) -> Self::KeyReader {
+        let step = reduction_step::<Self::Config>(config);
         let layout =
             AttentionGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
-        DummyKeyLoader::new(key.view(layout), config)
+        DummyKeyReader::new(key.view(layout), step, config)
     }
 
-    fn init_value_loader(
+    fn init_value_reader(
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
-    ) -> Self::ValueLoader {
+    ) -> Self::ValueReader {
+        let step = reduction_step::<Self::Config>(config);
         let layout =
             AttentionGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
-        DummyValueLoader::new(value.view(layout), config)
+        DummyValueReader::new(value.view(layout), step, config)
     }
 
     fn init_writer(
@@ -127,9 +130,14 @@ impl<
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let layout =
-            AttentionGlobalLayout::new(&out, 0, config.global_memory_config(FlashIdent::Out));
+        let conf = config.global_memory_config(FlashIdent::Out);
+        let layout = AttentionGlobalLayout::new(&out, 0, conf);
         let out = out.view_mut(layout);
-        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()))
+        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()), conf)
     }
+}
+
+#[cube]
+fn reduction_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
+    config.tiling_scheme().seq_kv().runtime()
 }

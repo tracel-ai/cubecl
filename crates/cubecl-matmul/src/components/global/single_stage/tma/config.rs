@@ -8,8 +8,8 @@ use crate::components::{
     error::{MatmulAvailabilityError, MatmulSetupError},
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-        load::{LoaderMode, LoadingValidation},
         multi_stage::EventLoadingMode,
+        read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
     stage,
@@ -25,7 +25,7 @@ pub struct SimpleTmaConfig<S: stage::StageConfig> {
     check_k_bounds: bool,
     pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
-    loader_mode: LoaderMode,
+    reader_mode: ReaderMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
@@ -80,8 +80,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleTmaConfig<S> {
         self.precompute_job.into()
     }
 
-    fn loader_mode(&self) -> LoaderMode {
-        self.loader_mode
+    fn reader_mode(&self) -> ReaderMode {
+        self.reader_mode
     }
 
     fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
@@ -115,7 +115,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     /// Create a new config for tma global matmul
     ///
     /// May return an error if:
-    /// - a loader is invalid
+    /// - a reader is invalid
     /// - CubeDim is too big
     /// - TMA is not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
@@ -127,7 +127,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
         check_k_bounds: bool,
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
-        loader_mode: LoaderMode,
+        reader_mode: ReaderMode,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
@@ -137,7 +137,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
             check_k_bounds,
             k_step,
             precompute_job,
-            loader_mode,
+            reader_mode,
         }
         .validate::<LL, RL>()?
         .check_availability::<MP, R>(client)

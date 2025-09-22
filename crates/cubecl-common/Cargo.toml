@@ -79,6 +79,9 @@ web-time = { workspace = true }
 [target.'cfg(target_os = "none")'.dependencies]
 embassy-time = { workspace = true }
 
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
 [dev-dependencies]
 bincode = { workspace = true }
 dashmap = { workspace = true }

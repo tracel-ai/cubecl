@@ -10,7 +10,7 @@ use crate::{
         stage::{FillStageReaderFamily, FullStageReaderFamily, PlaneMatmulFamily},
         tile::{
             TileMatmulFamily,
-            loader::{Filled, Strided},
+            reader::{Filled, Strided},
         },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},

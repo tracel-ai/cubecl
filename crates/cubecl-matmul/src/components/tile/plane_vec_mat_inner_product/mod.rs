@@ -1,6 +1,6 @@
 mod config;
-mod loader;
 mod matmul;
+mod reader;
 mod setup;
 
 pub use matmul::*;

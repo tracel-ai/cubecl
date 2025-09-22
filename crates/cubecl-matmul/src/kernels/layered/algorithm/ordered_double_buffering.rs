@@ -15,15 +15,15 @@ use crate::components::{
     stage::FillStageReaderFamily,
 };
 use crate::components::{
-    global::load::sync_partial_cyclic::SyncPartialCyclicLoading, tile::loader::Strided,
+    global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::reader::Filled,
 };
 use crate::components::{
-    global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::loader::Filled,
+    global::read::sync_partial_cyclic::SyncPartialCyclicLoading, tile::reader::Strided,
 };
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
-/// Plane accelerated double buffered matmul ordered on Lhs with cyclic loader on Rhs
+/// Plane accelerated double buffered matmul ordered on Lhs with cyclic reader on Rhs
 pub struct OrderedDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }

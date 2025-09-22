@@ -1,13 +1,6 @@
 use crate::{
     WmmaCompiler,
-    compute::{
-        CudaContext, CudaServer,
-        storage::{
-            cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
-            gpu::GpuStorage,
-        },
-        valid_strides,
-    },
+    compute::{CudaServer, context::CudaContext, valid_strides},
     device::CudaDevice,
 };
 use cubecl_common::profile::TimingMethod;
@@ -31,7 +24,7 @@ use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
     channel::MutexComputeChannel,
     client::ComputeClient,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use std::mem::MaybeUninit;
@@ -75,12 +68,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         arch_major * 10 + minor
     } as u32;
-    // 32 bytes is enough to handle a double4 worth of alignment.
-    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
-    // trying this in the future to see if it reduces memory coalescing.
+
+    // cudamalloc and co. align to _256_ bytes.
     //
     // TODO: Find the correct value from the driver.
-    let mem_alignment = 32;
+    let mem_alignment = 256;
 
     // Ask the wmma compiler for its supported combinations
     let arch = CudaArchitecture {
@@ -96,16 +88,11 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         ctx
     };
 
-    let stream = cudarc::driver::result::stream::create(
-        cudarc::driver::result::stream::StreamKind::NonBlocking,
-    )
-    .unwrap();
     let max_memory = unsafe {
         let mut bytes = MaybeUninit::uninit();
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
-    let storage = GpuStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
@@ -162,26 +149,9 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         }
     };
 
-    let memory_management_gpu = MemoryManagement::from_configuration(
-        storage,
-        &mem_properties,
-        options.memory_config.clone(),
-    );
-    // We use the same page size and memory pools configuration for CPU pinned memory, since we
-    // expect the CPU to have at least the same amount of RAM as GPU memory.
-    let memory_management_cpu = MemoryManagement::from_configuration(
-        PinnedMemoryStorage::new(),
-        &MemoryDeviceProperties {
-            max_page_size: mem_properties.max_page_size,
-            alignment: PINNED_MEMORY_ALIGNMENT as u64,
-            data_transfer_async: false,
-        },
-        options.memory_config,
-    );
-
     let mut device_props = DeviceProperties::new(
         Default::default(),
-        mem_properties,
+        mem_properties.clone(),
         hardware_props,
         TimingMethod::System,
     );
@@ -261,15 +231,13 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     register_mma_features(supported_mma_combinations, &mut device_props);
     register_scaled_mma_features(supported_scaled_mma_combinations, &mut device_props);
 
-    let cuda_ctx = CudaContext::new(
-        memory_management_gpu,
-        memory_management_cpu,
-        comp_opts,
-        stream,
-        ctx,
-        arch,
+    let cuda_ctx = CudaContext::new(comp_opts, ctx, arch);
+    let server = CudaServer::new(
+        cuda_ctx,
+        mem_properties,
+        options.memory_config,
+        mem_alignment,
     );
-    let server = CudaServer::new(mem_alignment, cuda_ctx);
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
 

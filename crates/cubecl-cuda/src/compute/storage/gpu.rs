@@ -14,8 +14,8 @@ use std::collections::{HashMap, VecDeque};
 pub struct GpuStorage {
     memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
     deallocations: Vec<StorageId>,
-    stream: cudarc::driver::sys::CUstream,
     ptr_bindings: PtrBindings,
+    stream: cudarc::driver::sys::CUstream,
     mem_alignment: usize,
 }
 
@@ -43,13 +43,12 @@ impl GpuStorage {
     /// # Arguments
     ///
     /// * `mem_alignment` - The memory alignment requirement in bytes.
-    /// * `stream` - The CUDA stream for asynchronous memory operations.
-    pub fn new(mem_alignment: usize, stream: CUstream) -> Self {
+    pub fn new(mem_alignment: usize, stream: cudarc::driver::sys::CUstream) -> Self {
         Self {
             memory: HashMap::new(),
             deallocations: Vec::new(),
-            stream,
             ptr_bindings: PtrBindings::new(),
+            stream,
             mem_alignment,
         }
     }
@@ -73,9 +72,7 @@ unsafe impl Send for GpuStorage {}
 
 impl core::fmt::Debug for GpuStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("GpuStorage")
-            .field("stream", &self.stream)
-            .finish()
+        f.debug_struct("GpuStorage").finish()
     }
 }
 
@@ -159,6 +156,7 @@ impl ComputeStorage for GpuStorage {
                 )));
             }
         };
+
         self.memory.insert(id, ptr);
         Ok(StorageHandle::new(
             id,

@@ -20,6 +20,7 @@ pub mod plane;
 pub mod saturating;
 pub mod sequence;
 pub mod slice;
+pub mod stream;
 pub mod synchronization;
 pub mod tensor;
 pub mod tensormap;
@@ -95,6 +96,7 @@ macro_rules! testgen_float {
         cubecl_core::testgen_plane!();
         cubecl_core::testgen_sequence!();
         cubecl_core::testgen_slice!();
+        cubecl_core::testgen_stream!();
         cubecl_core::testgen_unary!();
         cubecl_core::testgen_atomic_float!();
         cubecl_core::testgen_tensormap!();

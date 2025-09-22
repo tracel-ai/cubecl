@@ -3,6 +3,7 @@ use crate::{WgpuResource, controller::WgpuAllocController};
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
+    stream_id::StreamId,
 };
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
@@ -365,8 +366,8 @@ impl WgpuStream {
         }
     }
 
-    pub fn empty(&mut self, size: u64) -> Result<Handle, IoError> {
-        self.mem_manage.reserve(size)
+    pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
+        self.mem_manage.reserve(size, stream_id)
     }
 
     fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {

@@ -2,6 +2,7 @@ use cubecl_common::ExecutionMode;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_common::stream_id::StreamId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{
     Bindings, CopyDescriptor, DataTransferService, ProfileError, ProfilingToken,
@@ -15,7 +16,7 @@ use cubecl_runtime::{
 use std::sync::Arc;
 
 use super::DummyKernel;
-use cubecl_runtime::memory_management::MemoryUsage;
+use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
@@ -69,6 +70,7 @@ impl ComputeServer for DummyServer {
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         descriptors
             .into_iter()
@@ -83,6 +85,8 @@ impl ComputeServer for DummyServer {
                     self.memory_management.reserve(size as u64)?,
                     None,
                     None,
+                    stream_id,
+                    0,
                     size as u64,
                 );
                 Ok(Allocation::new(handle, strides))
@@ -90,7 +94,11 @@ impl ComputeServer for DummyServer {
             .collect()
     }
 
-    fn read(&mut self, descriptors: Vec<CopyDescriptor>) -> DynFut<Result<Vec<Bytes>, IoError>> {
+    fn read(
+        &mut self,
+        descriptors: Vec<CopyDescriptor>,
+        _stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let bytes: Vec<_> = descriptors
             .into_iter()
             .map(|b| {
@@ -110,20 +118,28 @@ impl ComputeServer for DummyServer {
         })
     }
 
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
-            let resource = self.get_resource(descriptor.binding);
+            let resource = self.get_resource(descriptor.binding, stream_id);
             let bytes = resource.resource().write();
             bytes[..data.len()].copy_from_slice(data);
         }
         Ok(())
     }
 
-    fn sync(&mut self) -> DynFut<()> {
+    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
         Box::pin(async move {})
     }
 
-    fn get_resource(&mut self, binding: Binding) -> BindingResource<BytesResource> {
+    fn get_resource(
+        &mut self,
+        binding: Binding,
+        _stream_id: StreamId,
+    ) -> BindingResource<BytesResource> {
         let handle = self.memory_management.get(binding.clone().memory).unwrap();
         BindingResource::new(binding, self.memory_management.storage().get(&handle))
     }
@@ -135,50 +151,59 @@ impl ComputeServer for DummyServer {
         bindings: Bindings,
         _mode: ExecutionMode,
         _logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
-            .map(|b| self.get_resource(b))
+            .map(|b| self.get_resource(b, stream_id))
             .collect();
         let metadata = self
-            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data))
+            .create_with_data(bytemuck::cast_slice(&bindings.metadata.data), stream_id)
             .unwrap();
-        resources.push(self.get_resource(metadata.binding()));
+        resources.push(self.get_resource(metadata.binding(), stream_id));
 
         let scalars = bindings
             .scalars
             .into_values()
-            .map(|s| self.create_with_data(s.data()).unwrap())
+            .map(|s| self.create_with_data(s.data(), stream_id).unwrap())
             .collect::<Vec<_>>();
-        resources.extend(scalars.into_iter().map(|h| self.get_resource(h.binding())));
+        resources.extend(
+            scalars
+                .into_iter()
+                .map(|h| self.get_resource(h.binding(), stream_id)),
+        );
 
         let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
 
         kernel.compute(&mut resources);
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, _stream_id: StreamId) {
         // Nothing to do with dummy backend.
     }
 
-    fn memory_usage(&self) -> MemoryUsage {
+    fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
         self.memory_management.memory_usage()
     }
 
-    fn memory_cleanup(&mut self) {
+    fn memory_cleanup(&mut self, _stream_id: StreamId) {
         self.memory_management.cleanup(true);
     }
 
-    fn start_profile(&mut self) -> ProfilingToken {
+    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
         self.timestamps.start()
     }
 
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
+    fn end_profile(
+        &mut self,
+        _stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
         self.timestamps.stop(token)
     }
 
-    fn allocation_mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
     }
 }

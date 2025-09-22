@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
 use crate::components::StageIdent;
-use crate::components::tile::{TileConfig, TileMatmul, register::loader::RegisterFragmentLoader};
+use crate::components::tile::{TileConfig, TileMatmul, register::reader::RegisterFragmentReader};
 use crate::components::tile::{
-    loader::Strided,
+    reader::Strided,
     register::{
         config::{ProductType, RegisterConfig},
-        loader::RegisterTileLoader,
+        reader::RegisterTileReader,
     },
 };
-use crate::components::tile::{loader::TileKind, tile_data::Tile};
+use crate::components::tile::{reader::TileKind, tile_data::Tile};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -26,16 +26,16 @@ static UNROLL: bool = false;
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
 where
-    RegisterTileLoader<Acc>: RegisterFragmentLoader<TileKind = Acc>,
+    RegisterTileReader<Acc>: RegisterFragmentReader<TileKind = Acc>,
 {
     type Config = RegisterConfig;
     type LhsFragment = Array<L>;
     type RhsFragment = Array<R>;
     type AccFragment = Array<A>;
 
-    type LhsTileLoader = RegisterTileLoader<Strided>;
-    type RhsTileLoader = RegisterTileLoader<Strided>;
-    type AccTileLoader = RegisterTileLoader<Acc>;
+    type LhsTileReader = RegisterTileReader<Strided>;
+    type RhsTileReader = RegisterTileReader<Strided>;
+    type AccTileReader = RegisterTileReader<Acc>;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -66,7 +66,7 @@ where
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsTileLoader::load_fragment(tile, lhs, StageIdent::Lhs, config)
+        Self::LhsTileReader::load_fragment(tile, lhs, StageIdent::Lhs, config)
     }
 
     fn load_rhs<E: Numeric>(
@@ -74,7 +74,7 @@ where
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsTileLoader::load_fragment(tile, rhs, StageIdent::Rhs, config)
+        Self::RhsTileReader::load_fragment(tile, rhs, StageIdent::Rhs, config)
     }
 
     fn load_acc<E: Numeric>(
@@ -82,7 +82,7 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccTileLoader::load_fragment(tile, acc, StageIdent::Acc, config);
+        Self::AccTileReader::load_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(

@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     MatmulSetupError, RhsG,
-    global::StageUnloader,
+    global::GlobalWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{
@@ -37,70 +37,70 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
 
 #[cube]
 pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
-    /// The loader for the Lhs (input feature map) tensor
-    type LhsStageLoader: CubeType;
-    /// The loader for the Rhs (weight) tensor
-    type RhsStageLoader: CubeType;
-    /// The loader for the accumulator (bias) tensor
-    type AccStageLoader: CubeType;
+    /// The global reader for the Lhs (input feature map) tensor
+    type LhsGlobalReader: CubeType;
+    /// The global reader for the Rhs (weight) tensor
+    type RhsGlobalReader: CubeType;
+    /// The global reader for the accumulator (bias) tensor
+    type AccGlobalReader: CubeType;
     /// The config type of the convolution
     type Config: ConvGemmConfig;
 
     /// The writer used to write the results to the output feature map
-    type StageUnloader: StageUnloader<AccG<MP>>;
+    type GlobalWriter: GlobalWriter<AccG<MP>>;
     /// The type of the tile matmul accumulator
     type Accumulators: CubeType;
 
     /// Performs the convolution over data loaded by the
-    /// LHS and RHS loaders, over the range given for K, and stores with
+    /// LHS and RHS readers, over the range given for K, and stores with
     /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of LHS and RHS.
     fn execute(
-        lhs_loader: Self::LhsStageLoader,
-        rhs_loader: Self::RhsStageLoader,
-        acc_loader: Self::AccStageLoader,
-        writer: Self::StageUnloader,
+        lhs_reader: Self::LhsGlobalReader,
+        rhs_reader: Self::RhsGlobalReader,
+        acc_reader: Self::AccGlobalReader,
+        writer: Self::GlobalWriter,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
-    /// Initializes the loader for the input feature map with an appropriate layout
-    fn init_lhs_loader(
+    /// Initializes the global reader for the input feature map with an appropriate layout
+    fn init_lhs_global_reader(
         lhs: VirtualTensor<LhsG<MP>>,
         offset: Coords2d,
         view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsStageLoader;
+    ) -> Self::LhsGlobalReader;
 
-    /// Initializes the loader for the weights with an appropriate layout
-    fn init_rhs_loader(
+    /// Initializes the global reader for the weights with an appropriate layout
+    fn init_rhs_global_reader(
         rhs: VirtualTensor<RhsG<MP>>,
         offset: Coords2d,
         view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsStageLoader;
+    ) -> Self::RhsGlobalReader;
 
-    /// Initializes the loader for the bias with an appropriate layout
-    fn init_bias_loader(
+    /// Initializes the global reader for the bias with an appropriate layout
+    fn init_bias_global_reader(
         bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
         slice_size: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccStageLoader;
+    ) -> Self::AccGlobalReader;
 
-    /// Initializes the output feature map loader with an appropriate layout
+    /// Initializes the output feature map global writer with an appropriate layout
     fn init_global_writer(
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         offset: Coords2d,
         view_shape: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::StageUnloader;
+    ) -> Self::GlobalWriter;
 
     /// Initializes a new accumulator for the tile matmul
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators;
