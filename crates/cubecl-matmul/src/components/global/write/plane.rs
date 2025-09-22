@@ -1,38 +1,41 @@
-use crate::components::global::memory::GlobalMemoryConfig;
-use crate::components::global::memory::TensorWriter;
+use crate::components::global::{
+    memory::GlobalMemoryConfig,
+    read::tiled::{TiledCoords, TiledLayout},
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
-use cubecl_std::{div_ceil, tensor::layout::Coords2d};
+use cubecl_std::tensor::layout::Coords2d;
 
-use super::StageUnloader;
+use super::GlobalWriter;
 
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
 /// using a plane for each tile
 pub struct PlaneWriter<EG: Numeric> {
-    pub tensor_writer: TensorWriter<EG>,
+    pub view: View<Line<EG>, TiledCoords, ReadWrite>,
 }
 
 #[cube]
 impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(view: View<Line<EG>, Coords2d, ReadWrite>) -> Self {
+    pub fn new(
+        view: View<Line<EG>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self {
         PlaneWriter::<EG> {
-            tensor_writer: TensorWriter::new(view),
+            view: view.view_mut(TiledLayout::new(config)),
         }
     }
 }
 
 #[cube]
-impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
+impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
     type Coordinates = Coords2d;
 
     fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EG>>,
-        tile_row: u32,
-        tile_col: u32,
-        #[comptime] smem_line_size: u32,
+        tile: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] config: GlobalMemoryConfig,
     ) {
@@ -40,7 +43,7 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
         let output_line_size = config.global_line_size;
 
         let unit_step = plane_dim * output_line_size;
-        let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
+        let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]
@@ -49,28 +52,10 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                write_line(
-                    &mut this.tensor_writer,
-                    &out_smem_slice,
-                    unit_write,
-                    tile_row,
-                    tile_col,
-                    output_line_size,
-                    smem_line_size,
-                    config,
-                );
+                write_line(&mut this.view, &out_smem_slice, unit_write, tile);
             } else {
                 if unit_write < tile_size {
-                    write_line(
-                        &mut this.tensor_writer,
-                        &out_smem_slice,
-                        unit_write,
-                        tile_row,
-                        tile_col,
-                        output_line_size,
-                        smem_line_size,
-                        config,
-                    );
+                    write_line(&mut this.view, &out_smem_slice, unit_write, tile);
                 }
             }
         }
@@ -79,15 +64,14 @@ impl<EG: Numeric> StageUnloader<EG> for PlaneWriter<EG> {
 
 #[cube]
 fn write_line<EG: Numeric>(
-    tensor_writer: &mut TensorWriter<EG>,
+    view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
     out_smem_slice: &Slice<Line<EG>>,
     unit_write: u32,
-    tile_row: u32,
-    tile_col: u32,
-    #[comptime] output_line_size: u32,
-    #[comptime] out_smem_line_size: u32,
-    #[comptime] out_config: GlobalMemoryConfig,
+    tile: Coords2d,
 ) {
+    let output_line_size = view.line_size();
+    let out_smem_line_size = out_smem_slice.line_size();
+
     let value = if comptime!(output_line_size == out_smem_line_size) {
         out_smem_slice[unit_write / output_line_size]
     } else if comptime!(
@@ -107,5 +91,5 @@ fn write_line<EG: Numeric>(
         unimplemented!()
     };
 
-    tensor_writer.write_coalesced(tile_row, tile_col, unit_write, value, out_config);
+    view.write_checked((tile, unit_write), value);
 }

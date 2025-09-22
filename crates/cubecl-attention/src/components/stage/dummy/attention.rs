@@ -1,16 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::PlaneWriter;
-use cubecl_matmul::components::global::StageUnloader as _;
-use cubecl_matmul::components::stage::StageReader;
-use cubecl_matmul::components::tile::loader::Strided;
+use cubecl_matmul::components::{
+    global::{GlobalWriter, PlaneWriter, memory::GlobalMemoryConfig},
+    stage::StageReader,
+    tile::reader::Strided,
+};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
-use crate::components::FlashIdent;
-use crate::components::global::dummy::QueryLoader;
 use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{
     Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
@@ -18,6 +17,7 @@ use crate::components::stage::dummy::{
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{FlashIdent, global::dummy::QueryReader};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, R, TA)>,
@@ -64,8 +64,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             for _ in 0..p.head_dim {
                 let key_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
                     key_reader,
-                    hd,
-                    kv,
+                    (hd, kv).runtime(),
                     config.score_stage_memory_config(),
                 );
 
@@ -121,8 +120,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             for _ in 0..p.val_dim {
                 let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
                     value_reader,
-                    kv,
-                    vd,
+                    (kv, vd).runtime(),
                     config.value_stage_memory_config(),
                 );
 
@@ -198,8 +196,11 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         StageState::<AP>::init::<Self::Config>(config)
     }
 
-    fn init_writer(tensor: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer {
-        PlaneWriter::new(tensor)
+    fn init_writer(
+        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self::Writer {
+        PlaneWriter::new(tensor, config)
     }
 
     fn write<G: GlobalAttentionConfig>(
@@ -236,9 +237,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 Self::Writer::write(
                     writer,
                     smem_slice.to_slice(),
-                    q,
-                    kv,
-                    1u32,
+                    (q, kv).runtime(),
                     stage_config.plane_dim(),
                     global_config.global_memory_config(FlashIdent::Out),
                 );
@@ -251,7 +250,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     }
 
     fn init_fragments(
-        query_loader: QueryLoader<AP>,
+        query_loader: QueryReader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
         (

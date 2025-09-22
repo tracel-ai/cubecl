@@ -1,38 +1,42 @@
-use crate::components::AccG;
 use crate::components::MatmulIdent;
 use crate::components::MatmulPrecision;
 use crate::components::StageIdent;
 use crate::components::global;
-use crate::components::global::StageUnloader;
+use crate::components::global::GlobalWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::tile::loader::LoaderKind;
+use crate::components::tile::reader::ReaderKind;
+use crate::components::{AccG, global::memory::GlobalMemoryConfig};
 use crate::components::{InputPrecision, stage::StageReader};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, layout::Coordinates};
+use cubecl_std::tensor::{
+    View,
+    layout::{Coordinates, Coords2d},
+};
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: StageUnloader<EO, Coordinates = Self::WriteCoords>;
+    type Writer<EO: Numeric>: GlobalWriter<EO, Coordinates = Self::WriteCoords>;
     /// Coordinates used by the writer
     type WriteCoords: Coordinates;
 
     /// Initializes a writer at the given global offsets.
     fn init_writer<EO: Numeric>(
         tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer<EO>;
 
     /// Returns the (row, col) of the current compute primitive within the stage.
-    fn coordinates<S: StageConfig>(#[comptime] config: S) -> (u32, u32);
+    fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d;
 
     /// Returns the total number of compute primitives in the stage.
     fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32);
@@ -50,15 +54,15 @@ pub struct PartitionedStageMatmul<
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsTileLoader>,
+            TileKind = ReaderKind<TM::LhsTileReader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsTileLoader>,
+            TileKind = ReaderKind<TM::RhsTileReader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccTileLoader>,
+            TileKind = ReaderKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -78,15 +82,15 @@ where
         >,
     RL: StageReader<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::LhsTileLoader>,
+            TileKind = ReaderKind<TM::LhsTileReader>,
         >,
     RR: StageReader<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::RhsTileLoader>,
+            TileKind = ReaderKind<TM::RhsTileReader>,
         >,
     RA: StageReader<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = LoaderKind<TM::AccTileLoader>,
+            TileKind = ReaderKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -99,7 +103,7 @@ where
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
-    type StageUnloader = SP::Writer<AccG<MP>>;
+    type GlobalWriter = SP::Writer<AccG<MP>>;
     type WriteCoords = SP::WriteCoords;
 
     fn execute(
@@ -163,7 +167,7 @@ where
 
     fn write_results<G: global::GlobalConfig>(
         acc: &Accumulators<MP, TM, S>,
-        out: &mut Self::StageUnloader,
+        out: &mut Self::GlobalWriter,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: S,
         #[comptime] global_config: G,
@@ -212,12 +216,10 @@ where
                 );
 
                 // Write the current tile result to global memory
-                Self::StageUnloader::write(
+                Self::GlobalWriter::write(
                     out,
                     smem_slice.to_slice(),
-                    m_load_iter,
-                    n_load_iter,
-                    out_smem_line_size,
+                    (m_load_iter, n_load_iter),
                     global_config.plane_dim(),
                     global_config.global_memory_config(MatmulIdent::Out),
                 );
@@ -230,8 +232,9 @@ where
 
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
-    ) -> Self::StageUnloader {
-        SP::init_writer(tensor)
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self::GlobalWriter {
+        SP::init_writer(tensor, config)
     }
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {

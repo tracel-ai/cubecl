@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::batch::partitioned_matmul::hypercube::base::CubeSpan;
 
@@ -98,7 +99,7 @@ impl GlobalOrderSelection {
 ///
 /// # Returns
 /// `(x, y)` coordinates after swizzling
-pub fn swizzle(index: u32, num_steps: u32, #[comptime] step_length: u32) -> (u32, u32) {
+pub fn swizzle(index: u32, num_steps: u32, #[comptime] step_length: u32) -> Coords2d {
     comptime!(assert!(step_length > 0));
 
     let num_elements_per_strip = num_steps * step_length;

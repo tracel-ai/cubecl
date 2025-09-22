@@ -20,8 +20,6 @@ use cubecl_common::{ExecutionMode, bytes::Bytes, profile::ProfileDuration};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
-
-#[cfg(multi_threading)]
 use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
@@ -29,6 +27,7 @@ use cubecl_common::stream_id::StreamId;
 pub struct ComputeClient<Server: ComputeServer, Channel> {
     channel: Channel,
     state: Arc<ComputeClientState<Server>>,
+    stream_id: Option<StreamId>,
 }
 
 #[derive(new)]
@@ -56,6 +55,7 @@ where
         Self {
             channel: self.channel.clone(),
             state: self.state.clone(),
+            stream_id: self.stream_id,
         }
     }
 }
@@ -103,13 +103,31 @@ where
         Self {
             channel,
             state: Arc::new(state),
+            stream_id: None,
         }
+    }
+
+    fn stream_id(&self) -> StreamId {
+        match self.stream_id {
+            Some(val) => val,
+            None => StreamId::current(),
+        }
+    }
+
+    /// Set the stream in which the current client is operating on.
+    ///
+    /// # Safety
+    ///
+    /// This is highly unsafe and should probably only be used by the CubeCL/Burn projects for now.
+    pub unsafe fn set_stream(&mut self, stream_id: StreamId) {
+        self.stream_id = Some(stream_id);
     }
 
     async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
         self.profile_guard();
 
-        self.channel.read(descriptors).await
+        let stream_id = self.stream_id();
+        self.channel.read(descriptors, stream_id).await
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -192,7 +210,8 @@ where
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         self.profile_guard();
 
-        self.channel.get_resource(binding)
+        let stream_id = self.stream_id();
+        self.channel.get_resource(binding, stream_id)
     }
 
     fn do_create(
@@ -202,7 +221,7 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        let allocations = self.channel.create(descriptors.clone())?;
+        let allocations = self.channel.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
             .zip(allocations.iter())
@@ -219,7 +238,8 @@ where
                 )
             })
             .collect();
-        self.channel.write(descriptors)?;
+        let stream_id = self.stream_id();
+        self.channel.write(descriptors, stream_id)?;
         Ok(allocations)
     }
 
@@ -284,7 +304,7 @@ where
     ) -> Result<Vec<Allocation>, IoError> {
         self.profile_guard();
 
-        self.channel.create(descriptors)
+        self.channel.create(descriptors, self.stream_id())
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -335,6 +355,7 @@ where
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
+        stream_id: StreamId,
     ) {
         let level = self.state.logger.profile_level();
 
@@ -345,8 +366,14 @@ where
                 let name = kernel.name();
 
                 unsafe {
-                    self.channel
-                        .execute(kernel, count, bindings, mode, self.state.logger.clone())
+                    self.channel.execute(
+                        kernel,
+                        count,
+                        bindings,
+                        mode,
+                        self.state.logger.clone(),
+                        stream_id,
+                    )
                 };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -366,6 +393,7 @@ where
                                 bindings,
                                 mode,
                                 self.state.logger.clone(),
+                                stream_id,
                             )
                         },
                         name,
@@ -387,7 +415,13 @@ where
     pub fn execute(&self, kernel: Server::Kernel, count: CubeCount, bindings: Bindings) {
         // SAFETY: Using checked execution mode.
         unsafe {
-            self.execute_inner(kernel, count, bindings, ExecutionMode::Checked);
+            self.execute_inner(
+                kernel,
+                count,
+                bindings,
+                ExecutionMode::Checked,
+                self.stream_id(),
+            );
         }
     }
 
@@ -407,7 +441,13 @@ where
     ) {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
-            self.execute_inner(kernel, count, bindings, ExecutionMode::Unchecked);
+            self.execute_inner(
+                kernel,
+                count,
+                bindings,
+                ExecutionMode::Unchecked,
+                self.stream_id(),
+            );
         }
     }
 
@@ -415,14 +455,16 @@ where
     pub fn flush(&self) {
         self.profile_guard();
 
-        self.channel.flush();
+        let stream_id = self.stream_id();
+        self.channel.flush(stream_id);
     }
 
     /// Wait for the completion of every task in the server.
     pub async fn sync(&self) {
         self.profile_guard();
 
-        self.channel.sync().await;
+        let stream_id = self.stream_id();
+        self.channel.sync(stream_id).await;
         self.state.logger.profile_summary();
     }
 
@@ -442,7 +484,7 @@ where
     pub fn memory_usage(&self) -> MemoryUsage {
         self.profile_guard();
 
-        self.channel.memory_usage()
+        self.channel.memory_usage(self.stream_id())
     }
 
     /// Change the memory allocation mode.
@@ -453,7 +495,7 @@ where
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
         self.profile_guard();
 
-        self.channel.allocation_mode(mode)
+        self.channel.allocation_mode(mode, self.stream_id())
     }
 
     /// Use a static memory strategy to execute the provided function.
@@ -475,9 +517,11 @@ where
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
-        self.channel.allocation_mode(MemoryAllocationMode::Static);
+        self.channel
+            .allocation_mode(MemoryAllocationMode::Static, self.stream_id());
         let output = func(input);
-        self.channel.allocation_mode(MemoryAllocationMode::Auto);
+        self.channel
+            .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
 
         #[cfg(multi_threading)]
         self.profile_release(stream_id);
@@ -492,7 +536,7 @@ where
     pub fn memory_cleanup(&self) {
         self.profile_guard();
 
-        self.channel.memory_cleanup()
+        self.channel.memory_cleanup(self.stream_id())
     }
 
     /// Measure the execution time of some inner operations.
@@ -532,12 +576,12 @@ where
             None
         };
 
-        let token = self.channel.start_profile();
+        let token = self.channel.start_profile(self.stream_id());
 
         let out = func();
 
         #[allow(unused_mut)]
-        let mut result = self.channel.end_profile(token);
+        let mut result = self.channel.end_profile(self.stream_id(), token);
 
         core::mem::drop(out);
 
@@ -577,11 +621,12 @@ where
         let strides = src_descriptor.strides;
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
+        let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor])
+            .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
@@ -589,11 +634,12 @@ where
         let id = DataTransferId::new();
 
         // Send with source server
-        self.channel.data_transfer_send(id, src_descriptor);
+        self.channel
+            .data_transfer_send(id, src_descriptor, stream_id);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
-        dst_server.channel.data_transfer_recv(id, desc);
+        dst_server.channel.data_transfer_recv(id, desc, stream_id);
 
         alloc
     }
@@ -607,15 +653,16 @@ where
     ) -> Allocation {
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
+        let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor])
+            .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
-        let read = self.channel.read(vec![src_descriptor]);
+        let read = self.channel.read(vec![src_descriptor], stream_id);
         let data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
@@ -627,7 +674,7 @@ where
 
         dst_server
             .channel
-            .write(vec![(desc_descriptor, &data[0])])
+            .write(vec![(desc_descriptor, &data[0])], stream_id)
             .unwrap();
 
         alloc
@@ -655,7 +702,7 @@ where
         let current = self.state.current_profiling.read();
 
         if let Some(current_stream_id) = current.as_ref() {
-            let stream_id = StreamId::current();
+            let stream_id = self.stream_id();
 
             if current_stream_id == &stream_id {
                 return;
@@ -683,7 +730,7 @@ where
 
     #[cfg(multi_threading)]
     fn profile_acquire(&self) -> Option<StreamId> {
-        let stream_id = StreamId::current();
+        let stream_id = self.stream_id();
         let mut current = self.state.current_profiling.write();
 
         match current.as_mut() {

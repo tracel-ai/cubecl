@@ -9,7 +9,7 @@ use cubecl_std::{
 use crate::{
     components::global::{
         layout::{NhwcCoords, cast_seq},
-        load::im2col_tma::div_mod_seq,
+        read::im2col_tma::div_mod_seq,
     },
     kernels::layered::selector::RuntimeArgs,
 };

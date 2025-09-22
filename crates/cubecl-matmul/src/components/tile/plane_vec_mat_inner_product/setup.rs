@@ -1,17 +1,17 @@
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
-use crate::components::tile::{TileMatmulFamily, loader::Strided};
+use crate::components::tile::{TileMatmulFamily, reader::Strided};
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
-use crate::components::{error::MatmulSetupError, tile::loader::TileKind};
+use crate::components::{error::MatmulSetupError, tile::reader::TileKind};
 use crate::components::{
     resource::ComputeResources,
-    tile::plane_vec_mat_inner_product::loader::{MatrixFragmentLoader, MatrixTileLoader},
+    tile::plane_vec_mat_inner_product::reader::{MatrixFragmentReader, MatrixTileReader},
 };
 use cubecl_core::prelude::*;
 
 impl<Kind: TileKind> TileMatmulFamily for PlaneVecMatInnerProduct<Kind>
 where
-    MatrixTileLoader<Kind>: MatrixFragmentLoader<TileKind = Kind>,
+    MatrixTileReader<Kind>: MatrixFragmentReader<TileKind = Kind>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;

@@ -2,9 +2,9 @@
 //! Handles memory movement, bound checks, plane specialization.
 
 pub mod args;
-pub mod load;
 pub mod memory;
 pub mod multi_stage;
+pub mod read;
 pub mod single_stage;
 
 mod base;

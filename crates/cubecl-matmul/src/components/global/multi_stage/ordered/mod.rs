@@ -6,7 +6,7 @@ pub use config::*;
 pub use matmul::*;
 pub use setup::OrderedDoubleBufferingMatmulFamily;
 
-use crate::components::global::load::sync_full_ordered;
+use crate::components::global::read::sync_full_ordered;
 
 /// The ordered double buffering global matmul
 /// requires tilewise loading on `Lhs` to guarantee that planes

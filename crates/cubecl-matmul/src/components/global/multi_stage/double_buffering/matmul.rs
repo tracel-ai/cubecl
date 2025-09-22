@@ -1,25 +1,27 @@
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
-use crate::components::global::{GlobalConfig, StageUnloader};
+use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::stage::PartialStageReader;
 use crate::components::{
     AccG,
-    global::load::{
-        StageBuffer, SyncPartialLoadingStrategy, SyncPartialStageLoader, ZeroStageLoader,
+    global::read::{
+        StageBuffer, SyncPartialLoadingStrategy, SyncPartialStageGlobalReader, ZeroGlobalReader,
     },
 };
 use crate::components::{AccS, LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
     global::multi_stage::double_buffer_execution::{
-        execute_current_and_load_next, execute_last_and_write_results, load_first,
+        execute_current_and_read_next, execute_last_and_write_results, read_first,
     },
     stage::FillStageReader,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
-use cubecl_std::{div_ceil, tensor::layout::Coords2d};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+};
 use std::marker::PhantomData;
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
@@ -31,7 +33,7 @@ pub struct DoubleBufferingMatmul<
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 > where
-    SMM::StageUnloader: StageUnloader<AccG<MP>, Coordinates = Coords2d>,
+    SMM::GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Coords2d>,
 {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -54,46 +56,44 @@ where
     RL: SyncPartialLoadingStrategy,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
-    type LhsStageLoader = SyncPartialStageLoader<MP::Lhs, Self::Config, LL>;
-    type RhsStageLoader = SyncPartialStageLoader<MP::Rhs, Self::Config, RL>;
-    type AccStageLoader = ZeroStageLoader<MP::Acc>;
-    type StageUnloader = SMM::StageUnloader;
+    type LhsGlobalReader = SyncPartialStageGlobalReader<MP::Lhs, Self::Config, LL>;
+    type RhsGlobalReader = SyncPartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
+    type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
+    type GlobalWriter = SMM::GlobalWriter;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
-        mut lhs_loader: Self::LhsStageLoader,
-        mut rhs_loader: Self::RhsStageLoader,
-        acc_loader: Self::AccStageLoader,
-        mut out_writer: Self::StageUnloader,
+        mut lhs_reader: Self::LhsGlobalReader,
+        mut rhs_reader: Self::RhsGlobalReader,
+        acc_reader: Self::AccGlobalReader,
+        mut out_writer: Self::GlobalWriter,
         acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
         let stage_step = config.tiling_scheme().elements_in_stage_k();
-        let loop_step = stage_step * 2;
         let range = k_range.1 - k_range.0;
-        let needed_stage_matmuls = div_ceil(range, stage_step);
+        let needed_stage_matmuls = range.div_ceil(stage_step);
 
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        let acc_reader = Self::AccStageLoader::reader(&acc_loader);
-        SMM::load_accumulators(&acc_reader, acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let lhs_reader_a = Self::LhsStageLoader::reader(&lhs_loader, StageBuffer::A);
-        let lhs_reader_b = Self::LhsStageLoader::reader(&lhs_loader, StageBuffer::B);
-        let rhs_reader_a = Self::RhsStageLoader::reader(&rhs_loader, StageBuffer::A);
-        let rhs_reader_b = Self::RhsStageLoader::reader(&rhs_loader, StageBuffer::B);
+        let lhs_reader_a = lhs_reader.stage_reader(StageBuffer::A);
+        let lhs_reader_b = lhs_reader.stage_reader(StageBuffer::B);
+        let rhs_reader_a = rhs_reader.stage_reader(StageBuffer::A);
+        let rhs_reader_b = rhs_reader.stage_reader(StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
-        load_first::<MP, SMM, Self::LhsStageLoader, Self::RhsStageLoader, Self::Config>(
-            &mut lhs_loader,
-            &mut rhs_loader,
+        read_first::<MP, SMM, Self::LhsGlobalReader, Self::RhsGlobalReader, Self::Config>(
+            &mut lhs_reader,
+            &mut rhs_reader,
             &specializer,
             StageBuffer::A,
             config,
@@ -102,11 +102,11 @@ where
         sync_cube();
 
         for _ in 0..num_loops {
-            execute_current_and_load_next::<
+            execute_current_and_read_next::<
                 MP,
                 SMM,
-                Self::LhsStageLoader,
-                Self::RhsStageLoader,
+                Self::LhsGlobalReader,
+                Self::RhsGlobalReader,
                 Self::Config,
             >(
                 &lhs_reader_a,
@@ -114,26 +114,24 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                &mut lhs_loader,
-                &mut rhs_loader,
+                &mut lhs_reader,
+                &mut rhs_reader,
                 &specializer,
                 &partition_scheduler,
                 StageBuffer::B,
                 config,
             );
 
-            // We always advance by 2 * k because stage B shares the same global memory state as stage A,
-            // but it is implicitly offset by one stage's worth (k elements) when reading.
-            Self::LhsStageLoader::advance_view(&mut lhs_loader, loop_step);
-            Self::RhsStageLoader::advance_view(&mut rhs_loader, loop_step);
+            lhs_reader.advance_view();
+            rhs_reader.advance_view();
 
             sync_cube();
 
-            execute_current_and_load_next::<
+            execute_current_and_read_next::<
                 MP,
                 SMM,
-                Self::LhsStageLoader,
-                Self::RhsStageLoader,
+                Self::LhsGlobalReader,
+                Self::RhsGlobalReader,
                 Self::Config,
             >(
                 &lhs_reader_b,
@@ -141,8 +139,8 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
-                &mut lhs_loader,
-                &mut rhs_loader,
+                &mut lhs_reader,
+                &mut rhs_reader,
                 &specializer,
                 &partition_scheduler,
                 StageBuffer::A,
@@ -152,11 +150,11 @@ where
             sync_cube();
         }
 
-        execute_current_and_load_next::<
+        execute_current_and_read_next::<
             MP,
             SMM,
-            Self::LhsStageLoader,
-            Self::RhsStageLoader,
+            Self::LhsGlobalReader,
+            Self::RhsGlobalReader,
             Self::Config,
         >(
             &lhs_reader_a,
@@ -164,8 +162,8 @@ where
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
-            &mut lhs_loader,
-            &mut rhs_loader,
+            &mut lhs_reader,
+            &mut rhs_reader,
             &specializer,
             &partition_scheduler,
             StageBuffer::B,
@@ -187,50 +185,54 @@ where
         );
     }
 
-    fn init_lhs_stage_loader(
+    fn init_lhs_global_reader(
         lhs: VirtualTensor<LhsG<MP>>,
         batch_offset: u32,
         offset: Coords2d,
         slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsStageLoader {
+    ) -> Self::LhsGlobalReader {
         let conf = config.global_memory_config(MatmulIdent::Lhs);
+        let k_step = k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
-        SyncPartialStageLoader::<MP::Lhs, Self::Config, LL>::new(
+        SyncPartialStageGlobalReader::<MP::Lhs, Self::Config, LL>::new(
             lhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Lhs,
             config,
         )
     }
 
-    fn init_rhs_stage_loader(
+    fn init_rhs_global_reader(
         rhs: VirtualTensor<RhsG<MP>>,
         batch_offset: u32,
         offset: Coords2d,
         slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsStageLoader {
+    ) -> Self::RhsGlobalReader {
         let conf = config.global_memory_config(MatmulIdent::Rhs);
+        let k_step = k_step::<Self::Config>(config);
         let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
-        SyncPartialStageLoader::<MP::Rhs, Self::Config, RL>::new(
+        SyncPartialStageGlobalReader::<MP::Rhs, Self::Config, RL>::new(
             rhs.view(layout).slice_unchecked(offset, slice_size),
+            k_step,
             MatmulIdent::Rhs,
             config,
         )
     }
 
-    fn init_acc_stage_loader(
+    fn init_acc_global_reader(
         acc: CubeOption<VirtualTensor<AccG<MP>>>,
         _batch_offset: u32,
         _offset: Coords2d,
         _slice_size: Coords2d,
         _nth_batch: u32,
         #[comptime] _config: Self::Config,
-    ) -> Self::AccStageLoader {
+    ) -> Self::AccGlobalReader {
         match acc {
-            CubeOption::None => ZeroStageLoader::new(),
+            CubeOption::None => ZeroGlobalReader::new(),
             CubeOption::Some(_) => panic!("Accumulator loading is not yet supported"),
         }
     }
@@ -239,16 +241,24 @@ where
         out: VirtualTensor<AccG<MP>, ReadWrite>,
         batch_offset: u32,
         offset: Coords2d,
-        slice_size: Coords2d,
+        size: Coords2d,
         _nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::StageUnloader {
+    ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, slice_size))
+        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         SMM::init_accumulators(config.stage_config())
     }
+}
+
+/// We always advance by 2 * k because stage B shares the same global memory state as stage A,
+/// but it is implicitly offset by one stage's worth (k elements) when reading.
+#[cube]
+fn k_step<C: GlobalConfig>(#[comptime] config: C) -> u32 {
+    let step = config.tiling_scheme().elements_in_stage_k() * 2;
+    step.runtime()
 }

@@ -7,7 +7,7 @@ use crate::components::tile::TileMatmul;
 use crate::components::{AccS, stage::StageEvent};
 use crate::components::{InputPrecision, stage::StageReader};
 use crate::components::{LhsS, MatmulPrecision, RhsS};
-use crate::components::{stage::StageConfig, tile::loader::LoaderKind};
+use crate::components::{stage::StageConfig, tile::reader::ReaderKind};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TMM::LhsTileLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TMM::RhsTileLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TMM::AccTileLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TMM::LhsTileReader>>,
+    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TMM::RhsTileReader>>,
+    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TMM::AccTileReader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = LoaderKind<TM::LhsTileLoader>>,
-    RR: StageReader<RhsS<MP>, TileKind = LoaderKind<TM::RhsTileLoader>>,
-    RA: StageReader<AccS<MP>, TileKind = LoaderKind<TM::AccTileLoader>>,
+    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TM::LhsTileReader>>,
+    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TM::RhsTileReader>>,
+    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TM::AccTileReader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
@@ -116,7 +116,7 @@ where
         Accumulators::<MP, TM, S>::new(config)
     }
 
-    /// Fill accumulators through an AccumulatorLoader
+    /// Fill accumulators through an AccumulatorReader
     pub fn load_accumulator(reader: &RA, acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
         acc.load::<RA>(reader, config);
     }
@@ -162,8 +162,7 @@ where
 
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    m_load_iter,
-                    k_load_iter,
+                    (m_load_iter, k_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_lhs(
@@ -193,8 +192,7 @@ where
 
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_load_iter,
-                    n_load_iter,
+                    (k_load_iter, n_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
@@ -288,8 +286,7 @@ where
 
                 let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
                     lhs_reader,
-                    m_load_iter,
-                    k_load_iter,
+                    (m_load_iter, k_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_lhs(
@@ -315,8 +312,7 @@ where
 
             let rhs_tile_first = RR::read_tile::<S::StageMemoryConfig>(
                 rhs_reader,
-                k_load_iter,
-                n_load_iter,
+                (k_load_iter, n_load_iter),
                 config.stage_memory_config(),
             );
             TM::load_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
@@ -342,8 +338,7 @@ where
                 let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
                 let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
                     rhs_reader,
-                    k_load_iter,
-                    n_load_iter,
+                    (k_load_iter, n_load_iter),
                     config.stage_memory_config(),
                 );
                 TM::load_rhs(rhs_tile_next, next, config.tile_config());

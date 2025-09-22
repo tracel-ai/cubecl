@@ -14,6 +14,7 @@ use cubecl_core::{
     Compiler, ExecutionMode,
     ir::{self},
     post_processing::checked_io::CheckedIoProcessor,
+    post_processing::saturating::SaturatingArithmeticProcessor,
     prelude::KernelDefinition,
 };
 use cubecl_opt::OptimizerBuilder;
@@ -43,6 +44,7 @@ impl Compiler for MlirCompiler {
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_processor(CheckedIoProcessor::new(mode))
+            .with_processor(SaturatingArithmeticProcessor::new(true))
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
         let mut shared_memories = SharedMemories::default();

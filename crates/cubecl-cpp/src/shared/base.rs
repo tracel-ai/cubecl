@@ -892,6 +892,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Add(op) => {
                 instructions.push(Instruction::Add(self.compile_binary(op, out)))
             }
+            gpu::Arithmetic::SaturatingAdd(op) => {
+                instructions.push(Instruction::SaturatingAdd(self.compile_binary(op, out)))
+            }
             gpu::Arithmetic::Mul(op) => {
                 instructions.push(Instruction::Mul(self.compile_binary(op, out)))
             }
@@ -900,6 +903,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::SaturatingSub(op) => {
+                instructions.push(Instruction::SaturatingSub(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::MulHi(op) => {
                 let instruction = Instruction::HiMul(self.compile_binary(op, out));

@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::MatmulIdent;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaderPlanes;
+use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::specialization::config::{
     LoadSpecializationConfig, SpecializedLoadingSides,
 };
@@ -66,18 +66,18 @@ impl PlaneRoleConfig {
     /// Make a new PlaneRoleConfig
     pub fn new(
         load_specialization_config: LoadSpecializationConfig,
-        loader_tasks: Option<MaxLoaderPlanes>,
+        reader_tasks: Option<MaxGlobalReaderPlanes>,
         num_main_flow_planes: u32,
     ) -> Result<PlaneRoleConfig, MatmulSetupError> {
-        let plane_roles = match loader_tasks {
-            Some(loader_tasks) => {
-                load_specialization_config.to_plane_roles(num_main_flow_planes, loader_tasks)
+        let plane_roles = match reader_tasks {
+            Some(reader_tasks) => {
+                load_specialization_config.to_plane_roles(num_main_flow_planes, reader_tasks)
             }
 
             None => {
                 if load_specialization_config.has_specialization() {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(
-                        "Error: Load specialization config has specialization but no loader tasks were given."
+                        "Error: Load specialization config has specialization but no reader tasks were given."
                             .to_string(),
                     )));
                 } else {

@@ -1,10 +1,10 @@
 mod attention;
 mod config;
-mod load;
+mod read;
 mod setup;
 
 pub use attention::*;
-pub use load::*;
+pub use read::*;
 pub use setup::DummyGlobalAttentionFamily;
 
 // tmp

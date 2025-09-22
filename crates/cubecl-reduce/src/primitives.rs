@@ -390,18 +390,11 @@ pub fn reduce_tree<P: ReducePrecision, Inst: ReduceInstruction<P>>(
             if UNIT_POS < num_remaining_items / 2 {
                 fuse_accumulator_inplace::<P, Inst>(inst, accumulator, destination, origin);
             }
-            num_remaining_items = div_ceil(num_remaining_items, 2);
+            num_remaining_items = num_remaining_items.div_ceil(2);
             jump *= 2;
             sync_cube();
         }
     }
     sync_cube();
     Inst::SharedAccumulator::read(accumulator, 0)
-}
-
-#[cube]
-#[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-#[allow(clippy::manual_div_ceil)]
-fn div_ceil(a: u32, b: u32) -> u32 {
-    (a + b - 1) / b
 }

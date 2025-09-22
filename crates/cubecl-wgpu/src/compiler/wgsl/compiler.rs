@@ -4,7 +4,9 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::post_processing::{
+    checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
@@ -410,7 +412,8 @@ impl WgslCompiler {
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
         let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
-        let processing = scope.process([&*unroll, &*checked_io]);
+        let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
+        let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
 
         for mut var in processing.variables {
             if var.ty.line_size() > MAX_LINE_SIZE {
@@ -698,6 +701,9 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::SaturatingAdd(_) => {
+                unreachable!("Saturating add should be removed by processor");
+            }
             cube::Arithmetic::Fma(op) => instructions.push(wgsl::Instruction::Fma {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
@@ -714,6 +720,9 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::SaturatingSub(_) => {
+                unreachable!("Saturating sub should be removed by processor");
+            }
             cube::Arithmetic::Mul(op) => instructions.push(wgsl::Instruction::Mul {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
