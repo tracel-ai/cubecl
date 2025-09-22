@@ -59,7 +59,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         for _ in 0..p.seq_kv {
             let mut hd = comptime![0u32];
 
-            // TODO: if p.seq_q=1 skip preloading, do on the fly
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
@@ -79,30 +78,8 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                 comptime![hd += 1];
             }
 
-            let mut vd = comptime![0u32];
-
-            // TODO: if p.seq_q=1 skip preloading, do on the fly
-            // TODO: move to later if reuse key
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.val_dim {
-                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
-                    value_reader,
-                    kv,
-                    vd,
-                    config.value_stage_memory_config(),
-                );
-
-                TA::fill_value(
-                    &value_tile,
-                    key_value.get_value_at_mut(kv, vd, config),
-                    config.tile_config(),
-                );
-
-                comptime![vd += 1];
-            }
-
             let mut q = comptime![0u32];
+            let mut scales = Sequence::<AP::EA>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
@@ -132,9 +109,39 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                     config.tiling_scheme().head_dim(),
                 );
 
-                let scale = TA::update_state(state_q, &row_stats);
+                scales.push(TA::update_state(state_q, &row_stats));
 
+                comptime![q += 1];
+            }
+
+            let mut vd = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..p.val_dim {
+                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
+                    value_reader,
+                    kv,
+                    vd,
+                    config.value_stage_memory_config(),
+                );
+
+                TA::fill_value(
+                    &value_tile,
+                    key_value.get_value_at_mut(kv, vd, config),
+                    config.tile_config(),
+                );
+
+                comptime![vd += 1];
+            }
+
+            let mut q = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
+                let score_frag = score_prob.get_at(q, kv, config);
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
@@ -143,7 +150,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
                         score_frag,
                         key_value.get_value_at(kv, vd, config),
                         accumulator.get_at_mut(q, vd, config),
-                        scale,
+                        *scales.index(q),
                         config.tile_config(),
                     );
 
