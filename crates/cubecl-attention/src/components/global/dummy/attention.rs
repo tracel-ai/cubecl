@@ -72,6 +72,10 @@ impl<
             value_reader.read(config);
             sync_cube();
 
+            // if UNIT_POS_Y != 1 {
+            //     terminate!()
+            // }
+
             SA::execute(
                 &key_stage_reader,
                 &value_stage_reader,

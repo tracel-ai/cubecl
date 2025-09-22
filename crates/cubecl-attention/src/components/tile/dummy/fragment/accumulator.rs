@@ -75,7 +75,8 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
                 let col = self.col_start + i;
 
                 if col < self.num_cols {
-                    self.tmp_smem[self.row * self.num_cols + col] *= factor;
+                    slice[self.row * self.num_cols + col] =
+                        slice[self.row * self.num_cols + col] * Line::cast_from(factor);
                 }
             }
         }

@@ -576,8 +576,8 @@ macro_rules! testgen_attention {
                 let tile_size = AttentionTileSize {
                     seq_q: 2,
                     seq_kv: 2,
-                    head_dim: 2,
-                    val_dim: 2,
+                    head_dim: 1,
+                    val_dim: 1,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,
