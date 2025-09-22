@@ -7,8 +7,8 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 pub struct GlobalIterator<EI: Numeric> {
     global_view: View<Line<EI>, Coords2d>,
     k_offset: RuntimeCell<u32>,
-    /// The amount to advance `k` by on each iteration
-    k_step: u32,
+    /// The amount to advance by on each iteration
+    step: u32,
     view_size: Coords2d,
     #[cube(comptime)]
     view_direction: ViewDirection,
@@ -32,25 +32,25 @@ impl<EG: Numeric> GlobalIterator<EG> {
     /// Instantiate a read iterator over the given global view, which should be sliced to the size
     /// of one `m`/`n` stage and the full range of `k` handled by this matmul instance.
     ///
-    /// `k_step` is the amount advanced in `view_direction` each iteration.
+    /// `step` is the amount advanced in `view_direction` each iteration.
     /// `checked` determines whether the slices should be created as checked or unchecked.
     pub fn new(
         global_view: View<Line<EG>, Coords2d>,
-        k_step: u32,
+        step: u32,
         #[comptime] view_direction: ViewDirection,
         #[comptime] checked: bool,
     ) -> Self {
         let (size_row, size_col) = global_view.shape();
         let view_size = match view_direction {
-            ViewDirection::Row => (k_step, size_col),
-            ViewDirection::Col => (size_row, k_step),
+            ViewDirection::Row => (step, size_col),
+            ViewDirection::Col => (size_row, step),
             ViewDirection::None => (size_row, size_col),
         };
 
         GlobalIterator::<EG> {
             global_view,
             k_offset: RuntimeCell::new(0),
-            k_step,
+            step,
             view_size,
             view_direction,
             checked,
@@ -59,7 +59,7 @@ impl<EG: Numeric> GlobalIterator<EG> {
 
     /// Advance the view along the k dimension by a specified offset, `k_offset`.
     pub fn advance(&self) {
-        self.k_offset.store(self.k_offset.read() + self.k_step);
+        self.k_offset.store(self.k_offset.read() + self.step);
     }
 
     /// Returns the current view slice of the iterator

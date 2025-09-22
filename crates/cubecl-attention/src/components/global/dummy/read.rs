@@ -74,8 +74,8 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
-    pub fn new(key: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
-        let global_iter = GlobalIterator::new(key, k_step, ViewDirection::Row, false);
+    pub fn new(key: View<Line<AP::EI>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
+        let global_iter = GlobalIterator::new(key, step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,
@@ -158,8 +158,8 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
-    pub fn new(value: View<Line<AP::EI>, Coords2d>, k_step: u32, #[comptime] config: G) -> Self {
-        let global_iter = GlobalIterator::new(value, k_step, ViewDirection::Row, false);
+    pub fn new(value: View<Line<AP::EI>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
+        let global_iter = GlobalIterator::new(value, step, ViewDirection::Row, false);
         let stage_memory = StageMemory::new::<AttentionStageMemoryConfig>(
             1u32,
             StageIdent::Rhs,

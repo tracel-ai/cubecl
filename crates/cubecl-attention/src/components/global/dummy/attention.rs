@@ -109,20 +109,20 @@ impl<
         key: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader {
-        let k_step = k_step::<Self::Config>(config);
+        let step = reduction_step::<Self::Config>(config);
         let layout =
             AttentionGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
-        DummyKeyReader::new(key.view(layout), k_step, config)
+        DummyKeyReader::new(key.view(layout), step, config)
     }
 
     fn init_value_reader(
         value: VirtualTensor<AP::EI>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader {
-        let k_step = k_step::<Self::Config>(config);
+        let step = reduction_step::<Self::Config>(config);
         let layout =
             AttentionGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
-        DummyValueReader::new(value.view(layout), k_step, config)
+        DummyValueReader::new(value.view(layout), step, config)
     }
 
     fn init_writer(
@@ -138,6 +138,6 @@ impl<
 }
 
 #[cube]
-fn k_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
+fn reduction_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
     config.tiling_scheme().seq_kv().runtime()
 }
