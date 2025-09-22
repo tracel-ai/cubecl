@@ -229,6 +229,14 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
+    /// Data size does not match `shape.product() * elem_size` (in bytes)
+    #[error("data size {actual} does not match expected {expected}")]
+    InvalidSize {
+        /// Expected byte length computed from `shape.product() * elem_size`.
+        expected: usize,
+        /// Actual byte length of the provided data buffer.
+        actual: usize,
+    },
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution")]
     Unknown(String),

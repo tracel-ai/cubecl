@@ -4,6 +4,7 @@ use cubecl_core::{Runtime, server};
 use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
 use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_runtime::server::Handle;
+use cubecl_runtime::stride as stride_util;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
 pub struct TensorHandle<R, E>
@@ -86,7 +87,7 @@ where
 
     /// Create a new tensor with a contiguous memory layout.
     pub fn new_contiguous(shape: Vec<usize>, handle: Handle) -> Self {
-        let strides = Self::contiguous_strides(&shape);
+        let strides = stride_util::contiguous_strides(&shape);
 
         Self {
             handle,
@@ -134,18 +135,6 @@ where
             strides: &self.strides,
             elem_size: size_of::<E>(),
         }
-    }
-
-    fn contiguous_strides(shape: &[usize]) -> Vec<usize> {
-        let mut strides = Vec::with_capacity(shape.len());
-
-        let mut current = 1;
-        shape.iter().enumerate().rev().for_each(|(_, val)| {
-            strides.push(current);
-            current *= val;
-        });
-        strides.reverse();
-        strides
     }
 }
 impl<R, E> TensorHandle<R, E>

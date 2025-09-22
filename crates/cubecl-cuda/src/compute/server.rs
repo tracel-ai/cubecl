@@ -14,6 +14,14 @@ use cubecl_cpp::formatter::format_cpp;
 use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use super::storage::gpu::{GpuResource, GpuStorage};
+use cubecl_runtime::data_service::DataTransferId;
+use cubecl_runtime::logging::ServerLogger;
+use cubecl_runtime::stride::{
+    contiguous_strides, is_contiguous, is_inner_contiguous_rows, pitched_rows_layout,
+    row_pitch_elems,
+};
+use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
+
 use super::sync::{Fence, SyncStream};
 use crate::compute::{
     DataTransferItem, DataTransferRuntime, io::register_copies_to_bytes,
@@ -27,15 +35,14 @@ use cubecl_core::{
     ir::FloatKind,
     server::{Bindings, CopyDescriptor, TensorMapBinding},
 };
-use cubecl_runtime::data_service::DataTransferId;
-use cubecl_runtime::logging::ServerLogger;
+// deduped above: DataTransferId, ServerLogger
 use cubecl_runtime::memory_management::MemoryUsage;
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::{
     memory_management::MemoryManagement,
     server::{self, ComputeServer},
 };
-use cubecl_runtime::{memory_management::offset_handles, timestamp_profiler::TimestampProfiler};
+// deduped above: offset_handles, TimestampProfiler
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUctx_st, CUfunction_attribute, CUmemorytype, CUtensorMap,
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
@@ -145,31 +152,20 @@ impl ComputeServer for CudaServer {
         let mut total_size = 0;
 
         for descriptor in descriptors {
-            let pitch_align = match descriptor.kind {
-                AllocationKind::Contiguous => 1,
-                AllocationKind::Optimized => self.mem_alignment,
-            };
-
             let rank = descriptor.shape.len();
-            let width = *descriptor.shape.last().unwrap_or(&1);
-            let height: usize = descriptor.shape.iter().rev().skip(1).product();
-            let height = height.max(1);
-            let width_bytes = width * descriptor.elem_size;
-            let pitch = width_bytes.next_multiple_of(pitch_align);
-            let size = height * pitch;
-            total_size += size.next_multiple_of(self.mem_alignment);
-            let mut stride = vec![1; rank];
-            if rank > 1 {
-                stride[rank - 2] = pitch / descriptor.elem_size;
+            if matches!(descriptor.kind, AllocationKind::Optimized) && rank > 1 {
+                let (s, size) =
+                    pitched_rows_layout(descriptor.shape, descriptor.elem_size, self.mem_alignment);
+                total_size += size.next_multiple_of(self.mem_alignment);
+                strides.push(s);
+                sizes.push(size);
+            } else {
+                let s = contiguous_strides(descriptor.shape);
+                let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+                total_size += size.next_multiple_of(self.mem_alignment);
+                strides.push(s);
+                sizes.push(size);
             }
-            if rank > 2 {
-                for i in (0..rank - 2).rev() {
-                    stride[i] = stride[i + 1] * descriptor.shape[i + 1];
-                }
-            }
-
-            strides.push(stride);
-            sizes.push(size);
         }
 
         let ctx = self.get_context();
@@ -197,7 +193,7 @@ impl ComputeServer for CudaServer {
             } = descriptor;
             let rank = shape.len();
 
-            if !valid_strides(shape, strides) {
+            if !(is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)) {
                 return Err(IoError::UnsupportedStrides);
             }
 
@@ -210,7 +206,8 @@ impl ComputeServer for CudaServer {
                 let dim_x = shape[rank - 1];
                 let width_bytes = dim_x * elem_size;
                 let dim_y: usize = shape.iter().rev().skip(1).product();
-                let pitch = strides[rank - 2] * elem_size;
+                let pitch =
+                    row_pitch_elems(shape, strides).unwrap_or(strides[rank - 2]) * elem_size;
 
                 let cpy = CUDA_MEMCPY2D_st {
                     srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
@@ -939,29 +936,4 @@ fn oob_to_cuda(fill: OobFill) -> CUtensorMapFloatOOBfill {
         OobFill::Zero => CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE,
         OobFill::NaN => CU_TENSOR_MAP_FLOAT_OOB_FILL_NAN_REQUEST_ZERO_FMA,
     }
-}
-
-pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
-    let rank = shape.len();
-    if strides[rank - 1] != 1 {
-        return false;
-    }
-    if rank <= 1 {
-        return true;
-    }
-
-    let mut sorted = strides.to_vec();
-    sorted.sort();
-    sorted.reverse();
-
-    if sorted != strides {
-        return false;
-    }
-
-    for i in 0..rank - 2 {
-        if strides[i] != shape[i + 1] * strides[i + 1] {
-            return false;
-        }
-    }
-    true
 }

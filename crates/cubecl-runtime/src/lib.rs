@@ -53,3 +53,6 @@ pub mod timestamp_profiler;
 
 /// Utilities for data transfers between servers
 pub mod data_service;
+
+/// Stride compatibility helpers for preflight checks and host I/O planning.
+pub mod stride;

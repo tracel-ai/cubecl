@@ -25,12 +25,13 @@ use cubecl_runtime::{
 use crate::{
     HipWmmaCompiler,
     compute::{
-        HipContext, HipServer, contiguous_strides,
+        HipContext, HipServer,
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
         storage::gpu::GpuStorage,
     },
     device::AmdDevice,
 };
+use cubecl_runtime::stride::{is_contiguous, is_inner_contiguous_rows};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -174,6 +175,8 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         mem_properties,
         topology,
         TimingMethod::System,
+        // Prefer pitched rows by default on HIP (hardware efficient).
+        cubecl_runtime::server::AllocationKind::Optimized,
     );
     register_supported_types(&mut device_props);
 
@@ -232,17 +235,7 @@ impl Runtime for HipRuntime {
     }
 
     fn can_read_tensor(shape: &[usize], strides: &[usize]) -> bool {
-        if shape.is_empty() {
-            return true;
-        }
-
-        for (expected, &stride) in contiguous_strides(shape).into_iter().zip(strides) {
-            if expected != stride {
-                return false;
-            }
-        }
-
-        true
+        is_contiguous(shape, strides) || is_inner_contiguous_rows(shape, strides)
     }
 
     fn target_properties() -> TargetProperties {
