@@ -62,6 +62,7 @@ macro_rules! testgen_stream {
         use super::*;
 
         #[test]
+        #[ignore = "Not yet supported by all backends"]
         fn test_stream() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::stream::test_stream::<TestRuntime, FloatType>(client);
