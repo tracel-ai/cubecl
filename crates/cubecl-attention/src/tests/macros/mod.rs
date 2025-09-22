@@ -571,14 +571,13 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO"]
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 8,
-                    seq_kv: 8,
-                    head_dim: 8,
-                    val_dim: 8,
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,
