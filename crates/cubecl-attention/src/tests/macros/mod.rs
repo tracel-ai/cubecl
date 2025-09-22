@@ -574,16 +574,54 @@ macro_rules! testgen_attention {
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 2,
-                    seq_kv: 2,
-                    head_dim: 1,
-                    val_dim: 1,
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,
                     seq_kv: 1,
                     head_dim: 1,
                     val_dim: 1,
+                };
+                let stage_size = AttentionStageSize { seq_q: 2 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                );
+            }
+
+            #[test]
+            fn attention_stage2_partition_all2() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 2,
+                    seq_kv: 2,
+                    head_dim: 2,
+                    val_dim: 2,
                 };
                 let stage_size = AttentionStageSize { seq_q: 2 };
                 let tiling_scheme = AttentionTilingScheme {
