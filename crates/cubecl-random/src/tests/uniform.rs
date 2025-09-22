@@ -17,7 +17,7 @@ macro_rules! testgen_random_uniform {
 
                 random_uniform::<R, E>(&client, lower_bound, upper_bound, output.as_ref());
 
-                let output_data = client.read_one(output.handle);
+                let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);
 
                 output_data.to_owned()
@@ -30,7 +30,7 @@ macro_rules! testgen_random_uniform {
                 let output_data = get_random_uniform_data::<TestRuntime, f32>(shape, 5., 17.);
 
                 for e in output_data {
-                    assert!(e >= 5. && e < 17.);
+                    assert!(e >= 5. && e < 17., "Not in range, got {}", e);
                 }
             }
 
