@@ -52,9 +52,10 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         tile: Coords2d,
         #[comptime] config: S,
     ) -> Tile<AP::EI> {
-        let (row_partition, col) = tile;
+        let (row_in_partition, col) = tile;
         let attention_tile_size = config.tiling_scheme().tile_size;
-        let row = row_partition + UNIT_POS_Y * config.tiling_scheme().elements_in_partition_seq_q();
+
+        let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
         Tile::<AP::EI> {
             slice: self
