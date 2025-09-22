@@ -283,9 +283,6 @@ impl<B: StreamBackend> MultiStream<B> {
             return analysis;
         }
 
-        log::info!("Analysis for stream {stream_id} => {analysis:?}");
-        // println!("Analysis for stream {stream_id} => {analysis:?}");
-
         let mut events = Vec::with_capacity(analysis.slices.len());
 
         unsafe {
@@ -302,7 +299,6 @@ impl<B: StreamBackend> MultiStream<B> {
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(*stream_origin, cursor_origin);
 
-            log::info!("waiting.. {stream_origin}");
             B::wait_event(&mut stream.stream, event);
         }
 

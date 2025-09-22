@@ -68,9 +68,8 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         .unwrap();
         arch_major * 10 + minor
     } as u32;
-    // 32 bytes is enough to handle a double4 worth of alignment.
-    // NB: cudamalloc and co. actually align to _256_ bytes. Worth
-    // trying this in the future to see if it reduces memory coalescing.
+
+    // cudamalloc and co. align to _256_ bytes.
     //
     // TODO: Find the correct value from the driver.
     let mem_alignment = 256;
@@ -173,7 +172,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         device_props.register_semantic_type(SemanticType::Barrier);
         device_props.features.plane.insert(Plane::Sync);
 
-        comp_opts.grid_constants = false;
+        comp_opts.grid_constants = true;
     }
 
     // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
