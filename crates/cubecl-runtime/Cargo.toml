@@ -76,7 +76,7 @@ rand = { workspace = true, features = ["thread_rng"] }
 serial_test = { workspace = true }
 
 [build-dependencies]
-cfg_aliases = "0.2.1"
+cfg_aliases = { workspace = true }
 
 [[bench]]
 harness = false

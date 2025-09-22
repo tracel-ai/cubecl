@@ -18,8 +18,10 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
-use cubecl_std::{div_ceil, tensor::layout::Coords2d};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+};
 use std::marker::PhantomData;
 
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
@@ -71,7 +73,7 @@ where
     ) {
         let stage_step = config.tiling_scheme().elements_in_stage_k();
         let range = k_range.1 - k_range.0;
-        let needed_stage_matmuls = div_ceil(range, stage_step);
+        let needed_stage_matmuls = range.div_ceil(stage_step);
 
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);

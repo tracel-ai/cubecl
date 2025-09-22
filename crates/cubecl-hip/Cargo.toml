@@ -18,7 +18,6 @@ default = [
 ]
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 rocwmma = []
-compilation-cache = ["cubecl-common/cache", "serde"]
 
 matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_plane = ["cubecl-matmul/matmul_tests_plane"]
@@ -74,7 +73,9 @@ matmul_tests_all = [
 conv_tests = ["cubecl-convolution/conv_tests"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.7.0" }
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", features = [
+    "cache",
+] }
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "0.7.0", default-features = false, features = [
     "hip",
@@ -92,7 +93,7 @@ derive-new = { workspace = true }
 half = { workspace = true }
 log = { workspace = true }
 paste = { workspace = true }
-serde = { workspace = true, optional = true }
+serde = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [

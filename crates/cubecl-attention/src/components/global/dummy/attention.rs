@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::FullStageReader;
+use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
@@ -58,7 +58,7 @@ impl<
 
         let seq_kv_stage = config.tiling_scheme().seq_kv();
 
-        let num_stage_iterations = div_ceil(seq_kv, seq_kv_stage.runtime());
+        let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {

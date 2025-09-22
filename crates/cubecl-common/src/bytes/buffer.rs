@@ -48,10 +48,10 @@ impl Buffer {
             size: layout.size(),
             align: layout.align(),
         };
-        let contoller = DefaultAllocationController;
+        let controller = DefaultAllocationController;
         Self {
             allocation,
-            controller: Box::new(contoller),
+            controller: Box::new(controller),
         }
     }
 

@@ -5,7 +5,7 @@ use crate::components::global::{
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
-use cubecl_std::{div_ceil, tensor::layout::Coords2d};
+use cubecl_std::tensor::layout::Coords2d;
 
 use super::GlobalWriter;
 
@@ -43,7 +43,7 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
         let output_line_size = config.global_line_size;
 
         let unit_step = plane_dim * output_line_size;
-        let num_unit_writes = comptime!(div_ceil(tile_size, unit_step));
+        let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
         #[unroll(num_unit_writes == 1)]

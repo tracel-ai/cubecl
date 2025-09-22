@@ -7,7 +7,6 @@ use cubecl_matmul::components::global::{
 use cubecl_matmul::components::stage::{FullStageReader, StageMemory};
 use cubecl_matmul::components::tile::Tile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
-use cubecl_std::div_ceil;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 

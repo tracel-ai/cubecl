@@ -54,7 +54,7 @@ where
     ) {
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = range.div_ceil(k_step);
 
         let lhs_elem_size = LhsS::<MP>::elem_size();
         let rhs_elem_size = RhsS::<MP>::elem_size();

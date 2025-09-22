@@ -74,9 +74,7 @@ where
     ) {
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
-        #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-        #[allow(clippy::manual_div_ceil)]
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = range.div_ceil(k_step);
 
         acc_reader.load_stage::<Self::Config>(config);
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());

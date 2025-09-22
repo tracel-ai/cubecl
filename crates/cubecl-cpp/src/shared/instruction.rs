@@ -70,6 +70,7 @@ pub enum Instruction<D: Dialect> {
     Modulo(BinaryInstruction<D>),
     Remainder(BinaryInstruction<D>),
     Add(BinaryInstruction<D>),
+    SaturatingAdd(BinaryInstruction<D>),
     Fma {
         a: Variable<D>,
         b: Variable<D>,
@@ -79,6 +80,7 @@ pub enum Instruction<D: Dialect> {
     Div(BinaryInstruction<D>),
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
+    SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
     IndexAssign(IndexAssignInstruction<D>),
@@ -261,6 +263,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 }
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Slice {
                 input,
                 start,
@@ -301,6 +304,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
