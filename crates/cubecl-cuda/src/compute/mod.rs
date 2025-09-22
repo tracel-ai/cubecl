@@ -1,5 +1,8 @@
+pub(crate) mod command;
+pub(crate) mod context;
 pub(crate) mod io;
 pub(crate) mod storage;
+pub(crate) mod stream;
 pub(crate) mod sync;
 
 mod data_service;

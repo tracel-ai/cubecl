@@ -1,5 +1,4 @@
 //! Cubecl standard library.
-
 extern crate alloc;
 
 mod reinterpret_slice;

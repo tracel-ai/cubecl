@@ -15,7 +15,9 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration};
+use cubecl_common::{
+    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+};
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
@@ -47,26 +49,33 @@ where
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+    fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
-            .create(vec![AllocationDescriptor::new(
-                AllocationKind::Contiguous,
-                &[data.len()],
-                1,
-            )])?
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
             .remove(0);
-        self.write(vec![(
-            CopyDescriptor::new(
-                alloc.handle.clone().binding(),
-                &[data.len()],
-                &alloc.strides,
-                1,
-            ),
-            data,
-        )])?;
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                data,
+            )],
+            stream_id,
+        )?;
         Ok(alloc.handle)
     }
 
@@ -74,18 +83,24 @@ where
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
     /// Executes the `kernel` over the given memory `handles`.
@@ -103,25 +118,30 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     );
 
     /// Flush all outstanding tasks in the server.
-    fn flush(&mut self);
+    fn flush(&mut self, stream_id: StreamId);
 
     /// The current memory usage of the server.
-    fn memory_usage(&self) -> MemoryUsage;
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self);
+    fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self) -> ProfilingToken;
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError>;
 
     /// Update the memory mode of allocation in the server.
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
 /// Defines a way to move data from one compute server to another.
@@ -138,7 +158,7 @@ pub trait DataTransferService {
     /// - `id`: A unique id for the transaction
     /// - `src`: The source for the read operation.
     #[allow(unused_variables)]
-    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
+    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
         unimplemented!("Data transfer not supported on the current runtime.",);
     }
 
@@ -149,7 +169,7 @@ pub trait DataTransferService {
     /// - `id`: A unique id for the transaction
     /// - `dst`: The destination for the write operation.
     #[allow(unused_variables)]
-    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
+    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
         unimplemented!("Data transfer not supported on the current runtime.",);
     }
 }
@@ -170,6 +190,10 @@ pub struct Handle {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
 }
@@ -357,6 +381,10 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Size in bytes
     size: u64,
 }
@@ -419,7 +447,7 @@ pub struct TensorMapMeta {
 impl Handle {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        self.memory.can_mut()
+        self.memory.can_mut() && self.stream == StreamId::current()
     }
 }
 
@@ -431,6 +459,8 @@ impl Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 
@@ -457,6 +487,8 @@ impl Clone for Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }
@@ -468,6 +500,8 @@ impl Clone for Binding {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }

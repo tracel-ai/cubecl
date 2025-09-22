@@ -376,7 +376,7 @@ pub enum Type {
     Scalar(StorageType),
     /// Line wrapping `n` storage elements
     Line(StorageType, u32),
-    /// No defined physcial representation, purely semantic. i.e. barrier, pipeline
+    /// No defined physical representation, purely semantic. i.e. barrier, pipeline
     Semantic(SemanticType),
 }
 
