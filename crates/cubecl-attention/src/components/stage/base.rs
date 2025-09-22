@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageReaderFamily};
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
@@ -81,7 +80,6 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         score: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         prev_state: &mut StageState<AP>,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 

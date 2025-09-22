@@ -5,7 +5,6 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
-use cubecl_std::CubeOption;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -99,7 +98,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;

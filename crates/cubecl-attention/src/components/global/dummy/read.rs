@@ -15,6 +15,7 @@ use crate::components::stage::StageAttentionConfig;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionPrecision, FlashIdent};
+use cubecl_std::tensor::ViewOperations;
 
 #[derive(CubeType)]
 pub struct QueryReader<AP: AttentionPrecision> {
@@ -143,9 +144,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
                                 let index_load = row_load_in_tile * tile_cols_load + col_load;
                                 let index_store = col_load * tile_rows_load + row_load_in_tile;
 
-                                slice[index_store + store_offset] = Line::cast_from(
-                                    view.read_checked(((tile_row_load, tile_col_load), index_load)),
-                                );
+                                slice[index_store + store_offset] =
+                                    Line::cast_from(view.read_masked(
+                                        ((tile_row_load, tile_col_load), index_load),
+                                        Line::cast_from(-999999),
+                                    ));
                             }
                         }
                     }
@@ -224,9 +227,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
 
                                 let index = row_in_tile * tile_cols + col;
 
-                                slice[index + offset] = Line::cast_from(
-                                    view.read_checked(((tile_row, tile_col), index)),
-                                );
+                                slice[index + offset] = Line::cast_from(view.read_masked(
+                                    ((tile_row, tile_col), index),
+                                    Line::cast_from(-999999),
+                                ));
                             }
                         }
                     }

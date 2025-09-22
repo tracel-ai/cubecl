@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::FullStageReader;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
@@ -10,9 +9,8 @@ use crate::components::global::{
     AttentionGlobalLayout,
     dummy::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
@@ -60,17 +58,7 @@ impl<
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
-        for i in 0..num_stage_iterations {
-            let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                let seq_q_stage = config
-                    .stage_config()
-                    .tiling_scheme()
-                    .elements_in_stage_seq_q();
-                CubeOption::new_Some((seq_q_stage, seq_kv - i * seq_kv_stage))
-            } else {
-                CubeOption::new_None()
-            };
-
+        for _ in 0..num_stage_iterations {
             key_reader.read_transposed(config);
             value_reader.read(config);
             sync_cube();
@@ -83,7 +71,6 @@ impl<
                 &mut score_prob,
                 &mut accumulator,
                 &mut stage_state,
-                out_of_bounds_mask,
                 config.stage_config(),
             );
 

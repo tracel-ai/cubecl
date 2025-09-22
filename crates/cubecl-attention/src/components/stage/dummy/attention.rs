@@ -5,7 +5,6 @@ use cubecl_matmul::components::{
     stage::StageReader,
     tile::reader::Strided,
 };
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
@@ -47,7 +46,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         score_prob: &mut Self::Score,
         accumulator: &mut Self::Accumulator,
         state: &mut StageState<AP>,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
         let p = config.tiling_scheme().partition_size;
@@ -103,7 +101,6 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
                 let row_stats = TA::score_to_prob(
                     score_frag,
-                    out_of_bound_mask,
                     state_q,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );

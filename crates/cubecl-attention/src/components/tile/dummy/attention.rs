@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::Tile;
-use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::tile::RowStats;
@@ -105,18 +104,12 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
 
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA> {
         let inv_sqrt_dk = AP::EA::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         score_prob.multiply_score(inv_sqrt_dk);
-
-        match out_of_bound_mask {
-            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
-            CubeOption::None => {}
-        }
 
         let max = score_prob.row_max(state.m);
 
