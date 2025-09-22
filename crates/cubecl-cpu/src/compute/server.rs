@@ -105,7 +105,7 @@ impl ComputeServer for CpuServer {
             .sum::<usize>();
 
         let handle = self.ctx.memory_management.reserve(total_size as u64)?;
-        let mem_handle = Handle::new(handle, None, None, stream_id, total_size as u64, 0);
+        let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
         let handles = offset_handles(mem_handle, &sizes, align);
 
         Ok(handles

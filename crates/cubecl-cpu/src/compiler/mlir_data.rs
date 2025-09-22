@@ -89,12 +89,11 @@ impl MlirData {
             push_undirected(line_memref);
         }
 
-        // TODO: Wrong.
         let stream_id = StreamId::current();
         for shared_memory in shared_memories.0.iter() {
             let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
             let handle = memory_management.reserve(length).unwrap();
-            let b = Handle::new(handle, None, None, stream_id, length, 0).binding();
+            let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
             let handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");

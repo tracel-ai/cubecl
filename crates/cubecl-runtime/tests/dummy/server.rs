@@ -86,8 +86,8 @@ impl ComputeServer for DummyServer {
                     None,
                     None,
                     stream_id,
-                    size as u64,
                     0,
+                    size as u64,
                 );
                 Ok(Allocation::new(handle, strides))
             })

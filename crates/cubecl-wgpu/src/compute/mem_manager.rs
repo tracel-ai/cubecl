@@ -80,8 +80,8 @@ impl WgpuMemManager {
             None,
             None,
             stream_id,
-            size,
             0,
+            size,
         ))
     }
 
