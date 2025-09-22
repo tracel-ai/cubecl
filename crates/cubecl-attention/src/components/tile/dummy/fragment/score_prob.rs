@@ -16,6 +16,9 @@ pub struct ScoreFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
     row: u32,
     col_start: u32,
 
+    tmp_smem_start: u32,
+    tmp_smem_end: u32,
+
     #[cube(comptime)]
     num_rows: u32,
     #[cube(comptime)]
@@ -40,11 +43,17 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
+        let score_size = config.attention_tile_size().accumulator_size();
+        let tmp_smem_start = UNIT_POS_Y * score_size;
+        let tmp_smem_end = tmp_smem_start + score_size;
+
         ScoreFragment::<FP, FM> {
-            tmp_smem: SharedMemory::<FP::SP>::new(config.attention_tile_size().score_prob_size()),
+            tmp_smem: SharedMemory::<FP::SP>::new(score_size * config.num_planes()),
             fragment,
             row,
             col_start,
+            tmp_smem_start,
+            tmp_smem_end,
             num_rows,
             num_cols,
             num_cols_per_unit,
@@ -53,11 +62,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     }
 
     pub fn multiply_score(&mut self, factor: FP::SP) {
-        FM::tmp_write_score_prob(
-            &self.fragment,
-            &mut self.tmp_smem.to_slice_mut().try_cast_unchecked(),
-            self.config,
-        );
+        let mut slice = self
+            .tmp_smem
+            .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
+            .try_cast_unchecked();
+
+        FM::tmp_write_score_prob(&self.fragment, &mut slice, self.config);
 
         if self.row < self.num_rows {
             #[unroll]
@@ -65,7 +75,8 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
                 let col = self.col_start + i;
 
                 if col < self.num_cols {
-                    self.tmp_smem[self.row * self.num_cols + col] *= factor;
+                    slice[self.row * self.num_cols + col] =
+                        slice[self.row * self.num_cols + col] * Line::cast_from(factor);
                 }
             }
         }
@@ -74,11 +85,15 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     }
 
     pub fn row_max(&mut self, base: FP::SP) -> FP::SP {
+        let slice = self
+            .tmp_smem
+            .slice_mut(self.tmp_smem_start, self.tmp_smem_end);
+
         let row_offset = self.row * self.num_cols;
         let mut rowmax = base;
 
         for i in 0..self.num_cols {
-            let ts = self.tmp_smem[row_offset + i];
+            let ts = slice[row_offset + i];
             if ts > rowmax {
                 rowmax = ts;
             }
@@ -88,6 +103,11 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     }
 
     pub fn to_prob(&mut self, m: FP::SP) {
+        let mut slice = self
+            .tmp_smem
+            .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
+            .try_cast_unchecked();
+
         if self.row < self.num_rows {
             #[unroll]
             for i in 0..self.num_cols_per_unit {
@@ -95,7 +115,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
 
                 if col < self.num_cols {
                     let index = self.row * self.num_cols + col;
-                    self.tmp_smem[index] = Exp::exp(self.tmp_smem[index] - m);
+                    slice[index] = Exp::exp(slice[index] - Line::cast_from(m));
                 }
             }
         }
@@ -103,7 +123,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         sync_cube();
 
         let tile = Tile::<FP::SP> {
-            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
+            slice: slice.to_slice(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,
         };
@@ -111,17 +131,24 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
     }
 
     pub fn row_sum(&self) -> FP::SP {
+        let slice = self.tmp_smem.slice(self.tmp_smem_start, self.tmp_smem_end);
+
         let row_offset = self.row * self.num_cols;
 
         let mut rowsum = FP::SP::from_int(0);
         for i in 0..self.num_cols {
-            rowsum += self.tmp_smem[row_offset + i];
+            rowsum += slice[row_offset + i];
         }
 
         rowsum
     }
 
     pub fn apply_mask(&mut self, row_col_remove: (u32, u32)) {
+        let mut slice: SliceMut<Line<FP::SP>> = self
+            .tmp_smem
+            .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
+            .try_cast_unchecked();
+
         sync_cube();
         if self.row < self.num_rows {
             #[unroll]
@@ -131,7 +158,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
                 if col < self.num_cols && (self.row >= row_col_remove.0 || col >= row_col_remove.1)
                 {
                     let index = self.row * self.num_cols + col;
-                    self.tmp_smem[index] = FP::SP::from_int(-9999999999);
+                    slice[index] = Line::cast_from(-999999);
                 }
             }
         }
@@ -139,7 +166,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         sync_cube();
 
         let tile = Tile::<FP::SP> {
-            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
+            slice: slice.to_slice().try_cast_unchecked(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,
         };

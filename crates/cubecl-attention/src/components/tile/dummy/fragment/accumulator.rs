@@ -16,6 +16,9 @@ pub struct AccumulatorFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
     row: u32,
     col_start: u32,
 
+    tmp_smem_start: u32,
+    tmp_smem_end: u32,
+
     #[cube(comptime)]
     num_rows: u32,
     #[cube(comptime)]
@@ -40,11 +43,17 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
+        let acc_size = config.attention_tile_size().accumulator_size();
+        let tmp_smem_start = UNIT_POS_Y * acc_size;
+        let tmp_smem_end = tmp_smem_start + acc_size;
+
         AccumulatorFragment::<FP, FM> {
-            tmp_smem: SharedMemory::new(config.attention_tile_size().accumulator_size()),
+            tmp_smem: SharedMemory::new(acc_size * config.num_planes()),
             fragment,
             row,
             col_start,
+            tmp_smem_start,
+            tmp_smem_end,
             num_rows,
             num_cols,
             num_cols_per_unit,
@@ -53,11 +62,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
     }
 
     pub fn scale(&mut self, factor: FP::A) {
-        FM::write_results::<FP::A>(
-            &self.fragment,
-            &mut self.tmp_smem.to_slice_mut().try_cast_unchecked(),
-            self.config,
-        );
+        let mut slice = self
+            .tmp_smem
+            .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
+            .try_cast_unchecked();
+
+        FM::write_results::<FP::A>(&self.fragment, &mut slice, self.config);
 
         if self.row < self.num_rows {
             #[unroll]
@@ -71,7 +81,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
         }
 
         let tile = Tile::<FP::A> {
-            slice: self.tmp_smem.to_slice().try_cast_unchecked(),
+            slice: slice.to_slice(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,
         };
