@@ -2,6 +2,8 @@ use super::storage::gpu::GpuResource;
 use crate::compute::LaunchError;
 use crate::compute::stream::Stream;
 use crate::runtime::HipCompiler;
+use cubecl_common::cache::Cache;
+use cubecl_common::cache::CacheOption;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::compute::DebugInformation;
 use cubecl_core::prelude::*;
@@ -10,6 +12,8 @@ use cubecl_cpp::shared::CompilationOptions;
 use cubecl_hip_sys::{HIP_SUCCESS, get_hip_include_path, hiprtcResult_HIPRTC_SUCCESS};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::ffi::CString;
@@ -20,8 +24,7 @@ pub(crate) struct HipContext {
     pub module_names: HashMap<KernelId, HipCompiledKernel>,
     pub timestamps: TimestampProfiler,
     pub compilation_options: CompilationOptions,
-    #[cfg(feature = "compilation-cache")]
-    pub compilation_cache: Cache<String, CompilationCacheEntry>,
+    pub compilation_cache: Option<Cache<String, CompilationCacheEntry>>,
 }
 
 #[derive(Debug)]
@@ -31,8 +34,7 @@ pub struct HipCompiledKernel {
     cube_dim: CubeDim,
 }
 
-#[cfg(feature = "compilation-cache")]
-#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CompilationCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
@@ -45,8 +47,18 @@ impl HipContext {
             module_names: HashMap::new(),
             timestamps: TimestampProfiler::default(),
             compilation_options,
-            #[cfg(feature = "compilation-cache")]
-            compilation_cache: Cache::new("hip/compilation", CacheOption::default()),
+            compilation_cache: {
+                let config = cubecl_runtime::config::GlobalConfig::get();
+                if let Some(cache) = &config.compilation.cache {
+                    let root = cache.root();
+                    Some(Cache::new(
+                        "hip-kernel",
+                        CacheOption::default().name("hip").root(root),
+                    ))
+                } else {
+                    None
+                }
+            },
         }
     }
 
@@ -58,23 +70,26 @@ impl HipContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) {
-        #[cfg(feature = "compilation-cache")]
-        let name = kernel_id.stable_format();
-        #[cfg(feature = "compilation-cache")]
-        if let Some(entry) = self.compilation_cache.get(&name) {
-            log::trace!("Using compilation cache");
-            self.load_compiled_binary(
-                entry.binary.clone(),
-                kernel_id.clone(),
-                entry.entrypoint_name.clone(),
-                CubeDim {
-                    x: entry.cube_dim.0,
-                    y: entry.cube_dim.1,
-                    z: entry.cube_dim.2,
-                },
-            );
-            return;
-        }
+        let name = if let Some(cache) = self.compilation_cache.as_ref() {
+            let name = kernel_id.stable_format();
+            if let Some(entry) = cache.get(&name) {
+                log::trace!("Using compilation cache");
+                self.load_compiled_binary(
+                    entry.binary.clone(),
+                    kernel_id.clone(),
+                    entry.entrypoint_name.clone(),
+                    CubeDim {
+                        x: entry.cube_dim.0,
+                        y: entry.cube_dim.1,
+                        z: entry.cube_dim.2,
+                    },
+                );
+                return;
+            }
+            Some(name)
+        } else {
+            None
+        };
 
         // CubeCL compilation
         // jitc = just-in-time compiled
@@ -175,21 +190,22 @@ impl HipContext {
             );
         }
 
-        #[cfg(feature = "compilation-cache")]
-        self.compilation_cache
-            .insert(
-                name,
-                CompilationCacheEntry {
-                    entrypoint_name: jitc_kernel.entrypoint_name.clone(),
-                    cube_dim: (
-                        jitc_kernel.cube_dim.x,
-                        jitc_kernel.cube_dim.y,
-                        jitc_kernel.cube_dim.z,
-                    ),
-                    binary: code.clone(),
-                },
-            )
-            .unwrap();
+        if let Some(cache) = self.compilation_cache.as_mut() {
+            cache
+                .insert(
+                    name.unwrap(),
+                    CompilationCacheEntry {
+                        entrypoint_name: jitc_kernel.entrypoint_name.clone(),
+                        cube_dim: (
+                            jitc_kernel.cube_dim.x,
+                            jitc_kernel.cube_dim.y,
+                            jitc_kernel.cube_dim.z,
+                        ),
+                        binary: code.clone(),
+                    },
+                )
+                .unwrap();
+        }
 
         self.load_compiled_binary(
             code,

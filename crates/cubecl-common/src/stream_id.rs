@@ -28,24 +28,23 @@ impl StreamId {
         }
     }
 
-    #[cfg(not(multi_threading))]
     /// Swap the current stream id for the given one.
     ///
     /// # Safety
     ///
     /// Unknown at this point, don't use that if you don't know what you are doing.
     pub unsafe fn swap(stream: StreamId) -> StreamId {
-        // Only a single stream without std.
-        stream
+        unsafe {
+            #[cfg(multi_threading)]
+            return Self::swap_multi_thread(stream);
+
+            #[cfg(not(multi_threading))]
+            return Self::swap_single_thread(stream);
+        }
     }
 
     #[cfg(multi_threading)]
-    /// Swap the current stream id for the given one.
-    ///
-    /// # Safety
-    ///
-    /// Unknown at this point, don't use that if you don't know what you are doing.
-    pub unsafe fn swap(stream: StreamId) -> StreamId {
+    unsafe fn swap_multi_thread(stream: StreamId) -> StreamId {
         let old = Self::current();
         ID.with(|cell| {
             let mut val = cell.borrow_mut();
@@ -53,6 +52,11 @@ impl StreamId {
         });
 
         old
+    }
+
+    #[cfg(not(multi_threading))]
+    unsafe fn swap_single_thread(stream: StreamId) -> StreamId {
+        stream
     }
 
     #[cfg(multi_threading)]

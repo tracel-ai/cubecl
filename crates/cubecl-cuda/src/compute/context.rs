@@ -17,14 +17,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{ffi::CStr, os::raw::c_void};
 
-#[cfg(feature = "compilation-cache")]
 use cubecl_common::cache::{Cache, CacheOption};
 
 #[derive(Debug)]
 pub(crate) struct CudaContext {
     pub context: *mut CUctx_st,
     pub module_names: HashMap<KernelId, CompiledKernel>,
-    #[cfg(feature = "compilation-cache")]
     ptx_cache: Option<Cache<String, PtxCacheEntry>>,
     pub timestamps: TimestampProfiler,
     pub arch: CudaArchitecture,
@@ -38,7 +36,6 @@ pub struct CompiledKernel {
     func: *mut CUfunc_st,
 }
 
-#[cfg(feature = "compilation-cache")]
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct PtxCacheEntry {
     entrypoint_name: String,
@@ -57,7 +54,6 @@ impl CudaContext {
         Self {
             context,
             module_names: HashMap::new(),
-            #[cfg(feature = "compilation-cache")]
             ptx_cache: {
                 let config = cubecl_runtime::config::GlobalConfig::get();
                 if let Some(cache) = &config.compilation.cache {
@@ -83,7 +79,6 @@ impl CudaContext {
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
     ) {
-        #[cfg(feature = "compilation-cache")]
         let name = if let Some(cache) = &self.ptx_cache {
             let name = kernel_id.stable_format();
 
@@ -141,7 +136,6 @@ impl CudaContext {
             options.push(&cccl_include_option);
         }
 
-        #[cfg(feature = "compilation-cache")]
         let cluster_dim = compute_kernel.cluster_dim;
 
         logger.log_compilation(&kernel_compiled);
@@ -172,7 +166,6 @@ impl CudaContext {
         let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<WmmaCompiler>> =
             kernel_compiled.repr.unwrap();
 
-        #[cfg(feature = "compilation-cache")]
         if let Some(cache) = &mut self.ptx_cache {
             cache
                 .insert(

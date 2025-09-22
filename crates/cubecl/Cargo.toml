@@ -44,12 +44,6 @@ hip-rocwmma = ["cubecl-hip?/rocwmma"]
 wgpu = ["cubecl-wgpu"]
 wgpu-msl = ["wgpu", "cubecl-wgpu/msl"]
 wgpu-spirv = ["wgpu", "cubecl-wgpu/spirv"]
-
-compilation-cache = [
-    "cubecl-cuda?/compilation-cache",
-    "cubecl-hip?/compilation-cache",
-]
-
 spirv-dump = ["cubecl-wgpu/spirv-dump"]
 
 [dependencies]

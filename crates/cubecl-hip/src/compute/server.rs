@@ -23,9 +23,6 @@ use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
 use std::sync::Arc;
 
-#[cfg(feature = "compilation-cache")]
-use cubecl_common::cache::{Cache, CacheOption};
-
 #[derive(Debug)]
 pub struct HipServer {
     ctx: HipContext,
