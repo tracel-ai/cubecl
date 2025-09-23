@@ -468,7 +468,7 @@ impl WgpuStream {
         // memory is 32 bytes aligned (see WgpuStorage).
         let size = resource.size.next_multiple_of(align as u64);
 
-        if size == data.len() as u64 || true {
+        if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:
             // - On WebGPU, from WASM, this can save a copy to the JS memory.
             // - On devices with unified memory, this could skip the staging buffer entirely.
