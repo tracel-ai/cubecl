@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     MatrixLayout, StageIdent,
-    stage::{StageMemory, StageMemoryConfig, TilingLayout},
+    stage::{StageMemoryConfig, StridedStage, TilingLayout},
     tile::Tile,
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -13,23 +13,21 @@ pub struct BiasTilingLayout {}
 
 #[cube]
 impl TilingLayout for BiasTilingLayout {
-    fn get_tile<ES: Numeric, S: StageMemoryConfig>(
-        stage: &StageMemory<ES, Self>,
+    fn get_tile<ES: Numeric>(
+        stage: &StridedStage<ES, Self>,
         tile: Coords2d,
-        #[comptime] _buffer_index: u32,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: S,
+        _buffer_index: u32,
+        #[comptime] _ident: StageIdent,
+        #[comptime] config: StageMemoryConfig,
     ) -> Tile<ES> {
-        if comptime!(config.num_stages(ident) > 1) {
+        if comptime!(config.num_stages > 1) {
             unimplemented!()
         }
 
         let (_, col) = tile;
 
-        let stage_line_size = config.stage_line_size(ident);
-        let tiling_scheme = config.tiling_scheme();
-
-        let tile_size_col = tiling_scheme.elements_in_tile_n() / stage_line_size;
+        let stage_line_size = config.stage_line_size;
+        let tile_size_col = config.elements_in_tile_col / stage_line_size;
 
         let length = tile_size_col;
         let start = col * tile_size_col;

@@ -9,9 +9,9 @@ use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul,
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::tile::reader::ReaderKind;
+use crate::components::tile::reader::StageKind;
 use crate::components::{AccG, global::memory::GlobalMemoryConfig};
-use crate::components::{InputPrecision, stage::StageReader};
+use crate::components::{InputPrecision, stage::Stage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -52,17 +52,17 @@ pub struct PartitionedStageMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<
+    RL: Stage<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::LhsTileReader>,
+            TileKind = StageKind<TM::LhsTileReader>,
         >,
-    RR: StageReader<
+    RR: Stage<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::RhsTileReader>,
+            TileKind = StageKind<TM::RhsTileReader>,
         >,
-    RA: StageReader<
+    RA: Stage<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::AccTileReader>,
+            TileKind = StageKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -80,26 +80,26 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<
+    RL: Stage<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::LhsTileReader>,
+            TileKind = StageKind<TM::LhsTileReader>,
         >,
-    RR: StageReader<
+    RR: Stage<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::RhsTileReader>,
+            TileKind = StageKind<TM::RhsTileReader>,
         >,
-    RA: StageReader<
+    RA: Stage<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = ReaderKind<TM::AccTileReader>,
+            TileKind = StageKind<TM::AccTileReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
 
-    type LhsStageReader = RL;
-    type RhsStageReader = RR;
-    type AccStageReader = RA;
+    type LhsStage = RL;
+    type RhsStage = RR;
+    type AccStage = RA;
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
@@ -158,7 +158,7 @@ where
     }
 
     fn load_accumulators(
-        reader: &Self::AccStageReader,
+        reader: &Self::AccStage,
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     ) {

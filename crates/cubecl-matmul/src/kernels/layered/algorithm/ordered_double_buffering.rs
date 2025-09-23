@@ -3,16 +3,14 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::stage::{
-    FullStageReaderFamily, PartialStageReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
-};
+use crate::components::stage::{PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{
     MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
 };
 use crate::components::{MultiRowStrategy, tile};
 use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    stage::FillStageReaderFamily,
+    stage::{FilledStageFamily, StridedStageFamily},
 };
 use crate::components::{
     global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::reader::Filled,
@@ -43,9 +41,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullStageReaderFamily,
-        PartialStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,

@@ -9,7 +9,7 @@ use crate::{
         global::{
             read::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
         },
-        stage::{FillStageReaderFamily, FullStageReaderFamily, PlaneMatmulFamily},
+        stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             self,
             reader::{Filled, Strided},
@@ -33,9 +33,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullStageReaderFamily,
-        FullStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
 

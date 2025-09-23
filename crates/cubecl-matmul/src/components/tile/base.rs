@@ -7,7 +7,7 @@ use crate::components::{
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{StageIdent, tile::reader::TileReader};
-use crate::components::{error::MatmulSetupError, tile::reader::ReaderTile};
+use crate::components::{error::MatmulSetupError, tile::reader::StageTile};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -103,7 +103,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
-        tile: ReaderTile<Self::LhsTileReader, E>,
+        tile: StageTile<Self::LhsTileReader, E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -118,7 +118,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
-        tile: ReaderTile<Self::RhsTileReader, E>,
+        tile: StageTile<Self::RhsTileReader, E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -134,7 +134,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(
-        tile: ReaderTile<Self::AccTileReader, E>,
+        tile: StageTile<Self::AccTileReader, E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );

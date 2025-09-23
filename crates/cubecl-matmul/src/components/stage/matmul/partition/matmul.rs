@@ -5,9 +5,9 @@ use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile::TileMatmul;
 use crate::components::{AccS, stage::StageEvent};
-use crate::components::{InputPrecision, stage::StageReader};
+use crate::components::{InputPrecision, stage::Stage};
 use crate::components::{LhsS, MatmulPrecision, RhsS};
-use crate::components::{stage::StageConfig, tile::reader::ReaderKind};
+use crate::components::{stage::StageConfig, tile::reader::StageKind};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TMM::LhsTileReader>>,
-    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TMM::RhsTileReader>>,
-    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TMM::AccTileReader>>,
+    RL: Stage<LhsS<MP>, TileKind = StageKind<TMM::LhsTileReader>>,
+    RR: Stage<RhsS<MP>, TileKind = StageKind<TMM::RhsTileReader>>,
+    RA: Stage<AccS<MP>, TileKind = StageKind<TMM::AccTileReader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: StageReader<LhsS<MP>, TileKind = ReaderKind<TM::LhsTileReader>>,
-    RR: StageReader<RhsS<MP>, TileKind = ReaderKind<TM::RhsTileReader>>,
-    RA: StageReader<AccS<MP>, TileKind = ReaderKind<TM::AccTileReader>>,
+    RL: Stage<LhsS<MP>, TileKind = StageKind<TM::LhsTileReader>>,
+    RR: Stage<RhsS<MP>, TileKind = StageKind<TM::RhsTileReader>>,
+    RA: Stage<AccS<MP>, TileKind = StageKind<TM::AccTileReader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
@@ -160,11 +160,7 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
-                    lhs_reader,
-                    (m_load_iter, k_load_iter),
-                    config.stage_memory_config(),
-                );
+                let tile_lhs = RL::read_tile(lhs_reader, (m_load_iter, k_load_iter));
                 TM::load_lhs(
                     tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -190,11 +186,7 @@ where
             for _ in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
-                let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
-                    rhs_reader,
-                    (k_load_iter, n_load_iter),
-                    config.stage_memory_config(),
-                );
+                let rhs_tile_next = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
                 TM::load_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
@@ -284,11 +276,7 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = RL::read_tile::<S::StageMemoryConfig>(
-                    lhs_reader,
-                    (m_load_iter, k_load_iter),
-                    config.stage_memory_config(),
-                );
+                let tile_lhs = RL::read_tile(lhs_reader, (m_load_iter, k_load_iter));
                 TM::load_lhs(
                     tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -310,11 +298,7 @@ where
             let mut n_iter = comptime![0u32];
             let n_load_iter = partition_scheduler.map_n(n_iter);
 
-            let rhs_tile_first = RR::read_tile::<S::StageMemoryConfig>(
-                rhs_reader,
-                (k_load_iter, n_load_iter),
-                config.stage_memory_config(),
-            );
+            let rhs_tile_first = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
             TM::load_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
@@ -336,11 +320,7 @@ where
                 };
 
                 let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
-                let rhs_tile_next = RR::read_tile::<S::StageMemoryConfig>(
-                    rhs_reader,
-                    (k_load_iter, n_load_iter),
-                    config.stage_memory_config(),
-                );
+                let rhs_tile_next = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
                 TM::load_rhs(rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,

@@ -4,7 +4,7 @@ use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
+use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -137,7 +137,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
         this: &mut Self,
         #[comptime] task_id: u32,
         tensor_reader: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
@@ -162,11 +162,9 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<IP::Global>,
-    stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
-    let stage_ident = comptime!(job.ident.into_stage());
-
     let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
         (
             config.global_line_size(job.ident),
@@ -191,12 +189,11 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
         MatmulIdent::Out => comptime!(unreachable!()),
     };
 
-    let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col::<G::StageMemoryConfig>(
+    let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col(
         tile_index,
         tile_count_row,
         tile_count_col,
-        stage_ident,
-        comptime!(config.stage_memory_config()),
+        comptime!(config.stage_memory_config(job.ident)),
     );
 
     let tile = match comptime!(job.ident) {
@@ -216,12 +213,11 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
 
     let line_read = view.read_checked((tile, pos_within_tile));
 
-    let nth_tile_in_stage = TO::to_nth_tile::<G::StageMemoryConfig>(
+    let nth_tile_in_stage = TO::to_nth_tile(
         tile,
         total_tile_count_row,
         total_tile_count_col,
-        stage_ident,
-        config.stage_memory_config(),
+        comptime!(config.stage_memory_config(job.ident)),
     );
 
     let tile_start = nth_tile_in_stage * job.num_lines_per_tile;

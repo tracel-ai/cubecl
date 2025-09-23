@@ -1,7 +1,5 @@
 use crate::components::global::{self, GlobalConfig};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
-use crate::components::stage::FullStageReader;
-use crate::components::stage::PartialStageReader;
 use crate::components::{
     AccG,
     global::read::{
@@ -15,7 +13,7 @@ use crate::components::{
     global::multi_stage::double_buffer_execution::{
         execute_current_and_read_next, execute_last_and_write_results, read_first,
     },
-    stage::FillStageReader,
+    stage::{FilledStage, StridedStage},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -47,12 +45,9 @@ impl<MP: MatmulPrecision, SMM, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStageReader = FullStageReader<
-                LhsS<MP>,
-                <LL as SyncFullLoadingStrategy>::TilingLayout,
-            >,
-            RhsStageReader = PartialStageReader<RhsS<MP>, RL::TilingLayout>,
-            AccStageReader = FillStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, <LL as SyncFullLoadingStrategy>::TilingLayout>,
+            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            AccStage = FilledStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
     RL: SyncPartialLoadingStrategy,
@@ -81,15 +76,15 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        let acc_reader = acc_reader.stage_reader();
+        let acc_reader = acc_reader.stage();
         SMM::load_accumulators(&acc_reader, acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let lhs_stage_reader = lhs_reader.stage_reader();
-        let rhs_stage_reader_a = rhs_reader.stage_reader(StageBuffer::A);
-        let rhs_stage_reader_b = rhs_reader.stage_reader(StageBuffer::B);
+        let lhs_stage_reader = lhs_reader.stage();
+        let rhs_stage_reader_a = rhs_reader.stage(StageBuffer::A);
+        let rhs_stage_reader_b = rhs_reader.stage(StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 

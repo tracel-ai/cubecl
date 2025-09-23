@@ -38,6 +38,6 @@ pub trait TileReader {
 }
 
 /// The concrete tile type for a given reader and element type
-pub type ReaderTile<L, E> = <<L as TileReader>::TileKind as TileKind>::Tile<E>;
+pub type StageTile<L, E> = <<L as TileReader>::TileKind as TileKind>::Tile<E>;
 /// The tile kind of a given reader
-pub type ReaderKind<L> = <L as TileReader>::TileKind;
+pub type StageKind<L> = <L as TileReader>::TileKind;

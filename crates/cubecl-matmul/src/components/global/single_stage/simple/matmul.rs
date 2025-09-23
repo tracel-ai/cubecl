@@ -6,7 +6,7 @@ use crate::components::{
         read::{SyncFullLoadingStrategy, SyncFullStageGlobalReader, ZeroGlobalReader},
         single_stage::simple::SimpleConfig,
     },
-    stage::{FillStageReader, FullStageReader, StageMatmul},
+    stage::{FilledStage, StageMatmul, StridedStage},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -36,9 +36,9 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM
 where
     SMM: StageMatmul<
             MP,
-            LhsStageReader = FullStageReader<LhsS<MP>, LL::TilingLayout>,
-            RhsStageReader = FullStageReader<RhsS<MP>, RL::TilingLayout>,
-            AccStageReader = FillStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            AccStage = FilledStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
     LL: SyncFullLoadingStrategy,
@@ -67,10 +67,10 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let lhs_stage_reader = &lhs_reader.stage_reader();
-        let rhs_stage_reader = &rhs_reader.stage_reader();
+        let lhs_stage_reader = &lhs_reader.stage();
+        let rhs_stage_reader = &rhs_reader.stage();
 
         for _ in 0..num_loops {
             sync_cube();

@@ -15,8 +15,8 @@ use crate::{
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FillStageReaderFamily, FullStageReaderFamily, PartitionBuffering,
-            PlaneMatmulFamily, RowMajorTilingOrder,
+            ColMajorTilingOrder, FilledStageFamily, PartitionBuffering, PlaneMatmulFamily,
+            RowMajorTilingOrder, StridedStageFamily,
         },
         tile::{
             TileMatmulFamily,
@@ -56,9 +56,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullStageReaderFamily,
-        FullStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
     type BatchMatmul =

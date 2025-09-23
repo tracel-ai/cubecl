@@ -2,25 +2,26 @@ use core::marker::PhantomData;
 
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_matmul::components::{InputPrecision, MatmulIdent, StageIdent};
+use cubecl_matmul::components::{
+    InputPrecision, MatmulIdent, StageIdent, stage::StageMemoryConfig,
+};
 use cubecl_std::FastDivmod;
 
-use cubecl_matmul::components::stage::FullStageReader;
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
 use cubecl_matmul::components::{
-    global::{self, memory::MappedTensorReader},
-    stage::{ContiguousTilingLayout, StageConfig, StageMemory},
+    global::memory::MappedTensorReader,
+    stage::{ContiguousTilingLayout, StageConfig, StridedStage},
 };
 
 use crate::kernels::layered::selector::RuntimeArgs;
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaWeightTiling>;
+pub type TmaWeightStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightGlobalReader<IP: InputPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
-    pub stages: Sequence<StageMemory<IP::Stage, TmaWeightTiling>>,
+    pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     _config: PhantomData<S>,
@@ -28,23 +29,19 @@ pub struct TmaWeightGlobalReader<IP: InputPrecision, S: StageConfig> {
 
 #[cube]
 impl<IP: InputPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
-    pub fn new<G: global::GlobalConfig>(
+    pub fn new(
         tensor: TensorMap<IP::Global>,
         x: u32,
         y: u32,
         runtime_args: &RuntimeArgs,
         #[comptime] num_stages: u32,
-        #[comptime] config: G,
+        #[comptime] config: StageMemoryConfig,
     ) -> Self {
         let mut stages = Sequence::new();
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::StageMemoryConfig>(
-                StageIdent::Rhs,
-                128u32,
-                config.stage_memory_config(),
-            ));
+            stages.push(StridedStage::new_aligned(StageIdent::Rhs, 128u32, config));
         }
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, 0);
@@ -87,8 +84,8 @@ impl<IP: InputPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
         }
     }
 
-    pub fn stage_reader(&self, #[comptime] stage_idx: u32) -> TmaWeightReader<IP> {
-        TmaWeightReader::<IP>::new(*self.stages.index(stage_idx), StageIdent::Rhs)
+    pub fn stage(&self, #[comptime] stage_idx: u32) -> TmaWeightStage<IP> {
+        *self.stages.index(stage_idx)
     }
 
     pub fn advance_view(&mut self, k_offset: u32) {

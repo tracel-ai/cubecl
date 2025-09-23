@@ -1,29 +1,26 @@
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_core::{intrinsic, prelude::*};
 
-use cubecl_matmul::components::{InputPrecision, StageIdent};
+use cubecl_matmul::components::{InputPrecision, MatmulIdent, StageIdent};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
-use std::marker::PhantomData;
 
 use crate::{
     components::{ConvGemmConfig, Dimensionality, global::memory::Im2colTmaReader},
     kernels::layered::selector::RuntimeArgs,
 };
-use cubecl_matmul::components::stage::{
-    ColMajorTilingOrder, ContiguousTilingLayout, FullStageReader, StageMemory,
-};
+use cubecl_matmul::components::stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage};
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
+pub type TmaIm2colStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
 
 /// Reader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
 pub struct TmaIm2colGlobalReader<IP: InputPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<IP::Global>,
-    pub stages: Sequence<StageMemory<IP::Stage, TmaIm2colTiling>>,
+    pub stages: Sequence<StridedStage<IP::Stage, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
-    _config: PhantomData<G>,
+    config: G,
 }
 
 #[cube]
@@ -40,10 +37,10 @@ impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colGlobalReader<IP, G> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StageMemory::new_aligned::<G::StageMemoryConfig>(
+            stages.push(StridedStage::new_aligned(
                 StageIdent::Lhs,
                 128u32,
-                config.stage_memory_config(),
+                comptime!(config.stage_memory_config(MatmulIdent::Lhs)),
             ))
         }
 
@@ -55,12 +52,13 @@ impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colGlobalReader<IP, G> {
             map,
             stages,
             padded_channels: runtime_args.padded_channels,
-            _config: PhantomData::<G>,
+            config,
         }
     }
 
-    pub fn fill_stage(&mut self, bar: &Barrier, #[comptime] stage_idx: u32, #[comptime] config: G) {
+    pub fn fill_stage(&mut self, bar: &Barrier, #[comptime] stage_idx: u32) {
         let stage = self.stages.index_mut(stage_idx);
+        let config = comptime![self.config];
 
         if UNIT_POS == 0 {
             let m_size = config.tiling_scheme().elements_in_stage_m();
@@ -149,8 +147,8 @@ impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colGlobalReader<IP, G> {
         self.map.update_view(k_offset);
     }
 
-    pub fn stage_reader(&self, #[comptime] stage_idx: u32) -> TmaIm2colReader<IP> {
-        TmaIm2colReader::<IP>::new(*self.stages.index(stage_idx), StageIdent::Lhs)
+    pub fn stage(&self, #[comptime] stage_idx: u32) -> TmaIm2colStage<IP> {
+        *self.stages.index(stage_idx)
     }
 }
 

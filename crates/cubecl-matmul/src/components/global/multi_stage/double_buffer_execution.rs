@@ -69,8 +69,8 @@ pub fn execute_current_and_read_next<
     RJ: JobExecutor<G>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
-    lhs_stage_reader: &SMM::LhsStageReader,
-    rhs_stage_reader: &SMM::RhsStageReader,
+    lhs_stage_reader: &SMM::LhsStage,
+    rhs_stage_reader: &SMM::RhsStage,
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
@@ -144,8 +144,8 @@ pub fn execute_last_and_write_results<
     SMM: stage::StageMatmul<MP>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
-    lhs_stage_reader: &SMM::LhsStageReader,
-    rhs_stage_reader: &SMM::RhsStageReader,
+    lhs_stage_reader: &SMM::LhsStage,
+    rhs_stage_reader: &SMM::RhsStage,
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,

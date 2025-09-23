@@ -11,7 +11,7 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
-use crate::components::stage::StageReaderFamily;
+use crate::components::stage::StageFamily;
 use crate::components::stage::matmul::plane_partitioned::PlaneMatmul;
 use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageConfig;
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
@@ -26,23 +26,23 @@ use cubecl_std::tensor::layout::Coords2d;
 /// Plane Matmul family for any precision
 pub struct PlaneMatmulFamily<
     TM: TileMatmulFamily,
-    LRF: StageReaderFamily,
-    RRF: StageReaderFamily,
-    RRA: StageReaderFamily,
+    LRF: StageFamily,
+    RRF: StageFamily,
+    RRA: StageFamily,
 > {
     _phantom: PhantomData<(TM, LRF, RRF, RRA)>,
 }
 
 impl<
     TM: TileMatmulFamily,
-    LRF: StageReaderFamily<TileKind = TM::LhsTile>,
-    RRF: StageReaderFamily<TileKind = TM::RhsTile>,
-    RRA: StageReaderFamily<TileKind = TM::AccTile>,
+    LRF: StageFamily<TileKind = TM::LhsTile>,
+    RRF: StageFamily<TileKind = TM::RhsTile>,
+    RRA: StageFamily<TileKind = TM::AccTile>,
 > StageMatmulFamily for PlaneMatmulFamily<TM, LRF, RRF, RRA>
 {
-    type LhsStageReader = LRF;
-    type RhsStageReader = RRF;
-    type AccStageReader = RRA;
+    type LhsStage = LRF;
+    type RhsStage = RRF;
+    type AccStage = RRA;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
         PlaneMatmul<
             MP,
@@ -51,9 +51,9 @@ impl<
                 <MP::Rhs as InputPrecision>::Register,
                 <MP::Acc as InputPrecision>::Register,
             >,
-            LRF::Reader<LhsS<MP>, TL>,
-            RRF::Reader<RhsS<MP>, TR>,
-            RRA::Reader<AccS<MP>, TA>,
+            LRF::Stage<LhsS<MP>, TL>,
+            RRF::Stage<RhsS<MP>, TR>,
+            RRA::Stage<AccS<MP>, TA>,
         >;
     type Config = PlanePartitionedStageConfig<TM::Config>;
     type WriteCoords = Coords2d;

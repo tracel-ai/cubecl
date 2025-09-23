@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::{MatrixLayout, StageIdent, stage::StageMemoryConfig};
+use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
 #[derive(CubeType, Clone)]
 /// Data to be handed to the Tile Matmul
@@ -20,27 +20,17 @@ impl<ES: Numeric> Tile<ES> {
     /// Creates a tile from a contiguous slice of data.
     ///
     /// The slice length must exactly match the tile size.
-    pub fn new_contiguous<S: StageMemoryConfig>(
+    pub fn new_contiguous(
         slice: Slice<Line<ES>>,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: S,
+        #[comptime] config: StageMemoryConfig,
     ) -> Tile<ES> {
-        let tile_size = config.tiling_scheme().tile_size;
-        let line_size = config.stage_line_size(ident);
-        let layout = config.matrix_layout(ident);
+        let layout = config.matrix_layout;
+        let stride = match layout {
+            MatrixLayout::RowMajor => config.elements_in_tile_col,
+            MatrixLayout::ColMajor => config.elements_in_tile_row,
+        };
 
-        let stride = comptime! {
-            (match ident {
-            StageIdent::Lhs => match layout {
-                MatrixLayout::RowMajor => tile_size.k(),
-                MatrixLayout::ColMajor => tile_size.m(),
-            },
-            StageIdent::Rhs => match layout {
-                MatrixLayout::RowMajor => tile_size.n(),
-                MatrixLayout::ColMajor => tile_size.k(),
-            },
-            StageIdent::Acc => unreachable!()
-        }) / line_size};
+        let stride = comptime![stride / config.stage_line_size];
 
         Tile::<ES> {
             slice,

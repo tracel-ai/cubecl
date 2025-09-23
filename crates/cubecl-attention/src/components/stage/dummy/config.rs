@@ -86,25 +86,19 @@ pub struct AttentionStageMemoryConfig {
     pub matmul_tiling_scheme: TilingScheme,
 }
 
-impl StageMemoryConfig for AttentionStageMemoryConfig {
-    fn num_main_flow_planes(&self) -> u32 {
-        // TODO increase with stage_seq_q > 1
-        1
-    }
-
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.matmul_tiling_scheme
-    }
-
-    fn stage_line_size(&self, _ident: StageIdent) -> u32 {
-        1
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn num_stages(&self, _ident: StageIdent) -> u32 {
-        1
+impl AttentionStageMemoryConfig {
+    pub fn into_matmul_config(&self, ident: StageIdent) -> StageMemoryConfig {
+        StageMemoryConfig {
+            num_main_flow_planes: 1,
+            elements_in_tile_row: self.matmul_tiling_scheme.elements_in_tile_row(ident),
+            elements_in_tile_col: self.matmul_tiling_scheme.elements_in_tile_col(ident),
+            tiles_in_stage_row: self.matmul_tiling_scheme.tiles_in_stage_row(ident),
+            tiles_in_stage_col: self.matmul_tiling_scheme.tiles_in_stage_col(ident),
+            elements_in_stage_row: self.matmul_tiling_scheme.elements_in_stage_row(ident),
+            elements_in_stage_col: self.matmul_tiling_scheme.elements_in_stage_col(ident),
+            stage_line_size: 1,
+            matrix_layout: MatrixLayout::RowMajor,
+            num_stages: 1,
+        }
     }
 }
