@@ -142,30 +142,6 @@ impl WgpuStream {
         self.register_pipeline(pipeline, resources.iter(), dispatch);
     }
 
-    pub fn bindinds(&mut self, bindings: Bindings) -> Vec<WgpuResource> {
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = bindings
-            .buffers
-            .iter()
-            .map(|b| self.mem_manage.get_resource(b.clone()))
-            .collect::<Vec<_>>();
-
-        if !bindings.metadata.data.is_empty() {
-            let info = self.create_uniform(bytemuck::cast_slice(&bindings.metadata.data));
-            resources.push(info);
-        }
-
-        resources.extend(
-            bindings
-                .scalars
-                .values()
-                .map(|s| self.create_uniform(s.data())),
-        );
-
-        resources
-    }
-
     fn register_pipeline<'a>(
         &mut self,
         pipeline: Arc<ComputePipeline>,
@@ -421,7 +397,7 @@ impl WgpuStream {
         self.mem_manage.reserve(size, stream_id)
     }
 
-    fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
+    pub fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
         let resource = self.mem_manage.reserve_uniform(data.len() as u64);
         self.write_to_buffer(&resource, data);
         resource

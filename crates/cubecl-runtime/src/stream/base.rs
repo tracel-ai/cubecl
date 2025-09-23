@@ -1,6 +1,6 @@
 use cubecl_common::stream_id::StreamId;
 
-pub(crate) trait StreamFactory {
+pub trait StreamFactory {
     type Stream;
     fn create(&mut self) -> Self::Stream;
 }

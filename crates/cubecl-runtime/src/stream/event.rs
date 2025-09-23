@@ -3,6 +3,7 @@ use crate::{
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
+use core::marker::PhantomData;
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 use std::sync::mpsc::SyncSender;
@@ -35,7 +36,7 @@ pub trait EventStreamBackend: 'static {
 #[derive(Debug)]
 pub struct MultiStream<B: EventStreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
-    streams: StreamPool<B>,
+    streams: StreamPool<EventStreamBackendWrapper<B>>,
     max_streams: usize,
     gc: GcThread<B>,
 }
@@ -59,7 +60,7 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     ///
     /// This cursor should be use for new allocations happening on the current stream.
     pub cursor: u64,
-    streams: &'a mut StreamPool<B>,
+    streams: &'a mut StreamPool<EventStreamBackendWrapper<B>>,
     analysis: SharedBindingAnalysis,
     gc: &'a GcThread<B>,
     /// The current stream where new tasks can be sent safely.
@@ -76,12 +77,17 @@ struct GcTask<B: EventStreamBackend> {
     event: B::Event,
 }
 
-impl<B: EventStreamBackend> StreamFactory for B {
+#[derive(Debug)]
+struct EventStreamBackendWrapper<B: EventStreamBackend> {
+    backend: B,
+}
+
+impl<B: EventStreamBackend> StreamFactory for EventStreamBackendWrapper<B> {
     type Stream = StreamWrapper<B>;
 
     fn create(&mut self) -> Self::Stream {
         StreamWrapper {
-            stream: self.create_stream(),
+            stream: self.backend.create_stream(),
             cursor: 0,
             last_synced: Default::default(),
         }
@@ -156,8 +162,9 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
 impl<B: EventStreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
     pub fn new(backend: B, max_streams: u8) -> Self {
+        let wrapper = EventStreamBackendWrapper { backend };
         Self {
-            streams: StreamPool::new(backend, max_streams, 1),
+            streams: StreamPool::new(wrapper, max_streams, 1),
             max_streams: max_streams as usize,
             gc: GcThread::new(),
         }

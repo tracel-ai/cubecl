@@ -16,7 +16,7 @@ pub trait SchedulerTask: core::fmt::Debug {}
 #[derive(Debug)]
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     pool: StreamPool<SchedulerPoolMarker<B>>,
-    backend: B,
+    pub backend: B,
 }
 
 #[derive(Debug)]
@@ -113,6 +113,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         // println!("{metadata:?}");
 
         let total: usize = metadata.iter().map(|i| i.1).sum();
+        log::info!("Execute scheduled {total} tasks ...");
 
         let num_flushes = metadata.len();
         let mut tasks = Vec::with_capacity(total);
