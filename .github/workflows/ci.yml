@@ -133,8 +133,9 @@ jobs:
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v1
+        uses: tracel-ai/github-actions/setup-linux@v4
         with:
+          apt-packages: "build-essential"
           vulkan-sdk-version: ${{ env.VULKAN_SDK_VERSION }}
           mesa-version: ${{ env.MESA_VERSION }}
           mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
