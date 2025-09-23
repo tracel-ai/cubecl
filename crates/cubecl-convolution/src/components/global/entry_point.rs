@@ -89,21 +89,21 @@ pub(crate) fn implicit_conv<
     let k_size = runtime_args.shape_k;
 
     GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_loader(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_global_reader(
             lhs,
             (m_offset, k_range.0),
             (stage_m, k_size),
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_loader(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_global_reader(
             rhs,
             (k_range.0, n_offset),
             (k_size, stage_n),
             &runtime_args,
             config,
         ),
-        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_loader(
+        GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_global_reader(
             bias, n_offset, stage_n, config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(

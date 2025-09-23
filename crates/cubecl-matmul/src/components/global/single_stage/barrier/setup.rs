@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::load::AsyncFullLoadingStrategy;
+use crate::components::global::read::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
 use crate::components::stage::FullStageReaderFamily;
@@ -83,7 +83,7 @@ where
             !(problem.k as u32).is_multiple_of(stage_shape_k),
             stage_shape_k,
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
         )
     }
 }

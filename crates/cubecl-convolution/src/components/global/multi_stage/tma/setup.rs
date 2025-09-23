@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    global::{load::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
+    global::{read::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
     stage::{FullStageReaderFamily, StageConfig as _, StageMatmulFamily},
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -13,8 +13,8 @@ use crate::{
         ConvolutionConfig, ConvolutionProblem,
         global::{
             GlobalConvolutionFamily,
-            load::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
             multi_stage::tma::{MultiStageTmaConvolution, num_stages},
+            read::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
         },
         stage::reader::BiasTilingLayout,
     },
@@ -90,7 +90,7 @@ where
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
-                selection.loader_mode,
+                selection.reader_mode,
             )?,
             &problem.kernel_size,
             &problem.stride,

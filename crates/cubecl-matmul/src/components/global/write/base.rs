@@ -1,12 +1,12 @@
 use crate::components::global::memory::GlobalMemoryConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coordinates;
+use cubecl_std::tensor::layout::{Coordinates, Coords2d};
 
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait StageUnloader<EO: Numeric>: CubeType + 'static + Send + Sync {
+pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
     /// Coordinates used to index the tensor
     type Coordinates: Coordinates;
 
@@ -15,9 +15,7 @@ pub trait StageUnloader<EO: Numeric>: CubeType + 'static + Send + Sync {
     fn write(
         this: &mut Self,
         out_smem_slice: Slice<Line<EO>>,
-        tile_row: u32,
-        tile_col: u32,
-        #[comptime] smem_line_size: u32,
+        tile: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] config: GlobalMemoryConfig,
     );

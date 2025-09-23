@@ -184,7 +184,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     let k_size = k_range.1 - k_range.0;
 
     GMM::execute(
-        GMM::init_lhs_stage_loader(
+        GMM::init_lhs_global_reader(
             a,
             batch_a,
             (m_offset, k_range.0),
@@ -192,7 +192,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
             nth_batch,
             config,
         ),
-        GMM::init_rhs_stage_loader(
+        GMM::init_rhs_global_reader(
             b,
             batch_b,
             (k_range.0, n_offset),
@@ -200,7 +200,7 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
             nth_batch,
             config,
         ),
-        GMM::init_acc_stage_loader(
+        GMM::init_acc_global_reader(
             c,
             batch_out,
             (m_offset, n_offset),

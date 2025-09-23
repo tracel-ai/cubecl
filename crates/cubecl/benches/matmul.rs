@@ -17,11 +17,11 @@ use cubecl_matmul::kernels::layered::{
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
 use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{
-    self as matmul, MatmulInputHandle, SyncLoadingStrategy, SyncPartialLoadingStrategy,
+    self as matmul, MatmulInputHandle, SyncPartialReadingStrategy, SyncReadingStrategy,
 };
-use cubecl_matmul::{self as matmul, SyncLoadingStrategy, SyncPartialLoadingStrategy};
-use cubecl_matmul::{AsyncLoadingStrategy, components::MatmulPrecision};
-use cubecl_matmul::{SyncLoadingStrategy, SyncPartialLoadingStrategy};
+use cubecl_matmul::{self as matmul, SyncPartialReadingStrategy, SyncReadingStrategy};
+use cubecl_matmul::{AsyncReadingStrategy, components::MatmulPrecision};
+use cubecl_matmul::{SyncPartialReadingStrategy, SyncReadingStrategy};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -251,7 +251,7 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                 let result = run_one::<R, MP>(
                     Default::default(),
                     matmul::Strategy::Simple(
-                        SyncLoadingStrategy::Cyclic,
+                        SyncReadingStrategy::Cyclic,
                         Selection::Forced(selection.clone()),
                     ),
                     (4096, 10, 64, 10),
@@ -351,7 +351,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
+            SyncReadingStrategy::Cyclic,
             Selection::Inferred(SimpleArgs { multi_rows: false }),
         ),
     );
@@ -360,7 +360,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::Simple(
-            SyncLoadingStrategy::Cyclic,
+            SyncReadingStrategy::Cyclic,
             Selection::Inferred(SimpleArgs { multi_rows: true }),
         ),
     );
@@ -369,7 +369,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncPartialLoadingStrategy::Tilewise,
+            SyncPartialReadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: false }),
         ),
     );
@@ -378,7 +378,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     run::<R, MP>(
         Default::default(),
         matmul::Strategy::DoubleBuffering(
-            SyncPartialLoadingStrategy::Tilewise,
+            SyncPartialReadingStrategy::Tilewise,
             Selection::Inferred(DoubleBufferingArgs { specialized: true }),
         ),
     );

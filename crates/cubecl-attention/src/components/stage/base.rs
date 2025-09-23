@@ -1,12 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::StageReaderFamily;
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageReaderFamily};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::AttentionTilingScheme;
-use crate::components::global::dummy::QueryLoader;
 use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -14,6 +12,7 @@ use crate::components::{
     global::GlobalAttentionConfig,
     tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
 };
+use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -99,10 +98,13 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] global_config: G,
     );
 
-    fn init_writer(tensor: View<Line<AP::EO>, Coords2d, ReadWrite>) -> Self::Writer;
+    fn init_writer(
+        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+    ) -> Self::Writer;
 
     fn init_fragments(
-        query_loader: QueryLoader<AP>,
+        query_loader: QueryReader<AP>,
         #[comptime] config: Self::Config,
     ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
 }

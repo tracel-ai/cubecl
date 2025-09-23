@@ -4,8 +4,8 @@ use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
     MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-        multi_stage::EventLoadingMode,
+        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
+        read::ReaderMode,
     },
     stage::StageConfig,
 };
@@ -96,8 +96,8 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         self.num_stages
     }
 
-    fn loader_mode(&self) -> LoaderMode {
-        self.matmul.loader_mode()
+    fn reader_mode(&self) -> ReaderMode {
+        self.matmul.reader_mode()
     }
 
     fn tiling_scheme(&self) -> TilingScheme {

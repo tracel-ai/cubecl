@@ -9,7 +9,7 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::{
         AccG, LhsG, MatmulSetupError, RhsG,
-        tile::{accelerated::AcceleratedMatmul, loader::Filled},
+        tile::{accelerated::AcceleratedMatmul, reader::Filled},
     },
     kernels::layered::{
         Selection,
@@ -25,7 +25,7 @@ use crate::{
 use super::{
     components::{
         MatmulPrecision,
-        global::load::{
+        global::read::{
             async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
         },
@@ -54,9 +54,9 @@ use super::{
 /// Most strategies have a selection input that can be overwritten or inferred from minimal information
 /// Some strategies must have a specified loading strategy
 pub enum Strategy {
-    Simple(SyncLoadingStrategy, Selection<SimpleArgs>),
-    SimpleBarrier(AsyncLoadingStrategy),
-    DoubleBuffering(SyncPartialLoadingStrategy, Selection<DoubleBufferingArgs>),
+    Simple(SyncReadingStrategy, Selection<SimpleArgs>),
+    SimpleBarrier(AsyncReadingStrategy),
+    DoubleBuffering(SyncPartialReadingStrategy, Selection<DoubleBufferingArgs>),
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
     DoubleUnit(Selection<DoubleUnitSelectionArgs>),
     SimpleVecMat(Selection<()>),
@@ -69,24 +69,24 @@ pub enum Strategy {
 }
 
 #[derive(Debug, Clone)]
-/// Which loader to use in simple algorithms
-pub enum SyncLoadingStrategy {
+/// Which reader to use in simple algorithms
+pub enum SyncReadingStrategy {
     Cyclic,
     Strided,
     Tilewise,
 }
 
 #[derive(Debug, Clone)]
-/// Which loader to use in double buffering algorithms
-pub enum SyncPartialLoadingStrategy {
+/// Which reader to use in double buffering algorithms
+pub enum SyncPartialReadingStrategy {
     Cyclic,
     Tilewise,
     Hybrid,
 }
 
 #[derive(Debug, Clone)]
-/// Which loader to use in barrier algorithm
-pub enum AsyncLoadingStrategy {
+/// Which reader to use in barrier algorithm
+pub enum AsyncReadingStrategy {
     Cooperative,
     Cyclic,
     MaximizeSliceLength,
@@ -203,12 +203,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
 
     match strategy {
         Strategy::Simple(loading_strategy, selection) => match loading_strategy {
-            SyncLoadingStrategy::Cyclic => {
+            SyncReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncLoadingStrategy::Strided => layered::launch_ref::<
+            SyncReadingStrategy::Strided => layered::launch_ref::<
                 R,
                 MP,
                 SimpleAlgorithm<
@@ -217,7 +217,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     sync_full_strided::SyncFullStridedLoading,
                 >,
             >(client, lhs, rhs, out, selection),
-            SyncLoadingStrategy::Tilewise => {
+            SyncReadingStrategy::Tilewise => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -230,7 +230,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             }
         },
         Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
-            AsyncLoadingStrategy::Cooperative => {
+            AsyncReadingStrategy::Cooperative => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -240,7 +240,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncLoadingStrategy::Cyclic => {
+            AsyncReadingStrategy::Cyclic => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -250,7 +250,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncLoadingStrategy::MaximizeSliceLength => {
+            AsyncReadingStrategy::MaximizeSliceLength => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -260,7 +260,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncLoadingStrategy::MaximizeUnitCount => {
+            AsyncReadingStrategy::MaximizeUnitCount => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -270,7 +270,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncLoadingStrategy::Tma => {
+            AsyncReadingStrategy::Tma => {
                 layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
                     client,
                     lhs,
@@ -282,17 +282,17 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             }
         },
         Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
-            SyncPartialLoadingStrategy::Cyclic => {
+            SyncPartialReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncPartialLoadingStrategy::Tilewise => {
+            SyncPartialReadingStrategy::Tilewise => {
                 layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncPartialLoadingStrategy::Hybrid => {
+            SyncPartialReadingStrategy::Hybrid => {
                 layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )

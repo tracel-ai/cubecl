@@ -15,7 +15,7 @@ macro_rules! testgen_random_bernoulli {
 
                 random_bernoulli::<R, E>(&client, prob, output.as_ref());
 
-                let output_data = client.read_one(output.handle);
+                let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);
 
                 output_data.to_owned()

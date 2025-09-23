@@ -1,8 +1,8 @@
 use crate::components::MatmulPrecision;
 use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::load::NoLoadingValidation;
-use crate::components::global::load::TmaTiling;
+use crate::components::global::read::NoLoadingValidation;
+use crate::components::global::read::TmaTiling;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
@@ -78,7 +78,7 @@ where
             !(problem.k as u32).is_multiple_of(stage_shape_k),
             stage_shape_k,
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
         )
     }
 

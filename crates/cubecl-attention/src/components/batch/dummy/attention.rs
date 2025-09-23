@@ -31,14 +31,18 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     ) {
         let q_index = CUBE_POS;
 
-        let q_offset = q_index * config.global_config().tiling_scheme().seq_q();
+        let q_offset = q_index
+            * config
+                .global_config()
+                .tiling_scheme()
+                .elements_in_stage_seq_q();
         let seq_kv = key.shape(1);
 
         let global_config = config.global_config();
         GA::execute(
-            GA::init_query_loader(q_offset, query, global_config),
-            GA::init_key_loader(key, global_config),
-            GA::init_value_loader(value, global_config),
+            GA::init_query_reader(q_offset, query, global_config),
+            GA::init_key_reader(key, global_config),
+            GA::init_value_reader(value, global_config),
             GA::init_writer(q_offset, out, global_config),
             seq_kv,
             config.global_config(),

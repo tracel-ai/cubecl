@@ -7,7 +7,7 @@ use crate::components::MatmulSelection;
 use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaderPlanes;
+use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::StageReaderFamily;
@@ -58,7 +58,7 @@ impl<
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
-        max_loaders: Option<MaxLoaderPlanes>,
+        max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config =
@@ -77,7 +77,7 @@ impl<
 
         let plane_role_config = PlaneRoleConfig::new(
             selection.load_specialization_config,
-            max_loaders,
+            max_global_readers,
             compute_planes,
         )?;
 

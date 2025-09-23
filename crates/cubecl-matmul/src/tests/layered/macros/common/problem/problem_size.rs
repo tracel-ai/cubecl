@@ -3,7 +3,6 @@ macro_rules! testgen_matmul_problem_size {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection: expr, $layouts: expr) => {
         use $crate::components::MatmulProblem;
 
-        #[cfg(not(feature = "matmul_tests_vecmat"))]
         mod g256x256x256 {
             use super::*;
             $crate::testgen_matmul_launch!(
@@ -23,10 +22,7 @@ macro_rules! testgen_matmul_problem_size {
             );
         }
 
-        #[cfg(all(
-            feature = "matmul_tests_alt_shapes",
-            not(feature = "matmul_tests_vecmat")
-        ))]
+        #[cfg(feature = "matmul_tests_alt_shapes")]
         mod g100x100x100 {
             use super::*;
             $crate::testgen_matmul_launch!(
@@ -47,10 +43,7 @@ macro_rules! testgen_matmul_problem_size {
         }
 
         // line_size_lhs != line_size_rhs
-        #[cfg(all(
-            feature = "matmul_tests_alt_shapes",
-            not(feature = "matmul_tests_vecmat")
-        ))]
+        #[cfg(feature = "matmul_tests_alt_shapes")]
         mod g100x99x100 {
             use super::*;
             $crate::testgen_matmul_launch!(
@@ -71,10 +64,7 @@ macro_rules! testgen_matmul_problem_size {
         }
 
         // line_size_lhs != line_size_out
-        #[cfg(all(
-            feature = "matmul_tests_alt_shapes",
-            not(feature = "matmul_tests_vecmat")
-        ))]
+        #[cfg(feature = "matmul_tests_alt_shapes")]
         mod g100x100x99 {
             use super::*;
             $crate::testgen_matmul_launch!(
@@ -94,10 +84,7 @@ macro_rules! testgen_matmul_problem_size {
             );
         }
 
-        #[cfg(all(
-            feature = "matmul_tests_alt_shapes",
-            not(feature = "matmul_tests_vecmat")
-        ))]
+        #[cfg(feature = "matmul_tests_alt_shapes")]
         mod g23x1x17 {
             use super::*;
             $crate::testgen_matmul_launch!(

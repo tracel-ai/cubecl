@@ -1,16 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
+    ComputeResources,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::Tile,
 };
 use cubecl_std::CubeOption;
 
-use crate::components::tile::dummy::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, tile::dummy::FlashMatmulConfig,
 };
+use crate::components::{InvalidConfigError, tile::dummy::RunningState};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
@@ -38,6 +39,8 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
+
+    fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 }
 
 #[cube]
