@@ -88,11 +88,11 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_handle.binding());
+    let bytes = client.read_one(output_handle);
     let output = f32::from_bytes(&bytes);
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]
-    println!("Executed gelu with runtime {:?} => {output:?}", R::name());
+    println!("Executed gelu with runtime {:?} => {output:?}", R::name(&client));
 }
 ```
 
