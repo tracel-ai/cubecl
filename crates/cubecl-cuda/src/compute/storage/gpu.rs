@@ -205,7 +205,7 @@ pub struct GpuVirtualStorage {
 }
 
 impl GpuVirtualStorage {
-    pub fn new(device_id: i32, granularity: usize, block_size: u64) -> Self {
+    pub fn new(device_id: i32, granularity: usize, block_size: u64, alloc_count_threshold: usize) -> Self {
         Self {
             device_id,
             mem_alignment: granularity,
@@ -786,6 +786,8 @@ impl ComputeStorage for GpuVirtualStorage {
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
+
+
         let mut handle = self.reserve(size, 0)?;
         self.map(&mut handle)?;
         Ok(handle)
@@ -988,7 +990,7 @@ mod virtual_mem_tests {
         assert_eq!(storage.alignment(), block_size as usize);
     }
 
-  
+
 
     #[test]
     fn test_defragment_contiguous_ranges() {
