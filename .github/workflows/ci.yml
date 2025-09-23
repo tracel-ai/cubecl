@@ -108,10 +108,10 @@ jobs:
   linux-std-tests:
     runs-on: [
       '@id:cubecl-linux-std-tests-${{ github.run_id }}-${{ github.run_attempt }}',
-      '@image-family:ubuntu-2204-lts',
+      '@image-family:ubuntu-2404-lts-amd64',
       '@image-project:ubuntu-os-cloud',
       '@disk-size:100',
-      '@keep-alive:false',
+      '@keep-alive:true',
       '@machine-type:n2-standard-16',
       '@os:linux',
       '@zone:northamerica-northeast1-b'
@@ -127,13 +127,13 @@ jobs:
             toolchain: ${{ needs.prepare-checks.outputs.rust-prev-version }}
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v1
+        uses: tracel-ai/github-actions/setup-rust@v5
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v4
+        uses: tracel-ai/github-actions/setup-linux@v5
         with:
           apt-packages: "build-essential"
           vulkan-sdk-version: ${{ env.VULKAN_SDK_VERSION }}
