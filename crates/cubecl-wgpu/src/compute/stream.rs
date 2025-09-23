@@ -345,10 +345,11 @@ impl WgpuStream {
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
-        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let size = resource.size.next_multiple_of(align as u64);
+        // memory is also aligned (see WgpuStorage). Per the WebGPU spec, this
+        // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
+        let copy_align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let size = resource.size.next_multiple_of(copy_align);
 
         if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:
@@ -357,6 +358,8 @@ impl WgpuStream {
             self.queue
                 .write_buffer(&resource.buffer, resource.offset, data);
         } else {
+            // For sizes not aligned we need to only write a part of the staging buffer, do this
+            // with `write_buffer_with`.
             let mut buffer = self
                 .queue
                 .write_buffer_with(
@@ -364,7 +367,7 @@ impl WgpuStream {
                     resource.offset,
                     NonZero::new(size).unwrap(),
                 )
-                .unwrap();
+                .expect("Internal error: Failed to call `write_buffer_with`, this likely means no staging buffer could be allocated.");
             buffer[0..data.len()].copy_from_slice(data);
         }
     }
