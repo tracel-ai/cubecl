@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Binding, Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Binding, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
@@ -112,35 +112,6 @@ impl WgpuStream {
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
         }
-    }
-
-    pub fn register(
-        &mut self,
-        pipeline: Arc<ComputePipeline>,
-        bindings: Bindings,
-        dispatch: &CubeCount,
-    ) {
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = bindings
-            .buffers
-            .iter()
-            .map(|b| self.mem_manage.get_resource(b.clone()))
-            .collect::<Vec<_>>();
-
-        if !bindings.metadata.data.is_empty() {
-            let info = self.create_uniform(bytemuck::cast_slice(&bindings.metadata.data));
-            resources.push(info);
-        }
-
-        resources.extend(
-            bindings
-                .scalars
-                .values()
-                .map(|s| self.create_uniform(s.data())),
-        );
-
-        self.register_pipeline(pipeline, resources.iter(), dispatch);
     }
 
     fn register_pipeline<'a>(
@@ -485,24 +456,6 @@ impl WgpuStream {
         let resource = self.mem_manage.reserve_uniform(data.len() as u64);
         self.write_to_buffer(&resource, data);
         resource
-    }
-
-    pub fn create_normal(&mut self, data: &[u8]) -> WgpuResource {
-        let handle = self
-            .mem_manage
-            .reserve(data.len() as u64, StreamId::current())
-            .unwrap();
-        let resource = self.mem_manage.get_resource(handle.binding());
-        self.write_to_buffer(&resource, data);
-        resource
-    }
-    pub fn write(&mut self, binding: Binding, data: &[u8]) {
-        // It is important to flush before writing, as the write operation is inserted
-        // into the QUEUE not the encoder. We want to make sure all outstanding work
-        // happens _before_ the write operation.
-        self.flush();
-        let resource = self.mem_manage.get_resource(binding);
-        self.write_to_buffer(&resource, data);
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,

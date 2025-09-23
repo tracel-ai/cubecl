@@ -61,7 +61,7 @@ impl WgpuServer {
             compilation_options,
             device,
             pipelines: HashMap::new(),
-            scheduler: SchedulerMultiStream::new(backend_scheduler, 4),
+            scheduler: SchedulerMultiStream::new(backend_scheduler, 8, tasks_max),
             backend,
         }
     }

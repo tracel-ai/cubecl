@@ -18,6 +18,7 @@ pub trait SchedulerTask: core::fmt::Debug {}
 #[derive(Debug)]
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     pool: StreamPool<SchedulerPoolMarker<B>>,
+    max_tasks: usize,
 }
 
 #[derive(Debug)]
@@ -51,9 +52,10 @@ impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
 }
 
 impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
-    pub fn new(backend: B, max_streams: u8) -> Self {
+    pub fn new(backend: B, max_streams: u8, max_tasks: usize) -> Self {
         Self {
             pool: StreamPool::new(SchedulerPoolMarker { backend }, max_streams, 0),
+            max_tasks,
         }
     }
 
@@ -77,7 +79,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
 
-        if current.tasks.len() > 32 {
+        if current.tasks.len() >= self.max_tasks {
             self.execute_streams(vec![stream_id]);
         }
     }
