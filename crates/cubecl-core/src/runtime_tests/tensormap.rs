@@ -8,7 +8,7 @@ use crate::{
 use cubecl::prelude::*;
 use cubecl_runtime::{
     Tma,
-    server::{Allocation, ComputeServer},
+    server::{Allocation, ComputeServer, CopyDescriptor},
     storage::ComputeStorage,
 };
 
@@ -159,9 +159,10 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let handle = client.create(F::as_bytes(&values));
+    let out_shape = &[64, 64];
     let out = client.create_tensor(
         &vec![0u8; 64 * 64 * size_of::<F>()],
-        &[64, 64],
+        out_shape,
         size_of::<F>(),
     );
 
@@ -179,7 +180,12 @@ pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(
         ),
     );
 
-    let actual = client.read_one(out.handle);
+    let actual = client.read_one_tensor(CopyDescriptor::new(
+        out.handle.binding(),
+        out_shape,
+        &out.strides,
+        size_of::<F>(),
+    ));
     let actual = F::from_bytes(&actual);
     let mut expected: Vec<F> = vec![F::from_int(0); 64 * 64];
     for y in 0..16 {

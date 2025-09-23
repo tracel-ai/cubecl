@@ -59,10 +59,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -97,10 +97,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -135,10 +135,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -174,9 +174,9 @@ macro_rules! testgen_attention {
                     batch: 1,
                     num_heads: 1,
                     seq_q: 16,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -212,9 +212,9 @@ macro_rules! testgen_attention {
                     batch: 1,
                     num_heads: 1,
                     seq_q: 4,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -249,10 +249,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -287,10 +287,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -325,10 +325,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -363,10 +363,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -401,10 +401,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -440,10 +440,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize * num_iterations,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * num_iterations,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -479,10 +479,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize * num_iterations,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * num_iterations,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -517,10 +517,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize * 2 + 1,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2 + 1,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -556,10 +556,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize + 1,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize + 1,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -571,7 +571,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO"]
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -595,10 +594,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(
@@ -610,7 +609,120 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO"]
+            fn attention_stage4() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
+                };
+                let stage_size = AttentionStageSize { seq_q: 4 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                );
+            }
+
+            #[test]
+            fn attention_stage2_problem4() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
+                };
+                let stage_size = AttentionStageSize { seq_q: 2 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize * 2,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                );
+            }
+
+            #[test]
+            fn attention_stage2_partition_all2() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 2,
+                    seq_kv: 2,
+                    head_dim: 2,
+                    val_dim: 2,
+                };
+                let stage_size = AttentionStageSize { seq_q: 2 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                );
+            }
+
+            #[test]
             fn attention_reuse_key_value() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -634,10 +746,10 @@ macro_rules! testgen_attention {
                 let problem = AttentionProblem {
                     batch: 1,
                     num_heads: 1,
-                    seq_q: tiling_scheme.seq_q() as usize,
-                    seq_kv: tiling_scheme.seq_kv() as usize,
-                    head_dim: tiling_scheme.head_dim() as usize,
-                    val_dim: tiling_scheme.val_dim() as usize,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
                 $crate::tests::macros::attention_test_launch::<TestRuntime>(

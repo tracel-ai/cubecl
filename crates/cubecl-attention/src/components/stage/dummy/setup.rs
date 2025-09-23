@@ -38,12 +38,16 @@ impl<TA: TileAttentionFamily, RF: StageReaderFamily<TileKind = Strided>> StageAt
     ) -> Result<Self::Config, AttentionSetupError> {
         let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes)?;
 
+        let num_planes = selection.tiling_scheme.stage_size.seq_q
+            * TA::computation_resources()?.num_planes(selection.plane_dim)?;
+
         DummyStageConfig::new(
             tile_config,
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),
             selection.tiling_scheme,
             selection.reuse_key_value,
+            num_planes,
         )
     }
 }
