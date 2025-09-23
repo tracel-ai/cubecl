@@ -32,12 +32,12 @@ impl<Inner: TileKind> TileKind for CubeOption<Inner> {
 }
 
 /// A tile matmul reader, with a specific tile kind
-pub trait TileReader {
+pub trait StageReader {
     /// The kind of the tile used as an input for the tile reader
     type TileKind: TileKind;
 }
 
 /// The concrete tile type for a given reader and element type
-pub type StageTile<L, E> = <<L as TileReader>::TileKind as TileKind>::Tile<E>;
+pub type StageTile<L, E> = <<L as StageReader>::TileKind as TileKind>::Tile<E>;
 /// The tile kind of a given reader
-pub type StageKind<L> = <L as TileReader>::TileKind;
+pub type StageKind<L> = <L as StageReader>::TileKind;

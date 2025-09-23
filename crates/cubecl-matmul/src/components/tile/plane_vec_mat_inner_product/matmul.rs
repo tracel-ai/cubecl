@@ -5,11 +5,11 @@ use crate::components::tile::{
     TileConfig, TileMatmul, plane_vec_mat_inner_product::reader::MatrixFragmentReader,
 };
 use crate::components::tile::{
-    plane_vec_mat_inner_product::reader::MatrixTileReader, reader::Strided, tile_data::StridedTile,
+    plane_vec_mat_inner_product::reader::MatrixStageReader, reader::Strided, tile_data::StridedTile,
 };
 use crate::components::tile::{
     plane_vec_mat_inner_product::{
-        config::PlaneVecMatInnerProductConfig, reader::VectorTileReader,
+        config::PlaneVecMatInnerProductConfig, reader::VectorStageReader,
     },
     reader::TileKind,
 };
@@ -39,7 +39,7 @@ impl<E: Numeric> LineContainer<E> {
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
     for PlaneVecMatInnerProduct<Acc>
 where
-    MatrixTileReader<Acc>: MatrixFragmentReader<TileKind = Acc>,
+    MatrixStageReader<Acc>: MatrixFragmentReader<TileKind = Acc>,
 {
     type Config = PlaneVecMatInnerProductConfig;
 
@@ -51,9 +51,9 @@ where
     // For each n: one line stored at unit pos 0, that will be reduced to a scalar only when writing at the end
     type AccFragment = Sequence<LineContainer<A>>;
 
-    type LhsTileReader = VectorTileReader;
-    type RhsTileReader = MatrixTileReader<Strided>;
-    type AccTileReader = MatrixTileReader<Acc>;
+    type LhsStageReader = VectorStageReader;
+    type RhsStageReader = MatrixStageReader<Strided>;
+    type AccStageReader = MatrixStageReader<Acc>;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -102,7 +102,7 @@ where
         lhs: &mut Self::LhsFragment,
         #[comptime] _config: Self::Config,
     ) {
-        Self::LhsTileReader::load_fragment(tile, lhs)
+        Self::LhsStageReader::load_fragment(tile, lhs)
     }
 
     fn load_rhs<E: Numeric>(
@@ -110,7 +110,7 @@ where
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsTileReader::load_fragment(tile, rhs, config)
+        Self::RhsStageReader::load_fragment(tile, rhs, config)
     }
 
     fn load_acc<E: Numeric>(
@@ -118,7 +118,7 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccTileReader::load_fragment(tile, acc, config);
+        Self::AccStageReader::load_fragment(tile, acc, config);
     }
 
     fn write_results<E: Numeric>(

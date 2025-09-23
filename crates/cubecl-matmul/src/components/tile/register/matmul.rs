@@ -6,7 +6,7 @@ use crate::components::tile::{
     reader::Strided,
     register::{
         config::{ProductType, RegisterConfig},
-        reader::RegisterTileReader,
+        reader::RegisterStageReader,
     },
 };
 use crate::components::tile::{reader::TileKind, tile_data::StridedTile};
@@ -26,16 +26,16 @@ static UNROLL: bool = false;
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
 where
-    RegisterTileReader<Acc>: RegisterFragmentReader<TileKind = Acc>,
+    RegisterStageReader<Acc>: RegisterFragmentReader<TileKind = Acc>,
 {
     type Config = RegisterConfig;
     type LhsFragment = Array<L>;
     type RhsFragment = Array<R>;
     type AccFragment = Array<A>;
 
-    type LhsTileReader = RegisterTileReader<Strided>;
-    type RhsTileReader = RegisterTileReader<Strided>;
-    type AccTileReader = RegisterTileReader<Acc>;
+    type LhsStageReader = RegisterStageReader<Strided>;
+    type RhsStageReader = RegisterStageReader<Strided>;
+    type AccStageReader = RegisterStageReader<Acc>;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -66,7 +66,7 @@ where
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsTileReader::load_fragment(tile, lhs, StageIdent::Lhs, config)
+        Self::LhsStageReader::load_fragment(tile, lhs, StageIdent::Lhs, config)
     }
 
     fn load_rhs<E: Numeric>(
@@ -74,7 +74,7 @@ where
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsTileReader::load_fragment(tile, rhs, StageIdent::Rhs, config)
+        Self::RhsStageReader::load_fragment(tile, rhs, StageIdent::Rhs, config)
     }
 
     fn load_acc<E: Numeric>(
@@ -82,7 +82,7 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccTileReader::load_fragment(tile, acc, StageIdent::Acc, config);
+        Self::AccStageReader::load_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(

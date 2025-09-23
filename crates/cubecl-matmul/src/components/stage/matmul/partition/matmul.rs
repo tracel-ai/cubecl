@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TMM::LhsTileReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TMM::RhsTileReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TMM::AccTileReader>>,
+    RL: Stage<LhsS<MP>, TileKind = StageKind<TMM::LhsStageReader>>,
+    RR: Stage<RhsS<MP>, TileKind = StageKind<TMM::RhsStageReader>>,
+    RA: Stage<AccS<MP>, TileKind = StageKind<TMM::AccStageReader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TM::LhsTileReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TM::RhsTileReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TM::AccTileReader>>,
+    RL: Stage<LhsS<MP>, TileKind = StageKind<TM::LhsStageReader>>,
+    RR: Stage<RhsS<MP>, TileKind = StageKind<TM::RhsStageReader>>,
+    RA: Stage<AccS<MP>, TileKind = StageKind<TM::AccStageReader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]

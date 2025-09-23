@@ -54,15 +54,15 @@ pub struct PartitionedStageMatmul<
         >,
     RL: Stage<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = StageKind<TM::LhsTileReader>,
+            TileKind = StageKind<TM::LhsStageReader>,
         >,
     RR: Stage<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = StageKind<TM::RhsTileReader>,
+            TileKind = StageKind<TM::RhsStageReader>,
         >,
     RA: Stage<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = StageKind<TM::AccTileReader>,
+            TileKind = StageKind<TM::AccStageReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
@@ -82,15 +82,15 @@ where
         >,
     RL: Stage<
             <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = StageKind<TM::LhsTileReader>,
+            TileKind = StageKind<TM::LhsStageReader>,
         >,
     RR: Stage<
             <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = StageKind<TM::RhsTileReader>,
+            TileKind = StageKind<TM::RhsStageReader>,
         >,
     RA: Stage<
             <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = StageKind<TM::AccTileReader>,
+            TileKind = StageKind<TM::AccStageReader>,
         >,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
