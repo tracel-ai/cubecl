@@ -106,7 +106,16 @@ jobs:
         run: cargo xtask doc tests
 
   linux-std-tests:
-    runs-on: ubuntu-22.04
+    runs-on: [
+      '@id:cubecl-linux-std-tests-${{ github.run_id }}-${{ github.run_attempt }}',
+      '@image-family:ubuntu-2204-lts',
+      '@image-project:ubuntu-os-cloud',
+      '@disk-size:100',
+      '@keep-alive:false',
+      '@machine-type:n2-standard-16',
+      '@os:linux',
+      '@zone:northamerica-northeast1-b'
+      ]
     needs: prepare-checks
     strategy:
       matrix:
