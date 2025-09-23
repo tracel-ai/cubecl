@@ -1,7 +1,13 @@
+use std::collections::BTreeMap;
+
 use crate::{WgpuResource, stream::WgpuStream};
 use alloc::sync::Arc;
 use cubecl_common::{profile::TimingMethod, stream_id::StreamId};
-use cubecl_core::{CubeCount, MemoryConfiguration, server::Bindings};
+use cubecl_core::{
+    CubeCount, MemoryConfiguration,
+    ir::StorageType,
+    server::{Bindings, MetadataBinding, ScalarBinding},
+};
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties,
     stream::{
@@ -19,7 +25,7 @@ pub(crate) enum LazyTask {
     Execute {
         pipeline: Arc<wgpu::ComputePipeline>,
         count: CubeCount,
-        resources: Vec<WgpuResource>,
+        resources: BindingsResource,
     },
 }
 
@@ -74,7 +80,7 @@ impl ScheduledWgpuBackend {
         };
 
         Self {
-            pool: StreamPool::new(factory, 8, 0),
+            pool: StreamPool::new(factory, 1, 0),
         }
     }
 
@@ -82,10 +88,10 @@ impl ScheduledWgpuBackend {
         self.pool.get_mut(stream_id)
     }
 
-    pub fn bindings(&mut self, stream_id: &StreamId, bindings: Bindings) -> Vec<WgpuResource> {
+    pub fn bindings(&mut self, stream_id: &StreamId, bindings: Bindings) -> BindingsResource {
         // Store all the resources we'll be using. This could be eliminated if
         // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = bindings
+        let resources = bindings
             .buffers
             .iter()
             .map(|b| {
@@ -94,30 +100,44 @@ impl ScheduledWgpuBackend {
             })
             .collect::<Vec<_>>();
 
-        let stream = self.stream(stream_id);
+        BindingsResource {
+            resources,
+            metadata: bindings.metadata,
+            scalars: bindings.scalars,
+        }
+    }
+}
 
-        if !bindings.metadata.data.is_empty() {
-            let info = stream.create_uniform(bytemuck::cast_slice(&bindings.metadata.data));
-            resources.push(info);
+#[derive(Debug)]
+pub struct BindingsResource {
+    resources: Vec<WgpuResource>,
+    metadata: MetadataBinding,
+    scalars: BTreeMap<StorageType, ScalarBinding>,
+}
+
+impl BindingsResource {
+    pub fn into_resources(mut self, stream: &mut WgpuStream) -> Vec<WgpuResource> {
+        if !self.metadata.data.is_empty() {
+            let info = stream.create_uniform(bytemuck::cast_slice(&self.metadata.data));
+            self.resources.push(info);
         }
 
-        resources.extend(
-            bindings
-                .scalars
+        self.resources.extend(
+            self.scalars
                 .values()
                 .map(|s| stream.create_uniform(s.data())),
         );
 
-        resources
+        self.resources
     }
 }
 
 impl SchedulerStreamBackend for ScheduledWgpuBackend {
     type Task = LazyTask;
 
-    fn execute(&mut self, tasks: impl Iterator<Item = Self::Task>) {
-        for task in tasks {
-            let stream = self.pool.get_mut(&StreamId::current());
+    fn execute(&mut self, tasks: impl Iterator<Item = (usize, Self::Task)>) {
+        for (index, task) in tasks {
+            let stream = unsafe { self.pool.get_mut_index(index) };
             stream.execute_task(task);
         }
     }

@@ -108,6 +108,7 @@ impl WgpuStream {
                 count,
                 resources,
             } => {
+                let resources = resources.into_resources(self);
                 self.register_pipeline(pipeline, resources.iter(), &count);
             }
         }
@@ -201,6 +202,89 @@ impl WgpuStream {
             }
         }
         self.flush_if_needed();
+    }
+
+    /// Read multiple buffers lazily to [Bytes], potentially using pinned memory.
+    ///
+    /// # Arguments
+    ///
+    /// * `self` - The current stream.
+    /// * `descriptors` - A vector of copy descriptors specifying the source data.
+    ///
+    /// # Returns
+    ///
+    /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
+    pub fn read_resources(
+        &mut self,
+        descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
+        self.compute_pass = None;
+        let mut staging_info = Vec::with_capacity(descriptors.len());
+        let mut callbacks = Vec::with_capacity(descriptors.len());
+
+        for (resource, shape, elem_size) in descriptors {
+            let size = shape.iter().product::<usize>() * elem_size;
+            // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
+            // memory is 32 bytes aligned (see WgpuStorage).
+            let align = wgpu::COPY_BUFFER_ALIGNMENT;
+            let aligned_len = resource.size.div_ceil(align) * align;
+            let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
+
+            self.tasks_count += 1;
+            self.encoder.copy_buffer_to_buffer(
+                &resource.buffer,
+                resource.offset,
+                &staging.buffer,
+                0,
+                aligned_len,
+            );
+            staging_info.push((staging, binding, size));
+        }
+
+        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
+        self.flush();
+
+        for (staging, _binding, _size) in staging_info.iter() {
+            let (sender, receiver) = async_channel::bounded(1);
+            staging
+                .buffer
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |v| {
+                    // This might fail if the channel is closed (eg. the future is dropped).
+                    // This is fine, just means results aren't needed anymore.
+                    let _ = sender.try_send(v);
+                });
+
+            callbacks.push(receiver);
+        }
+
+        let poll = self.poll.start_polling();
+
+        Box::pin(async move {
+            for callback in callbacks {
+                callback
+                    .recv()
+                    .await
+                    .expect("Unable to receive buffer slice result.")
+                    .expect("Failed to map buffer");
+            }
+
+            // Can stop polling now.
+            core::mem::drop(poll);
+
+            let result = {
+                staging_info
+                    .into_iter()
+                    .map(|(staging, binding, size)| {
+                        let (controller, alloc) =
+                            WgpuAllocController::init(binding, staging.buffer, size);
+                        unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
+                    })
+                    .collect()
+            };
+
+            Ok(result)
+        })
     }
 
     /// Read multiple buffers lazily to [Bytes], potentially using pinned memory.
@@ -403,6 +487,15 @@ impl WgpuStream {
         resource
     }
 
+    pub fn create_normal(&mut self, data: &[u8]) -> WgpuResource {
+        let handle = self
+            .mem_manage
+            .reserve(data.len() as u64, StreamId::current())
+            .unwrap();
+        let resource = self.mem_manage.get_resource(handle.binding());
+        self.write_to_buffer(&resource, data);
+        resource
+    }
     pub fn write(&mut self, binding: Binding, data: &[u8]) {
         // It is important to flush before writing, as the write operation is inserted
         // into the QUEUE not the encoder. We want to make sure all outstanding work
@@ -422,7 +515,7 @@ impl WgpuStream {
         // memory is 32 bytes aligned (see WgpuStorage).
         let size = resource.size.next_multiple_of(align as u64);
 
-        if size == data.len() as u64 {
+        if size == data.len() as u64 || true {
             // write_buffer is the recommended way to write this data, as:
             // - On WebGPU, from WASM, this can save a copy to the JS memory.
             // - On devices with unified memory, this could skip the staging buffer entirely.

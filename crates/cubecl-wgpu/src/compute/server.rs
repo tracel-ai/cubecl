@@ -49,15 +49,6 @@ impl WgpuServer {
         backend: wgpu::Backend,
         timing_method: TimingMethod,
     ) -> Self {
-        // let stream = WgpuStream::new(
-        //     device.clone(),
-        //     queue.clone(),
-        //     memory_properties,
-        //     memory_config,
-        //     timing_method,
-        //     tasks_max,
-        // );
-
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
             queue.clone(),
@@ -71,7 +62,7 @@ impl WgpuServer {
             compilation_options,
             device,
             pipelines: HashMap::new(),
-            scheduler: SchedulerMultiStream::new(backend_scheduler, 2),
+            scheduler: SchedulerMultiStream::new(backend_scheduler, 1),
             backend,
         }
     }
@@ -130,11 +121,6 @@ impl WgpuServer {
 
 impl DataTransferService for WgpuServer {}
 
-// Rc<RefCell>> is only to avoid having a channel between the scheduler and the server.
-//
-// Both are in mut enviroment.
-unsafe impl Send for WgpuServer {}
-
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
@@ -175,15 +161,23 @@ impl ComputeServer for WgpuServer {
         descriptors: Vec<CopyDescriptor<'a>>,
         stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        for desc in &descriptors {
+        let mut streams = vec![stream_id];
+        let mut resources = Vec::with_capacity(descriptors.len());
+        for desc in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Box::pin(async { Err(IoError::UnsupportedStrides) });
             }
+            if !streams.contains(&desc.binding.stream) {
+                streams.push(desc.binding.stream);
+            }
+            let stream = self.scheduler.backend.stream(&desc.binding.stream);
+            let resource = stream.mem_manage.get_resource(desc.binding);
+            resources.push((resource, desc.shape.to_vec(), desc.elem_size));
         }
 
-        self.scheduler.execute_streams(vec![stream_id]);
+        self.scheduler.execute_streams(streams);
         let stream = self.scheduler.backend.stream(&stream_id);
-        stream.read_buffers(descriptors)
+        stream.read_resources(resources)
     }
 
     fn write(
@@ -195,26 +189,39 @@ impl ComputeServer for WgpuServer {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides);
             }
+            //
+            // self.scheduler.execute_streams(vec![desc.binding.stream]);
+            //
             let stream = self.scheduler.backend.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding.clone());
             let task = LazyTask::Write {
                 data: data.to_vec(),
                 buffer: resource,
             };
-            self.scheduler
-                .register(stream_id, task, [&desc.binding].into_iter());
+            // stream.execute_task(task);
+            self.scheduler.register(stream_id, task, [].into_iter());
+            // stream.write(desc.binding, data);
+            //
+            // let stream = self.scheduler.backend.stream(&desc.binding.stream);
+
+            // self.scheduler
+            //     .register(stream_id, task, [&desc.binding].into_iter());
         }
+
         Ok(())
     }
 
     fn get_resource(
         &mut self,
         binding: Binding,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> BindingResource<WgpuResource> {
-        let stream_id = binding.stream;
-        self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let mut streams = vec![stream_id];
+        if binding.stream != stream_id {
+            streams.push(binding.stream);
+        }
+        self.scheduler.execute_streams(streams);
+        let stream = self.scheduler.backend.stream(&binding.stream);
         let resource = stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
@@ -231,11 +238,13 @@ impl ComputeServer for WgpuServer {
         let pipeline = self.pipeline(kernel, mode, logger);
         let buffers = bindings.buffers.clone();
         let resources = self.scheduler.backend.bindings(&stream_id, bindings);
+        // let stream = self.scheduler.backend.stream(&stream_id);
         let task = LazyTask::Execute {
             pipeline,
             count,
             resources,
         };
+        // stream.execute_task(task);
 
         self.scheduler.register(stream_id, task, buffers.iter());
     }
