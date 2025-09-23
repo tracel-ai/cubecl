@@ -26,7 +26,6 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
-    sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -64,17 +63,6 @@ impl WgpuStream {
         #[allow(unused_mut)]
         let mut mem_manage = WgpuMemManager::new(device.clone(), memory_properties, memory_config);
 
-        // Allocate a small buffer to use for synchronization.
-        #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(
-            mem_manage
-                .reserve(32)
-                .expect("Failed to reserve sync buffer memory"),
-        );
-
-        #[cfg(not(target_family = "wasm"))]
-        let sync_buffer = None;
-
         Self {
             mem_manage,
             compute_pass: None,
@@ -89,7 +77,6 @@ impl WgpuStream {
             tasks_count: 0,
             tasks_max,
             poll,
-            sync_buffer,
             submission_load: SubmissionLoad::default(),
         }
     }
@@ -261,15 +248,6 @@ impl WgpuStream {
         })
     }
 
-    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Bytes, IoError>> {
-        let shape = [binding.size() as usize];
-        let data = self.read_buffers(vec![CopyDescriptor::new(binding, &shape, &[1], 1)]);
-        Box::pin(async move {
-            let data = data.await?.remove(0);
-            Ok(data)
-        })
-    }
-
     // Bit silly but needed to make the borrow checker happy.
     fn system_profiler(&mut self) -> &mut TimestampProfiler {
         let Timings::System(timing) = &mut self.timings else {
@@ -331,39 +309,16 @@ impl WgpuStream {
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         self.flush();
 
-        let mut buffer = None;
-        core::mem::swap(&mut buffer, &mut self.sync_buffer);
+        let queue = self.queue.clone();
 
-        match buffer.as_mut() {
-            Some(buf) => {
-                // TODO: This should work queue.on_submitted_work_done() but that
-                // is not yet implemented on wgpu https://github.com/gfx-rs/wgpu/issues/6395
-                //
-                // For now, instead do a dummy readback. This *seems* to wait for the entire
-                // queue to be done.
-                let fut = self.read_binding(buf.clone().binding());
-                core::mem::swap(&mut buffer, &mut self.sync_buffer);
-                Box::pin(async move {
-                    fut.await.expect("Failed to read sync buffer");
-                })
-            }
-            None => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    if let Err(e) = self.device.poll(wgpu::PollType::Wait) {
-                        log::warn!(
-                            "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                        )
-                    }
-                    Box::pin(async move {})
-                }
-
-                #[cfg(target_family = "wasm")]
-                {
-                    panic!("Only synching from a buffer is supported.");
-                }
-            }
-        }
+        Box::pin(async move {
+            let (sender, receiver) = async_channel::bounded::<()>(1);
+            queue.on_submitted_work_done(move || {
+                // Signal that we're done.
+                let _ = sender.try_send(());
+            });
+            let _ = receiver.recv().await;
+        })
     }
 
     pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
