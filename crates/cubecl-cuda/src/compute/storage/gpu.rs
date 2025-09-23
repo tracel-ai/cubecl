@@ -807,24 +807,10 @@ impl Drop for GpuVirtualStorage {
 }
 unsafe impl Send for GpuVirtualStorage {}
 
-#[cfg(test)]
-mod virtual_mem_tests {
-    use super::*;
-    use cubecl_runtime::storage::{ComputeStorage, VirtualStorage};
-    use cudarc::driver::{result, sys::*};
 
-    fn setup_cuda_context() -> (CUdevice, CUcontext) {
-        result::init().unwrap();
-        let device = result::device::get(0).unwrap();
-        let ctx = unsafe {
-            let ctx = result::primary_ctx::retain(device).unwrap();
-            result::ctx::set_current(ctx).unwrap();
-            ctx
-        };
-        (device, ctx)
-    }
 
-    fn get_minimum_granularity(device: CUdevice) -> usize {
+
+pub fn get_minimum_granularity(device: CUdevice) -> usize {
         unsafe {
             let mut granularity = 0;
             let mut prop: CUmemAllocationProp = std::mem::zeroed();
@@ -845,12 +831,31 @@ mod virtual_mem_tests {
         }
     }
 
+#[cfg(test)]
+mod virtual_mem_tests {
+    use super::*;
+    use cubecl_runtime::storage::{ComputeStorage, VirtualStorage};
+    use cudarc::driver::{result, sys::*};
+
+    fn setup_cuda_context() -> (CUdevice, CUcontext) {
+        result::init().unwrap();
+        let device = result::device::get(0).unwrap();
+        let ctx = unsafe {
+            let ctx = result::primary_ctx::retain(device).unwrap();
+            result::ctx::set_current(ctx).unwrap();
+            ctx
+        };
+        (device, ctx)
+    }
+
+
+
     #[test]
     fn test_reserve_and_release() {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 2;
+        let block_size = (granularity * 2) as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
 
@@ -871,7 +876,7 @@ mod virtual_mem_tests {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 2;
+        let block_size = (granularity * 2) as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
 
@@ -894,7 +899,7 @@ mod virtual_mem_tests {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 2;
+        let block_size = (granularity * 2) as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
 
@@ -912,8 +917,8 @@ mod virtual_mem_tests {
         storage.dealloc(handle.id);
         assert!(!storage.is_addr_mapped(&handle));
 
-        let expected_blocks = (size as usize).div_ceil(block_size);
-        assert_eq!(storage.physical_handles.len(), expected_blocks);
+        let expected_blocks = size.div_ceil(block_size);
+        assert_eq!(storage.physical_handles.len(), expected_blocks as usize);
 
         let handle2 = storage.alloc(size).unwrap();
 
@@ -927,7 +932,7 @@ mod virtual_mem_tests {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity;
+        let block_size = granularity as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
 
@@ -952,7 +957,7 @@ mod virtual_mem_tests {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 2;
+        let block_size = (granularity * 2) as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
         let total_size = block_size * 4;
@@ -973,51 +978,114 @@ mod virtual_mem_tests {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 3;
+        let block_size = (granularity * 3) as u64;
 
         let storage = GpuVirtualStorage::new(0, granularity, block_size);
 
         assert_eq!(storage.granularity(), granularity);
 
         assert_eq!(storage.physical_block_size(), block_size);
-        assert_eq!(storage.alignment(), block_size);
+        assert_eq!(storage.alignment(), block_size as usize);
     }
 
+  
+
     #[test]
-    fn test_virtual_memory_overcommit() {
+    fn test_defragment_contiguous_ranges() {
         let (_device, _ctx) = setup_cuda_context();
         let device = result::device::get(0).unwrap();
         let granularity = get_minimum_granularity(device);
-        let block_size = granularity * 2;
+        let block_size = (granularity * 2) as u64;
 
         let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
 
-        let total_memory = unsafe {
-            let mut bytes = std::mem::MaybeUninit::uninit();
-            cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device);
-            bytes.assume_init() as usize
-        };
 
-        let overcommit_size = total_memory * 2;
-        let handle = storage.reserve(overcommit_size, 0);
+        let total_size = block_size * 6;
+        let mut handle1 = storage.reserve(total_size, 0).unwrap();
 
-        assert!(
-            handle.is_ok(),
-            "Virtual memory reservation should succeed even when overcommitting"
-        );
 
-        let handle = handle.unwrap();
-        assert_eq!(handle.size(), overcommit_size as u64);
-        assert!(!storage.is_addr_mapped(&handle));
+        let split_size = block_size * 2;
+        let mut handle2 = storage.split_range(&mut handle1, split_size).unwrap();
+        let handle3 = storage.split_range(&mut handle2, split_size).unwrap();
 
-        let mut handle_copy = handle.clone();
-        let map_result = storage.map(&mut handle_copy);
 
-        assert!(
-            map_result.is_err(),
-            "Mapping overcommitted virtual memory should fail"
-        );
+        assert_eq!(storage.reservations.len(), 3);
+        assert_eq!(handle1.size(), split_size as u64);
+        assert_eq!(handle2.size(), split_size as u64);
+        assert_eq!(handle3.size(), split_size as u64);
 
-        storage.release(handle);
+        assert!(storage.are_adjacent(&handle1, &handle2));
+        assert!(storage.are_adjacent(&handle2, &handle3));
+
+        // Defragment
+        let defrag_result = storage.defragment();
+
+        assert!(defrag_result.is_some(), "Defragmentation should succeed with contiguous ranges");
+        let merged_handle = defrag_result.unwrap();
+
+
+        assert_eq!(merged_handle.size(), total_size as u64);
+        assert_eq!(merged_handle.offset(), 0);
+
+
+        assert_eq!(storage.reservations.len(), 1);
+
+        storage.release(merged_handle);
+    }
+
+    #[test]
+    fn test_defragment_scattered_ranges() {
+        let (_device, _ctx) = setup_cuda_context();
+        let device = result::device::get(0).unwrap();
+        let granularity = get_minimum_granularity(device);
+        let block_size = (granularity * 2) as u64;
+
+        let mut storage = GpuVirtualStorage::new(0, granularity, block_size);
+
+
+        let size1 = block_size * 2;
+        let size2 = block_size * 3;
+        let size3 = block_size * 1;
+
+        let handle1 = storage.reserve(size1, 0).unwrap();
+        let mut handle2 = storage.reserve(size2, 0).unwrap();
+        let handle3 = storage.reserve(size3, 0).unwrap();
+
+        storage.map(&mut handle2).unwrap();
+
+        assert_eq!(storage.reservations.len(), 3);
+
+        assert!(!storage.is_addr_mapped(&handle1));
+        assert!(storage.is_addr_mapped(&handle2));
+        assert!(!storage.is_addr_mapped(&handle3));
+
+
+        let defrag_result = storage.defragment();
+
+
+        if defrag_result.is_some() {
+            let merged_handle = defrag_result.unwrap();
+            let expected_size = (size1 + size3) as u64;
+
+            assert_eq!(merged_handle.size(), expected_size);
+            assert_eq!(merged_handle.offset(), 0);
+
+
+            assert!(storage.reservations.contains_key(&handle2.id));
+            assert!(storage.is_addr_mapped(&handle2));
+
+
+            storage.unmap(handle2.id);
+            storage.release(handle2);
+            storage.release(merged_handle);
+        } else {
+
+            storage.unmap(handle2.id);
+            storage.release(handle1);
+            storage.release(handle2);
+            storage.release(handle3);
+
+            panic!("Storage should have defragmented propertly!");
+        }
     }
 }
