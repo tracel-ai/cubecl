@@ -14,6 +14,7 @@ pub trait SchedulerStreamBackend {
 pub trait SchedulerTask: core::fmt::Debug {
     fn stream_id(&self) -> StreamId;
     fn bindings<'a>(&'a self) -> Vec<&'a Binding>;
+    fn flush(&self) -> bool;
 }
 
 #[derive(Debug)]
@@ -64,12 +65,20 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
     }
 
-    pub async fn register(&mut self, task: B::Task) {
+    pub async fn register(&mut self, task: B::Task, flush: bool) {
         let stream_id = task.stream_id();
         self.align_streams(stream_id, task.bindings()).await;
 
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
+
+        if flush || current.tasks.len() > 32 {
+            log::info!("Num Tasks: {}", current.tasks.len());
+            self.execute_streams(vec![stream_id]).await;
+        }
+    }
+    pub async fn execute_unordered(&mut self, task: B::Task) {
+        self.backend.execute([task].into_iter()).await;
     }
 
     pub(crate) async fn align_streams<'a>(
@@ -105,18 +114,32 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         if metadata.is_empty() {
             return;
         }
+        // println!("{metadata:?}");
 
         let total: usize = metadata.iter().map(|i| i.1).sum();
 
         let num_flushes = metadata.len();
         let mut tasks = Vec::with_capacity(total);
 
-        for i in 0..num_flushes {
-            if let Some(task) = metadata[i].2.next() {
-                tasks.push(task);
+        let mut finished = vec![false; num_flushes];
+        let mut num_finished = 0;
+
+        loop {
+            if num_finished == num_flushes {
+                break;
+            }
+
+            for i in 0..num_flushes {
+                if let Some(task) = metadata[i].2.next() {
+                    tasks.push(task);
+                } else if !finished[i] {
+                    finished[i] = true;
+                    num_finished += 1;
+                }
             }
         }
 
+        // println!("{tasks:?}");
         self.backend.execute(tasks.into_iter()).await;
     }
 }

@@ -132,6 +132,25 @@ impl<S: ComputeServer> SchedulerTask for Message<S> {
         }
     }
 
+    fn flush(&self) -> bool {
+        match self {
+            Message::Read(..) => true,
+            Message::Flush(..) => true,
+            Message::Sync(..) => true,
+            Message::GetResource(..) => true,
+            Message::MemoryUsage(..) => true,
+            Message::MemoryCleanup(..) => true,
+            Message::StartProfile(..) => true,
+            Message::StopMeasure(..) => true,
+            Message::Create(..) => false,
+            Message::Write(..) => false,
+            Message::ExecuteKernel(..) => false,
+            Message::AllocationMode(..) => false,
+            Message::DataTransferSend(..) => false,
+            Message::DataTransferRecv(..) => false,
+        }
+    }
+
     fn bindings<'a>(&'a self) -> Vec<&'a Binding> {
         match self {
             Message::Create(..) => Vec::new(),
@@ -438,7 +457,17 @@ impl<S: ComputeServer + 'static> MpscServer<S> {
         let mut sm = SchedulerMultiStream::new(self, 8);
 
         while let Ok(message) = receiver.recv().await {
-            sm.register(message).await;
+            match &message {
+                Message::Write(.., sender) => sender.send(Ok(())).await.unwrap(),
+                Message::Create(..) => {
+                    sm.execute_unordered(message).await;
+                    continue;
+                }
+                _ => {}
+            };
+            // println!("{message:?}");
+            let should_flush = message.flush();
+            sm.register(message, should_flush).await;
         }
     }
 
@@ -454,13 +483,14 @@ impl<S: ComputeServer + 'static> MpscServer<S> {
                 let data = self.server.read(descriptors, stream).await;
                 callback.send(data).await.unwrap();
             }
-            Message::Write(descriptors, stream, callback) => {
+            Message::Write(descriptors, stream, _callback) => {
                 let descriptors = descriptors
                     .iter()
                     .map(|(desc, data)| (desc.as_ref(), data.as_slice()))
                     .collect();
                 let data = self.server.write(descriptors, stream);
-                callback.send(data).await.unwrap();
+                data.unwrap();
+                // callback.send(data).await.unwrap();
             }
             Message::GetResource(binding, stream, callback) => {
                 let data = self.server.get_resource(binding, stream);
