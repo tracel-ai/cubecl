@@ -200,7 +200,6 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
     /// Executes schedules in an interleaved manner, alternating tasks across streams.
     fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
-        let num_schedules = schedules.len();
         // Find the maximum number of tasks across all schedules.
         let num_tasks_max = schedules
             .iter()
@@ -210,9 +209,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
         // Iterate through tasks, interleaving them across streams.
         for _ in 0..num_tasks_max {
-            for i in 0..num_schedules {
-                let schedule = &mut schedules[i];
-
+            for schedule in schedules.iter_mut() {
                 // If there are tasks remaining in the schedule, enqueue the next one.
                 if let Some(task) = schedule.tasks.next() {
                     // Note: `unsafe` usage assumes valid index.
