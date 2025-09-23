@@ -116,7 +116,7 @@ jobs:
       '@os:linux',
       '@zone:northamerica-northeast1-b'
       ]
-    needs: prepare-checks
+    needs: [prepare-checks, code-quality]
     strategy:
       matrix:
         rust: [stable, prev]
@@ -144,7 +144,7 @@ jobs:
 
   # windows-std-tests:
   #   runs-on: windows-2022
-  #   needs: prepare-checks
+  #   needs: [prepare-checks, code-quality]
   #   env:
   #     DISABLE_WGPU: '1'
   #   # Keep the stragegy to be able to easily add new rust versions if required
@@ -175,7 +175,7 @@ jobs:
 
   # macos-std-tests:
   #   runs-on: macos-14
-  #   needs: prepare-checks
+  #   needs: [prepare-checks, code-quality]
   #   # Keep the stragegy to be able to easily add new rust versions if required
   #   strategy:
   #     matrix:
