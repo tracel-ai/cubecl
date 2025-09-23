@@ -4,6 +4,8 @@ use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
+use hashbrown::HashMap;
+ use crate::storage::VirtualStorage;
 
 #[derive(new, Debug)]
 pub(crate) struct Slice {
@@ -58,6 +60,21 @@ pub trait MemoryPool {
     );
 }
 
+
+pub(crate) trait MemoryChunk {
+
+
+
+    /// merge slice at first_slice_address with the next slice (if there is one and if it's free)
+    /// return a boolean representing if a merge happened
+    fn merge_with_next_slice(
+        &mut self,
+        first_slice_address: u64,
+        slices: &mut HashMap<SliceId, Slice>,
+    ) -> bool;
+    fn find_slice(&self, address: u64) -> Option<SliceId>;
+    fn insert_slice(&mut self, address: u64, slice: SliceId);
+}
 
 
 

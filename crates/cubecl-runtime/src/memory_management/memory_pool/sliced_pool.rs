@@ -1,5 +1,5 @@
 use super::index::SearchIndex;
-use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
+use super::{MemoryPool, MemoryChunk, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::MemoryUsage;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use crate::{memory_management::memory_pool::calculate_padding, server::IoError};
@@ -28,10 +28,15 @@ pub(crate) struct MemoryPage {
     pub(crate) slices: HashMap<u64, SliceId>,
 }
 
-impl MemoryPage {
+
+
+impl MemoryChunk for MemoryPage {
+
+
+
     /// merge slice at first_slice_address with the next slice (if there is one and if it's free)
     /// return a boolean representing if a merge happened
-    pub(crate) fn merge_with_next_slice(
+    fn merge_with_next_slice(
         &mut self,
         first_slice_address: u64,
         slices: &mut HashMap<SliceId, Slice>,
@@ -70,12 +75,12 @@ impl MemoryPage {
         false
     }
 
-    pub(crate) fn find_slice(&self, address: u64) -> Option<SliceId> {
+    fn find_slice(&self, address: u64) -> Option<SliceId> {
         let slice_id = self.slices.get(&address);
         slice_id.copied()
     }
 
-    pub(crate) fn insert_slice(&mut self, address: u64, slice: SliceId) {
+    fn insert_slice(&mut self, address: u64, slice: SliceId) {
         self.slices.insert(address, slice);
     }
 }
