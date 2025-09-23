@@ -391,11 +391,10 @@ impl WgpuStream {
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        // min_storage_buffer_offset_alignment is bigger than the align we need to copy. Per the WebGPU spec, this
+        // memory is also aligned (see WgpuStorage). Per the WebGPU spec, this
         // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
-        let copy_align = 4;
-        let size = resource.size.next_multiple_of(copy_align as u64);
+        let copy_align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let size = resource.size.next_multiple_of(copy_align);
 
         if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:
