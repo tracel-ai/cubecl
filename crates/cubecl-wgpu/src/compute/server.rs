@@ -1,7 +1,6 @@
 use super::storage::{WgpuResource, WgpuStorage};
-use super::stream::WgpuStream;
 use crate::AutoCompiler;
-use crate::tasks::{LazyTask, ScheduledWgpuBackend};
+use crate::tasks::{BindingsResource, LazyTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
@@ -62,8 +61,27 @@ impl WgpuServer {
             compilation_options,
             device,
             pipelines: HashMap::new(),
-            scheduler: SchedulerMultiStream::new(backend_scheduler, 1),
+            scheduler: SchedulerMultiStream::new(backend_scheduler, 4),
             backend,
+        }
+    }
+
+    fn prepare_bindings(&mut self, bindings: Bindings) -> BindingsResource {
+        // Store all the resources we'll be using. This could be eliminated if
+        // there was a way to tie the lifetime of the resource to the memory handle.
+        let resources = bindings
+            .buffers
+            .iter()
+            .map(|b| {
+                let stream = self.scheduler.stream(&b.stream);
+                stream.mem_manage.get_resource(b.clone())
+            })
+            .collect::<Vec<_>>();
+
+        BindingsResource {
+            resources,
+            metadata: bindings.metadata,
+            scalars: bindings.scalars,
         }
     }
 
@@ -145,7 +163,7 @@ impl ComputeServer for WgpuServer {
             .map(|it| it.next_multiple_of(align))
             .sum::<usize>();
 
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         let mem_handle = stream.empty(total_size as u64, stream_id)?;
         let handles = offset_handles(mem_handle, &sizes, align);
 
@@ -170,13 +188,13 @@ impl ComputeServer for WgpuServer {
             if !streams.contains(&desc.binding.stream) {
                 streams.push(desc.binding.stream);
             }
-            let stream = self.scheduler.backend.stream(&desc.binding.stream);
+            let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding);
             resources.push((resource, desc.shape.to_vec(), desc.elem_size));
         }
 
         self.scheduler.execute_streams(streams);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.read_resources(resources)
     }
 
@@ -192,7 +210,7 @@ impl ComputeServer for WgpuServer {
             //
             // self.scheduler.execute_streams(vec![desc.binding.stream]);
             //
-            let stream = self.scheduler.backend.stream(&desc.binding.stream);
+            let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding.clone());
             let task = LazyTask::Write {
                 data: data.to_vec(),
@@ -221,7 +239,7 @@ impl ComputeServer for WgpuServer {
             streams.push(binding.stream);
         }
         self.scheduler.execute_streams(streams);
-        let stream = self.scheduler.backend.stream(&binding.stream);
+        let stream = self.scheduler.stream(&binding.stream);
         let resource = stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
@@ -237,34 +255,32 @@ impl ComputeServer for WgpuServer {
     ) {
         let pipeline = self.pipeline(kernel, mode, logger);
         let buffers = bindings.buffers.clone();
-        let resources = self.scheduler.backend.bindings(&stream_id, bindings);
-        // let stream = self.scheduler.backend.stream(&stream_id);
+        let resources = self.prepare_bindings(bindings);
         let task = LazyTask::Execute {
             pipeline,
             count,
             resources,
         };
-        // stream.execute_task(task);
 
         self.scheduler.register(stream_id, task, buffers.iter());
     }
 
     fn flush(&mut self, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.flush()
     }
 
     /// Returns the total time of GPU work this sync completes.
     fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.sync()
     }
 
     fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.start_profile()
     }
 
@@ -274,7 +290,7 @@ impl ComputeServer for WgpuServer {
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.end_profile(token)
     }
 
@@ -283,19 +299,19 @@ impl ComputeServer for WgpuServer {
         stream_id: StreamId,
     ) -> cubecl_runtime::memory_management::MemoryUsage {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.memory_usage()
     }
 
     fn memory_cleanup(&mut self, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.memory_cleanup(true);
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
         self.scheduler.execute_streams(vec![stream_id]);
-        let stream = self.scheduler.backend.stream(&stream_id);
+        let stream = self.scheduler.stream(&stream_id);
         stream.mem_manage.mode(mode);
     }
 }

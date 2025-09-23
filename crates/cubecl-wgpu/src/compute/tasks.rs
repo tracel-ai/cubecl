@@ -2,16 +2,16 @@ use std::collections::BTreeMap;
 
 use crate::{WgpuResource, stream::WgpuStream};
 use alloc::sync::Arc;
-use cubecl_common::{profile::TimingMethod, stream_id::StreamId};
+use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     ir::StorageType,
-    server::{Bindings, MetadataBinding, ScalarBinding},
+    server::{MetadataBinding, ScalarBinding},
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties,
     stream::{
-        StreamFactory, StreamPool,
+        StreamFactory,
         scheduler::{SchedulerStreamBackend, SchedulerTask},
     },
 };
@@ -33,11 +33,11 @@ impl SchedulerTask for LazyTask {}
 
 #[derive(Debug)]
 pub(crate) struct ScheduledWgpuBackend {
-    pool: StreamPool<WgpuStreamFactory>,
+    factory: WgpuStreamFactory,
 }
 
 #[derive(Debug)]
-struct WgpuStreamFactory {
+pub struct WgpuStreamFactory {
     device: wgpu::Device,
     queue: wgpu::Queue,
     memory_properties: MemoryDeviceProperties,
@@ -79,40 +79,15 @@ impl ScheduledWgpuBackend {
             tasks_max,
         };
 
-        Self {
-            pool: StreamPool::new(factory, 1, 0),
-        }
-    }
-
-    pub fn stream(&mut self, stream_id: &StreamId) -> &mut WgpuStream {
-        self.pool.get_mut(stream_id)
-    }
-
-    pub fn bindings(&mut self, stream_id: &StreamId, bindings: Bindings) -> BindingsResource {
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let resources = bindings
-            .buffers
-            .iter()
-            .map(|b| {
-                let stream = self.stream(&b.stream);
-                stream.mem_manage.get_resource(b.clone())
-            })
-            .collect::<Vec<_>>();
-
-        BindingsResource {
-            resources,
-            metadata: bindings.metadata,
-            scalars: bindings.scalars,
-        }
+        Self { factory }
     }
 }
 
 #[derive(Debug)]
 pub struct BindingsResource {
-    resources: Vec<WgpuResource>,
-    metadata: MetadataBinding,
-    scalars: BTreeMap<StorageType, ScalarBinding>,
+    pub resources: Vec<WgpuResource>,
+    pub metadata: MetadataBinding,
+    pub scalars: BTreeMap<StorageType, ScalarBinding>,
 }
 
 impl BindingsResource {
@@ -134,11 +109,14 @@ impl BindingsResource {
 
 impl SchedulerStreamBackend for ScheduledWgpuBackend {
     type Task = LazyTask;
+    type Stream = WgpuStream;
+    type Factory = WgpuStreamFactory;
 
-    fn execute(&mut self, tasks: impl Iterator<Item = (usize, Self::Task)>) {
-        for (index, task) in tasks {
-            let stream = unsafe { self.pool.get_mut_index(index) };
-            stream.execute_task(task);
-        }
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream) {
+        stream.execute_task(task);
+    }
+
+    fn factory(&mut self) -> &mut Self::Factory {
+        &mut self.factory
     }
 }

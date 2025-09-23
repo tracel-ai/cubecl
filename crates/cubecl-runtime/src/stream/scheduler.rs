@@ -2,13 +2,15 @@ use crate::{
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
-use core::marker::PhantomData;
 use cubecl_common::stream_id::StreamId;
 
 pub trait SchedulerStreamBackend {
     type Task: SchedulerTask;
+    type Stream: core::fmt::Debug;
+    type Factory: StreamFactory<Stream = Self::Stream>;
 
-    fn execute(&mut self, tasks: impl Iterator<Item = (usize, Self::Task)>);
+    fn enqueue(task: Self::Task, stream: &mut Self::Stream);
+    fn factory(&mut self) -> &mut Self::Factory;
 }
 
 pub trait SchedulerTask: core::fmt::Debug {}
@@ -16,12 +18,12 @@ pub trait SchedulerTask: core::fmt::Debug {}
 #[derive(Debug)]
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     pool: StreamPool<SchedulerPoolMarker<B>>,
-    pub backend: B,
 }
 
 #[derive(Debug)]
 pub struct Stream<B: SchedulerStreamBackend> {
     tasks: Vec<B::Task>,
+    stream: B::Stream,
 }
 
 impl<B: SchedulerStreamBackend> Stream<B> {
@@ -34,31 +36,34 @@ impl<B: SchedulerStreamBackend> Stream<B> {
 
 #[derive(Debug)]
 pub struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
-    _p: PhantomData<B>,
-}
-
-impl<B: SchedulerStreamBackend> Default for SchedulerPoolMarker<B> {
-    fn default() -> Self {
-        Self {
-            _p: Default::default(),
-        }
-    }
+    backend: B,
 }
 
 impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
     type Stream = Stream<B>;
 
     fn create(&mut self) -> Self::Stream {
-        Stream { tasks: Vec::new() }
+        Stream {
+            tasks: Vec::new(),
+            stream: self.backend.factory().create(),
+        }
     }
 }
 
 impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     pub fn new(backend: B, max_streams: u8) -> Self {
         Self {
-            pool: StreamPool::new(SchedulerPoolMarker::default(), max_streams, 0),
-            backend,
+            pool: StreamPool::new(SchedulerPoolMarker { backend }, max_streams, 0),
         }
+    }
+
+    pub fn stream(&mut self, stream_id: &StreamId) -> &mut B::Stream {
+        let stream = self.pool.get_mut(stream_id);
+        &mut stream.stream
+    }
+
+    pub fn backend(&mut self) -> &mut B {
+        &mut self.pool.factory.backend
     }
 
     pub fn register<'a>(
@@ -72,7 +77,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
 
-        if current.tasks.len() > 1 {
+        if current.tasks.len() > 32 {
             self.execute_streams(vec![stream_id]);
         }
     }
@@ -127,7 +132,6 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         log::info!("Execute scheduled {total} tasks ...");
 
         let num_flushes = metadata.len();
-        let mut tasks = Vec::with_capacity(total);
 
         let mut finished = vec![false; num_flushes];
         let mut num_finished = 0;
@@ -139,19 +143,15 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
 
             for i in 0..num_flushes {
                 let meta = &mut metadata[i];
-                let stream_id = meta.0;
+                let index = meta.0;
                 if let Some(task) = meta.2.next() {
-                    tasks.push((stream_id, task));
+                    let stream = unsafe { self.pool.get_mut_index(index) };
+                    B::enqueue(task, &mut stream.stream);
                 } else if !finished[i] {
                     finished[i] = true;
                     num_finished += 1;
                 }
             }
-        }
-
-        if !tasks.is_empty() {
-            // log::info!("{tasks:?}");
-            self.backend.execute(tasks.into_iter());
         }
     }
 }

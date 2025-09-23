@@ -8,7 +8,7 @@ pub trait StreamFactory {
 #[derive(Debug)]
 pub struct StreamPool<F: StreamFactory> {
     streams: Vec<Option<F::Stream>>,
-    factory: F,
+    pub factory: F,
     max_streams: usize,
 }
 
