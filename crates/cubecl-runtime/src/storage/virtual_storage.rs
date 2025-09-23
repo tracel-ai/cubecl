@@ -41,43 +41,24 @@ pub trait VirtualStorage: ComputeStorage {
     /// Retrieves the size of a physical block in this virtual storage.
     fn physical_block_size(&self) -> u64;
 
-    /// Split a range of virtual addresses into two
-    fn split_range(
-        &mut self,
-        handle: &mut StorageHandle,
-        offset: u64,
-    ) -> Result<StorageHandle, IoError>;
-
-    /// Merge two ranges of virtual addresses (either contiguous or not) into one.
-    /// If the two virtual address are not contiguous they can still be merged into one as long as both are not mapped, by releasing the virtual address spaces and creating a new one.
-    fn merge(
-        &mut self,
-        first_handle: StorageHandle,
-        second_handle: StorageHandle,
-    ) -> Result<StorageHandle, IoError>;
-
-    /// Expand a virtual memory region to a target size.
-    /// The difference between merge and expand is that the second one does not require the handle to be unmapped.
-    fn expand(&mut self, handle: &mut StorageHandle, additional_size: u64) -> Result<(), IoError>;
+    /// Allocate physical memory of hthe requested size
+    fn allocate(&mut self, size: u64) -> Result<(), IoError>;
 
     /// Reserves an address space of a given size. Padding should be automatically added to meet the granularity requirements. The parameter start_addr is the address at which the reservation should start, if applicable.
     fn reserve(&mut self, size: u64, start_addr: u64) -> Result<StorageHandle, IoError>;
 
     /// Releases the virtual address range associated with this handle.
-    fn release(&mut self, handle: StorageHandle);
+    fn release(&mut self, id: StorageId);
 
-    /// Map a range of virtual addresses to physical memory.
-    fn map(&mut self, handle: &mut StorageHandle) -> Result<(), IoError>;
+    /// Map physical handles to a range of virtual addresses
+    fn map(&mut self, id: StorageId, offset: u64, size: u64) -> Result<StorageHandle, IoError>;
 
-    /// Unmap that range.
-    fn unmap(&mut self, id: StorageId);
+    /// Unmap the handles
+    fn unmap(&mut self, id: StorageId, offset: u64, size: u64);
 
-    // Check whether two handles are adjacent in memory.
+    // Check whether two address ranges are adjacent in memory.
     fn are_adjacent(&self, first: &StorageHandle, second: &StorageHandle) -> bool;
 
     /// Releases all address spaces and cleans up all physical memory.
     fn cleanup(&mut self);
-
-    // Defragments the virtual address space, returning a new handle pointing to the defragmented region.
-    fn defragment(&mut self) -> Option<StorageHandle>;
 }
