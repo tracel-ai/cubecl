@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::stage::StageMemoryConfig;
-use crate::components::tile::Tile;
+use crate::components::tile::StridedTile;
 use crate::components::{MatrixLayout, StageIdent};
 
 use super::StridedStage;
@@ -221,7 +221,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
         buffer_index: u32,
         #[comptime] ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
-    ) -> Tile<ES>;
+    ) -> StridedTile<ES>;
 }
 
 #[derive(Clone, Copy)]
@@ -255,7 +255,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         buffer_index: u32,
         #[comptime] ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
-    ) -> Tile<ES> {
+    ) -> StridedTile<ES> {
         let (row, col) = tile;
 
         let stage_line_size = config.stage_line_size;
@@ -324,7 +324,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 config,
             );
 
-        Tile::new_contiguous(
+        StridedTile::new_contiguous(
             stage_memory
                 .as_slice(stage_line_size)
                 .slice(start, start + tile_slice_length),
@@ -364,7 +364,7 @@ impl TilingLayout for StridedTilingLayout {
         _buffer_index: u32,
         #[comptime] _ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
-    ) -> Tile<ES> {
+    ) -> StridedTile<ES> {
         if comptime!(config.num_stages > 1) {
             unimplemented!()
         }
@@ -385,7 +385,7 @@ impl TilingLayout for StridedTilingLayout {
                 let length = (tile_size_x - 1) * stride + tile_size_y;
                 let start = x * tile_size_x * stride + y * tile_size_y;
 
-                Tile::new_strided(
+                StridedTile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
                     matrix_layout,
@@ -399,7 +399,7 @@ impl TilingLayout for StridedTilingLayout {
                 let length = (tile_size_y - 1) * stride + tile_size_x;
                 let start = x * tile_size_x + y * tile_size_y * stride;
 
-                Tile::new_strided(
+                StridedTile::new_strided(
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
                     matrix_layout,
@@ -422,7 +422,7 @@ impl TilingLayout for NoTilingLayout {
         _buffer_index: u32,
         #[comptime] _ident: StageIdent,
         #[comptime] _config: StageMemoryConfig,
-    ) -> Tile<ES> {
+    ) -> StridedTile<ES> {
         panic!("Can't get tile of layoutless tiling!")
     }
 }

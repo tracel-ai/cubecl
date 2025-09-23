@@ -69,8 +69,8 @@ pub fn execute_current_and_read_next<
     RJ: JobExecutor<G>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
-    lhs_stage_reader: &SMM::LhsStage,
-    rhs_stage_reader: &SMM::RhsStage,
+    lhs_stage: &SMM::LhsStage,
+    rhs_stage: &SMM::RhsStage,
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
@@ -90,8 +90,8 @@ pub fn execute_current_and_read_next<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_only() {
                 SMM::execute_with_listener::<DoubleBufferingEventListener<LJ, RJ, G>>(
-                    lhs_stage_reader,
-                    rhs_stage_reader,
+                    lhs_stage,
+                    rhs_stage,
                     lhs_tile,
                     rhs_tile,
                     acc,
@@ -116,8 +116,8 @@ pub fn execute_current_and_read_next<
         }
         SpecializerKind::NotSpecialized => {
             SMM::execute_with_listener::<DoubleBufferingEventListener<LJ, RJ, G>>(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_tile,
                 rhs_tile,
                 acc,
@@ -144,8 +144,8 @@ pub fn execute_last_and_write_results<
     SMM: stage::StageMatmul<MP>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
-    lhs_stage_reader: &SMM::LhsStage,
-    rhs_stage_reader: &SMM::RhsStage,
+    lhs_stage: &SMM::LhsStage,
+    rhs_stage: &SMM::RhsStage,
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
@@ -163,8 +163,8 @@ pub fn execute_last_and_write_results<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_only() {
                 SMM::execute(
-                    lhs_stage_reader,
-                    rhs_stage_reader,
+                    lhs_stage,
+                    rhs_stage,
                     lhs_tile,
                     rhs_tile,
                     acc,
@@ -183,8 +183,8 @@ pub fn execute_last_and_write_results<
         }
         SpecializerKind::NotSpecialized => {
             SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_tile,
                 rhs_tile,
                 acc,

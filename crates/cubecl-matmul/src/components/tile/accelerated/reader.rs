@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::tile::{
-    Tile,
+    StridedTile,
     reader::{Filled, Strided, TileKind, TileReader},
 };
 
@@ -31,7 +31,7 @@ pub struct CmmaTileReader<Kind: TileKind> {
 #[cube]
 impl CmmaFragmentReader for CmmaTileReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: Tile<V>,
+        tile: StridedTile<V>,
         fragment: &mut cmma::Matrix<E>,
         layout: CubeOption<cmma::MatrixLayout>,
         #[comptime] line_size: u32,

@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     MatrixLayout, StageIdent,
     stage::{StageMemoryConfig, StridedStage, TilingLayout},
-    tile::Tile,
+    tile::StridedTile,
 };
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -19,7 +19,7 @@ impl TilingLayout for BiasTilingLayout {
         _buffer_index: u32,
         #[comptime] _ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
-    ) -> Tile<ES> {
+    ) -> StridedTile<ES> {
         if comptime!(config.num_stages > 1) {
             unimplemented!()
         }
@@ -32,7 +32,7 @@ impl TilingLayout for BiasTilingLayout {
         let length = tile_size_col;
         let start = col * tile_size_col;
 
-        Tile::new_strided(
+        StridedTile::new_strided(
             stage.as_slice(stage_line_size).slice(start, start + length),
             0,
             MatrixLayout::RowMajor,

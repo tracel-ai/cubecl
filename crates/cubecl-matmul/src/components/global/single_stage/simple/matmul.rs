@@ -69,8 +69,8 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let lhs_stage_reader = &lhs_reader.stage();
-        let rhs_stage_reader = &rhs_reader.stage();
+        let lhs_stage = &lhs_reader.stage();
+        let rhs_stage = &rhs_reader.stage();
 
         for _ in 0..num_loops {
             sync_cube();
@@ -81,8 +81,8 @@ where
             sync_cube();
 
             SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                lhs_stage,
+                rhs_stage,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,

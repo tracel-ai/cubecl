@@ -82,9 +82,9 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let lhs_stage_reader = lhs_reader.stage();
-        let rhs_stage_reader_a = rhs_reader.stage(StageBuffer::A);
-        let rhs_stage_reader_b = rhs_reader.stage(StageBuffer::B);
+        let lhs_stage = lhs_reader.stage();
+        let rhs_stage_a = rhs_reader.stage(StageBuffer::A);
+        let rhs_stage_b = rhs_reader.stage(StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 
@@ -108,8 +108,8 @@ where
                 Self::RhsGlobalReader,
                 Self::Config,
             >(
-                &lhs_stage_reader,
-                &rhs_stage_reader_a,
+                &lhs_stage,
+                &rhs_stage_a,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
@@ -133,8 +133,8 @@ where
                 Self::RhsGlobalReader,
                 Self::Config,
             >(
-                &lhs_stage_reader,
-                &rhs_stage_reader_b,
+                &lhs_stage,
+                &rhs_stage_b,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
@@ -158,8 +158,8 @@ where
             Self::RhsGlobalReader,
             Self::Config,
         >(
-            &lhs_stage_reader,
-            &rhs_stage_reader_a,
+            &lhs_stage,
+            &rhs_stage_a,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,
@@ -174,8 +174,8 @@ where
         sync_cube();
 
         execute_last_and_write_results::<MP, SMM, Self::Config>(
-            &lhs_stage_reader,
-            &rhs_stage_reader_b,
+            &lhs_stage,
+            &rhs_stage_b,
             &mut lhs_tile,
             &mut rhs_tile,
             acc,

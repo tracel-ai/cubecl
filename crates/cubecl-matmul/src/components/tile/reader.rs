@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 
 use cubecl_std::CubeOption;
 
-use crate::components::tile::Tile;
+use crate::components::tile::StridedTile;
 
 /// Kind (family) of the tiles returned by a tile reader and ingested by a tile matmul reader
 pub trait TileKind: CubeType + Send + Sync + 'static {
@@ -20,7 +20,7 @@ pub struct Strided {}
 pub struct Filled {}
 
 impl TileKind for Strided {
-    type Tile<E: Numeric> = Tile<E>;
+    type Tile<E: Numeric> = StridedTile<E>;
 }
 
 impl TileKind for Filled {

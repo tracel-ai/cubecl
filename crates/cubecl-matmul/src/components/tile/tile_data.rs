@@ -4,8 +4,9 @@ use cubecl_core::prelude::*;
 use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
 #[derive(CubeType, Clone)]
-/// Data to be handed to the Tile Matmul
-pub struct Tile<ES: Numeric> {
+/// Tile with a linear major dimension, and a strided minor dimension.
+/// Basic tile kind supported by all stage matmuls.
+pub struct StridedTile<ES: Numeric> {
     /// Slice containing all data
     pub slice: Slice<Line<ES>>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
@@ -16,14 +17,14 @@ pub struct Tile<ES: Numeric> {
 }
 
 #[cube]
-impl<ES: Numeric> Tile<ES> {
+impl<ES: Numeric> StridedTile<ES> {
     /// Creates a tile from a contiguous slice of data.
     ///
     /// The slice length must exactly match the tile size.
     pub fn new_contiguous(
         slice: Slice<Line<ES>>,
         #[comptime] config: StageMemoryConfig,
-    ) -> Tile<ES> {
+    ) -> StridedTile<ES> {
         let layout = config.matrix_layout;
         let stride = match layout {
             MatrixLayout::RowMajor => config.elements_in_tile_col,
@@ -32,7 +33,7 @@ impl<ES: Numeric> Tile<ES> {
 
         let stride = comptime![stride / config.stage_line_size];
 
-        Tile::<ES> {
+        StridedTile::<ES> {
             slice,
             stride,
             layout,
@@ -46,8 +47,8 @@ impl<ES: Numeric> Tile<ES> {
         slice: Slice<Line<ES>>,
         stride: u32,
         #[comptime] layout: MatrixLayout,
-    ) -> Tile<ES> {
-        Tile::<ES> {
+    ) -> StridedTile<ES> {
+        StridedTile::<ES> {
             slice,
             stride,
             layout,

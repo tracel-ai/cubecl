@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
-use crate::components::tile::Tile;
+use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
 use crate::components::{stage::Stage, tile::reader::Strided};
@@ -96,7 +96,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
     }
 
     /// Get the tile at position (row, col)
-    pub fn get_tile(&self, tile: Coords2d) -> Tile<ES> {
+    pub fn get_tile(&self, tile: Coords2d) -> StridedTile<ES> {
         T::get_tile::<ES>(self, tile, self.buffer_index, self.ident, self.config)
     }
 
@@ -209,7 +209,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 impl<ES: Numeric, T: TilingLayout> Stage<ES> for StridedStage<ES, T> {
     type TileKind = Strided;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> Tile<ES> {
+    fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
         this.get_tile(tile)
     }
 }

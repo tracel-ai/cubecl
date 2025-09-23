@@ -5,7 +5,7 @@ use cubecl_matmul::components::global::{
     read::tiled::TiledLayout,
 };
 use cubecl_matmul::components::stage::StridedStage;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 use cubecl_matmul::components::{MatrixLayout, StageIdent};
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
@@ -50,13 +50,13 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         &self,
         tile: Coords2d,
         #[comptime] config: S,
-    ) -> Tile<AP::EI> {
+    ) -> StridedTile<AP::EI> {
         let (row_in_partition, col) = tile;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
         let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
-        Tile::<AP::EI> {
+        StridedTile::<AP::EI> {
             slice: self
                 .query
                 .slice(

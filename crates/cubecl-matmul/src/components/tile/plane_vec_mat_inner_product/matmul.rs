@@ -5,7 +5,7 @@ use crate::components::tile::{
     TileConfig, TileMatmul, plane_vec_mat_inner_product::reader::MatrixFragmentReader,
 };
 use crate::components::tile::{
-    plane_vec_mat_inner_product::reader::MatrixTileReader, reader::Strided, tile_data::Tile,
+    plane_vec_mat_inner_product::reader::MatrixTileReader, reader::Strided, tile_data::StridedTile,
 };
 use crate::components::tile::{
     plane_vec_mat_inner_product::{
@@ -98,7 +98,7 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] _config: Self::Config,
     ) {
@@ -106,7 +106,7 @@ where
     }
 
     fn load_rhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {

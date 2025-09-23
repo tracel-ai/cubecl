@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::tile_data::Tile;
+use crate::components::tile::tile_data::StridedTile;
 use crate::components::tile::{TileConfig, TileMatmul, accelerated::reader::CmmaFragmentReader};
 use crate::components::tile::{
     accelerated::{config::AcceleratedConfig, reader::CmmaTileReader},
@@ -69,7 +69,7 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
@@ -82,7 +82,7 @@ where
     }
 
     fn load_rhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {

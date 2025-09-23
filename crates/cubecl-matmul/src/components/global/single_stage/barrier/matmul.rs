@@ -97,15 +97,15 @@ where
             lhs_reader.load_stage(&lhs_barrier, config);
             rhs_reader.load_stage(&rhs_barrier, config);
 
-            let lhs_stage_reader = &lhs_reader.stage();
-            let rhs_stage_reader = &rhs_reader.stage();
+            let lhs_stage = &lhs_reader.stage();
+            let rhs_stage = &rhs_reader.stage();
 
             lhs_barrier.arrive_and_wait();
             rhs_barrier.arrive_and_wait();
 
             SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                lhs_stage,
+                rhs_stage,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,

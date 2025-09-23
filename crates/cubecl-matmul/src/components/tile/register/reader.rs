@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
-        Tile, TileConfig,
+        StridedTile, TileConfig,
         reader::{Filled, Strided, TileKind, TileReader},
         register::{
             RegisterMatmul,
@@ -37,7 +37,7 @@ pub(super) trait RegisterFragmentReader: TileReader {
 #[cube]
 impl RegisterFragmentReader for RegisterTileReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: Tile<V>,
+        tile: StridedTile<V>,
         frag: &mut Array<E>,
         #[comptime] ident: StageIdent,
         #[comptime] config: RegisterConfig,
@@ -55,7 +55,7 @@ type MM = RegisterMatmul<Strided>;
 
 #[cube]
 fn load_lhs<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {
@@ -85,7 +85,7 @@ fn load_lhs<E: Numeric, V: Numeric>(
 
 #[cube]
 fn load_rhs<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {
@@ -115,7 +115,7 @@ fn load_rhs<E: Numeric, V: Numeric>(
 
 #[cube]
 fn load_acc<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {

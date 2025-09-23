@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::FlashIdent;
 use crate::components::tile::dummy::accelerated::AcceleratedFlashMatmulConfig;
@@ -36,7 +36,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     }
 
     fn allocate_fill_query<EI: Numeric>(
-        tile: &Tile<EI>,
+        tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
         let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
@@ -115,7 +115,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     }
 
     fn fill_key_value<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
@@ -172,7 +172,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
     }
 
     fn tmp_fill_accumulator(
-        tile: &Tile<FP::A>,
+        tile: &StridedTile<FP::A>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
@@ -180,7 +180,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
     }
     fn tmp_fill_prob(
-        tile: &Tile<FP::SP>,
+        tile: &StridedTile<FP::SP>,
         prob: &mut Self::ScoreProb,
         #[comptime] _config: Self::Config,
     ) {

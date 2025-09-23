@@ -9,7 +9,7 @@ use crate::components::tile::{
         reader::RegisterTileReader,
     },
 };
-use crate::components::tile::{reader::TileKind, tile_data::Tile};
+use crate::components::tile::{reader::TileKind, tile_data::StridedTile};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -62,7 +62,7 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
@@ -70,7 +70,7 @@ where
     }
 
     fn load_rhs<E: Numeric>(
-        tile: Tile<E>,
+        tile: StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
@@ -152,7 +152,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
     }
 
     pub fn load_plain<ES: Numeric, ER: Numeric>(
-        tile: &Tile<ES>,
+        tile: &StridedTile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,
         #[comptime] segment_size: u32,
@@ -176,7 +176,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
     }
 
     pub fn load_transposed<ES: Numeric, ER: Numeric>(
-        tile: &Tile<ES>,
+        tile: &StridedTile<ES>,
         array: &mut Array<ER>,
         #[comptime] num_segments: u32,
         #[comptime] segment_size: u32,

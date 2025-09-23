@@ -48,8 +48,8 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        let key_stage_reader = key_reader.stage();
-        let value_stage_reader = value_reader.stage();
+        let key_stage = key_reader.stage();
+        let value_stage = value_reader.stage();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
@@ -76,8 +76,8 @@ impl<
             sync_cube();
 
             SA::execute(
-                &key_stage_reader,
-                &value_stage_reader,
+                &key_stage,
+                &value_stage,
                 &query,
                 &mut key_value,
                 &mut score_prob,

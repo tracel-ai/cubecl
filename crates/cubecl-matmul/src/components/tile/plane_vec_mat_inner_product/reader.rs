@@ -8,7 +8,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout,
     tile::{
-        Tile,
+        StridedTile,
         plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
         reader::{Filled, Strided, TileKind, TileReader},
     },
@@ -38,7 +38,10 @@ pub struct MatrixTileReader<Kind: TileKind> {
 
 #[cube]
 impl VectorTileReader {
-    pub fn load_fragment<E: Numeric, V: Numeric>(tile: Tile<V>, frag: &mut LineContainer<E>) {
+    pub fn load_fragment<E: Numeric, V: Numeric>(
+        tile: StridedTile<V>,
+        frag: &mut LineContainer<E>,
+    ) {
         comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
 
         frag.line = Line::cast_from(tile.slice[UNIT_POS_X]);
@@ -52,7 +55,7 @@ impl TileReader for VectorTileReader {
 #[cube]
 impl MatrixFragmentReader for MatrixTileReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: Tile<V>,
+        tile: StridedTile<V>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     ) {
