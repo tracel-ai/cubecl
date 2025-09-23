@@ -228,6 +228,11 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
+    /// Read a line at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
+    pub fn read_masked(&self, pos: C, mask_value: E) -> E {
+        unexpanded!()
+    }
+
     /// Interpret this view as a linear slice encompassing the entire view.
     ///
     /// # Safety
