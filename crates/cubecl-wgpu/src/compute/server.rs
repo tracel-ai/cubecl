@@ -1,6 +1,6 @@
 use super::storage::{WgpuResource, WgpuStorage};
 use crate::AutoCompiler;
-use crate::tasks::{BindingsResource, LazyTask, ScheduledWgpuBackend};
+use crate::schedule::{BindingsResource, ScheduleTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
@@ -18,7 +18,9 @@ use cubecl_core::{
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
-use cubecl_runtime::stream::scheduler::SchedulerMultiStream;
+use cubecl_runtime::stream::scheduler::{
+    SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
+};
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
 };
@@ -61,7 +63,14 @@ impl WgpuServer {
             compilation_options,
             device,
             pipelines: HashMap::new(),
-            scheduler: SchedulerMultiStream::new(backend_scheduler, 8, tasks_max),
+            scheduler: SchedulerMultiStream::new(
+                backend_scheduler,
+                SchedulerMultiStreamOptions {
+                    max_streams: 4,
+                    max_tasks: tasks_max,
+                    strategy: SchedulerStrategy::Interleave,
+                },
+            ),
             backend,
         }
     }
@@ -207,23 +216,15 @@ impl ComputeServer for WgpuServer {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides);
             }
-            //
-            // self.scheduler.execute_streams(vec![desc.binding.stream]);
-            //
+
             let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding.clone());
-            let task = LazyTask::Write {
+            let task = ScheduleTask::Write {
                 data: data.to_vec(),
                 buffer: resource,
             };
-            // stream.execute_task(task);
-            self.scheduler.register(stream_id, task, [].into_iter());
-            // stream.write(desc.binding, data);
-            //
-            // let stream = self.scheduler.backend.stream(&desc.binding.stream);
 
-            // self.scheduler
-            //     .register(stream_id, task, [&desc.binding].into_iter());
+            self.scheduler.register(stream_id, task, [].into_iter());
         }
 
         Ok(())
@@ -256,7 +257,7 @@ impl ComputeServer for WgpuServer {
         let pipeline = self.pipeline(kernel, mode, logger);
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
-        let task = LazyTask::Execute {
+        let task = ScheduleTask::Execute {
             pipeline,
             count,
             resources,
