@@ -12,6 +12,7 @@ pub struct DummyStageConfig<FC: FlashMatmulConfig> {
     value_stage_memory_config: AttentionStageMemoryConfig,
     tiling_scheme: AttentionTilingScheme,
     reuse_key_value: bool,
+    num_planes: u32,
 }
 
 impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
@@ -22,8 +23,7 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     }
 
     fn num_planes(&self) -> u32 {
-        // TODO increase with stage_seq_q > 1
-        1
+        self.num_planes
     }
 
     fn tile_config(&self) -> Self::FlashMatmulConfig {
@@ -54,6 +54,7 @@ impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
         value_stage_memory_config: AttentionStageMemoryConfig,
         tiling_scheme: AttentionTilingScheme,
         reuse_key_value: bool,
+        num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             tile_config,
@@ -61,6 +62,7 @@ impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
             value_stage_memory_config,
             tiling_scheme,
             reuse_key_value,
+            num_planes,
         }
         .validate()
     }

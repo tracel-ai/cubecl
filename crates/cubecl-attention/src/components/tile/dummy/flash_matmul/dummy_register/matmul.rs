@@ -26,7 +26,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         out: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
@@ -51,7 +51,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
 
             for i in 0..m {
@@ -79,7 +79,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
 
         let mut query = Array::<FP::Q>::new(seq_q * head_dim);
 
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             // Only lane 0 fills the data
             for q in 0..seq_q {
                 for hd in 0..head_dim {
@@ -112,7 +112,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().key_size();
             for i in 0..size {
                 rhs[i] = FP::KV::cast_from(tile.as_unlined(1u32).0[i]);
@@ -127,7 +127,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn zero_score_prob(score_prob: &mut Self::ScoreProb, #[comptime] config: Self::Config) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let len = config.attention_tile_size().score_prob_size();
             for i in 0..len {
                 score_prob[i] = FP::SP::from_int(0);
@@ -141,7 +141,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let len = config.attention_tile_size().accumulator_size();
             for i in 0..len {
                 acc[i] = FP::A::from_int(0);
@@ -156,7 +156,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().accumulator_size();
             for i in 0..size {
                 slice[i] = Line::cast_from(out[i]);
@@ -171,7 +171,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().accumulator_size();
             for i in 0..size {
                 acc[i] = tile.as_unlined(1u32).0[i];
@@ -186,7 +186,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         prob: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let len = config.attention_tile_size().score_prob_size();
             for i in 0..len {
                 prob[i] = tile.as_unlined(1u32).0[i];
@@ -201,7 +201,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         slice: &mut SliceMut<Line<FP::SP>>,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS == 0 {
+        if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().score_prob_size();
             for i in 0..size {
                 slice[i] = Line::cast_from(score_prob[i]);

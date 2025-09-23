@@ -89,6 +89,8 @@ pub trait FlashMatmulConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
+
+    // TODO try to remove this
     fn num_planes(&self) -> u32;
     fn stage_line_size(&self, ident: FlashIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;

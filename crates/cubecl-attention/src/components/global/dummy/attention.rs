@@ -56,13 +56,16 @@ impl<
         let (query, mut key_value, mut score_prob, mut accumulator) =
             SA::init_fragments(query_reader, config.stage_config());
 
-        let seq_kv_stage = config.tiling_scheme().seq_kv();
+        let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
         for i in 0..num_stage_iterations {
             let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                let seq_q_stage = config.stage_config().tiling_scheme().seq_q();
+                let seq_q_stage = config
+                    .stage_config()
+                    .tiling_scheme()
+                    .elements_in_stage_seq_q();
                 CubeOption::new_Some((seq_q_stage, seq_kv - i * seq_kv_stage))
             } else {
                 CubeOption::new_None()
@@ -139,5 +142,8 @@ impl<
 
 #[cube]
 fn reduction_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
-    config.tiling_scheme().seq_kv().runtime()
+    config
+        .tiling_scheme()
+        .elements_in_partition_seq_kv()
+        .runtime()
 }
