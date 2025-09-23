@@ -3,7 +3,6 @@ use crate::{
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
-use core::marker::PhantomData;
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 use std::sync::mpsc::SyncSender;

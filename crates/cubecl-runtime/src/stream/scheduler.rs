@@ -4,94 +4,136 @@ use crate::{
 };
 use cubecl_common::stream_id::StreamId;
 
+/// Defines a trait for a scheduler stream backend, specifying the types and behavior for task scheduling.
 pub trait SchedulerStreamBackend {
-    type Task: SchedulerTask;
+    /// Type representing a task.
+    type Task: core::fmt::Debug;
+    /// Type representing a stream.
     type Stream: core::fmt::Debug;
+    /// Type for the stream factory, which creates streams of type `Self::Stream`.
     type Factory: StreamFactory<Stream = Self::Stream>;
 
+    /// Enqueues a task onto a given stream for execution.
     fn enqueue(task: Self::Task, stream: &mut Self::Stream);
+    /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
 }
 
-pub trait SchedulerTask: core::fmt::Debug {}
-
+/// Represents a multi-stream scheduler that manages task execution across multiple streams.
 #[derive(Debug)]
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
+    /// Pool of streams managed by the scheduler.
     pool: StreamPool<SchedulerPoolMarker<B>>,
+    /// Strategy for scheduling tasks (e.g., Interleave or Sequential).
+    strategy: SchedulerStrategy,
+    /// Maximum number of tasks allowed per stream before execution is triggered.
     max_tasks: usize,
 }
 
+/// Defines the scheduling strategy for task execution.
+#[derive(Debug)]
+pub enum SchedulerStrategy {
+    /// Tasks from different streams are interleaved during execution.
+    Interleave,
+    /// Tasks from each stream are executed sequentially.
+    Sequential,
+}
+
+/// Represents a single stream that holds tasks and a backend stream.
 #[derive(Debug)]
 pub struct Stream<B: SchedulerStreamBackend> {
+    /// List of tasks queued for execution in this stream.
     tasks: Vec<B::Task>,
+    /// The backend stream used for task execution.
     stream: B::Stream,
 }
 
 impl<B: SchedulerStreamBackend> Stream<B> {
+    /// Flushes all tasks from the stream, returning them and clearing the internal task list.
     fn flush(&mut self) -> Vec<B::Task> {
-        let mut returned = Vec::new();
+        let mut returned = Vec::with_capacity(self.tasks.capacity());
         core::mem::swap(&mut returned, &mut self.tasks);
         returned
     }
 }
 
 #[derive(Debug)]
-pub struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
+struct SchedulerPoolMarker<B: SchedulerStreamBackend> {
     backend: B,
 }
 
 impl<B: SchedulerStreamBackend> StreamFactory for SchedulerPoolMarker<B> {
+    // The type of stream produced by this factory.
     type Stream = Stream<B>;
 
+    // Creates a new stream with an empty task list and a backend stream.
     fn create(&mut self) -> Self::Stream {
         Stream {
             tasks: Vec::new(),
+            // Uses the backend's factory to create a new stream.
             stream: self.backend.factory().create(),
         }
     }
 }
 
+/// Options for configuring a `SchedulerMultiStream`.
+#[derive(Debug)]
+pub struct SchedulerMultiStreamOptions {
+    /// Maximum number of streams allowed in the pool.
+    pub max_streams: u8,
+    /// Maximum number of tasks per stream before execution is triggered.
+    pub max_tasks: usize,
+    /// The scheduling strategy to use.
+    pub strategy: SchedulerStrategy,
+}
+
 impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
-    pub fn new(backend: B, max_streams: u8, max_tasks: usize) -> Self {
+    /// Creates a new `SchedulerMultiStream` with the given backend and options.
+    pub fn new(backend: B, options: SchedulerMultiStreamOptions) -> Self {
         Self {
-            pool: StreamPool::new(SchedulerPoolMarker { backend }, max_streams, 0),
-            max_tasks,
+            pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
+            max_tasks: options.max_tasks,
+            strategy: options.strategy,
         }
     }
 
+    /// Returns a mutable reference to the backend stream for a given stream ID.
     pub fn stream(&mut self, stream_id: &StreamId) -> &mut B::Stream {
         let stream = self.pool.get_mut(stream_id);
         &mut stream.stream
     }
 
-    pub fn backend(&mut self) -> &mut B {
-        &mut self.pool.factory.backend
-    }
-
+    /// Registers a task for execution on a specific stream, ensuring stream alignment.
     pub fn register<'a>(
         &mut self,
         stream_id: StreamId,
         task: B::Task,
         bindings: impl Iterator<Item = &'a Binding>,
     ) {
+        // Align streams to ensure dependencies are handled correctly.
         self.align_streams(stream_id, bindings);
 
+        // Get the stream for the given stream ID and add the task to its queue.
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
 
+        // If the task queue exceeds the maximum, execute the stream.
         if current.tasks.len() >= self.max_tasks {
             self.execute_streams(vec![stream_id]);
         }
     }
 
+    /// Aligns streams by flushing tasks from streams that conflict with the given bindings.
     pub(crate) fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
         bindings: impl Iterator<Item = &'a Binding>,
     ) {
         let mut to_flush = Vec::new();
+        // Get the index of the target stream.
         let index = self.pool.stream_index(&stream_id);
 
+        // Identify streams that need to be flushed due to conflicting bindings.
         for binding in bindings {
             let index_stream = self.pool.stream_index(&binding.stream);
             if index != index_stream {
@@ -99,16 +141,19 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             }
         }
 
+        // If no streams need flushing, return early.
         if to_flush.is_empty() {
             return;
         }
 
-        log::info!("Flush...");
+        // Execute the streams that need to be flushed.
         self.execute_streams(to_flush);
     }
 
+    /// Executes tasks from the specified streams based on the scheduling strategy.
     pub fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
         let mut indices = Vec::with_capacity(stream_ids.len());
+        // Collect unique stream indices to avoid redundant processing.
         for id in stream_ids {
             let index = self.pool.stream_index(&id);
             if !indices.contains(&index) {
@@ -116,44 +161,75 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             }
         }
 
-        let mut metadata = Vec::new();
-
+        // Create schedules for each stream to be executed.
+        let mut schedules = Vec::new();
         for index in indices {
-            let stream = unsafe { self.pool.get_mut_index(index) };
+            let stream = unsafe { self.pool.get_mut_index(index) }; // Note: `unsafe` usage assumes valid index.
             let tasks = stream.flush();
-            let num = tasks.len();
-            metadata.push((index, num, tasks.into_iter()));
+            let num_tasks = tasks.len();
+
+            schedules.push(Schedule {
+                tasks: tasks.into_iter(),
+                num_tasks,
+                stream_index: index,
+            });
         }
 
-        if metadata.is_empty() {
+        // If no schedules were created, return early.
+        if schedules.is_empty() {
             return;
         }
-        // println!("{metadata:?}");
 
-        let total: usize = metadata.iter().map(|i| i.1).sum();
-        log::info!("Execute scheduled {total} tasks ...");
+        // Execute schedules based on the configured strategy.
+        match self.strategy {
+            SchedulerStrategy::Interleave => self.execute_schedules_interleave(schedules),
+            SchedulerStrategy::Sequential => self.execute_schedules_sequence(schedules),
+        }
+    }
 
-        let num_flushes = metadata.len();
-
-        let mut finished = vec![false; num_flushes];
-        let mut num_finished = 0;
-
-        loop {
-            if num_finished == num_flushes {
-                break;
+    /// Executes schedules sequentially, processing each stream's tasks in order.
+    fn execute_schedules_sequence(&mut self, schedules: Vec<Schedule<B>>) {
+        for schedule in schedules {
+            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) }; // Note: `unsafe` usage assumes valid index.
+            for task in schedule.tasks {
+                // Enqueue each task on the stream.
+                B::enqueue(task, &mut stream.stream);
             }
+        }
+    }
 
-            for i in 0..num_flushes {
-                let meta = &mut metadata[i];
-                let index = meta.0;
-                if let Some(task) = meta.2.next() {
-                    let stream = unsafe { self.pool.get_mut_index(index) };
+    /// Executes schedules in an interleaved manner, alternating tasks across streams.
+    fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
+        let num_schedules = schedules.len();
+        // Find the maximum number of tasks across all schedules.
+        let num_tasks_max = schedules
+            .iter()
+            .map(|s| s.num_tasks)
+            .max()
+            .expect("At least one schedule");
+
+        // Iterate through tasks, interleaving them across streams.
+        for _ in 0..num_tasks_max {
+            for i in 0..num_schedules {
+                let schedule = &mut schedules[i];
+
+                // If there are tasks remaining in the schedule, enqueue the next one.
+                if let Some(task) = schedule.tasks.next() {
+                    // Note: `unsafe` usage assumes valid index.
+                    let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
                     B::enqueue(task, &mut stream.stream);
-                } else if !finished[i] {
-                    finished[i] = true;
-                    num_finished += 1;
                 }
             }
         }
     }
+}
+
+// Represents a schedule for executing tasks on a specific stream.
+struct Schedule<B: SchedulerStreamBackend> {
+    // Iterator over the tasks to be executed.
+    tasks: alloc::vec::IntoIter<B::Task>,
+    // Number of tasks in the schedule.
+    num_tasks: usize,
+    // Index of the stream in the pool.
+    stream_index: usize,
 }

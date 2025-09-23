@@ -10,10 +10,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties,
-    stream::{
-        StreamFactory,
-        scheduler::{SchedulerStreamBackend, SchedulerTask},
-    },
+    stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
 
 #[derive(Debug)]
@@ -28,8 +25,6 @@ pub(crate) enum LazyTask {
         resources: BindingsResource,
     },
 }
-
-impl SchedulerTask for LazyTask {}
 
 #[derive(Debug)]
 pub(crate) struct ScheduledWgpuBackend {
