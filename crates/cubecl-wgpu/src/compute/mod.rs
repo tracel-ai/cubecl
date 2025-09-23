@@ -4,6 +4,7 @@ mod storage;
 pub(super) mod mem_manager;
 pub(super) mod poll;
 pub(super) mod stream;
+pub(super) mod tasks;
 pub(super) mod timings;
 
 mod server;

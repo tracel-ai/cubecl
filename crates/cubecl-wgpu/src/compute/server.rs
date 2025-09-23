@@ -1,6 +1,10 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use super::storage::{WgpuResource, WgpuStorage};
 use super::stream::WgpuStream;
 use crate::AutoCompiler;
+use crate::tasks::{LazyTask, ScheduledWgpuBackend};
 use alloc::sync::Arc;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
@@ -18,6 +22,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
+use cubecl_runtime::stream::scheduler::SchedulerMultiStream;
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
 };
@@ -29,7 +34,8 @@ use wgpu::ComputePipeline;
 pub struct WgpuServer {
     pub(crate) device: wgpu::Device,
     pipelines: HashMap<KernelId, Arc<ComputePipeline>>,
-    stream: WgpuStream,
+    stream: Rc<RefCell<WgpuStream>>,
+    scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
 }
@@ -56,11 +62,15 @@ impl WgpuServer {
             tasks_max,
         );
 
+        let stream = Rc::new(RefCell::new(stream));
+        let backend_scheduler = ScheduledWgpuBackend::new(stream.clone());
+
         Self {
             compilation_options,
             device,
             pipelines: HashMap::new(),
             stream,
+            scheduler: SchedulerMultiStream::new(backend_scheduler, 4),
             backend,
         }
     }
@@ -119,6 +129,11 @@ impl WgpuServer {
 
 impl DataTransferService for WgpuServer {}
 
+// Rc<RefCell>> is only to avoid having a channel between the scheduler and the server.
+//
+// Both are in mut enviroment.
+unsafe impl Send for WgpuServer {}
+
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
@@ -143,7 +158,8 @@ impl ComputeServer for WgpuServer {
             .map(|it| it.next_multiple_of(align))
             .sum::<usize>();
 
-        let mem_handle = self.stream.empty(total_size as u64, stream_id)?;
+        let mut stream = self.stream.borrow_mut();
+        let mem_handle = stream.empty(total_size as u64, stream_id)?;
         let handles = offset_handles(mem_handle, &sizes, align);
 
         Ok(handles
@@ -156,26 +172,36 @@ impl ComputeServer for WgpuServer {
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         for desc in &descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Box::pin(async { Err(IoError::UnsupportedStrides) });
             }
         }
-        self.stream.read_buffers(descriptors)
+
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.read_buffers(descriptors)
     }
 
     fn write(
         &mut self,
         descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
             if contiguous_strides(desc.shape) != desc.strides {
                 return Err(IoError::UnsupportedStrides);
             }
-            self.stream.write(desc.binding, data);
+            let mut stream = self.stream.borrow_mut();
+            let resource = stream.mem_manage.get_resource(desc.binding.clone());
+            let task = LazyTask::Write {
+                data: data.to_vec(),
+                buffer: resource,
+            };
+            self.scheduler
+                .register(stream_id, task, [&desc.binding].into_iter());
         }
         Ok(())
     }
@@ -183,9 +209,11 @@ impl ComputeServer for WgpuServer {
     fn get_resource(
         &mut self,
         binding: Binding,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> BindingResource<WgpuResource> {
-        let resource = self.stream.mem_manage.get_resource(binding.clone());
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        let resource = stream.mem_manage.get_resource(binding.clone());
         BindingResource::new(binding, resource)
     }
 
@@ -196,47 +224,71 @@ impl ComputeServer for WgpuServer {
         bindings: Bindings,
         mode: ExecutionMode,
         logger: Arc<ServerLogger>,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) {
         let pipeline = self.pipeline(kernel, mode, logger);
-        self.stream.register(pipeline, bindings, &count);
+        let mut stream = self.stream.borrow_mut();
+        let buffers = bindings.buffers.clone();
+        let resources = stream.bindinds(bindings);
+        let task = LazyTask::Execute {
+            pipeline,
+            count,
+            resources,
+        };
+        core::mem::drop(stream);
+
+        self.scheduler.register(stream_id, task, buffers.iter());
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {
-        // End the current compute pass.
-        self.stream.flush();
+    fn flush(&mut self, stream_id: StreamId) {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.flush()
     }
 
     /// Returns the total time of GPU work this sync completes.
-    fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        self.stream.sync()
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()> {
+        self.scheduler.execute_streams(vec![stream_id]);
+
+        let mut stream = self.stream.borrow_mut();
+        stream.sync()
     }
 
-    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
-        self.stream.start_profile()
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.start_profile()
     }
 
     fn end_profile(
         &mut self,
-        _stream_id: StreamId,
+        stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.stream.end_profile(token)
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.end_profile(token)
     }
 
     fn memory_usage(
         &mut self,
-        _stream_id: StreamId,
+        stream_id: StreamId,
     ) -> cubecl_runtime::memory_management::MemoryUsage {
-        self.stream.mem_manage.memory_usage()
+        self.scheduler.execute_streams(vec![stream_id]);
+        let stream = self.stream.borrow();
+        stream.mem_manage.memory_usage()
     }
 
-    fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.stream.mem_manage.memory_cleanup(true);
+    fn memory_cleanup(&mut self, stream_id: StreamId) {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.mem_manage.memory_cleanup(true);
     }
 
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
-        self.stream.mem_manage.mode(mode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId) {
+        self.scheduler.execute_streams(vec![stream_id]);
+        let mut stream = self.stream.borrow_mut();
+        stream.mem_manage.mode(mode);
     }
 }
 

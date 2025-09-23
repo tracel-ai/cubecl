@@ -8,14 +8,10 @@ use cubecl_common::stream_id::StreamId;
 pub trait SchedulerStreamBackend {
     type Task: SchedulerTask;
 
-    async fn execute(&mut self, tasks: impl Iterator<Item = Self::Task>);
+    fn execute(&mut self, tasks: impl Iterator<Item = Self::Task>);
 }
 
-pub trait SchedulerTask: core::fmt::Debug {
-    fn stream_id(&self) -> StreamId;
-    fn bindings<'a>(&'a self) -> Vec<&'a Binding>;
-    fn flush(&self) -> bool;
-}
+pub trait SchedulerTask: core::fmt::Debug {}
 
 #[derive(Debug)]
 pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
@@ -65,26 +61,26 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
     }
 
-    pub async fn register(&mut self, task: B::Task, flush: bool) {
-        let stream_id = task.stream_id();
-        self.align_streams(stream_id, task.bindings()).await;
+    pub fn register<'a>(
+        &mut self,
+        stream_id: StreamId,
+        task: B::Task,
+        bindings: impl Iterator<Item = &'a Binding>,
+    ) {
+        self.align_streams(stream_id, bindings);
 
         let current = self.pool.get_mut(&stream_id);
         current.tasks.push(task);
-
-        if flush || current.tasks.len() > 32 {
-            log::info!("Num Tasks: {}", current.tasks.len());
-            self.execute_streams(vec![stream_id]).await;
-        }
-    }
-    pub async fn execute_unordered(&mut self, task: B::Task) {
-        self.backend.execute([task].into_iter()).await;
     }
 
-    pub(crate) async fn align_streams<'a>(
+    pub fn execute_unordered(&mut self, task: B::Task) {
+        self.backend.execute([task].into_iter())
+    }
+
+    pub(crate) fn align_streams<'a>(
         &mut self,
         stream_id: StreamId,
-        bindings: Vec<&'a Binding>,
+        bindings: impl Iterator<Item = &'a Binding>,
     ) {
         let mut to_flush = Vec::new();
 
@@ -98,10 +94,10 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             return;
         }
 
-        self.execute_streams(to_flush).await;
+        self.execute_streams(to_flush);
     }
 
-    pub(crate) async fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
+    pub fn execute_streams(&mut self, stream_ids: Vec<StreamId>) {
         let mut metadata = Vec::new();
 
         for stream_id in stream_ids.into_iter() {
@@ -140,6 +136,6 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
 
         // println!("{tasks:?}");
-        self.backend.execute(tasks.into_iter()).await;
+        self.backend.execute(tasks.into_iter());
     }
 }

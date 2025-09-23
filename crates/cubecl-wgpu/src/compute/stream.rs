@@ -1,5 +1,5 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController};
+use crate::{WgpuResource, controller::WgpuAllocController, tasks::LazyTask};
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
@@ -94,6 +94,25 @@ impl WgpuStream {
         }
     }
 
+    pub fn execute_task(&mut self, task: LazyTask) {
+        match task {
+            LazyTask::Write { data, buffer } => {
+                // It is important to flush before writing, as the write operation is inserted
+                // into the QUEUE not the encoder. We want to make sure all outstanding work
+                // happens _before_ the write operation.
+                self.flush();
+                self.write_to_buffer(&buffer, &data);
+            }
+            LazyTask::Execute {
+                pipeline,
+                count,
+                resources,
+            } => {
+                self.register_pipeline(pipeline, resources.iter(), &count);
+            }
+        }
+    }
+
     pub fn register(
         &mut self,
         pipeline: Arc<ComputePipeline>,
@@ -120,8 +139,40 @@ impl WgpuStream {
                 .map(|s| self.create_uniform(s.data())),
         );
 
-        let entries = resources
+        self.register_pipeline(pipeline, resources.iter(), dispatch);
+    }
+
+    pub fn bindinds(&mut self, bindings: Bindings) -> Vec<WgpuResource> {
+        // Store all the resources we'll be using. This could be eliminated if
+        // there was a way to tie the lifetime of the resource to the memory handle.
+        let mut resources = bindings
+            .buffers
             .iter()
+            .map(|b| self.mem_manage.get_resource(b.clone()))
+            .collect::<Vec<_>>();
+
+        if !bindings.metadata.data.is_empty() {
+            let info = self.create_uniform(bytemuck::cast_slice(&bindings.metadata.data));
+            resources.push(info);
+        }
+
+        resources.extend(
+            bindings
+                .scalars
+                .values()
+                .map(|s| self.create_uniform(s.data())),
+        );
+
+        resources
+    }
+
+    fn register_pipeline<'a>(
+        &mut self,
+        pipeline: Arc<ComputePipeline>,
+        resources: impl Iterator<Item = &'a WgpuResource>,
+        dispatch: &CubeCount,
+    ) {
+        let entries = resources
             .enumerate()
             .map(|(i, r)| wgpu::BindGroupEntry {
                 binding: i as u32,
