@@ -188,7 +188,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.queue.clone(),
             self.memory_properties.clone(),
             self.memory_config.clone(),
-            self.timing_method.clone(),
+            self.timing_method,
             self.tasks_max,
         )
     }
