@@ -57,3 +57,29 @@ pub trait MemoryPool {
         explicit: bool,
     );
 }
+
+
+
+
+pub trait VirtualMemoryPool {
+    fn max_alloc_size(&self) -> u64;
+
+    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle>;
+
+    fn try_reserve(&mut self, size: u64) -> Option<SliceHandle>;
+
+    fn alloc<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        size: u64,
+    ) -> Result<SliceHandle, IoError>;
+
+    fn get_memory_usage(&self) -> MemoryUsage;
+
+    fn cleanup<Storage: VirtualStorage>(
+        &mut self,
+        storage: &mut Storage,
+        alloc_nr: u64,
+        explicit: bool,
+    );
+}
