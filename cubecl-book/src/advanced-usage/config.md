@@ -117,7 +117,7 @@ The `[streaming]` section manages logging and stream configurations.
 **Example:**
 
 ```toml
-[compilation]
+[streaming]
 logger = { level = "basic", file = "cubecl.log", append = true }
 max_streams: 4
 ```
