@@ -246,7 +246,7 @@ impl HipServer {
             mem_alignment,
             streams: MultiStream::new(
                 HipStreamBackend::new(mem_props, mem_config, mem_alignment),
-                1, // Still some bugs with `burn-fusion` when multiple streams are activated.
+                8,
             ),
         }
     }
