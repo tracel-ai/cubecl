@@ -508,7 +508,7 @@ macro_rules! testgen_attention {
                     head_dim: 1,
                     val_dim: 1,
                 };
-                let stage_size = AttentionStageSize { seq_q: 1 };
+                let stage_size = AttentionStageSize { seq_q: 2 };
                 let tiling_scheme = AttentionTilingScheme {
                     tile_size,
                     partition_size,
