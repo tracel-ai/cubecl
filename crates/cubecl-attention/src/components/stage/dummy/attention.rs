@@ -22,13 +22,13 @@ pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>>
 }
 
 #[cube]
-impl<AP: AttentionPrecision, R: Stage<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
-    StageAttention<AP> for DummyStageAttention<AP, R, TA>
+impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
+    StageAttention<AP> for DummyStageAttention<AP, S, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
-    type KeyStage = R;
-    type ValueStage = R;
+    type KeyStage = S;
+    type ValueStage = S;
 
     type State = StageState<AP>;
     type Query = Queries<AP, TA, Self::Config>;
@@ -60,7 +60,7 @@ impl<AP: AttentionPrecision, R: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = <R as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
+                let key_tile = <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_tile,
@@ -112,7 +112,7 @@ impl<AP: AttentionPrecision, R: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = <R as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
+                let value_tile = <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_tile,
