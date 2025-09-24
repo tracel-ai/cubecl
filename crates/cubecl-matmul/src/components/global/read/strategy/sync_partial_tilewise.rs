@@ -9,7 +9,7 @@ use crate::components::{
 };
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
-    stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
+    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -167,7 +167,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
         this: &mut Self,
         #[comptime] task_id: u32,
         tensor_reader: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
@@ -195,12 +195,11 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
             MatmulIdent::Out => comptime!(unreachable!()),
         };
 
-        let tile = TO::to_row_col::<G::StageMemoryConfig>(
+        let tile = TO::to_row_col(
             nth_tile_global,
             total_tile_count_row,
             total_tile_count_col,
-            comptime!(this.ident.into_stage()),
-            config.stage_memory_config(),
+            comptime!(config.stage_memory_config(this.ident)),
         );
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
@@ -230,7 +229,7 @@ impl SyncPartialTilewiseJob {
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
         global_iter: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));

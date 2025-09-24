@@ -9,7 +9,7 @@ use crate::components::{
         read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage::StageConfig,
+    stage::{StageConfig, StageMemoryConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -27,10 +27,9 @@ pub struct DoubleBufferingGlobalConfig<S: StageConfig> {
 
 impl<S: StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
     type StageConfig = S;
-    type StageMemoryConfig = S::StageMemoryConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-        self.stage_config.stage_memory_config()
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config.stage_memory_config(ident.into_stage())
     }
 
     fn stage_config(&self) -> Self::StageConfig {

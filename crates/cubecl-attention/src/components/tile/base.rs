@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     ComputeResources,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
-    tile::Tile,
+    tile::StridedTile,
 };
 
 use crate::components::{
@@ -67,7 +67,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
+    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn init_key(#[comptime] config: Self::Config) -> Self::KeyValue;
@@ -76,13 +76,13 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb;
 
     fn fill_key<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
 
     fn fill_value<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );

@@ -1,10 +1,11 @@
 use cubecl_core::CubeDim;
-use cubecl_matmul::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
+use cubecl_matmul::components::{
+    MatrixLayout, StageIdent, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, FlashIdent,
-    global::GlobalAttentionConfig,
-    stage::{StageAttentionConfig, dummy::AttentionStageMemoryConfig},
+    AttentionSetupError, AttentionTilingScheme, FlashIdent, global::GlobalAttentionConfig,
+    stage::StageAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -16,12 +17,16 @@ pub struct DummyGlobalConfig<S: StageAttentionConfig> {
 impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     type StageConfig = S;
 
-    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.stage_config.score_stage_memory_config()
+    fn score_stage_memory_config(&self) -> StageMemoryConfig {
+        self.stage_config
+            .score_stage_memory_config()
+            .into_matmul_config(StageIdent::Rhs)
     }
 
-    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.stage_config.value_stage_memory_config()
+    fn value_stage_memory_config(&self) -> StageMemoryConfig {
+        self.stage_config
+            .value_stage_memory_config()
+            .into_matmul_config(StageIdent::Rhs)
     }
 
     fn stage_config(&self) -> S {

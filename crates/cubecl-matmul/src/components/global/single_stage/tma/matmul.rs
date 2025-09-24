@@ -1,14 +1,13 @@
 use crate::components::RhsS;
 use crate::components::global::GlobalMatmul;
 use crate::components::global::read::TmaGlobalReader;
-use crate::components::global::read::TmaStageReader;
 use crate::components::global::read::arrive_tma;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::stage::StageMatmul;
 use crate::components::{AccG, RhsG};
 use crate::components::{AccS, MatmulIdent};
 use crate::components::{LhsG, global::memory::SimpleGlobalLayout};
-use crate::components::{LhsS, stage::FillStageReader};
+use crate::components::{LhsS, global::read::TmaStage, stage::FilledStage};
 use crate::components::{MatmulPrecision, global::read::ZeroGlobalReader};
 use barrier::Barrier;
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -30,9 +29,9 @@ impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
 where
     SMM: StageMatmul<
             MP,
-            LhsStageReader = TmaStageReader<MP::Lhs>,
-            RhsStageReader = TmaStageReader<MP::Rhs>,
-            AccStageReader = FillStageReader<AccS<MP>>,
+            LhsStage = TmaStage<MP::Lhs>,
+            RhsStage = TmaStage<MP::Rhs>,
+            AccStage = FilledStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
 {
@@ -67,7 +66,7 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
@@ -83,8 +82,8 @@ where
             barrier.wait();
 
             SMM::execute(
-                &lhs_reader.stage_reader(),
-                &rhs_reader.stage_reader(),
+                &lhs_reader.stage(),
+                &rhs_reader.stage(),
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,

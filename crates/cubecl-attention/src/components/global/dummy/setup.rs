@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
-use cubecl_matmul::components::stage::FullStageReaderFamily;
+use cubecl_matmul::components::stage::StridedStageFamily;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -17,9 +17,8 @@ pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {
     _phantom: PhantomData<SA>,
 }
 
-impl<
-    SA: StageAttentionFamily<KeyReader = FullStageReaderFamily, ValueReader = FullStageReaderFamily>,
-> GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
+impl<SA: StageAttentionFamily<KeyStage = StridedStageFamily, ValueStage = StridedStageFamily>>
+    GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
 {
     type Attention<AP: AttentionPrecision> = DummyGlobalAttention<AP, SA::Attention<AP>>;
 

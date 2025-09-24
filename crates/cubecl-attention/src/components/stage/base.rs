@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageReaderFamily};
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageFamily};
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
@@ -20,21 +20,15 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyReader = <Self::KeyReader as StageReaderFamily>::Reader<
-                AP::ES,
-                AttentionTilingLayout,
-            >,
-            ValueReader = <Self::ValueReader as StageReaderFamily>::Reader<
-                AP::ES,
-                AttentionTilingLayout,
-            >,
+            KeyStage = <Self::KeyStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
+            ValueStage = <Self::ValueStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
         >;
 
     /// The configuration type associated with this Attention family.
     type Config: StageAttentionConfig;
 
-    type KeyReader: StageReaderFamily;
-    type ValueReader: StageReaderFamily;
+    type KeyStage: StageFamily;
+    type ValueStage: StageFamily;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -56,8 +50,8 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    type KeyReader: CubeType;
-    type ValueReader: CubeType;
+    type KeyStage: CubeType;
+    type ValueStage: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
@@ -74,8 +68,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn init_state(#[comptime] config: Self::Config) -> StageState<AP>;
 
     fn execute(
-        key_reader: &Self::KeyReader,
-        value_reader: &Self::ValueReader,
+        key_reader: &Self::KeyStage,
+        value_reader: &Self::ValueStage,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score: &mut Self::Score,

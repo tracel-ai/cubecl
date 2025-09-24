@@ -2,7 +2,7 @@ use crate::components::tile::accelerated::config::AcceleratedConfig;
 use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
 use crate::components::tile::{
     TileMatmulFamily,
-    accelerated::reader::{CmmaFragmentReader, CmmaTileReader},
+    accelerated::reader::{CmmaFragmentReader, CmmaStageReader},
 };
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
 use crate::components::{error::MatmulSetupError, tile::reader::Strided};
@@ -11,7 +11,7 @@ use cubecl_core::prelude::*;
 
 impl<Tile: TileKind> TileMatmulFamily for AcceleratedMatmul<Tile>
 where
-    CmmaTileReader<Tile>: CmmaFragmentReader<TileKind = Tile>,
+    CmmaStageReader<Tile>: CmmaFragmentReader<TileKind = Tile>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = AcceleratedMatmul<Tile>;
     type LhsTile = Strided;

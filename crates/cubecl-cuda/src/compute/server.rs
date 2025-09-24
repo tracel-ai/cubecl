@@ -23,6 +23,7 @@ use cubecl_core::{
     ir::StorageType,
     server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
 };
+use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
@@ -54,6 +55,10 @@ impl ComputeServer for CudaServer {
     type Kernel = Box<dyn CubeTask<CudaCompiler>>;
     type Storage = GpuStorage;
     type Info = ();
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.streams.logger.clone()
+    }
 
     fn read(
         &mut self,
@@ -135,10 +140,10 @@ impl ComputeServer for CudaServer {
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         let mut kernel_id = kernel.id();
+        let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
         let grid_constants = self.ctx.compilation_options.grid_constants;
         let mut command = self.command(stream_id, bindings.buffers.iter());
@@ -430,12 +435,16 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
     ) -> Self {
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
         Self {
             mem_alignment,
             ctx,
             streams: MultiStream::new(
+                Arc::new(ServerLogger::default()),
                 CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
-                1, // Still some bugs with `burn-fusion` when multiple streams are activated.
+                max_streams,
             ),
         }
     }

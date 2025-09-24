@@ -5,7 +5,7 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel,
     ir::{MatrixLayout, MmaProperties, TargetProperties},
 };
 use cubecl_cpp::{
@@ -19,7 +19,6 @@ use cubecl_cpp::{
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane,
-    channel::MpscComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
@@ -35,13 +34,13 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct HipRuntime;
 
-static RUNTIME: ComputeRuntime<AmdDevice, Server, MpscComputeChannel<Server>> =
-    ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<AmdDevice, Server, Channel> = ComputeRuntime::new();
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
-type Channel = MpscComputeChannel<Server>;
+type Channel = channel::MutexComputeChannel<Server>;
+// type Channel = channel::MpscComputeChannel<Server>;
 
 fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &AmdDevice,
@@ -169,13 +168,13 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         options.memory_config,
         mem_alignment,
     );
-    ComputeClient::new(MpscComputeChannel::new(server), device_props, ())
+    ComputeClient::new(Channel::new(server), device_props, ())
 }
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
     type Server = HipServer;
-    type Channel = MpscComputeChannel<HipServer>;
+    type Channel = Channel;
     type Device = AmdDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -193,7 +192,7 @@ impl Runtime for HipRuntime {
     }
 
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 4, 2, 1]
+        &[16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

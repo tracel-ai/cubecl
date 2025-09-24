@@ -5,8 +5,8 @@ use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{read::NoLoadingValidation, single_stage::simple::SimpleConfig},
     stage::{
-        ContiguousTilingLayout, FullStageReaderFamily, RowMajorTilingOrder, StageConfig as _,
-        StageMatmulFamily,
+        ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
+        StridedStageFamily,
     },
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -26,9 +26,9 @@ pub struct SimpleConvolutionFamily<SMM: StageMatmulFamily> {
 impl<SMM> GlobalConvolutionFamily for SimpleConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<
-            LhsStageReader = FullStageReaderFamily,
-            RhsStageReader = FullStageReaderFamily,
-            AccStageReader = Option<FullStageReaderFamily>,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = Option<StridedStageFamily>,
             WriteCoords = Coords2d,
         >,
 {

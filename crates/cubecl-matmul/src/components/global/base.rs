@@ -1,9 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::global::RoleRuleConfig;
 use crate::components::global::memory::GlobalMemoryConfig;
-use crate::components::stage::StageMemoryConfig;
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
@@ -11,6 +9,7 @@ use crate::components::{
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
 use cubecl_std::{
     CubeOption,
     tensor::{layout::Coords2d, r#virtual::VirtualTensor},
@@ -143,12 +142,13 @@ pub trait GlobalConfig:
 {
     /// Underlying Stage matmul config
     type StageConfig: StageConfig;
-    type StageMemoryConfig: StageMemoryConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig;
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config().stage_memory_config(ident.into_stage())
+    }
 
     fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
         GlobalMemoryConfig {

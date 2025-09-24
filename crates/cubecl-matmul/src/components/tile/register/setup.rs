@@ -7,13 +7,13 @@ use crate::components::{
 use crate::components::{error::MatmulSetupError, tile::reader::TileKind};
 use crate::components::{
     resource::ComputeResources,
-    tile::register::reader::{RegisterFragmentReader, RegisterTileReader},
+    tile::register::reader::{RegisterFragmentReader, RegisterStageReader},
 };
 use cubecl_core::prelude::*;
 
 impl<AccTile: TileKind> TileMatmulFamily for RegisterMatmul<AccTile>
 where
-    RegisterTileReader<AccTile>: RegisterFragmentReader<TileKind = AccTile>,
+    RegisterStageReader<AccTile>: RegisterFragmentReader<TileKind = AccTile>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = RegisterMatmul<AccTile>;
     type Config = RegisterConfig;

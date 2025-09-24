@@ -2,7 +2,7 @@ use std::cmp::max;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::tile::dummy::dummy_register::DummyRegisterFlashMatmulConfig;
 use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashPrecision};
@@ -71,7 +71,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn allocate_fill_query<EI: Numeric>(
-        tile: &Tile<EI>,
+        tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
         let seq_q = config.attention_tile_size().seq_q;
@@ -108,7 +108,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn fill_key_value<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
@@ -167,7 +167,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn tmp_fill_accumulator(
-        tile: &Tile<FP::A>,
+        tile: &StridedTile<FP::A>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
@@ -182,7 +182,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn tmp_fill_prob(
-        tile: &Tile<FP::SP>,
+        tile: &StridedTile<FP::SP>,
         prob: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     ) {

@@ -1,5 +1,5 @@
 use super::{mem_manager::WgpuMemManager, poll::WgpuPoll, timings::QueryProfiler};
-use crate::{WgpuResource, controller::WgpuAllocController};
+use crate::{WgpuResource, controller::WgpuAllocController, schedule::ScheduleTask};
 use cubecl_common::{
     bytes::Bytes,
     profile::{ProfileDuration, TimingMethod},
@@ -8,7 +8,7 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, MemoryConfiguration,
     future::{self, DynFut},
-    server::{Binding, Bindings, CopyDescriptor, Handle, IoError, ProfileError, ProfilingToken},
+    server::{Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
@@ -26,7 +26,6 @@ enum Timings {
 pub struct WgpuStream {
     pub mem_manage: WgpuMemManager,
     pub device: wgpu::Device,
-    sync_buffer: Option<Handle>,
     compute_pass: Option<wgpu::ComputePass<'static>>,
     timings: Timings,
     tasks_count: usize,
@@ -38,6 +37,7 @@ pub struct WgpuStream {
 }
 
 impl WgpuStream {
+    /// Creates a new WGPU stream.
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
@@ -64,17 +64,6 @@ impl WgpuStream {
         #[allow(unused_mut)]
         let mut mem_manage = WgpuMemManager::new(device.clone(), memory_properties, memory_config);
 
-        // Allocate a small buffer to use for synchronization.
-        #[cfg(target_family = "wasm")]
-        let sync_buffer = Some(
-            mem_manage
-                .reserve(32)
-                .expect("Failed to reserve sync buffer memory"),
-        );
-
-        #[cfg(not(target_family = "wasm"))]
-        let sync_buffer = None;
-
         Self {
             mem_manage,
             compute_pass: None,
@@ -89,91 +78,33 @@ impl WgpuStream {
             tasks_count: 0,
             tasks_max,
             poll,
-            sync_buffer,
             submission_load: SubmissionLoad::default(),
         }
     }
 
-    pub fn register(
-        &mut self,
-        pipeline: Arc<ComputePipeline>,
-        bindings: Bindings,
-        dispatch: &CubeCount,
-    ) {
-        // Store all the resources we'll be using. This could be eliminated if
-        // there was a way to tie the lifetime of the resource to the memory handle.
-        let mut resources = bindings
-            .buffers
-            .iter()
-            .map(|b| self.mem_manage.get_resource(b.clone()))
-            .collect::<Vec<_>>();
-
-        if !bindings.metadata.data.is_empty() {
-            let info = self.create_uniform(bytemuck::cast_slice(&bindings.metadata.data));
-            resources.push(info);
-        }
-
-        resources.extend(
-            bindings
-                .scalars
-                .values()
-                .map(|s| self.create_uniform(s.data())),
-        );
-
-        let entries = resources
-            .iter()
-            .enumerate()
-            .map(|(i, r)| wgpu::BindGroupEntry {
-                binding: i as u32,
-                resource: r.as_wgpu_bind_resource(),
-            })
-            .collect::<Vec<_>>();
-
-        // Start a new compute pass if needed. The forget_lifetime allows
-        // to store this with a 'static lifetime, but the compute pass must
-        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
-        let pass = self.compute_pass.get_or_insert_with(|| {
-            let writes = if let Timings::Device(query_time) = &mut self.timings {
-                query_time
-                    .register_profile_device(&self.device)
-                    .map(|query_set| wgpu::ComputePassTimestampWrites {
-                        query_set,
-                        beginning_of_pass_write_index: Some(0),
-                        end_of_pass_write_index: Some(1),
-                    })
-            } else {
-                None
-            };
-            self.encoder
-                .begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: None,
-                    timestamp_writes: writes,
-                })
-                .forget_lifetime()
-        });
-
-        self.tasks_count += 1;
-
-        let group_layout = pipeline.get_bind_group_layout(0);
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &group_layout,
-            entries: &entries,
-        });
-
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-
-        match dispatch.clone() {
-            CubeCount::Static(x, y, z) => {
-                pass.dispatch_workgroups(x, y, z);
+    /// Enqueue a [ScheduleTask] on this stream.
+    ///
+    /// # Arguments
+    ///
+    /// * `task` - The task to execute.
+    pub fn enqueue_task(&mut self, task: ScheduleTask) {
+        match task {
+            ScheduleTask::Write { data, buffer } => {
+                // It is important to flush before writing, as the write operation is inserted
+                // into the QUEUE not the encoder. We want to make sure all outstanding work
+                // happens _before_ the write operation.
+                self.flush();
+                self.write_to_buffer(&buffer, &data);
             }
-            CubeCount::Dynamic(binding) => {
-                let res = self.mem_manage.get_resource(binding);
-                pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
+            ScheduleTask::Execute {
+                pipeline,
+                count,
+                resources,
+            } => {
+                let resources = resources.into_resources(self);
+                self.register_pipeline(pipeline, resources.iter(), &count);
             }
         }
-        self.flush_if_needed();
     }
 
     /// Read multiple buffers lazily to [Bytes], potentially using pinned memory.
@@ -186,21 +117,19 @@ impl WgpuStream {
     /// # Returns
     ///
     /// A [Result] containing a vector of [Bytes] with the copied data, or an [IoError] if any copy fails.
-    pub fn read_buffers(
+    pub fn read_resources(
         &mut self,
-        descriptors: Vec<CopyDescriptor>,
+        descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
         let mut staging_info = Vec::with_capacity(descriptors.len());
         let mut callbacks = Vec::with_capacity(descriptors.len());
 
-        for descriptor in descriptors {
-            let binding = descriptor.binding;
-            let size = descriptor.shape.iter().product::<usize>() * descriptor.elem_size;
+        for (resource, shape, elem_size) in descriptors {
+            let size = shape.iter().product::<usize>() * elem_size;
             // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
             // memory is 32 bytes aligned (see WgpuStorage).
             let align = wgpu::COPY_BUFFER_ALIGNMENT;
-            let resource = self.mem_manage.get_resource(binding);
             let aligned_len = resource.size.div_ceil(align) * align;
             let (staging, binding) = self.mem_manage.reserve_staging(aligned_len).unwrap();
 
@@ -258,15 +187,6 @@ impl WgpuStream {
             };
 
             Ok(result)
-        })
-    }
-
-    pub fn read_binding(&mut self, binding: Binding) -> DynFut<Result<Bytes, IoError>> {
-        let shape = [binding.size() as usize];
-        let data = self.read_buffers(vec![CopyDescriptor::new(binding, &shape, &[1], 1)]);
-        Box::pin(async move {
-            let data = data.await?.remove(0);
-            Ok(data)
         })
     }
 
@@ -331,58 +251,26 @@ impl WgpuStream {
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         self.flush();
 
-        let mut buffer = None;
-        core::mem::swap(&mut buffer, &mut self.sync_buffer);
+        let queue = self.queue.clone();
 
-        match buffer.as_mut() {
-            Some(buf) => {
-                // TODO: This should work queue.on_submitted_work_done() but that
-                // is not yet implemented on wgpu https://github.com/gfx-rs/wgpu/issues/6395
-                //
-                // For now, instead do a dummy readback. This *seems* to wait for the entire
-                // queue to be done.
-                let fut = self.read_binding(buf.clone().binding());
-                core::mem::swap(&mut buffer, &mut self.sync_buffer);
-                Box::pin(async move {
-                    fut.await.expect("Failed to read sync buffer");
-                })
-            }
-            None => {
-                #[cfg(not(target_family = "wasm"))]
-                {
-                    if let Err(e) = self.device.poll(wgpu::PollType::Wait) {
-                        log::warn!(
-                            "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                        )
-                    }
-                    Box::pin(async move {})
-                }
-
-                #[cfg(target_family = "wasm")]
-                {
-                    panic!("Only synching from a buffer is supported.");
-                }
-            }
-        }
+        Box::pin(async move {
+            let (sender, receiver) = async_channel::bounded::<()>(1);
+            queue.on_submitted_work_done(move || {
+                // Signal that we're done.
+                let _ = sender.try_send(());
+            });
+            let _ = receiver.recv().await;
+        })
     }
 
     pub fn empty(&mut self, size: u64, stream_id: StreamId) -> Result<Handle, IoError> {
         self.mem_manage.reserve(size, stream_id)
     }
 
-    fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
+    pub(crate) fn create_uniform(&mut self, data: &[u8]) -> WgpuResource {
         let resource = self.mem_manage.reserve_uniform(data.len() as u64);
         self.write_to_buffer(&resource, data);
         resource
-    }
-
-    pub fn write(&mut self, binding: Binding, data: &[u8]) {
-        // It is important to flush before writing, as the write operation is inserted
-        // into the QUEUE not the encoder. We want to make sure all outstanding work
-        // happens _before_ the write operation.
-        self.flush();
-        let resource = self.mem_manage.get_resource(binding);
-        self.write_to_buffer(&resource, data);
     }
 
     // Nb: this function submits a command to the _queue_ not to the encoder,
@@ -390,10 +278,11 @@ impl WgpuStream {
     // Any buffer which has outstanding (not yet flushed) compute work should
     // NOT be copied to.
     fn write_to_buffer(&mut self, resource: &WgpuResource, data: &[u8]) {
-        let align = self.device.limits().min_storage_buffer_offset_alignment as usize;
         // Copying into a buffer has to be 4 byte aligned. We can safely do so, as
-        // memory is 32 bytes aligned (see WgpuStorage).
-        let size = resource.size.next_multiple_of(align as u64);
+        // memory is also aligned (see WgpuStorage). Per the WebGPU spec, this
+        // just has to be a multiple of 4: https://www.w3.org/TR/webgpu/#dom-gpuqueue-writebuffer
+        let copy_align = wgpu::COPY_BUFFER_ALIGNMENT;
+        let size = resource.size.next_multiple_of(copy_align);
 
         if size == data.len() as u64 {
             // write_buffer is the recommended way to write this data, as:
@@ -402,6 +291,8 @@ impl WgpuStream {
             self.queue
                 .write_buffer(&resource.buffer, resource.offset, data);
         } else {
+            // For sizes not aligned we need to only write a part of the staging buffer, do this
+            // with `write_buffer_with`.
             let mut buffer = self
                 .queue
                 .write_buffer_with(
@@ -409,7 +300,7 @@ impl WgpuStream {
                     resource.offset,
                     NonZero::new(size).unwrap(),
                 )
-                .unwrap();
+                .expect("Internal error: Failed to call `write_buffer_with`, this likely means no staging buffer could be allocated.");
             buffer[0..data.len()].copy_from_slice(data);
         }
     }
@@ -452,6 +343,67 @@ impl WgpuStream {
         self.mem_manage.release_uniforms();
 
         self.tasks_count = 0;
+    }
+
+    fn register_pipeline<'a>(
+        &mut self,
+        pipeline: Arc<ComputePipeline>,
+        resources: impl Iterator<Item = &'a WgpuResource>,
+        dispatch: &CubeCount,
+    ) {
+        let entries = resources
+            .enumerate()
+            .map(|(i, r)| wgpu::BindGroupEntry {
+                binding: i as u32,
+                resource: r.as_wgpu_bind_resource(),
+            })
+            .collect::<Vec<_>>();
+
+        // Start a new compute pass if needed. The forget_lifetime allows
+        // to store this with a 'static lifetime, but the compute pass must
+        // be dropped before the encoder. This isn't unsafe - it's still checked at runtime.
+        let pass = self.compute_pass.get_or_insert_with(|| {
+            let writes = if let Timings::Device(query_time) = &mut self.timings {
+                query_time
+                    .register_profile_device(&self.device)
+                    .map(|query_set| wgpu::ComputePassTimestampWrites {
+                        query_set,
+                        beginning_of_pass_write_index: Some(0),
+                        end_of_pass_write_index: Some(1),
+                    })
+            } else {
+                None
+            };
+            self.encoder
+                .begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: None,
+                    timestamp_writes: writes,
+                })
+                .forget_lifetime()
+        });
+
+        self.tasks_count += 1;
+
+        let group_layout = pipeline.get_bind_group_layout(0);
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &group_layout,
+            entries: &entries,
+        });
+
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+
+        match dispatch.clone() {
+            CubeCount::Static(x, y, z) => {
+                pass.dispatch_workgroups(x, y, z);
+            }
+            CubeCount::Dynamic(binding) => {
+                let res = self.mem_manage.get_resource(binding);
+                pass.dispatch_workgroups_indirect(&res.buffer, res.offset);
+            }
+        }
+        self.flush_if_needed();
     }
 }
 

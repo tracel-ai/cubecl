@@ -2,7 +2,7 @@ use cubecl_core::MemoryConfiguration;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
-    stream::StreamBackend,
+    stream::EventStreamBackend,
 };
 
 use crate::compute::{
@@ -25,7 +25,7 @@ pub struct HipStreamBackend {
     mem_alignment: usize,
 }
 
-impl StreamBackend for HipStreamBackend {
+impl EventStreamBackend for HipStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 

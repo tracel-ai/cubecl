@@ -6,8 +6,8 @@ use std::marker::PhantomData;
 use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
-        Tile, TileConfig,
-        reader::{Filled, Strided, TileKind, TileReader},
+        StridedTile, TileConfig,
+        reader::{Filled, StageReader, Strided, TileKind},
         register::{
             RegisterMatmul,
             config::{ProductType, RegisterConfig},
@@ -17,14 +17,14 @@ use crate::components::{
 
 /// Reader for the register matmul fragments. Implementation depends on the tile kind.
 #[derive(CubeType)]
-pub struct RegisterTileReader<Kind: TileKind> {
+pub struct RegisterStageReader<Kind: TileKind> {
     #[cube(comptime)]
     _ty: PhantomData<Kind>,
 }
 
 /// Generic register reader over any tile kind
 #[cube]
-pub(super) trait RegisterFragmentReader: TileReader {
+pub(super) trait RegisterFragmentReader: StageReader {
     /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: <Self::TileKind as TileKind>::Tile<V>,
@@ -35,9 +35,9 @@ pub(super) trait RegisterFragmentReader: TileReader {
 }
 
 #[cube]
-impl RegisterFragmentReader for RegisterTileReader<Strided> {
+impl RegisterFragmentReader for RegisterStageReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: Tile<V>,
+        tile: StridedTile<V>,
         frag: &mut Array<E>,
         #[comptime] ident: StageIdent,
         #[comptime] config: RegisterConfig,
@@ -55,7 +55,7 @@ type MM = RegisterMatmul<Strided>;
 
 #[cube]
 fn load_lhs<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {
@@ -85,7 +85,7 @@ fn load_lhs<E: Numeric, V: Numeric>(
 
 #[cube]
 fn load_rhs<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {
@@ -115,7 +115,7 @@ fn load_rhs<E: Numeric, V: Numeric>(
 
 #[cube]
 fn load_acc<E: Numeric, V: Numeric>(
-    tile: &Tile<V>,
+    tile: &StridedTile<V>,
     frag: &mut Array<E>,
     #[comptime] config: RegisterConfig,
 ) {
@@ -134,7 +134,7 @@ fn load_acc<E: Numeric, V: Numeric>(
 }
 
 #[cube]
-impl RegisterFragmentReader for RegisterTileReader<Filled> {
+impl RegisterFragmentReader for RegisterStageReader<Filled> {
     fn load_fragment<E: Numeric, V: Numeric>(
         value: V,
         fragment: &mut Array<E>,
@@ -155,9 +155,9 @@ impl RegisterFragmentReader for RegisterTileReader<Filled> {
 }
 
 #[cube]
-impl<Inner: TileKind> RegisterFragmentReader for RegisterTileReader<CubeOption<Inner>>
+impl<Inner: TileKind> RegisterFragmentReader for RegisterStageReader<CubeOption<Inner>>
 where
-    RegisterTileReader<Inner>: RegisterFragmentReader<TileKind = Inner>,
+    RegisterStageReader<Inner>: RegisterFragmentReader<TileKind = Inner>,
 {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: CubeOption<Inner::Tile<V>>,
@@ -167,9 +167,9 @@ where
     ) {
         match tile {
             CubeOption::Some(tile) => {
-                RegisterTileReader::<Inner>::load_fragment(tile, fragment, ident, config)
+                RegisterStageReader::<Inner>::load_fragment(tile, fragment, ident, config)
             }
-            CubeOption::None => RegisterTileReader::<Filled>::load_fragment::<E, V>(
+            CubeOption::None => RegisterStageReader::<Filled>::load_fragment::<E, V>(
                 V::from_int(0),
                 fragment,
                 ident,
@@ -179,6 +179,6 @@ where
     }
 }
 
-impl<Kind: TileKind> TileReader for RegisterTileReader<Kind> {
+impl<Kind: TileKind> StageReader for RegisterStageReader<Kind> {
     type TileKind = Kind;
 }

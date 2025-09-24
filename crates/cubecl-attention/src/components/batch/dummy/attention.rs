@@ -36,6 +36,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
                 .global_config()
                 .tiling_scheme()
                 .elements_in_stage_seq_q();
+
         let seq_q = query.shape(1);
         let seq_kv = key.shape(1);
 

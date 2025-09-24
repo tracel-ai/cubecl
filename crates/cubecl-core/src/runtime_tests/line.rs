@@ -15,7 +15,7 @@ pub fn kernel_line_index<F: Float>(output: &mut Array<F>, #[comptime] line_size:
 pub fn test_line_index<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    for line_size in R::line_size_type(&F::as_type_native().unwrap()) {
+    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         if line_size < 4 {
             continue;
         }
@@ -53,7 +53,7 @@ pub fn kernel_line_index_assign<F: Float>(output: &mut Array<Line<F>>) {
 pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    for line_size in R::line_size_type(&F::as_type_native().unwrap()) {
+    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
@@ -89,7 +89,7 @@ pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime
 pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    for line_size in R::line_size_type(&F::as_type_native_unchecked()) {
+    for line_size in R::io_optimized_line_sizes(&F::as_type_native_unchecked()) {
         let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
@@ -122,7 +122,7 @@ pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
 pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    for line_size in R::line_size_type(&F::as_type_native().unwrap()) {
+    for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
         let output = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(

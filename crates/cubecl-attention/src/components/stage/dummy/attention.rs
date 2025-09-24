@@ -2,34 +2,33 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     global::{GlobalWriter, PlaneWriter, memory::GlobalMemoryConfig},
-    stage::StageReader,
+    stage::Stage,
     tile::reader::Strided,
 };
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
-use crate::components::stage::dummy::{
-    Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
-};
+use crate::components::StageMask;
+use crate::components::stage::dummy::StageState;
+use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{FlashIdent, global::dummy::QueryReader};
-use crate::components::{StageMask, stage::dummy::StageState};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, R, TA)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
-    StageAttention<AP> for DummyStageAttention<AP, R, TA>
+impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
+    StageAttention<AP> for DummyStageAttention<AP, S, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
-    type KeyReader = R;
-    type ValueReader = R;
+    type KeyStage = S;
+    type ValueStage = S;
 
     type State = StageState<AP>;
     type Query = Queries<AP, TA, Self::Config>;
@@ -39,8 +38,8 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
     type Writer = PlaneWriter<AP::EO>;
 
     fn execute(
-        key_reader: &Self::KeyReader,
-        value_reader: &Self::ValueReader,
+        key_reader: &Self::KeyStage,
+        value_reader: &Self::ValueStage,
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::Score,
@@ -63,11 +62,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
-                    key_reader,
-                    (hd, kv).runtime(),
-                    config.score_stage_memory_config(),
-                );
+                let key_tile = <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_tile,
@@ -119,11 +114,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = <R as StageReader<AP::ES>>::read_tile::<AttentionStageMemoryConfig>(
-                    value_reader,
-                    (kv, vd).runtime(),
-                    config.value_stage_memory_config(),
-                );
+                let value_tile = <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_tile,

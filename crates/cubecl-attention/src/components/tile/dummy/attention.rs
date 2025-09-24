@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
 use crate::components::TileMask;
@@ -49,7 +49,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         Self::Accumulator::new(config)
     }
 
-    fn init_query(tile: &Tile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query {
+    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query {
         Self::Query::new(tile, config)
     }
 
@@ -70,7 +70,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     }
 
     fn fill_key<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
@@ -78,7 +78,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     }
 
     fn fill_value<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {

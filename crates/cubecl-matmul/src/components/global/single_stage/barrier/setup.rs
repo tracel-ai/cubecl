@@ -1,18 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulPrecision;
-use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::read::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
-use crate::components::stage::FullStageReaderFamily;
 use crate::components::stage::StageConfig;
-use crate::components::{
-    MatmulLineSizes,
-    stage::{FillStageReaderFamily, NoTilingLayout},
-};
+use crate::components::{MatmulLineSizes, stage::NoTilingLayout};
+use crate::components::{MatmulPrecision, stage::StridedStageFamily};
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
+use crate::components::{MatmulSelection, stage::FilledStageFamily};
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -30,9 +26,9 @@ pub struct SimpleBarrierMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for SimpleBarrierMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-            LhsStageReader = FullStageReaderFamily,
-            RhsStageReader = FullStageReaderFamily,
-            AccStageReader = FillStageReaderFamily,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = FilledStageFamily,
             WriteCoords = Coords2d,
         >,
     LL: AsyncFullLoadingStrategy,

@@ -5,19 +5,17 @@ use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::MatrixLayout;
-use crate::components::stage::{
-    FullStageReader, RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum,
-};
-use crate::components::{InputPrecision, MatmulIdent, StageIdent};
+use crate::components::stage::{RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum};
+use crate::components::{InputPrecision, MatmulIdent};
 use crate::components::{
     global::{GlobalConfig, memory::MappedTensorReader},
-    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StageMemory, TilingOrder},
+    stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage, TilingOrder},
 };
 
 /// TMA uses contiguous tiling, but with a special tiling order
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
 /// TMA uses standard full stage to tile reader
-pub type TmaStageReader<IP> = FullStageReader<<IP as InputPrecision>::Stage, TmaTiling>;
+pub type TmaStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
 /// A special tiling order where:
@@ -27,53 +25,35 @@ pub struct TmaTilingOrder;
 
 #[cube]
 impl TilingOrder for TmaTilingOrder {
-    fn to_row_col<C: StageMemoryConfig>(
+    fn to_row_col(
         nth: u32,
-        #[comptime] tile_count_rows: u32,
-        #[comptime] tile_count_cols: u32,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: C,
+        tile_count_rows: u32,
+        tile_count_cols: u32,
+        #[comptime] config: StageMemoryConfig,
     ) -> Coords2d {
-        match config.matrix_layout(ident) {
-            MatrixLayout::RowMajor => ColMajorTilingOrder::to_row_col::<C>(
-                nth,
-                tile_count_rows,
-                tile_count_cols,
-                ident,
-                config,
-            ),
-            MatrixLayout::ColMajor => RowMajorTilingOrder::to_row_col::<C>(
-                nth,
-                tile_count_rows,
-                tile_count_cols,
-                ident,
-                config,
-            ),
+        match config.matrix_layout {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_row_col(nth, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_row_col(nth, tile_count_rows, tile_count_cols, config)
+            }
         }
     }
 
-    fn to_nth_tile<C: StageMemoryConfig>(
+    fn to_nth_tile(
         tile: Coords2d,
-        #[comptime] tile_count_rows: u32,
-        #[comptime] tile_count_cols: u32,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: C,
+        tile_count_rows: u32,
+        tile_count_cols: u32,
+        #[comptime] config: StageMemoryConfig,
     ) -> u32 {
-        match config.matrix_layout(ident) {
-            MatrixLayout::RowMajor => ColMajorTilingOrder::to_nth_tile::<C>(
-                tile,
-                tile_count_rows,
-                tile_count_cols,
-                ident,
-                config,
-            ),
-            MatrixLayout::ColMajor => RowMajorTilingOrder::to_nth_tile::<C>(
-                tile,
-                tile_count_rows,
-                tile_count_cols,
-                ident,
-                config,
-            ),
+        match config.matrix_layout {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_nth_tile(tile, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_nth_tile(tile, tile_count_rows, tile_count_cols, config)
+            }
         }
     }
 
@@ -86,7 +66,7 @@ impl TilingOrder for TmaTilingOrder {
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
 pub struct TmaGlobalReader<IP: InputPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
-    pub stage: StageMemory<IP::Stage, TmaTiling>,
+    pub stage: StridedStage<IP::Stage, TmaTiling>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -104,10 +84,10 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaGlobalReader<IP, G> {
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage = StageMemory::new_aligned::<G::StageMemoryConfig>(
+        let stage = StridedStage::new_aligned(
             comptime!(ident.into_stage()),
             128u32,
-            config.stage_memory_config(),
+            config.stage_memory_config(ident),
         );
 
         let tensor_view = MappedTensorReader::new(tensor, x, y, batch);
@@ -161,8 +141,8 @@ impl<IP: InputPrecision, G: GlobalConfig> TmaGlobalReader<IP, G> {
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage_reader(&self) -> TmaStageReader<IP> {
-        TmaStageReader::<IP>::new(self.stage, comptime!(self.ident.into_stage()))
+    pub fn stage(&self) -> TmaStage<IP> {
+        self.stage
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
