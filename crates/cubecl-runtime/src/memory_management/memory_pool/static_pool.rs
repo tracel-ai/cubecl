@@ -1,8 +1,8 @@
+use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
+use crate::memory_management::memory_pool::base::MemoryFragment;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec::Vec;
 use hashbrown::HashMap;
-
-use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
 
 pub struct StaticPool {
     slices: HashMap<SliceId, Slice>,

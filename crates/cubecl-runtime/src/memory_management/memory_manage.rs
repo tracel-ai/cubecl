@@ -125,7 +125,7 @@ const BASE_DEALLOC_PERIOD: u64 = 5000;
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
-        storage: Storage,
+        storage: Storage, // It is needed to make this dynamically dispatch at runtime to be compatible with virtualstorage and pool.
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
@@ -249,6 +249,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             static_pool: StaticPool::new(properties.max_page_size),
+            //virtual_pool:
             pools,
             storage,
             alloc_reserve_count: 0,

@@ -3,7 +3,7 @@ use hashbrown::HashMap;
 
 use crate::storage::StorageId;
 
-use super::{MemoryPage, MemoryChunk, Slice, SliceId};
+use super::{MemoryChunk, MemoryFragment};
 
 #[derive(Debug)]
 pub struct RingBuffer {
@@ -35,8 +35,8 @@ impl RingBuffer {
         &mut self,
         size: u64,
         pages: &mut HashMap<StorageId, M>,
-        slices: &mut HashMap<SliceId, Slice>,
-    ) -> Option<SliceId> {
+        slices: &mut HashMap<M::Key, M::Fragment>,
+    ) -> Option<M::Key> {
         let max_second = self.cursor_chunk;
         let result = self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len());
 
@@ -49,13 +49,13 @@ impl RingBuffer {
         self.find_free_slice_in_all_chunks(size, pages, slices, max_second)
     }
 
-    fn find_free_slice_in_chunk<M: MemoryChunk> (
+    fn find_free_slice_in_chunk<M: MemoryChunk>(
         &mut self,
         size: u64,
         page: &mut M,
-        slices: &mut HashMap<SliceId, Slice>,
+        slices: &mut HashMap<M::Key, M::Fragment>,
         mut slice_index: u64,
-    ) -> Option<(u64, SliceId)> {
+    ) -> Option<(u64, M::Key)> {
         while let Some(slice_id) = page.find_slice(slice_index) {
             //mutable borrow scope
             {
@@ -93,13 +93,13 @@ impl RingBuffer {
         None
     }
 
-    fn find_free_slice_in_all_chunks<M: MemoryChunk> (
+    fn find_free_slice_in_all_chunks<M: MemoryChunk>(
         &mut self,
         size: u64,
         pages: &mut HashMap<StorageId, M>,
-        slices: &mut HashMap<SliceId, Slice>,
+        slices: &mut HashMap<M::Key, M::Fragment>,
         max_cursor_position: usize,
-    ) -> Option<SliceId> {
+    ) -> Option<M::Key> {
         let start = self.cursor_chunk;
         let end = usize::min(self.queue.len(), max_cursor_position);
         let mut slice_index = self.cursor_slice;

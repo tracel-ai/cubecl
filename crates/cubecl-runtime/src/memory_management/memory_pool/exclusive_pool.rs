@@ -4,6 +4,8 @@ use crate::{
     storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
 
+use crate::memory_management::memory_pool::base::MemoryFragment;
+
 use alloc::vec::Vec;
 
 use super::{MemoryPool, Slice, SliceBinding, SliceHandle, calculate_padding};

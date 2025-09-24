@@ -1,6 +1,7 @@
 use super::index::SearchIndex;
-use super::{MemoryPool, MemoryChunk, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
+use super::{MemoryChunk, MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::MemoryUsage;
+use crate::memory_management::memory_pool::base::MemoryFragment;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use crate::{memory_management::memory_pool::calculate_padding, server::IoError};
 use alloc::vec::Vec;
@@ -28,18 +29,15 @@ pub(crate) struct MemoryPage {
     pub(crate) slices: HashMap<u64, SliceId>,
 }
 
-
-
 impl MemoryChunk for MemoryPage {
-
-
-
+    type Fragment = Slice;
+    type Key = SliceId;
     /// merge slice at first_slice_address with the next slice (if there is one and if it's free)
     /// return a boolean representing if a merge happened
     fn merge_with_next_slice(
         &mut self,
         first_slice_address: u64,
-        slices: &mut HashMap<SliceId, Slice>,
+        slices: &mut HashMap<Self::Key, Self::Fragment>,
     ) -> bool {
         let first_slice_id = self.find_slice(first_slice_address).expect(
             "merge_with_next_slice shouldn't be called with a nonexistent first_slice address",
@@ -75,12 +73,12 @@ impl MemoryChunk for MemoryPage {
         false
     }
 
-    fn find_slice(&self, address: u64) -> Option<SliceId> {
+    fn find_slice(&self, address: u64) -> Option<Self::Key> {
         let slice_id = self.slices.get(&address);
         slice_id.copied()
     }
 
-    fn insert_slice(&mut self, address: u64, slice: SliceId) {
+    fn insert_slice(&mut self, address: u64, slice: Self::Key) {
         self.slices.insert(address, slice);
     }
 }
@@ -238,45 +236,4 @@ impl SlicedPool {
     }
 }
 
-impl Slice {
-    pub(crate) fn split(&mut self, offset_slice: u64, buffer_alignment: u64) -> Option<Self> {
-        let size_new = self.effective_size() - offset_slice;
-        let offset_new = self.storage.offset() + offset_slice;
-        let old_size = self.effective_size();
-
-        let storage_new = StorageHandle {
-            id: self.storage.id,
-            utilization: StorageUtilization {
-                offset: offset_new,
-                size: size_new,
-            },
-        };
-
-        self.storage.utilization = StorageUtilization {
-            offset: self.storage.offset(),
-            size: offset_slice,
-        };
-
-        if !offset_new.is_multiple_of(buffer_alignment) {
-            panic!("slice with offset {offset_new} needs to be a multiple of {buffer_alignment}");
-        }
-        let handle = SliceHandle::new();
-        if size_new < buffer_alignment {
-            self.padding = old_size - offset_slice;
-            assert_eq!(self.effective_size(), old_size);
-            return None;
-        }
-
-        assert!(
-            size_new >= buffer_alignment,
-            "Size new > {buffer_alignment}"
-        );
-        self.padding = 0;
-        let padding = calculate_padding(size_new - buffer_alignment, buffer_alignment);
-        Some(Slice::new(storage_new, handle, padding))
-    }
-
-    pub(crate) fn next_slice_position(&self) -> u64 {
-        self.storage.offset() + self.effective_size()
-    }
-}
+impl Slice {}

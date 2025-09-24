@@ -1,12 +1,12 @@
 use crate::compute::uninit_vec;
 use cubecl_core::server::IoError;
 use cubecl_runtime::storage::{
-    ComputeStorage, StorageHandle, StorageId, StorageUtilization, VirtualStorage,
+    ComputeStorage, PhysicalStorageHandle, PhysicalStorageId, StorageHandle, StorageId,
+    StorageUtilization, VirtualStorage,
 };
 use cudarc::driver::DriverError;
 use cudarc::driver::sys::*;
-use std::collections::BTreeMap;
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 
 /// Buffer storage for NVIDIA GPUs.
 ///
@@ -174,66 +174,90 @@ impl ComputeStorage for GpuStorage {
     }
 }
 
-struct GpuVirtualAddressSpace {
-    start_address: CUdeviceptr,
+/// A Gpu Physical Memory block of a specific size.
+struct GpuMemoryBlock {
+    handle: CUmemGenericAllocationHandle,
     size: u64,
-    handles: BTreeMap<CUdeviceptr, Option<CUmemGenericAllocationHandle>>,
 }
 
-impl GpuVirtualAddressSpace {
-    fn ptr(&self) -> CUdeviceptr {
-        self.start_address
+impl GpuMemoryBlock {
+    /// Getter for internal handle (pointer to physical device memory)
+    fn handle(&self) -> CUmemGenericAllocationHandle {
+        self.handle
     }
 
+    /// Getter for size.
     fn size(&self) -> u64 {
         self.size
     }
 
-    fn with_block_size(start_address: CUdeviceptr, size: u64, block_size: u64) -> Self {
-        let num_handles = size.div_ceil(block_size);
-        let mut handles = BTreeMap::new();
-        let mut current_addr = start_address;
+    /// Constructor
+    fn new(handle: CUmemGenericAllocationHandle, size: u64) -> Self {
+        Self { handle, size }
+    }
+}
 
-        for i in 0u64..num_handles {
-            handles.insert(current_addr, None);
-            current_addr += i * block_size;
-        }
+/// A Gpu virtual address space of a specific size
+struct GpuVirtualAddressSpace {
+    start_address: CUdeviceptr,
+    size: u64,
+}
 
+impl GpuVirtualAddressSpace {
+
+    /// Getter for the start of this space
+    fn ptr(&self) -> CUdeviceptr {
+        self.start_address
+    }
+
+    /// Getter for the size
+    fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Constructor
+    fn new(start_address: CUdeviceptr, size: u64) -> Self {
         Self {
             start_address,
             size,
-            handles,
         }
     }
 }
 
+/// A CUDA buffer storage for virtual memory.
 pub struct GpuVirtualStorage {
+    /// Id of the device where the virtual memory is going to be allocated with this storage.
     device_id: i32,
+    /// Minimum allocation granularity of the target device.
     mem_alignment: usize,
-    physical_block_size: u64,
     /// Reserved virtual memory ranges. Can be either mapped or unmapped.
-    reservations: HashMap<StorageId, GpuVirtualAddressSpace>,
+    virtual_memory: HashMap<StorageId, GpuVirtualAddressSpace>,
     /// Queue of available physical blocks to request for mapping
-    physical_handles: VecDeque<CUmemGenericAllocationHandle>,
+    physical_memory: HashMap<PhysicalStorageId, GpuMemoryBlock>,
+    /// Ptr bindings
     ptr_bindings: PtrBindings,
 }
 
 impl GpuVirtualStorage {
-    pub fn new(device_id: i32, granularity: usize, physical_block_size: u64) -> Self {
-        let physical_block_size = physical_block_size
-            .saturating_sub(1)
-            .next_multiple_of(granularity as u64);
+    pub fn new(device_id: i32, granularity: usize) -> Self {
         Self {
             device_id,
             mem_alignment: granularity,
-            physical_block_size,
-            reservations: HashMap::new(),
-            physical_handles: VecDeque::new(),
+            virtual_memory: HashMap::new(),
+            physical_memory: HashMap::new(),
             ptr_bindings: PtrBindings::new(),
         }
     }
 
-    fn allocate_physical_block(&mut self) -> Result<CUmemGenericAllocationHandle, IoError> {
+    /// Utility to allocate a single physical block of a target size.
+    /// Assumes size is aligned to [`self.granularity()`]
+    fn allocate_physical_block(&mut self, size: u64) -> Result<GpuMemoryBlock, IoError> {
+        assert_eq!(
+            size % self.granularity() as u64,
+            0,
+            "For virtual memory allocations, size must be aligned to self.granularity()"
+        );
+
         unsafe {
             let mut mem_handle: CUmemGenericAllocationHandle = 0;
             let mut prop: CUmemAllocationProp = std::mem::zeroed();
@@ -245,13 +269,14 @@ impl GpuVirtualStorage {
             prop.win32HandleMetaData = std::ptr::null_mut();
             prop.allocFlags.compressionType = 0;
 
-            let result = cuMemCreate(&mut mem_handle, self.physical_block_size as usize, &prop, 0);
+            let result = cuMemCreate(&mut mem_handle, size as usize, &prop, 0);
 
             match result {
-                CUresult::CUDA_SUCCESS => Ok(mem_handle),
-                CUresult::CUDA_ERROR_OUT_OF_MEMORY => {
-                    Err(IoError::BufferTooBig(self.physical_block_size as usize))
+                CUresult::CUDA_SUCCESS => {
+                    let block = GpuMemoryBlock::new(mem_handle, size);
+                    Ok(block)
                 }
+                CUresult::CUDA_ERROR_OUT_OF_MEMORY => Err(IoError::BufferTooBig(size as usize)),
                 other => Err(IoError::Unknown(format!(
                     "CUDA alloc physical failed: {:?}",
                     other
@@ -260,13 +285,8 @@ impl GpuVirtualStorage {
         }
     }
 
-    fn get_ptr(&self, handle: &StorageHandle) -> CUdeviceptr {
-        self.reservations
-            .get(&handle.id)
-            .expect("Storage handle not found")
-            .ptr()
-    }
-
+    /// Sets the access permissions for the target device on an allocated and mapped virtual address space.
+    /// In practice, permissions can be set for other devices than self, allowing to share virtual address spaces accross device (aka RDMA), however this is not yet implemented.
     fn set_access_permissions(
         &self,
         virtual_addr: CUdeviceptr,
@@ -292,41 +312,43 @@ impl GpuVirtualStorage {
     }
 }
 
+/// Virtual storage trait implementation
 impl VirtualStorage for GpuVirtualStorage {
+    /// Minimum allocation granularity for the target device.
     fn granularity(&self) -> usize {
         self.mem_alignment
     }
 
-    fn physical_block_size(&self) -> u64 {
-        self.physical_block_size
-    }
-
-    fn allocate(&mut self, size: u64) -> Result<(), IoError> {
+    /// Allocates a physical memory block of the target size, ensuring the size is aligned to [`self.granularity()`].
+    /// Returns a handle containing the size and status of the allocation (unmapped).
+    /// The handle will be set as mapped on the [`map()`] method.
+    fn allocate(&mut self, size: u64) -> Result<PhysicalStorageHandle, IoError> {
         let total_size = size
             .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-        let num_blocks = total_size.div_ceil(self.physical_block_size);
-        for _ in 0..num_blocks {
-            let handle = self.allocate_physical_block()?;
-            self.physical_handles.push_back(handle);
-        }
-        Ok(())
+            .next_multiple_of(self.mem_alignment as u64);
+        let block = self.allocate_physical_block(total_size)?;
+
+        let id = PhysicalStorageId::new();
+        let phys = PhysicalStorageHandle::new(
+            id,
+            StorageUtilization {
+                size,
+                offset: 0, // Offset is always 0 for physical handles, as we cannot partition them for now.
+            },
+        );
+        self.physical_memory.insert(id, block);
+
+        Ok(phys)
     }
 
+    /// Reserves a virtual address space of the target size.
+    /// The parameter `start_addr` is a hint to tell CUDA where do we want the allocation to start.
+    /// However, in practice the CUDA documentations says it is not guaranteed for the allocation to start where we want it to.
+    /// Returns a storage handle pointing to the reserved virtual address space.
     fn reserve(&mut self, size: u64, start_addr: u64) -> Result<StorageHandle, IoError> {
         let aligned_size = size
             .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-
-        let blocks_needed = aligned_size.div_ceil(self.physical_block_size) as usize;
-
-        let mut handles: Vec<CUmemGenericAllocationHandle> = Vec::with_capacity(blocks_needed);
-
-        for _ in 0..blocks_needed {
-            let block = self.allocate_physical_block()?;
-            handles.push(block);
-        }
-        self.physical_handles.extend(handles);
+            .next_multiple_of(self.mem_alignment as u64);
 
         unsafe {
             let mut virtual_addr: CUdeviceptr = 0;
@@ -345,13 +367,9 @@ impl VirtualStorage for GpuVirtualStorage {
             match result {
                 CUresult::CUDA_SUCCESS => {
                     let id = StorageId::new();
-                    let addr = GpuVirtualAddressSpace::with_block_size(
-                        virtual_addr,
-                        aligned_size,
-                        self.physical_block_size,
-                    );
+                    let addr = GpuVirtualAddressSpace::new(virtual_addr, aligned_size);
 
-                    self.reservations.insert(id, addr);
+                    self.virtual_memory.insert(id, addr);
 
                     let handle = StorageHandle::new(id, StorageUtilization { size, offset: 0 });
                     Ok(handle)
@@ -368,163 +386,17 @@ impl VirtualStorage for GpuVirtualStorage {
         }
     }
 
-    fn release(&mut self, id: StorageId) {
-        let reservation = self
-            .reservations
-            .get(&id)
-            .expect("Storage handle not found");
-
-        // Get reservation details before removing it
-        let virtual_addr = reservation.ptr();
-        let size = reservation.size();
-        self.unmap(id, 0, reservation.size());
-
-        // Remove from reservations map
-        self.reservations.remove(&id);
-
-        // Free the virtual address space
-        unsafe {
-            cuMemAddressFree(virtual_addr, size as usize);
-        }
-    }
-
-    // Check whether two handles are adjacent in memory.
-    fn are_adjacent(&self, first: &StorageHandle, second: &StorageHandle) -> bool {
-        let first_reservation = match self.reservations.get(&first.id) {
-            Some(res) => res,
-            None => return false,
-        };
-
-        let second_reservation = match self.reservations.get(&second.id) {
-            Some(res) => res,
-            None => return false,
-        };
-
-        // Check if first handle ends exactly where second handle starts
-        let first_end = first_reservation.ptr() + first_reservation.size();
-
-        let second_start = second_reservation.ptr();
-
-        first_end == second_start ||
-        // Or if second handle ends exactly where first handle starts
-        {
-            let second_end = second_reservation.ptr() + second_reservation.size();
-            let first_start = first_reservation.ptr();
-            second_end == first_start
-        }
-    }
-
-    /// Maps a prereserved memory range to a number of preallocated physical blocks.
-    fn map(&mut self, id: StorageId, offset: u64, size: u64) -> Result<StorageHandle, IoError> {
-        let aligned_offset = offset
-            .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-
-        let aligned_size = size
-            .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-
-        let space_mut = self
-            .reservations
-            .get_mut(&id)
-            .expect("Storage handle not found");
-
-            // Map each block
-        let size = space_mut.size();
-
-        if aligned_offset + aligned_size > size {
-            return Err(IoError::InvalidHandle);
-        }
-
-
-
-        for (addr, mapped_handle) in space_mut
-            .handles
-            .range_mut(aligned_offset..aligned_offset + aligned_size)
-        {
-            if mapped_handle.is_some() {
-                // Return error: already mapped.
-                return Err(IoError::InvalidHandle);
-            }
-
-            let handle = match self.physical_handles.pop_front() {
-                Some(h) => h,
-                None => return Err(IoError::Unknown("No free physical handles".into())),
-            };
-
-            unsafe {
-                let result = cuMemMap(*addr, self.physical_block_size as usize, 0, handle, 0);
-                match result {
-                    CUresult::CUDA_SUCCESS => {
-
-                            *mapped_handle = Some(handle);
-
-                    }
-                    other => {
-                        return Err(IoError::Unknown(format!("CUDA map failed: {:?}", other)));
-                    }
-                }
-            }
-        }
-
-         let space = self
-            .reservations
-            .get(&id)
-            .expect("Storage handle not found");
-
-        for (addr, mapped_handle) in space
-            .handles
-            .range(aligned_offset..aligned_offset + aligned_size)
-        {
-
-            self.set_access_permissions(*addr, self.physical_block_size, self.device_id)?;
-
-        }
-
-        let handle = StorageHandle::new(id, StorageUtilization { offset, size });
-        Ok(handle)
-    }
-
-    fn unmap(&mut self, id: StorageId, offset: u64, size: u64) {
-        let aligned_offset = offset
-            .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-        let aligned_size = size
-            .saturating_sub(1)
-            .next_multiple_of(self.physical_block_size);
-
-        if let Some(mapping) = self.reservations.get_mut(&id) {
-            for (addr, mapped_handle) in mapping
-                .handles
-                .range_mut(aligned_offset..aligned_offset + aligned_size)
-            {
-                if let Some(handle) = mapped_handle.take() {
-                    unsafe {
-                        cuMemUnmap(*addr, self.physical_block_size as usize);
-                    }
-
-                    // Return all handles to the pool.
-                    self.physical_handles.push_back(handle);
-                }
-            }
-        }
-    }
-
-    fn cleanup(&mut self) {
-        for (id, mut reservation) in self.reservations.drain() {
+    /// Unmaps and frees a virtual address space, removing from the
+    // Virtual memory tracking structure.
+    /// Acts like a no op if it does not find the reservation.
+    fn free(&mut self, id: StorageId) {
+        if let Some(reservation) = self.virtual_memory.remove(&id) {
             // Get reservation details before removing it
             let virtual_addr = reservation.ptr();
             let size = reservation.size();
 
-            for (addr, mapped_handle) in reservation.handles.range_mut(0..size) {
-                if let Some(handle) = mapped_handle.take() {
-                    unsafe {
-                        cuMemUnmap(*addr, self.physical_block_size as usize);
-                    }
-
-                    // Return all handles to the pool.
-                    self.physical_handles.push_back(handle);
-                }
+            unsafe {
+                cuMemUnmap(virtual_addr, size as usize);
             }
 
             // Free the virtual address space
@@ -532,25 +404,103 @@ impl VirtualStorage for GpuVirtualStorage {
                 cuMemAddressFree(virtual_addr, size as usize);
             }
         }
+    }
 
-        for handle in self.physical_handles.drain(..) {
+    /// Frees a physical memory chunk by returning it to the driver.
+    fn release(&mut self, id: PhysicalStorageId) {
+        if let Some(handle) = self.physical_memory.remove(&id) {
             unsafe {
-                cuMemRelease(handle);
+                cuMemRelease(handle.handle());
             }
         }
     }
+
+    /// Maps a portion of a virtual address space to a physical block.
+    /// The portion will start at the next aligned offset and will have
+    /// A size matching the next aligned size of the provided physical memory handle.
+    fn map(
+        &mut self,
+        id: StorageId,
+        offset: u64,
+        physical: &mut PhysicalStorageHandle,
+    ) -> Result<StorageHandle, IoError> {
+        let aligned_offset = offset
+            .saturating_sub(1)
+            .next_multiple_of(self.mem_alignment as u64);
+        let space_mut = self
+            .virtual_memory
+            .get_mut(&id)
+            .expect("Storage handle not found");
+
+        let ph = self
+            .physical_memory
+            .get(&physical.id())
+            .expect("Storage handle not found");
+
+        // Map each block
+        let size = space_mut.size();
+        let ph_size = ph.size();
+
+        if (aligned_offset + ph_size) > size {
+            return Err(IoError::InvalidHandle);
+        }
+        let addr = space_mut.start_address + aligned_offset;
+        unsafe {
+            if let Err(e) = cuMemMap(addr, ph_size as usize, 0, ph.handle(), 0).result() {
+                return Err(IoError::Unknown(format!("CUDA map failed: {:?}", e)));
+            }
+        }
+
+        self.set_access_permissions(addr, ph_size, self.device_id)?;
+        physical.set_mapped(true);
+        let handle = StorageHandle::new(
+            id,
+            StorageUtilization {
+                offset,
+                size: ph_size,
+            },
+        );
+        Ok(handle)
+    }
+
+    /// Unmaps a mapped virtual memory portion from a physical handle.
+    /// Both the address space and the handle should be valid. However, it does not check whether this two structures are actually mapped. Therefore, it is the responsability of the memory pool to keep track of actual mappings from physical handles to virtual address spaces.
+    fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle) {
+        // Offset should be aligned at this level, however there is no issue in enforcing it by explicit alignment.
+        let aligned_offset = offset
+            .saturating_sub(1)
+            .next_multiple_of(self.mem_alignment as u64);
+        let ph = self
+            .physical_memory
+            .get(&physical.id())
+            .expect("Storage handle not found");
+
+        let aligned_size = ph.size();
+
+        if let Some(mapping) = self.virtual_memory.get(&id) {
+            let addr = mapping.ptr() + aligned_offset;
+            unsafe {
+                cuMemUnmap(addr, aligned_size as usize);
+            }
+
+            physical.set_mapped(false);
+        }
+    }
+
+
 }
 
 impl ComputeStorage for GpuVirtualStorage {
     type Resource = GpuResource;
 
     fn alignment(&self) -> usize {
-        self.physical_block_size as usize
+        self.mem_alignment
     }
 
+    /// Returns the resource to which this handle points to.
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let reservation = self
-            .reservations
+            .virtual_memory
             .get(&handle.id)
             .expect("Storage handle not found");
 
@@ -567,40 +517,56 @@ impl ComputeStorage for GpuVirtualStorage {
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
-        let mut handle = self.reserve(size, 0)?;
-        self.map(handle.id, 0, size)?;
+        let mut physical_handle = self.allocate(size)?;
+        let handle = self.reserve(size, 0)?;
+        self.map(handle.id, 0, &mut physical_handle)?;
         Ok(handle)
     }
 
-    fn are_contiguous(&self, handle1: &StorageHandle, handle2: &StorageHandle) -> bool {
-        self.are_adjacent(handle1, handle2)
-    }
-
     fn dealloc(&mut self, id: StorageId) {
-        if let Some(reservation) = self.reservations.get(&id) {
-            self.unmap(id, 0, reservation.size());
-        }
+        self.free(id);
     }
 
     fn flush(&mut self) {
-        self.cleanup();
+        // No flush. We do not keep track of deallocations
     }
 }
 
+
+/// When dropped releases all resources.
 impl Drop for GpuVirtualStorage {
     fn drop(&mut self) {
-        self.cleanup();
+         for (_, reservation) in self.virtual_memory.drain() {
+            // Get reservation details before removing it
+            let virtual_addr = reservation.ptr();
+            let size = reservation.size();
+
+            unsafe {
+                cuMemUnmap(virtual_addr, size as usize);
+            }
+
+            // Free the virtual address space
+            unsafe {
+                cuMemAddressFree(virtual_addr, size as usize);
+            }
+        }
+
+        for (_, handle) in self.physical_memory.drain() {
+            unsafe {
+                cuMemRelease(handle.handle());
+            }
+        }
     }
 }
 unsafe impl Send for GpuVirtualStorage {}
 
-pub fn get_minimum_granularity(device: CUdevice) -> usize {
+pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
     unsafe {
         let mut granularity = 0;
         let mut prop: CUmemAllocationProp = std::mem::zeroed();
         prop.type_ = CUmemAllocationType::CU_MEM_ALLOCATION_TYPE_PINNED;
         prop.location.type_ = CUmemLocationType::CU_MEM_LOCATION_TYPE_DEVICE;
-        prop.location.id = 0;
+        prop.location.id = device;
 
         let result = cuMemGetAllocationGranularity(
             &mut granularity,
@@ -609,9 +575,9 @@ pub fn get_minimum_granularity(device: CUdevice) -> usize {
         );
 
         match result {
-            CUresult::CUDA_SUCCESS => granularity,
-            _ => 64 * 1024, // Fallback a 64KB
-        }
+            CUresult::CUDA_SUCCESS => Some(granularity),
+            _ => None
+         }
     }
 }
 

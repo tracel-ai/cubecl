@@ -77,11 +77,6 @@ pub trait ComputeStorage: Send {
     /// The alignment memory is allocated with in this storage.
     fn alignment(&self) -> usize;
 
-    // Check wether two handles are contiguous in memory:
-    fn are_contiguous(&self, handle1: &StorageHandle, handle2: &StorageHandle) -> bool {
-        false
-    }
-
     /// Returns the underlying resource for a specified storage handle
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource;
 
