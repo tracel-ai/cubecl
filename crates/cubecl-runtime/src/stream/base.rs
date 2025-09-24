@@ -42,7 +42,10 @@ impl<F: StreamFactory> StreamPool<F> {
         let index = self.stream_index(stream_id);
 
         // Use unsafe method to retrieve the stream, assuming the index is valid.
-        // Safety: The `stream_index` function ensures the index is within bounds.
+        //
+        // # Safety
+        //
+        // * The `stream_index` function ensures the index is within bounds.
         unsafe { self.get_mut_index(index) }
     }
 
@@ -50,7 +53,8 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure the index is valid (less than `max_streams + num_special`).
+    /// * Caller must ensure the index is valid (less than `max_streams + num_special`).
+    /// * Lifetimes still follow the Rust rules.
     pub unsafe fn get_mut_index(&mut self, index: usize) -> &mut F::Stream {
         unsafe {
             // Access the stream entry without bounds checking for performance.
@@ -79,7 +83,8 @@ impl<F: StreamFactory> StreamPool<F> {
     ///
     /// # Safety
     ///
-    /// Caller must ensure the index corresponds to a valid special stream.
+    /// * Caller must ensure the index corresponds to a valid special stream.
+    /// * Lifetimes still follow the Rust rules.
     pub unsafe fn get_special(&mut self, index: u8) -> &mut F::Stream {
         // Calculate the index for the special stream (offset by max_streams).
         unsafe { self.get_mut_index(self.max_streams + index as usize) }
