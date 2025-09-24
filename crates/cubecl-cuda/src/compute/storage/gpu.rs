@@ -345,10 +345,16 @@ impl VirtualStorage for GpuVirtualStorage {
     /// The parameter `start_addr` is a hint to tell CUDA where do we want the allocation to start.
     /// However, in practice the CUDA documentations says it is not guaranteed for the allocation to start where we want it to.
     /// Returns a storage handle pointing to the reserved virtual address space.
-    fn reserve(&mut self, size: u64, start_addr: u64) -> Result<StorageHandle, IoError> {
+    fn reserve(&mut self, size: u64, start_addr: Option<StorageId>) -> Result<StorageHandle, IoError> {
         let aligned_size = size
             .saturating_sub(1)
             .next_multiple_of(self.mem_alignment as u64);
+
+        let addr = if let Some(prev) = start_addr && let Some(space) = self.virtual_memory.get(&prev) {
+            space.ptr()
+        } else {
+            0 // Zero will tell CUDA  to autotune
+        };
 
         unsafe {
             let mut virtual_addr: CUdeviceptr = 0;
@@ -360,7 +366,7 @@ impl VirtualStorage for GpuVirtualStorage {
                 &mut virtual_addr,
                 aligned_size as usize,
                 self.mem_alignment,
-                start_addr,
+                addr,
                 0,
             );
 
@@ -518,7 +524,7 @@ impl ComputeStorage for GpuVirtualStorage {
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
         let mut physical_handle = self.allocate(size)?;
-        let handle = self.reserve(size, 0)?;
+        let handle = self.reserve(size, None)?;
         self.map(handle.id, 0, &mut physical_handle)?;
         Ok(handle)
     }

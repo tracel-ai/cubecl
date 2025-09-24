@@ -228,6 +228,8 @@ pub(crate) struct VirtualMemoryPool {
     alignment: u64,
     /// Page size
     page_size: u64,
+    /// Keep track of last allocated page for better alignment:
+    last_allocated_page: Option<StorageId>
 
 }
 
@@ -259,6 +261,7 @@ impl VirtualMemoryPool {
             max_alloc_size,
             alignment,
             page_size,
+            last_allocated_page: None
         }
     }
 
@@ -306,9 +309,10 @@ impl VirtualMemoryPool {
     fn create_virtual_page<Storage: VirtualStorage>(
         &mut self,
         storage: &mut Storage,
+        previous_page: Option<StorageId>,
     ) -> Result<StorageId, IoError> {
         // Reserve virtual address space
-        let handle = storage.reserve(self.page_size, 0)?;
+        let handle = storage.reserve(self.page_size, previous_page)?;
         let storage_id = handle.id;
 
         // Create the page
@@ -469,7 +473,9 @@ impl VirtualMemoryPool {
         let effective_size = size + padding;
 
         // Create a new virtual page
-        let page_id = self.create_virtual_page(storage)?;
+        let page_id = self.create_virtual_page(storage, self.last_allocated_page)?; // Attempt to allocate the page contiguous to the last one always. This should enforce better page alignment.
+
+        self.last_allocated_page = Some(page_id);
         self.recently_added_pages.insert(page_id);
         self.recently_allocated_size += self.page_size;
 

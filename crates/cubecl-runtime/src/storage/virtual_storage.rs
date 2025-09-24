@@ -61,8 +61,8 @@ pub trait VirtualStorage: ComputeStorage {
     /// Releases a physical memory handle to the driver (explicit).
     fn release(&mut self, id: PhysicalStorageId);
 
-    /// Reserves an address space of a given size. Padding should be automatically added to meet the granularity requirements. The parameter start_addr is the address at which the reservation should start, if applicable.
-    fn reserve(&mut self, size: u64, start_addr: u64) -> Result<StorageHandle, IoError>;
+    /// Reserves an address space of a given size. Padding should be automatically added to meet the granularity requirements. The parameter `start_addr` is the id of the address space which should end at the beginning of the next reservation (if applicable).
+    fn reserve(&mut self, size: u64, start_addr: Option<StorageId>) -> Result<StorageHandle, IoError>;
 
     /// Releases the virtual address range associated with this handle.
     fn free(&mut self, id: StorageId);
