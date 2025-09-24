@@ -1,7 +1,7 @@
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for streaming settings in CubeCL.
-#[derive(Default, Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StreamingConfig {
     /// Logger configuration for streaming logs, using binary log levels.
     #[serde(default)]
@@ -9,6 +9,15 @@ pub struct StreamingConfig {
     /// The maximum number of streams to be used.
     #[serde(default = "default_max_streams")]
     pub max_streams: u8,
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            logger: Default::default(),
+            max_streams: default_max_streams(),
+        }
+    }
 }
 
 fn default_max_streams() -> u8 {
