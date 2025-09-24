@@ -299,7 +299,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         lhs: 1,
         rhs: 1,
         out: try_tensor_line_size_parallel(
-            R::line_size_type(&out_elem),
+            R::io_optimized_line_sizes_unchecked(&out_elem),
             out.shape,
             out.strides,
             rank - 1,

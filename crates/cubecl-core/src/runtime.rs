@@ -9,6 +9,10 @@ pub use cubecl_runtime::client;
 pub use cubecl_runtime::server;
 pub use cubecl_runtime::tune;
 
+/// Max width of loads. May want to make this a property in the future, since Nvidia seems have some
+/// support for 256-bit loads on Blackwell.
+const LOAD_WIDTH: usize = 128;
+
 /// Runtime for the CubeCL.
 pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// The compiler used to compile the inner representation into tokens.
@@ -34,12 +38,19 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// Returns the supported line sizes for the current runtime's compiler.
     fn supported_line_sizes() -> &'static [u8];
 
-    /// Returns all line sizes that are useful to perform IO operation on the given element.
-    fn line_size_type(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
-        Self::supported_line_sizes()
-            .iter()
-            .filter(|v| **v as usize * elem.size() <= 16)
-            .cloned() // 128 bits
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    fn io_optimized_line_sizes(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let max = (LOAD_WIDTH / elem.size_bits()) as u8;
+        let supported = Self::supported_line_sizes();
+        supported.iter().filter(move |v| **v <= max).cloned()
+    }
+
+    /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
+    /// Ignores native support, and allows all line sizes. This means the returned size may be
+    /// unrolled, and may not support dynamic indexing.
+    fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let max = LOAD_WIDTH / elem.size_bits();
+        (1..max as u8).rev().filter(|v| v.is_power_of_two())
     }
 
     /// Returns the maximum cube count on each dimension that can be launched.

@@ -34,9 +34,9 @@ impl AvailableLineSizes {
         elem_mask: &StorageType,
         elem_out: &StorageType,
     ) -> Self {
-        let in_available: Vec<u8> = R::line_size_type(elem_in).collect();
-        let mask_available: Vec<u8> = R::line_size_type(elem_mask).collect();
-        let out_available = R::line_size_type(elem_out).collect();
+        let in_available: Vec<u8> = R::io_optimized_line_sizes_unchecked(elem_in).collect();
+        let mask_available: Vec<u8> = R::io_optimized_line_sizes_unchecked(elem_mask).collect();
+        let out_available = R::io_optimized_line_sizes_unchecked(elem_out).collect();
 
         AvailableLineSizes {
             query: in_available.clone(),

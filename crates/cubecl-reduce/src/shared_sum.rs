@@ -72,7 +72,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
 
     // Compute the optimal line size.
     let elem = N::as_type_native_unchecked();
-    let line_size = R::line_size_type(&elem)
+    let line_size = R::io_optimized_line_sizes_unchecked(&elem)
         .filter(|line_size| input_len % *line_size as u32 == 0)
         .max()
         .unwrap_or(1) as u32;
