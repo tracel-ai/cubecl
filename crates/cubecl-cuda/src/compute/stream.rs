@@ -8,7 +8,7 @@ use crate::compute::{
 use cubecl_core::MemoryConfiguration;
 use cubecl_runtime::{
     memory_management::{MemoryDeviceProperties, MemoryManagement},
-    stream::StreamBackend,
+    stream::EventStreamBackend,
 };
 
 #[derive(Debug)]
@@ -25,7 +25,7 @@ pub struct CudaStreamBackend {
     mem_alignment: usize,
 }
 
-impl StreamBackend for CudaStreamBackend {
+impl EventStreamBackend for CudaStreamBackend {
     type Stream = Stream;
     type Event = Fence;
 
