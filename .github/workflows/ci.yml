@@ -59,6 +59,8 @@ jobs:
         include:
           - rust: stable
             toolchain: stable
+    env:
+      TRACEL_LLVM_FORCE_BUNDLE_INSTALL: ${{ github.run_id }}
     steps:
       - name: Setup Rust
         uses: tracel-ai/github-actions/setup-rust@v4
@@ -92,6 +94,8 @@ jobs:
         include:
           - rust: stable
             toolchain: stable
+    env:
+      TRACEL_LLVM_FORCE_BUNDLE_INSTALL: ${{ github.run_id }}
     steps:
       - name: Setup Rust
         uses: tracel-ai/github-actions/setup-rust@v4
@@ -141,6 +145,8 @@ jobs:
           mesa-ci-build-version: ${{ env.MESA_CI_BINARY_BUILD }}
       # --------------------------------------------------------------------------------
       - name: Tests
+        env:
+          TRACEL_LLVM_FORCE_BUNDLE_INSTALL: ${{ github.run_id }}
         run: cargo xtask test --ci
 
   # windows-std-tests:
