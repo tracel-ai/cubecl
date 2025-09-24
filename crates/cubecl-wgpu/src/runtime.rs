@@ -8,8 +8,7 @@ use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
-    ComputeRuntime,
-    channel::MutexComputeChannel,
+    ComputeRuntime, channel,
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
 };
@@ -23,16 +22,17 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 pub struct WgpuRuntime;
 
 type Server = WgpuServer;
+type Channel = channel::MutexComputeChannel<Server>;
+// type Channel = channel::MpscComputeChannel<Server>;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, MutexComputeChannel<Server>> =
-    ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<WgpuDevice, Server, Channel> = ComputeRuntime::new();
 
 impl Runtime for WgpuRuntime {
     type Compiler = AutoCompiler;
     type Server = WgpuServer;
 
-    type Channel = MutexComputeChannel<WgpuServer>;
+    type Channel = Channel;
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -202,7 +202,7 @@ pub async fn init_setup_async<G: GraphicsApi>(
 pub(crate) fn create_client_on_setup(
     setup: WgpuSetup,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer, MutexComputeChannel<WgpuServer>> {
+) -> ComputeClient<WgpuServer, Channel> {
     let limits = setup.device.limits();
     let mut adapter_limits = setup.adapter.limits();
 
@@ -293,7 +293,7 @@ pub(crate) fn create_client_on_setup(
         setup.backend,
         time_measurement,
     );
-    let channel = MutexComputeChannel::new(server);
+    let channel = Channel::new(server);
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
