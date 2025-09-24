@@ -4,7 +4,7 @@ use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::Tile;
 
 use crate::components::{
-    FlashIdent,
+    FlashIdent, TileMask,
     tile::dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecision},
 };
 
@@ -143,7 +143,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
         rowsum
     }
 
-    pub fn apply_mask(&mut self, row_col_remove: (u32, u32)) {
+    pub fn apply_mask(&mut self, mask: TileMask) {
         let mut slice: SliceMut<Line<FP::SP>> = self
             .tmp_smem
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
@@ -155,10 +155,9 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
             for i in 0..self.num_cols_per_unit {
                 let col = self.col_start + i;
 
-                if col < self.num_cols && (self.row >= row_col_remove.0 || col >= row_col_remove.1)
-                {
+                if col < self.num_cols {
                     let index = self.row * self.num_cols + col;
-                    slice[index] = Line::cast_from(-999999);
+                    slice[index] = slice[index] + mask.apply::<FP::SP>(self.row, col);
                 }
             }
         }

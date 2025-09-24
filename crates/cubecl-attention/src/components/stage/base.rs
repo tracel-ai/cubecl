@@ -4,6 +4,7 @@ use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::Stage
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::StageMask;
 use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -78,6 +79,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score: &mut Self::Score,
+        mask: StageMask,
         accumulator: &mut Self::Accumulator,
         prev_state: &mut StageState<AP>,
         #[comptime] config: Self::Config,

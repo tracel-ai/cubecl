@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AvailableLineSizes, TileMask, tile::dummy::FlashMatmulConfig,
 };
 use crate::components::{InvalidConfigError, tile::dummy::RunningState};
 
@@ -98,6 +98,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
+        mask: TileMask,
         state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;

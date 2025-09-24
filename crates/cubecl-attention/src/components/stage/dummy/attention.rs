@@ -9,7 +9,6 @@ use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
-use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{
     Accumulators, AttentionStageMemoryConfig, DummyStageConfig, KeyValues, Queries, Scores,
 };
@@ -17,6 +16,7 @@ use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{FlashIdent, global::dummy::QueryReader};
+use crate::components::{StageMask, stage::dummy::StageState};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, R, TA)>,
@@ -44,10 +44,13 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::Score,
+        mask: StageMask,
         accumulator: &mut Self::Accumulator,
         state: &mut StageState<AP>,
         #[comptime] config: Self::Config,
     ) {
+        let partition_mask = mask.to_partition(UNIT_POS_Y);
+
         let p = config.tiling_scheme().partition_size;
 
         let mut kv = comptime![0u32];
@@ -101,6 +104,7 @@ impl<AP: AttentionPrecision, R: StageReader<AP::ES, TileKind = Strided>, TA: Til
 
                 let row_stats = TA::score_to_prob(
                     score_frag,
+                    partition_mask.to_tile(q, kv),
                     state_q,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );

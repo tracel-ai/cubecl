@@ -4,6 +4,7 @@ use cubecl_matmul::components::stage::FullStageReader;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
+use crate::components::GlobalMask;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::{
     AttentionGlobalLayout,
@@ -43,6 +44,7 @@ impl<
         mut key_reader: Self::KeyReader,
         mut value_reader: Self::ValueReader,
         mut writer: Self::Writer,
+        seq_q: u32,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
@@ -57,8 +59,9 @@ impl<
         let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
+        let mask = GlobalMask::new(seq_q, seq_kv, config.tiling_scheme());
 
-        for _ in 0..num_stage_iterations {
+        for i in 0..num_stage_iterations {
             key_reader.read_transposed(config);
             value_reader.read(config);
             sync_cube();
@@ -69,6 +72,7 @@ impl<
                 &query,
                 &mut key_value,
                 &mut score_prob,
+                mask.to_stage(CUBE_POS, i),
                 &mut accumulator,
                 &mut stage_state,
                 config.stage_config(),
