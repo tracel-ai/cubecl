@@ -7,6 +7,8 @@ pub mod cache;
 pub mod compilation;
 /// Profiling config module.
 pub mod profiling;
+/// Streaming config module.
+pub mod streaming;
 
 mod base;
 mod logger;

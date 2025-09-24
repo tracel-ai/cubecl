@@ -72,7 +72,7 @@ where
 
     /// Create a new client.
     pub fn new(channel: Channel, properties: DeviceProperties, info: Server::Info) -> Self {
-        let logger = ServerLogger::default();
+        let logger = channel.logger();
 
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
@@ -80,7 +80,7 @@ where
 
         let state = ComputeClientState {
             properties,
-            logger: Arc::new(logger),
+            logger,
             #[cfg(multi_threading)]
             current_profiling: spin::RwLock::new(None),
             // Create the GPU client if needed.
@@ -366,14 +366,8 @@ where
                 let name = kernel.name();
 
                 unsafe {
-                    self.channel.execute(
-                        kernel,
-                        count,
-                        bindings,
-                        mode,
-                        self.state.logger.clone(),
-                        stream_id,
-                    )
+                    self.channel
+                        .execute(kernel, count, bindings, mode, stream_id)
                 };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
@@ -387,14 +381,8 @@ where
                 let profile = self
                     .profile(
                         || unsafe {
-                            self.channel.execute(
-                                kernel,
-                                count.clone(),
-                                bindings,
-                                mode,
-                                self.state.logger.clone(),
-                                stream_id,
-                            )
+                            self.channel
+                                .execute(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
                     )
