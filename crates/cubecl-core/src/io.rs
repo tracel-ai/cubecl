@@ -17,9 +17,11 @@ pub fn read_tensor_checked<C: CubePrimitive>(
     index: u32,
     #[comptime] unroll_factor: u32,
 ) -> C {
-    let mask = index < tensor.buffer_len() * unroll_factor;
+    let len = tensor.buffer_len() * unroll_factor;
+    let in_bounds = index < len;
+    let index = Min::min(index, len);
 
-    read_masked::<C>(mask, tensor.to_slice(), index, C::cast_from(0u32))
+    select(in_bounds, tensor.read_unchecked(index), C::cast_from(0u32))
 }
 
 /// Returns the value at `index` in tensor within bounds.
@@ -29,10 +31,7 @@ pub fn read_tensor_atomic_checked<C: Numeric>(
     index: u32,
     #[comptime] unroll_factor: u32,
 ) -> Atomic<Line<C>> {
-    let mask = index < tensor.buffer_len() * unroll_factor;
-
-    let mask_num = u32::cast_from(mask);
-    let index = index * mask_num;
+    let index = Min::min(index, tensor.buffer_len() * unroll_factor);
 
     tensor.read_unchecked(index)
 }
