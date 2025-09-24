@@ -100,6 +100,8 @@ pub(crate) struct VirtualMemoryPage {
     pub storage_id: StorageId,
     /// Total size of this page
     pub size: u64,
+    /// Id of the next memory page (linked list)
+    pub next_page_id: Option<StorageId>
 }
 
 impl VirtualMemoryPage {
@@ -108,6 +110,7 @@ impl VirtualMemoryPage {
             slices: HashMap::new(),
             storage_id,
             size,
+            next_page_id: None
         }
     }
 
@@ -121,6 +124,11 @@ impl VirtualMemoryPage {
     /// Utility to check if this memory page is empty
     pub fn is_empty(&self) -> bool {
         self.slices.is_empty()
+    }
+
+    /// Next page id:
+    pub fn next_page(&self) -> Option<&StorageId> {
+        self.next_page_id.as_ref()
     }
 }
 
@@ -472,8 +480,17 @@ impl VirtualMemoryPool {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
+
         // Create a new virtual page
         let page_id = self.create_virtual_page(storage, self.last_allocated_page)?; // Attempt to allocate the page contiguous to the last one always. This should enforce better page alignment.
+
+
+        // Maintain the chain of contiguous pages.
+        if let Some(last_allocation) = self.last_allocated_page {
+            if let Some(last_page) = self.pages.get_mut(&last_allocation) {
+                last_page.next_page_id = Some(page_id);
+            };
+        };
 
         self.last_allocated_page = Some(page_id);
         self.recently_added_pages.insert(page_id);
