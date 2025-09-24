@@ -25,7 +25,7 @@ use super::scheduler::Scheduler;
 pub struct CpuServer {
     ctx: CpuContext,
     scheduler: Scheduler,
-    logger: ServerLogger,
+    logger: Arc<ServerLogger>,
 }
 
 impl DataTransferService for CpuServer {}
@@ -33,7 +33,7 @@ impl DataTransferService for CpuServer {}
 impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {
         Self {
-            logger: ServerLogger::default(),
+            logger: Arc::new(ServerLogger::default()),
             scheduler: Scheduler::default(),
             ctx,
         }
@@ -84,6 +84,10 @@ impl ComputeServer for CpuServer {
     type Kernel = Box<dyn CubeTask<CpuCompiler>>;
     type Storage = BytesStorage;
     type Info = ();
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.logger.clone()
+    }
 
     fn create(
         &mut self,
@@ -152,7 +156,6 @@ impl ComputeServer for CpuServer {
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        _logger: Arc<ServerLogger>,
         _stream_id: StreamId,
     ) {
         let cube_count = match count {

@@ -48,6 +48,9 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.server.lock().logger()
+    }
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
@@ -104,13 +107,12 @@ where
         count: CubeCount,
         handles: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         unsafe {
             self.server
                 .lock()
-                .execute(kernel, count, handles, kind, logger, stream_id)
+                .execute(kernel, count, handles, kind, stream_id)
         }
     }
 

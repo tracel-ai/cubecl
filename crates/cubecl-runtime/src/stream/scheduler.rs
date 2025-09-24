@@ -1,7 +1,10 @@
 use crate::{
+    config::streaming::StreamingLogLevel,
+    logging::ServerLogger,
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
+use alloc::sync::Arc;
 use cubecl_common::stream_id::StreamId;
 
 /// Defines a trait for a scheduler stream backend, specifying the types and behavior for task scheduling.
@@ -28,6 +31,8 @@ pub struct SchedulerMultiStream<B: SchedulerStreamBackend> {
     strategy: SchedulerStrategy,
     /// Maximum number of tasks allowed per stream before execution is triggered.
     max_tasks: usize,
+    /// Server logger.
+    pub logger: Arc<ServerLogger>,
 }
 
 /// Defines the scheduling strategy for task execution.
@@ -89,11 +94,16 @@ pub struct SchedulerMultiStreamOptions {
 
 impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
     /// Creates a new `SchedulerMultiStream` with the given backend and options.
-    pub fn new(backend: B, options: SchedulerMultiStreamOptions) -> Self {
+    pub fn new(
+        logger: Arc<ServerLogger>,
+        backend: B,
+        options: SchedulerMultiStreamOptions,
+    ) -> Self {
         Self {
             pool: StreamPool::new(SchedulerPoolMarker { backend }, options.max_streams, 0),
             max_tasks: options.max_tasks,
             strategy: options.strategy,
+            logger,
         }
     }
 
@@ -138,6 +148,11 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             let index_stream = self.pool.stream_index(&binding.stream);
             if index != index_stream {
                 to_flush.push(binding.stream);
+
+                self.logger.log_streaming(
+                    |level| matches!(level, StreamingLogLevel::Full),
+                    || format!("Binding on {} is shared on {}", binding.stream, stream_id),
+                );
             }
         }
 
@@ -146,6 +161,15 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             return;
         }
 
+        self.logger.log_streaming(
+            |level| !matches!(level, StreamingLogLevel::Disabled),
+            || {
+                format!(
+                    "Flushing streams {:?} before registering more tasks on {stream_id}",
+                    to_flush
+                )
+            },
+        );
         // Execute the streams that need to be flushed.
         self.execute_streams(to_flush);
     }

@@ -16,6 +16,7 @@ use cubecl_core::{
     compute::{CubeTask, DebugInformation},
     server::{Allocation, AllocationDescriptor, IoError},
 };
+use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::stream::scheduler::{
@@ -49,6 +50,7 @@ impl WgpuServer {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
+        logger: Arc<ServerLogger>,
     ) -> Self {
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
@@ -59,14 +61,18 @@ impl WgpuServer {
             tasks_max,
         );
 
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
         Self {
             compilation_options,
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
+                logger,
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
-                    max_streams: 4,
+                    max_streams,
                     max_tasks: tasks_max,
                     strategy: SchedulerStrategy::Interleave,
                 },
@@ -98,7 +104,6 @@ impl WgpuServer {
         &mut self,
         kernel: <Self as ComputeServer>::Kernel,
         mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
     ) -> Arc<ComputePipeline> {
         let mut kernel_id = kernel.id();
         kernel_id.mode(mode);
@@ -110,13 +115,13 @@ impl WgpuServer {
         let mut compiler = compiler(self.backend);
         let mut compile = compiler.compile(self, kernel, mode);
 
-        if logger.compilation_activated() {
+        if self.scheduler.logger.compilation_activated() {
             compile.debug_info = Some(DebugInformation::new(
                 compiler.lang_tag(),
                 kernel_id.clone(),
             ));
         }
-        logger.log_compilation(&compile);
+        self.scheduler.logger.log_compilation(&compile);
         // /!\ Do not delete the following commented code.
         // This is useful while working on the metal compiler.
         // Also the errors are printed nicely which is not the case when this is the runtime
@@ -152,6 +157,10 @@ impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;
     type Storage = WgpuStorage;
     type Info = wgpu::Backend;
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.scheduler.logger.clone()
+    }
 
     fn create(
         &mut self,
@@ -251,10 +260,9 @@ impl ComputeServer for WgpuServer {
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
-        let pipeline = self.pipeline(kernel, mode, logger);
+        let pipeline = self.pipeline(kernel, mode);
         let buffers = bindings.buffers.clone();
         let resources = self.prepare_bindings(bindings);
         let task = ScheduleTask::Execute {

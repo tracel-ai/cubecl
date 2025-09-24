@@ -1,11 +1,13 @@
 use crate::{
+    config::streaming::StreamingLogLevel,
+    logging::ServerLogger,
     memory_management::SliceId,
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
-use std::sync::mpsc::SyncSender;
+use std::sync::{Arc, mpsc::SyncSender};
 
 /// Trait defining the backend operations for managing streams and events.
 ///
@@ -36,6 +38,8 @@ pub trait EventStreamBackend: 'static {
 pub struct MultiStream<B: EventStreamBackend> {
     /// The map of stream IDs to their corresponding stream wrappers.
     streams: StreamPool<EventStreamBackendWrapper<B>>,
+    /// The logger used by the server.
+    pub logger: Arc<ServerLogger>,
     max_streams: usize,
     gc: GcThread<B>,
 }
@@ -160,10 +164,11 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
 
 impl<B: EventStreamBackend> MultiStream<B> {
     /// Creates an empty multi-stream.
-    pub fn new(backend: B, max_streams: u8) -> Self {
+    pub fn new(logger: Arc<ServerLogger>, backend: B, max_streams: u8) -> Self {
         let wrapper = EventStreamBackendWrapper { backend };
         Self {
             streams: StreamPool::new(wrapper, max_streams, 1),
+            logger,
             max_streams: max_streams as usize,
             gc: GcThread::new(),
         }
@@ -225,9 +230,27 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
                 if let Some(last_synced) = current.last_synced.get(&index) {
                     if *last_synced < binding.cursor {
+                        self.logger.log_streaming(
+                            |level| matches!(level, StreamingLogLevel::Full),
+                            || {
+                                format!(
+                                    "Binding on {} is shared on {} since it's not sync {} < {}",
+                                    binding.stream, stream_id, last_synced, binding.cursor
+                                )
+                            },
+                        );
                         analysis.shared(binding, index);
                     }
                 } else {
+                    self.logger.log_streaming(
+                        |level| matches!(level, StreamingLogLevel::Full),
+                        || {
+                            format!(
+                                "Binding on {} is shared on {} since it was never synced.",
+                                binding.stream, stream_id,
+                            )
+                        },
+                    );
                     analysis.shared(binding, index);
                 }
             }
@@ -260,6 +283,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
 
         for ((stream_origin, cursor_origin), event) in events {
             stream.last_synced.insert(*stream_origin, cursor_origin);
+
+            self.logger.log_streaming(
+                |level| !matches!(level, StreamingLogLevel::Disabled),
+                || format!("Waiting on {stream_origin} from {stream_id}",),
+            );
 
             B::wait_event(&mut stream.stream, event);
         }
@@ -303,13 +331,14 @@ mod tests {
 
     #[test]
     fn test_analysis_shared_bindings_1() {
+        let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
         let binding_1 = binding(stream_1);
         let binding_2 = binding(stream_2);
 
-        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter());
         ms.resolve(stream_2, [].into_iter());
 
@@ -323,6 +352,7 @@ mod tests {
 
     #[test]
     fn test_analysis_shared_bindings_2() {
+        let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
@@ -330,7 +360,7 @@ mod tests {
         let binding_2 = binding(stream_2);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::new(TestBackend, 4);
+        let mut ms = MultiStream::new(logger, TestBackend, 4);
         ms.resolve(stream_1, [].into_iter());
         ms.resolve(stream_2, [].into_iter());
 
@@ -345,6 +375,7 @@ mod tests {
 
     #[test]
     fn test_analysis_no_shared() {
+        let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
@@ -352,7 +383,7 @@ mod tests {
         let binding_2 = binding(stream_1);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter());
         ms.resolve(stream_2, [].into_iter());
 
@@ -366,6 +397,7 @@ mod tests {
 
     #[test]
     fn test_state() {
+        let logger = Arc::new(ServerLogger::default());
         let stream_1 = StreamId { value: 1 };
         let stream_2 = StreamId { value: 2 };
 
@@ -373,7 +405,7 @@ mod tests {
         let binding_2 = binding(stream_2);
         let binding_3 = binding(stream_1);
 
-        let mut ms = MultiStream::new(TestBackend, MAX_STREAMS);
+        let mut ms = MultiStream::new(logger, TestBackend, MAX_STREAMS);
         ms.resolve(stream_1, [].into_iter());
         ms.resolve(stream_2, [].into_iter());
 
