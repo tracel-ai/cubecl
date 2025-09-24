@@ -1,7 +1,8 @@
-use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
+use crate::components::global::multi_stage::double_buffer_execution::{
+    execute_current_and_read_next, execute_last_and_write_results, read_first,
+};
 use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
-use crate::components::stage::PartialStageReader;
 use crate::components::{
     AccG,
     global::read::{
@@ -11,10 +12,8 @@ use crate::components::{
 use crate::components::{AccS, LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
-    global::multi_stage::double_buffer_execution::{
-        execute_current_and_read_next, execute_last_and_write_results, read_first,
-    },
-    stage::FillStageReader,
+    global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
+    stage::{FilledStage, StridedStage},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -47,9 +46,9 @@ impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStageReader = PartialStageReader<LhsS<MP>, LL::TilingLayout>,
-            RhsStageReader = PartialStageReader<RhsS<MP>, RL::TilingLayout>,
-            AccStageReader = FillStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            AccStage = FilledStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
     LL: SyncPartialLoadingStrategy,
@@ -79,15 +78,15 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let lhs_reader_a = lhs_reader.stage_reader(StageBuffer::A);
-        let lhs_reader_b = lhs_reader.stage_reader(StageBuffer::B);
-        let rhs_reader_a = rhs_reader.stage_reader(StageBuffer::A);
-        let rhs_reader_b = rhs_reader.stage_reader(StageBuffer::B);
+        let lhs_reader_a = lhs_reader.stage(StageBuffer::A);
+        let lhs_reader_b = lhs_reader.stage(StageBuffer::B);
+        let rhs_reader_a = rhs_reader.stage(StageBuffer::A);
+        let rhs_reader_b = rhs_reader.stage(StageBuffer::B);
 
         let specializer = Specializer::new::<Self::Config>(config);
 

@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::{AccS, stage::StageReader, tile::TileMatmul};
+use crate::components::{AccS, stage::Stage, tile::TileMatmul};
 use crate::components::{InputPrecision, MatmulPrecision};
-use crate::components::{stage::StageConfig, tile::reader::ReaderKind};
+use crate::components::{stage::StageConfig, tile::reader::StageKind};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 
@@ -51,7 +51,7 @@ impl<
     }
 
     /// Load all accumulators from the specified reader
-    pub fn load<R: StageReader<AccS<MP>, TileKind = ReaderKind<TM::AccTileReader>>>(
+    pub fn load<R: Stage<AccS<MP>, TileKind = StageKind<TM::AccStageReader>>>(
         &mut self,
         reader: &R,
         #[comptime] config: S,
@@ -63,11 +63,7 @@ impl<
             #[unroll]
             for n in 0..size_n {
                 let acc = self.get_at_mut(unwrap(m), unwrap(n), config);
-                let tile = R::read_tile::<S::StageMemoryConfig>(
-                    reader,
-                    (m, n),
-                    config.stage_memory_config(),
-                );
+                let tile = R::read_tile(reader, (m, n));
                 TM::load_acc(tile, acc, config.tile_config());
             }
         }

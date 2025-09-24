@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{StageConfig, StageMemory, StridedTilingLayout},
+    stage::{StageConfig, StridedStage, StridedTilingLayout},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -113,17 +113,15 @@ impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
         this: &mut Self,
         _task_id: u32,
         global_iter: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
+        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
-        let mut destination: SliceMut<Line<IP::Stage>> =
-            StridedTilingLayout::nth_slice::<IP::Stage, G::StageMemoryConfig>(
-                stage,
-                this.nth_slice,
-                comptime!(this.ident.into_stage()),
-                config.stage_memory_config(),
-            );
+        let mut destination: SliceMut<Line<IP::Stage>> = StridedTilingLayout::nth_slice::<IP::Stage>(
+            stage,
+            this.nth_slice,
+            comptime!(config.stage_memory_config(this.ident)),
+        );
 
         let window = load_window_in_stage(
             &global_iter.view(),

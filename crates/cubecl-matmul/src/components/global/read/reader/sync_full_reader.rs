@@ -11,8 +11,7 @@ use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::StageBuffer;
 use crate::components::global::read::TaskCounter;
-use crate::components::stage::FullStageReader;
-use crate::components::stage::StageMemory;
+use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -50,7 +49,7 @@ pub struct SyncFullStageGlobalReader<
     L: SyncFullLoadingStrategy,
 > {
     tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -69,10 +68,9 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StageMemory::new::<G::StageMemoryConfig>(
-            1u32,
+        let stage_memory = StridedStage::new(
             comptime!(ident.into_stage()),
-            config.stage_memory_config(),
+            config.stage_memory_config(ident),
         );
         let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
@@ -91,8 +89,8 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage_reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
-        FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
+    pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
+        self.stage_memory
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

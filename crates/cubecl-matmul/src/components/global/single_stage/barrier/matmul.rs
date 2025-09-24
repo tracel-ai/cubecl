@@ -9,11 +9,13 @@ use crate::components::global::memory::SimpleGlobalLayout;
 use crate::components::global::read::AsyncFullLoadingStrategy;
 use crate::components::global::read::AsyncFullStageGlobalReader;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
-use crate::components::stage::FullStageReader;
 use crate::components::stage::StageMatmul;
 use crate::components::{AccG, AccS, LhsS};
 use crate::components::{LhsG, global::read::ZeroGlobalReader};
-use crate::components::{MatmulIdent, stage::FillStageReader};
+use crate::components::{
+    MatmulIdent,
+    stage::{FilledStage, StridedStage},
+};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -39,9 +41,9 @@ impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<
 where
     SMM: StageMatmul<
             MP,
-            LhsStageReader = FullStageReader<LhsS<MP>, LL::TilingLayout>,
-            RhsStageReader = FullStageReader<RhsS<MP>, RL::TilingLayout>,
-            AccStageReader = FillStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            AccStage = FilledStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
     LL: AsyncFullLoadingStrategy,
@@ -72,7 +74,7 @@ where
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let acc_reader = acc_reader.stage_reader();
+        let acc_reader = acc_reader.stage();
         SMM::load_accumulators(&acc_reader, acc, config.stage_config());
 
         let barrier_level = LL::barrier_level();
@@ -95,15 +97,15 @@ where
             lhs_reader.load_stage(&lhs_barrier, config);
             rhs_reader.load_stage(&rhs_barrier, config);
 
-            let lhs_stage_reader = &lhs_reader.stage_reader();
-            let rhs_stage_reader = &rhs_reader.stage_reader();
+            let lhs_stage = &lhs_reader.stage();
+            let rhs_stage = &rhs_reader.stage();
 
             lhs_barrier.arrive_and_wait();
             rhs_barrier.arrive_and_wait();
 
             SMM::execute(
-                lhs_stage_reader,
-                rhs_stage_reader,
+                lhs_stage,
+                rhs_stage,
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,

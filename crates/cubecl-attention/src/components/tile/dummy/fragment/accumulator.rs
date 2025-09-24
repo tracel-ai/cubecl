@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::FlashIdent;
 use crate::components::tile::dummy::FlashMatmul;
@@ -81,7 +81,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
             }
         }
 
-        let tile = Tile::<FP::A> {
+        let tile = StridedTile::<FP::A> {
             slice: slice.to_slice(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,

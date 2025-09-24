@@ -6,8 +6,8 @@ use crate::components::{
     resource::ComputeResources, tile::reader::TileKind,
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
-use crate::components::{StageIdent, tile::reader::TileReader};
-use crate::components::{error::MatmulSetupError, tile::reader::ReaderTile};
+use crate::components::{StageIdent, tile::reader::StageReader};
+use crate::components::{error::MatmulSetupError, tile::reader::StageTile};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -18,9 +18,9 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
             R,
             A,
             Config = Self::Config,
-            LhsTileReader: TileReader<TileKind = Self::LhsTile>,
-            RhsTileReader: TileReader<TileKind = Self::RhsTile>,
-            AccTileReader: TileReader<TileKind = Self::AccTile>,
+            LhsStageReader: StageReader<TileKind = Self::LhsTile>,
+            RhsStageReader: StageReader<TileKind = Self::RhsTile>,
+            AccStageReader: StageReader<TileKind = Self::AccTile>,
         >;
 
     /// Tile kind for Lhs
@@ -79,11 +79,11 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     type AccFragment: CubeType;
 
     /// Reader for the lhs data
-    type LhsTileReader: TileReader;
+    type LhsStageReader: StageReader;
     /// Reader for the rhs data
-    type RhsTileReader: TileReader;
+    type RhsStageReader: StageReader;
     /// Reader for the accumulator data
-    type AccTileReader: TileReader;
+    type AccStageReader: StageReader;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
@@ -103,7 +103,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
-        tile: ReaderTile<Self::LhsTileReader, E>,
+        tile: StageTile<Self::LhsStageReader, E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -118,7 +118,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
-        tile: ReaderTile<Self::RhsTileReader, E>,
+        tile: StageTile<Self::RhsStageReader, E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -134,7 +134,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(
-        tile: ReaderTile<Self::AccTileReader, E>,
+        tile: StageTile<Self::AccStageReader, E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );

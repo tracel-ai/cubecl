@@ -8,7 +8,7 @@ use cubecl_std::{
 use cubecl_matmul::components::{
     InputPrecision, MatmulIdent, StageIdent,
     global::GlobalConfig,
-    stage::{FullStageReader, StageConfig, StageMemory},
+    stage::{StageMemoryConfig, StridedStage},
 };
 
 use crate::components::stage::reader::BiasTilingLayout;
@@ -18,13 +18,13 @@ use crate::components::stage::reader::BiasTilingLayout;
 pub enum BiasGlobalReader<IP: InputPrecision> {
     Some {
         view: View<Line<IP::Global>, Coords1d>,
-        stage: StageMemory<IP::Stage, BiasTilingLayout>,
+        stage: StridedStage<IP::Stage, BiasTilingLayout>,
     },
     None,
 }
 
 /// Type of the stage reader for the bias reader
-pub type BiasStageReader<E> = CubeOption<FullStageReader<E, BiasTilingLayout>>;
+pub type BiasStage<E> = CubeOption<StridedStage<E, BiasTilingLayout>>;
 
 #[cube]
 impl<IP: InputPrecision> BiasGlobalReader<IP> {
@@ -50,13 +50,11 @@ impl<IP: InputPrecision> BiasGlobalReader<IP> {
         }
     }
 
-    /// Create a reader for the stage contained in this global reader. It will use custom tiling with
+    /// Return the stage contained in this global reader. It will use custom tiling with
     /// a stride of `0`.
-    pub fn stage_reader(&self) -> BiasStageReader<IP::Stage> {
+    pub fn stage(&self) -> BiasStage<IP::Stage> {
         match self {
-            BiasGlobalReader::Some { stage, .. } => {
-                CubeOption::new_Some(FullStageReader::new(*stage, StageIdent::Acc))
-            }
+            BiasGlobalReader::Some { stage, .. } => CubeOption::new_Some(*stage),
             BiasGlobalReader::None => CubeOption::new_None(),
         }
     }
@@ -65,15 +63,15 @@ impl<IP: InputPrecision> BiasGlobalReader<IP> {
 #[cube]
 impl<IP: InputPrecision> BiasGlobalReader<IP> {
     /// Create a new bias reader from the bias tensor and a global offset `n_offset`.
-    pub fn new<G: GlobalConfig>(
+    pub fn new(
         tensor: CubeOption<VirtualTensor<IP::Global>>,
         n_offset: u32,
         slice_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: StageMemoryConfig,
     ) -> Self {
         match tensor {
             CubeOption::Some(tensor) => {
-                let stage = init_stage::<IP::Stage, G>(config);
+                let stage = init_stage::<IP::Stage>(config);
                 let view = tensor.as_view().slice_unchecked(n_offset, slice_size);
 
                 BiasGlobalReader::<IP>::new_Some(view, stage)
@@ -85,15 +83,15 @@ impl<IP: InputPrecision> BiasGlobalReader<IP> {
 
 /// Create a new 1D bias stage of size `stage_size_n`.
 #[cube]
-fn init_stage<ES: Numeric, G: GlobalConfig>(
-    #[comptime] config: G,
-) -> StageMemory<ES, BiasTilingLayout> {
-    let line_size = config.stage_config().stage_line_size(StageIdent::Acc);
+fn init_stage<ES: Numeric>(
+    #[comptime] config: StageMemoryConfig,
+) -> StridedStage<ES, BiasTilingLayout> {
+    let line_size = config.stage_line_size;
 
     let smem = SharedMemory::new_lined(
-        comptime!(config.tiling_scheme().elements_in_stage_n() / line_size),
+        comptime!(config.elements_in_stage_col / line_size),
         line_size,
     );
 
-    StageMemory::<ES, BiasTilingLayout>::new_with_smem(smem, 1u32)
+    StridedStage::<ES, BiasTilingLayout>::new_with_smem(smem, StageIdent::Acc, config)
 }

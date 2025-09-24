@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::FullStageReader;
+use cubecl_matmul::components::stage::StridedStage;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
@@ -27,8 +27,8 @@ pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> 
 impl<
     SA: StageAttention<
             AP,
-            KeyReader = FullStageReader<AP::ES, AttentionTilingLayout>,
-            ValueReader = FullStageReader<AP::ES, AttentionTilingLayout>,
+            KeyStage = StridedStage<AP::ES, AttentionTilingLayout>,
+            ValueStage = StridedStage<AP::ES, AttentionTilingLayout>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
@@ -48,8 +48,8 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        let key_stage_reader = key_reader.stage_reader();
-        let value_stage_reader = value_reader.stage_reader();
+        let key_stage = key_reader.stage();
+        let value_stage = value_reader.stage();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
@@ -76,8 +76,8 @@ impl<
             sync_cube();
 
             SA::execute(
-                &key_stage_reader,
-                &value_stage_reader,
+                &key_stage,
+                &value_stage,
                 &query,
                 &mut key_value,
                 &mut score_prob,

@@ -5,13 +5,13 @@ use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, Matm
 use crate::components::{error::MatmulSetupError, tile::reader::TileKind};
 use crate::components::{
     resource::ComputeResources,
-    tile::plane_vec_mat_inner_product::reader::{MatrixFragmentReader, MatrixTileReader},
+    tile::plane_vec_mat_inner_product::reader::{MatrixFragmentReader, MatrixStageReader},
 };
 use cubecl_core::prelude::*;
 
 impl<Kind: TileKind> TileMatmulFamily for PlaneVecMatInnerProduct<Kind>
 where
-    MatrixTileReader<Kind>: MatrixFragmentReader<TileKind = Kind>,
+    MatrixStageReader<Kind>: MatrixFragmentReader<TileKind = Kind>,
 {
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;

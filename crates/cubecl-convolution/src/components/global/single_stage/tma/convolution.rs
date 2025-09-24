@@ -8,7 +8,7 @@ use cubecl_core::{
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{GlobalConfig as _, read::arrive_tma, single_stage::tma::SimpleTmaConfig},
-    stage::{FullStageReader, StageMatmul},
+    stage::{StageMatmul, StridedStage},
 };
 use cubecl_std::{
     CubeOption,
@@ -22,7 +22,7 @@ use crate::{
             GlobalConvolution,
             layout::{NhwcLayout, OutLayout},
             read::{
-                bias::{BiasGlobalReader, BiasStageReader},
+                bias::{BiasGlobalReader, BiasStage},
                 im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
                 weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
             },
@@ -44,9 +44,9 @@ impl<MP: MatmulPrecision, SMM> GlobalConvolution<MP> for SimpleTmaConvolution<MP
 where
     SMM: StageMatmul<
             MP,
-            LhsStageReader = FullStageReader<LhsS<MP>, TmaIm2colTiling>,
-            RhsStageReader = FullStageReader<RhsS<MP>, TmaWeightTiling>,
-            AccStageReader = BiasStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, TmaIm2colTiling>,
+            RhsStage = StridedStage<RhsS<MP>, TmaWeightTiling>,
+            AccStage = BiasStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
 {
@@ -86,14 +86,14 @@ where
 
         sync_cube();
 
-        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
         let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
 
-            lhs_reader.fill_stage(&barrier, 0u32, config);
+            lhs_reader.fill_stage(&barrier, 0u32);
             rhs_reader.fill_stage(&barrier, 0u32, config.stage_config());
 
             arrive_tma(&barrier, stages_bytes);
@@ -101,8 +101,8 @@ where
             barrier.wait();
 
             SMM::execute(
-                &lhs_reader.stage_reader(0u32),
-                &rhs_reader.stage_reader(0u32),
+                &lhs_reader.stage(0u32),
+                &rhs_reader.stage(0u32),
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
@@ -144,13 +144,13 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         let (x_offset, y_offset) = offset;
-        Self::RhsGlobalReader::new::<Self::Config>(
+        Self::RhsGlobalReader::new(
             rhs.as_tensor_map(),
             x_offset,
             y_offset,
             runtime_args,
             1u32,
-            config,
+            config.stage_memory_config(MatmulIdent::Rhs),
         )
     }
 
@@ -160,7 +160,12 @@ where
         slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new::<Self::Config>(bias, n_offset, slice_size, config)
+        Self::AccGlobalReader::new(
+            bias,
+            n_offset,
+            slice_size,
+            config.stage_memory_config(MatmulIdent::Out),
+        )
     }
 
     fn init_global_writer(

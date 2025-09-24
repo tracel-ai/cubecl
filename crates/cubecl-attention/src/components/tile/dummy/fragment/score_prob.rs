@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::{
     FlashIdent,
@@ -122,7 +122,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
 
         sync_cube();
 
-        let tile = Tile::<FP::SP> {
+        let tile = StridedTile::<FP::SP> {
             slice: slice.to_slice(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,
@@ -165,7 +165,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ScoreFragment<FP, FM> {
 
         sync_cube();
 
-        let tile = Tile::<FP::SP> {
+        let tile = StridedTile::<FP::SP> {
             slice: slice.to_slice().try_cast_unchecked(),
             stride: self.num_cols.runtime(),
             layout: MatrixLayout::RowMajor,

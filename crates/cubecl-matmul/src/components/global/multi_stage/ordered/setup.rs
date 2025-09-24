@@ -1,11 +1,10 @@
 use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::global::read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
-use crate::components::stage::FullStageReaderFamily;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
-use crate::components::{error::MatmulSetupError, stage::FillStageReaderFamily};
-use crate::components::{global::GlobalMatmulFamily, stage::PartialStageReaderFamily};
+use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
+use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords2d;
@@ -25,9 +24,9 @@ pub struct OrderedDoubleBufferingMatmulFamily<
 impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
 where
     SMM: stage::StageMatmulFamily<
-            LhsStageReader = FullStageReaderFamily,
-            RhsStageReader = PartialStageReaderFamily,
-            AccStageReader = FillStageReaderFamily,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = FilledStageFamily,
             WriteCoords = Coords2d,
         >,
     RL: SyncPartialLoadingStrategy,

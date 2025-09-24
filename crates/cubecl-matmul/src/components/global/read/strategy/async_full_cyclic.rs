@@ -7,7 +7,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_tile},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{ContiguousTilingLayout, StageMemory, TilingOrder},
+    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -115,17 +115,16 @@ impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLa
         this: &mut Self,
         task_id: u32,
         global_iter: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         mechanism: &CM,
         #[comptime] config: G,
     ) {
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
+        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y(
             nth_tile,
-            comptime!(this.ident.into_stage()),
-            config.stage_memory_config(),
+            comptime!(config.stage_memory_config(this.ident)),
         );
         let nth_slice = slice_index % this.num_slices_per_tile;
 

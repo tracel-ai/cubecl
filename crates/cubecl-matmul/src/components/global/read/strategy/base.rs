@@ -1,6 +1,6 @@
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::{CopyMechanism, GlobalConfig};
-use crate::components::stage::{StageMemory, TilingLayout};
+use crate::components::stage::{StridedStage, TilingLayout};
 use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -17,7 +17,7 @@ pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Cl
         this: &mut Self,
         #[comptime] task_id: u32,
         tensor_reader: &GlobalIterator<IP::Global>,
-        stage_memory: &mut StageMemory<IP::Stage, TL>,
+        stage_memory: &mut StridedStage<IP::Stage, TL>,
         #[comptime] config: G,
     );
 
@@ -37,7 +37,7 @@ pub trait AsyncLoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy
         this: &mut Self,
         task_id: u32,
         tensor_reader: &GlobalIterator<IP::Global>,
-        stage_memory: &mut StageMemory<IP::Stage, TL>,
+        stage_memory: &mut StridedStage<IP::Stage, TL>,
         mechanism: &CM,
         #[comptime] config: G,
     );

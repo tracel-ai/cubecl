@@ -4,7 +4,7 @@ use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{ContiguousTilingLayout, StageMemory, TilingOrder};
+use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use cubecl_core as cubecl;
@@ -121,7 +121,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
         this: &mut Self,
         #[comptime] task_id: u32,
         tensor_reader: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
@@ -146,7 +146,7 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
     job: &SyncFullCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<IP::Global>,
-    stage: &mut StageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
+    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let nth_tile = unit_position / job.tile_num_elements;
@@ -155,10 +155,9 @@ pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: Global
     let layout = TiledLayout::new(comptime![config.global_memory_config(job.ident)]);
     let view = global_iter.view().view(layout);
 
-    let tile = ContiguousTilingLayout::<TO>::to_x_y::<G::StageMemoryConfig>(
+    let tile = ContiguousTilingLayout::<TO>::to_x_y(
         nth_tile,
-        comptime!(job.ident.into_stage()),
-        comptime!(config.stage_memory_config()),
+        comptime!(config.stage_memory_config(job.ident)),
     );
 
     let line_read = view.read_checked((tile, pos_within_tile));
