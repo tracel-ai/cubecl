@@ -137,7 +137,7 @@ impl MemoryFragment for VirtualSlice {
                     new_handles.push(handle);
                 }
             /// Use reverse here to maintain handles order.
-                new_handles.reverse()
+                new_handles.reverse();
                 Some(new_handles)
             } else {
                 None
@@ -682,16 +682,19 @@ impl VirtualMemoryPool {
             let remaining = size_to_map % self.max_alloc_size;
             let mut offset = old_slice_offset;
 
+            // If num handles required is 0 this part wont be executed.
             for _ in 0..num_handles_required {
                 let mut physical = self.get_or_alloc_physical(storage, self.max_alloc_size).ok()?;
                 storage.map(id, offset, &mut physical).ok()?;
                 offset += self.max_alloc_size;
                 handles.push(physical);
             }
+            if remaining > 0 {
+                let mut physical_remanent =  self.get_or_alloc_physical(storage, remaining).ok()?;
+                storage.map(id, offset, &mut physical_remanent).ok()?;
+                handles.push(physical_remanent);
 
-            let mut ph_remanent =  self.get_or_alloc_physical(storage, remaining).ok()?;
-            storage.map(id, offset, &mut ph_remanent).ok()?;
-            handles.push(physical_remanent);
+            }
 
             Some(handles)
 
