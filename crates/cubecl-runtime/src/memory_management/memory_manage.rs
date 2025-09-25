@@ -1,12 +1,12 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualMemoryPool},
 };
 use crate::{
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
-
+use crate::storage::VirtualStorage;
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
@@ -82,12 +82,13 @@ pub enum MemoryAllocationMode {
     Auto,
     /// Use a static memory management strategy, meaning that all allocations are for data that is
     /// never going to be freed.
-    Static,
+    Static
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
     static_pool: StaticPool,
+    virtual_pool: Option<VirtualMemoryPool>,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -122,10 +123,106 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
-impl<Storage: ComputeStorage> MemoryManagement<Storage> {
+
+
+
+/// Added this for testing. I know is not the cleanest integration.
+/// I you are happy with the rest of the PR I will listen to your advice in how to integrate it best.
+/// My idea was to change the Storage to Box<dyn Storage>, to do dynamic dispatch at runtime, but not sure what are your concerns about that.
+impl<Storage: VirtualStorage> MemoryManagement<Storage> {
+
+    fn with_virtual_memory(
+        &mut self,
+        min_alloc_size: u64,
+        max_alloc_size: u64,
+        alignment: u64,
+        virtual_storage: Storage,
+    ) {
+        let vpool = VirtualMemoryPool::new(min_alloc_size, max_alloc_size, alignment);
+        self.storage = virtual_storage;
+        self.virtual_pool = Some(vpool);
+    }
+
+
+    /// Returns the storage from the specified binding
+    pub fn get_virtual(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
+
+        if let Some(virtual_pool) = &self.virtual_pool && let Some(val) = virtual_pool.get(&binding) {
+            return Some(val.clone());
+        }
+        None
+    }
+
+
+    /// Cleanup allocations in pools that are deemed unnecessary.
+    pub fn cleanup_virtual(&mut self, explicit: bool) {
+
+        if let Some(ref mut pool) = self.virtual_pool {
+            pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
+        }
+
+    }
+
+     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
+    pub fn reserve_virtual(&mut self, size: u64) -> Result<SliceHandle, IoError> {
+        if let Some(mut virtual_pool) = self.virtual_pool.as_mut() {
+            if let Some(slice) = virtual_pool.try_reserve(size, &mut self.storage){
+                return Ok(slice)
+            }
+
+            return virtual_pool.alloc(size, self.alloc_reserve_count as usize,  &mut self.storage);
+        }
+
+        return Err(IoError::BufferTooBig(size as usize));
+
+    }
+
+     /// Returns the resource from the storage at the specified handle
+    /// Should work with both storage and virtualstorage as
+    pub fn get_resource_virtual(
+        &mut self,
+        binding: SliceBinding,
+        offset_start: Option<u64>,
+        offset_end: Option<u64>,
+    ) -> Option<Storage::Resource> {
+        let handle = self.get(binding);
+
+        handle.map(|handle| {
+            let handle = match offset_start {
+                Some(offset) => handle.offset_start(offset),
+                None => handle,
+            };
+            let handle = match offset_end {
+                Some(offset) => handle.offset_end(offset),
+                None => handle,
+            };
+            self.storage().get(&handle)
+        })
+    }
+
+
+
+    /// Get the current memory usage.
+    pub fn memory_usage_virtual(&self) -> MemoryUsage {
+        let memory_usage = self.virtual_pool.as_ref().unwrap().get_memory_usage();
+        memory_usage
+    }
+
+    /// Print out a report of the current memory usage.
+    pub fn print_memory_usage_virtual(&self) {
+        #[cfg(feature = "std")]
+        log::info!("{}", self.memory_usage_virtual());
+    }
+
+}
+
+
+/// This fragment does not require that `Storage` is `ComputeStorage`.
+/// I merged it here to have separate implementations for the methods that require of storage to be a certain type.
+impl<Storage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
-        storage: Storage, // It is needed to make this dynamically dispatch at runtime to be compatible with virtualstorage and pool.
+        storage: Storage,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
@@ -249,7 +346,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         Self {
             static_pool: StaticPool::new(properties.max_page_size),
-            //virtual_pool:
+            virtual_pool: None,
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -262,6 +359,26 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         self.mode = mode;
     }
 
+    /// Fetch the storage used by the memory manager.
+    ///
+    /// # Notes
+    ///
+    /// The storage should probably not be used for allocations since the handles won't be
+    /// compatible with the ones provided by the current trait. Prefer using the
+    /// [alloc](ComputeStorage::alloc) and [dealloc](ComputeStorage::dealloc) functions.
+    ///
+    /// This is useful if you need to time the deallocations based on async computation, or to
+    /// change the mode of storage for different reasons.
+    pub fn storage(&mut self) -> &mut Storage {
+        &mut self.storage
+    }
+
+
+}
+
+
+
+impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
         self.static_pool
@@ -270,6 +387,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         for pool in self.pools.iter_mut() {
             pool.cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
         }
+
     }
 
     /// Returns the storage from the specified binding
@@ -327,21 +445,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         pool.alloc(&mut self.storage, size)
     }
 
-    /// Fetch the storage used by the memory manager.
-    ///
-    /// # Notes
-    ///
-    /// The storage should probably not be used for allocations since the handles won't be
-    /// compatible with the ones provided by the current trait. Prefer using the
-    /// [alloc](ComputeStorage::alloc) and [dealloc](ComputeStorage::dealloc) functions.
-    ///
-    /// This is useful if you need to time the deallocations based on async computation, or to
-    /// change the mode of storage for different reasons.
-    pub fn storage(&mut self) -> &mut Storage {
-        &mut self.storage
-    }
 
-    /// Get the current memory usage.
+     /// Get the current memory usage.
     pub fn memory_usage(&self) -> MemoryUsage {
         let memory_usage = self.pools.iter().map(|x| x.get_memory_usage()).fold(
             MemoryUsage {
@@ -355,11 +460,14 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         memory_usage.combine(self.static_pool.get_memory_usage())
     }
 
+
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
     }
+
+
 }
 
 impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {

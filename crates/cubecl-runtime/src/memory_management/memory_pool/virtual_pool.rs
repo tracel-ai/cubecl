@@ -334,16 +334,11 @@ impl VirtualMemoryPool {
     /// Virtual memory works best when the variability of the physical allocations is low.
     /// Therefore, provided that we can only allocate chunks that are multiples of the gpu page size (2MiB) on CUDA,
     /// Therefore, it might be useful to have buckets of free physical chunks given their size. I am using the search index here to search for physical allocations given their size for this purpose.
-    pub fn new(min_alloc_size: u64, max_alloc_size: u64, page_size: u64, alignment: u64) -> Self {
+    pub fn new(min_alloc_size: u64, max_alloc_size: u64, alignment: u64) -> Self {
         // Ensure the allocation range is aligned to the granularity.
         let min_alloc_size = min_alloc_size.saturating_sub(1).next_multiple_of(alignment);
         let max_alloc_size = max_alloc_size.saturating_sub(1).next_multiple_of(alignment);
-        assert_eq!(
-            page_size % alignment,
-            0,
-            "Page size must be aligned to {}.",
-            alignment
-        );
+
 
         Self {
             pages: HashMap::new(),
@@ -561,11 +556,11 @@ impl VirtualMemoryPool {
 }
 
 impl VirtualMemoryPool {
-    fn max_alloc_size(&self) -> u64 {
+    pub fn max_alloc_size(&self) -> u64 {
         self.max_alloc_size
     }
 
-    fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
+    pub fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         self.virtual_slices
             .get(binding.id())
             .map(|vs| &vs.slice.storage)
@@ -574,7 +569,7 @@ impl VirtualMemoryPool {
     /// Attempt to reserve an slice of an specific size
     /// Will search for the first free slice that has enough size and split it if necessary.
     /// If the slice is not mapped, it will map it automatically.
-    fn try_reserve<Storage: VirtualStorage>(
+    pub fn try_reserve<Storage: VirtualStorage>(
         &mut self,
         size: u64,
         storage: &mut Storage,
@@ -630,7 +625,7 @@ impl VirtualMemoryPool {
     }
 
     /// Directly allocate a new slice using the backing storage.
-    fn alloc<Storage: VirtualStorage>(
+    pub fn alloc<Storage: VirtualStorage>(
         &mut self,
         size: u64,
         alloc_counter: usize,
@@ -693,7 +688,7 @@ impl VirtualMemoryPool {
     }
 
     /// Collect memory usage stats.
-    fn get_memory_usage(&self) -> MemoryUsage {
+    pub fn get_memory_usage(&self) -> MemoryUsage {
         let used_slices: Vec<_> = self
             .virtual_slices
             .values()
@@ -711,11 +706,11 @@ impl VirtualMemoryPool {
     }
 
     /// Clean up all physical memory handles that have become free after defragmentation.
-    fn cleanup<Storage: VirtualStorage>(
+    pub fn cleanup<Storage: VirtualStorage>(
         &mut self,
+        storage: &mut Storage,
         _alloc_nr: u64,
         explicit: bool,
-        storage: &mut Storage,
     ) {
         if explicit {
             self.defragment(storage);
