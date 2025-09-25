@@ -6,7 +6,10 @@ use cubecl_std::{
 };
 
 use crate::components::{
-    AccG, error::MatmulSetupError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+    AccG,
+    error::MatmulSetupError,
+    global::{WriteEventListener, memory::GlobalMemoryConfig},
+    stage::StageMemoryConfig,
 };
 use crate::components::{AccS, global::MaxGlobalReaderPlanes};
 use crate::components::{
@@ -28,13 +31,13 @@ use super::{StageEventListener, TilingLayout};
 /// A family of [StageMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait StageMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout>: StageMatmul<
+    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout, TO: TilingLayout>: StageMatmul<
             MP,
             Config = Self::Config,
             LhsStage = <Self::LhsStage as StageFamily>::Stage<LhsS<MP>, TL>,
             RhsStage = <Self::RhsStage as StageFamily>::Stage<RhsS<MP>, TR>,
             AccStage = <Self::AccStage as StageFamily>::Stage<AccS<MP>, TA>,
-            GlobalWriter: GlobalWriter<AccG<MP>, TileKind = Self::OutTile>
+            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<AccS<MP>, TO>,
         >;
 
     /// Reader family for Lhs
@@ -44,7 +47,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     /// Reader family for Acc
     type AccStage: StageFamily;
     /// Writer tile kind
-    type OutTile: TileKind<ReadWrite>;
+    type OutStage: StageFamily<ReadWrite>;
 
     /// The configuration type associated with this matmul family.
     type Config: StageConfig;
@@ -94,20 +97,22 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// The same Accumulator will be added to across multiple executions of the Stage Matmul.
     type Accumulators: CubeType;
 
-    /// How to read data for Lhs
+    /// Stage for Lhs
     type LhsStage: CubeType;
-    /// How to read data for Rhs
+    /// Stage for Rhs
     type RhsStage: CubeType;
-    /// How to read data for Accumulator
+    /// Stage for Accumulator
     type AccStage: CubeType;
+    /// Stage for Out
+    type OutStage: CubeType;
 
     /// Lhs input of the underlying Tile Matmul
     type LhsTile: CubeType;
     /// Rhs input of the underlying Tile Matmul
     type RhsTile: CubeType;
 
-    /// How to write to global memory after computation
-    type GlobalWriter: GlobalWriter<AccG<MP>>;
+    /// Type of the global writer for this stage matmul
+    type GlobalWriter: GlobalWriter<MP::Acc, Stage = Self::OutStage>;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     ///
@@ -152,12 +157,14 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
+        #[comptime] stage_config: Self::Config,
     ) -> Self::GlobalWriter;
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn write_results<G: global::GlobalConfig>(
+    fn write_results<W: WriteEventListener, G: global::GlobalConfig>(
         acc: &Self::Accumulators,
-        out: &mut Self::GlobalWriter,
+        stage: &mut Self::OutStage,
+        listener: &mut W,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
@@ -241,27 +248,29 @@ pub enum PartitionBuffering {
 /// Reader used to load the stage memory (if applicable) into tiles, with the same kind used by the
 /// tile matmul readers.
 #[cube]
-pub trait Stage<ES: Numeric>: CubeType + Send + Sync + 'static {
+pub trait Stage<ES: Numeric, IO: SliceVisibility = ReadOnly>:
+    CubeType + Send + Sync + 'static
+{
     /// The kind (or family) of the tiles being returned by this reader
-    type TileKind: TileKind;
+    type TileKind: TileKind<IO>;
 
     /// Slices a tile with offset (`row`, `col`) from the stage and returns it
-    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind>::Tile<ES>;
+    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES>;
 }
 
 /// Stage family for any precision
-pub trait StageFamily: Send + Sync + 'static {
+pub trait StageFamily<IO: SliceVisibility = ReadOnly>: Send + Sync + 'static {
     /// The tile kind (family) contained in the stage
-    type TileKind: TileKind;
+    type TileKind: TileKind<IO>;
     /// The concrete reader type of this family, instantiated with the type and layout
-    type Stage<ES: Numeric, T: TilingLayout>: Stage<ES, TileKind = Self::TileKind>;
+    type Stage<ES: Numeric, T: TilingLayout>: Stage<ES, IO, TileKind = Self::TileKind>;
 }
 
 #[cube]
-impl<ES: Numeric, Inner: Stage<ES>> Stage<ES> for CubeOption<Inner> {
+impl<ES: Numeric, IO: SliceVisibility, Inner: Stage<ES, IO>> Stage<ES, IO> for CubeOption<Inner> {
     type TileKind = CubeOption<Inner::TileKind>;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind>::Tile<ES> {
+    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES> {
         match this {
             CubeOption::Some(reader) => CubeOption::new_Some(Inner::read_tile(reader, tile)),
             CubeOption::None => CubeOption::new_None(),
@@ -269,7 +278,7 @@ impl<ES: Numeric, Inner: Stage<ES>> Stage<ES> for CubeOption<Inner> {
     }
 }
 
-impl<Inner: StageFamily> StageFamily for Option<Inner> {
+impl<IO: SliceVisibility, Inner: StageFamily<IO>> StageFamily<IO> for Option<Inner> {
     type TileKind = CubeOption<Inner::TileKind>;
     type Stage<ES: Numeric, T: TilingLayout> = CubeOption<Inner::Stage<ES, T>>;
 }

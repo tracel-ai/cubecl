@@ -1,7 +1,8 @@
-use crate::components::global::multi_stage::double_buffering::{
-    DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
+use crate::components::global::{
+    WriteStageFamily,
+    multi_stage::double_buffering::{DoubleBufferingGlobalConfig, DoubleBufferingMatmul},
 };
-use crate::components::global::read::SyncPartialLoadingStrategy;
+use crate::components::global::{WriteTiling, read::SyncPartialLoadingStrategy};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
@@ -28,13 +29,14 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
+            OutStage = WriteStageFamily,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
         MP,
-        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout, WriteTiling>,
         LL,
         RL,
     >;

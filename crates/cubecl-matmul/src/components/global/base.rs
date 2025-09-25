@@ -65,6 +65,7 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 /// before reading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
+
     /// Global reader for matrix A (Lhs)
     type LhsGlobalReader: CubeType;
     /// Global reader for matrix B (Rhs)
@@ -72,7 +73,8 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Global reader for matrix C (Accumulator/Bias)
     type AccGlobalReader: CubeType;
     /// Writer to store the output stage into global memory
-    type GlobalWriter: GlobalWriter<AccG<MP>>;
+    type GlobalWriter: GlobalWriter<MP::Acc>;
+
     /// The accumulator type for the tile matmul
     type Accumulators: CubeType;
 

@@ -7,7 +7,9 @@ use cubecl_core::{
 };
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
-    global::{GlobalConfig as _, read::arrive_tma, single_stage::tma::SimpleTmaConfig},
+    global::{
+        GlobalConfig as _, GlobalWriter, read::arrive_tma, single_stage::tma::SimpleTmaConfig,
+    },
     stage::{StageMatmul, StridedStage},
 };
 use cubecl_std::{
@@ -179,8 +181,11 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -249,7 +254,11 @@ where
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out = OutLayout::new(runtime_args, global_conf);
         let out = out.view_mut(layout_global).view_mut(layout_out);
-        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size), global_conf)
+        SMM::init_writer(
+            out.slice_mut_unchecked(offset, slice_size),
+            global_conf,
+            config.stage_config(),
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

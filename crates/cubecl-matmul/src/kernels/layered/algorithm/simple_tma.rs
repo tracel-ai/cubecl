@@ -6,7 +6,7 @@ use crate::{
     components::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-        global::single_stage::tma::SimpleTmaMatmulFamily,
+        global::{WriteStageFamily, single_stage::tma::SimpleTmaMatmulFamily},
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             TileMatmulFamily,

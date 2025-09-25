@@ -1,5 +1,8 @@
-use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
 use crate::components::global::read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
+use crate::components::global::{
+    WriteTiling,
+    multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
@@ -36,6 +39,7 @@ where
             <LL as SyncFullLoadingStrategy>::TilingLayout,
             RL::TilingLayout,
             NoTilingLayout,
+            WriteTiling,
         >,
         RL,
     >;

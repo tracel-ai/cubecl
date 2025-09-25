@@ -247,7 +247,11 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        SMM::init_writer(
+            out.view_mut(layout).slice_mut_unchecked(offset, size),
+            conf,
+            config.stage_config,
+        )
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

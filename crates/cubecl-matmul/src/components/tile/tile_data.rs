@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType, Clone, Copy)]
 /// Tile with a linear major dimension, and a strided minor dimension.
 /// Basic tile kind supported by all stage matmuls.
 pub struct StridedTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {

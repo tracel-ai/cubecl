@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulPrecision;
 use crate::components::RhsG;
 use crate::components::RhsS;
 use crate::components::global::GlobalConfig;
@@ -16,6 +15,7 @@ use crate::components::{
     MatmulIdent,
     stage::{FilledStage, StridedStage},
 };
+use crate::components::{MatmulPrecision, global::GlobalWriter};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -116,8 +116,11 @@ where
             rhs_reader.advance_view();
         }
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = <Self::GlobalWriter as GlobalWriter<MP::Acc>>::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -185,7 +188,11 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        SMM::init_writer(
+            out.view_mut(layout).slice_mut_unchecked(offset, size),
+            conf,
+            config.stage_config(),
+        )
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

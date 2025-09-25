@@ -5,7 +5,7 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+            WriteStageFamily, multi_stage::double_buffering::DoubleBufferingMatmulFamily,
             read::sync_partial_cyclic::SyncPartialCyclicLoading,
         },
         stage::{FilledStageFamily, RowMajorTilingOrder, StridedStageFamily, UnitMatmulFamily},

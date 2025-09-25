@@ -51,7 +51,7 @@ impl<
     }
 
     /// Load all accumulators from the specified reader
-    pub fn load<R: Stage<AccS<MP>, TileKind = TM::AccTile>>(
+    pub fn load<R: Stage<AccS<MP>, ReadOnly, TileKind = TM::AccTile>>(
         &mut self,
         reader: &R,
         #[comptime] config: S,

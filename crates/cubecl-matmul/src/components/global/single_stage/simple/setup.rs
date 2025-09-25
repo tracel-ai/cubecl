@@ -2,6 +2,7 @@ use crate::components::{
     MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
+        WriteTiling,
         read::SyncFullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
@@ -39,7 +40,7 @@ where
 {
     type Matmul<MP: MatmulPrecision> = SimpleMatmul<
         MP,
-        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout, WriteTiling>,
         LL,
         RL,
     >;

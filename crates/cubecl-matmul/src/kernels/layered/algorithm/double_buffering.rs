@@ -3,8 +3,10 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::global::read::sync_partial_cyclic::SyncPartialCyclicLoading;
 use crate::components::global::read::sync_partial_tilewise::SyncPartialTilewiseLoading;
+use crate::components::global::{
+    WriteStageFamily, read::sync_partial_cyclic::SyncPartialCyclicLoading,
+};
 use crate::components::stage::{ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};

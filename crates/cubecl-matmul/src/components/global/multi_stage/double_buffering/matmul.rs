@@ -1,7 +1,10 @@
-use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_read_next, execute_last_and_write_results, read_first,
-};
 use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::global::{
+    PartitionedStage,
+    multi_stage::double_buffer_execution::{
+        execute_current_and_read_next, execute_last_and_write_results, read_first,
+    },
+};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::{
     AccG,
@@ -32,7 +35,7 @@ pub struct DoubleBufferingMatmul<
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 > where
-    SMM::GlobalWriter: GlobalWriter<AccG<MP>>,
+    SMM::GlobalWriter: GlobalWriter<MP::Acc>,
 {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -49,6 +52,7 @@ where
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
+            OutStage = PartitionedStage<AccS<MP>>,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
@@ -247,7 +251,11 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        SMM::init_writer(
+            out.view_mut(layout).slice_mut_unchecked(offset, size),
+            conf,
+            config.stage_config,
+        )
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

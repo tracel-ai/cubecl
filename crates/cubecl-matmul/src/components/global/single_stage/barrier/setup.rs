@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::error::MatmulSetupError;
 use crate::components::global::read::AsyncFullLoadingStrategy;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
 use crate::components::global::single_stage::barrier::matmul::SimpleBarrierMatmul;
@@ -9,6 +8,7 @@ use crate::components::{MatmulLineSizes, stage::NoTilingLayout};
 use crate::components::{MatmulPrecision, stage::StridedStageFamily};
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use crate::components::{MatmulSelection, stage::FilledStageFamily};
+use crate::components::{error::MatmulSetupError, global::WriteTiling};
 use cubecl_core::{Runtime, client::ComputeClient};
 
 /// Simple Barrier matmul family for any precision
@@ -34,7 +34,7 @@ where
 {
     type Matmul<MP: MatmulPrecision> = SimpleBarrierMatmul<
         MP,
-        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout, WriteTiling>,
         LL,
         RL,
     >;

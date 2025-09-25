@@ -28,7 +28,7 @@ impl<ES: Numeric> FilledStage<ES> {
 }
 
 #[cube]
-impl<ES: Numeric> Stage<ES> for FilledStage<ES> {
+impl<ES: Numeric> Stage<ES, ReadOnly> for FilledStage<ES> {
     type TileKind = Filled;
 
     fn read_tile(this: &Self, _tile: Coords2d) -> ES {

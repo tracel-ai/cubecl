@@ -47,7 +47,7 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: ConvGemmConfig;
 
     /// The writer used to write the results to the output feature map
-    type GlobalWriter: GlobalWriter<AccG<MP>>;
+    type GlobalWriter: GlobalWriter<MP::Acc>;
     /// The type of the tile matmul accumulator
     type Accumulators: CubeType;
 

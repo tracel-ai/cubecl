@@ -1,7 +1,7 @@
 use crate::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalMatmul,
+        GlobalMatmul, GlobalWriter,
         memory::SimpleGlobalLayout,
         read::{SyncFullLoadingStrategy, SyncFullStageGlobalReader, ZeroGlobalReader},
         single_stage::simple::SimpleConfig,
@@ -93,8 +93,11 @@ where
             rhs_reader.advance_view();
         }
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = <Self::GlobalWriter as GlobalWriter<MP::Acc>>::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -162,7 +165,11 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        SMM::init_writer(
+            out.view_mut(layout).slice_mut_unchecked(offset, size),
+            conf,
+            config.stage_config(),
+        )
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

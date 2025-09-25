@@ -11,6 +11,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
+            WriteStageFamily,
             read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },

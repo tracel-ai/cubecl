@@ -1,4 +1,3 @@
-use crate::components::global::GlobalConfig;
 use crate::components::global::LoadingSides;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
@@ -6,6 +5,7 @@ use crate::components::global::SpecializerKind;
 use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::read::StageBuffer;
+use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::stage::PartitionScheduler;
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
@@ -154,6 +154,8 @@ pub fn execute_last_and_write_results<
     partition_scheduler: &PartitionScheduler,
     #[comptime] config: G,
 ) {
+    let mut out_stage = <SMM::GlobalWriter as GlobalWriter<MP::Acc>>::stage(out_writer);
+
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
             main_flow_loading_side: _,
@@ -172,8 +174,9 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<G>(
+                SMM::write_results::<SMM::GlobalWriter, G>(
                     acc,
+                    &mut out_stage,
                     out_writer,
                     partition_scheduler,
                     config.stage_config(),
@@ -192,8 +195,9 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<G>(
+            SMM::write_results::<SMM::GlobalWriter, G>(
                 acc,
+                &mut out_stage,
                 out_writer,
                 partition_scheduler,
                 config.stage_config(),

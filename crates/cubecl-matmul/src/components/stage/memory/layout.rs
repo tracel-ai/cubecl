@@ -287,7 +287,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                         total_tile_count_y,
                     )
                 }
-                StageIdent::Acc => (
+                StageIdent::Acc | StageIdent::Out => (
                     0u32,
                     0u32,
                     config.tiles_in_stage_row,

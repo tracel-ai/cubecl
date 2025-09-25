@@ -1,5 +1,3 @@
-use crate::components::MatmulPrecision;
-use crate::components::MatmulSelection;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::read::NoLoadingValidation;
 use crate::components::global::read::TmaTiling;
@@ -11,6 +9,8 @@ use crate::components::{
     MatmulLineSizes,
     stage::{FilledStageFamily, StridedStageFamily},
 };
+use crate::components::{MatmulPrecision, global::WriteStageFamily};
+use crate::components::{MatmulSelection, global::WriteTiling};
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
@@ -29,10 +29,11 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
+            OutStage = WriteStageFamily,
         >,
 {
     type Matmul<MP: MatmulPrecision> =
-        SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling, NoTilingLayout>>;
+        SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling, NoTilingLayout, WriteTiling>>;
     type Config = SimpleTmaConfig<SMM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(

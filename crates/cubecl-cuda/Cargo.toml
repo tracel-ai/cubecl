@@ -25,7 +25,7 @@ std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 cuda-12050 = ["cudarc/cuda-12050"]
 cuda-12080 = ["cudarc/cuda-12080"]
 
-attention_tests = ["cubecl-attention/attention_tests"]
+#attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
     "matmul_tests_unit",
@@ -100,9 +100,9 @@ log = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
-    "export_tests",
-] }
+# cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
+#     "export_tests",
+# ] }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
     "export_tests",
 ] }

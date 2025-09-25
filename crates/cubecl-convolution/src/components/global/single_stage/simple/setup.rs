@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    global::{read::NoLoadingValidation, single_stage::simple::SimpleConfig},
+    global::{WriteTiling, read::NoLoadingValidation, single_stage::simple::SimpleConfig},
     stage::{
         ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
         StridedStageFamily,
@@ -32,7 +32,7 @@ where
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<
         MP,
-        SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout>,
+        SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout, WriteTiling>,
     >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
 

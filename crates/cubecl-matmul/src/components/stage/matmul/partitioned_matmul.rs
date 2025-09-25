@@ -1,16 +1,14 @@
-use crate::components::stage::StageMatmul;
+use crate::components::MatmulPrecision;
+use crate::components::global;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::stage::{RowMajorTilingOrder, StageConfig};
 use crate::components::tile::TileMatmul;
 use crate::components::{AccG, global::memory::GlobalMemoryConfig};
-use crate::components::{AccS, global};
 use crate::components::{InputPrecision, stage::Stage};
-use crate::components::{MatmulIdent, tile::io::Strided};
-use crate::components::{MatmulPrecision, stage::StageMemoryConfig};
-use crate::components::{StageIdent, stage::StridedStage};
 use crate::components::{global::GlobalWriter, stage::ContiguousTilingLayout};
+use crate::components::{global::WriteEventListener, stage::StageMatmul};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -23,21 +21,17 @@ type StageLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
     /// Writer used to store accumulators back to global memory.
-    type Writer<EO: Numeric>: GlobalWriter<EO, TileKind = Strided>;
+    type Writer<IP: InputPrecision>: GlobalWriter<IP>;
 
     /// Initializes a writer at the given global offsets.
-    fn init_writer<EO: Numeric>(
-        tensor: View<Line<EO>, Coords2d, ReadWrite>,
+    fn init_writer<IP: InputPrecision, S: StageConfig>(
+        tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::Writer<EO>;
+        #[comptime] stage_config: S,
+    ) -> Self::Writer<IP>;
 
     /// Returns the (row, col) of the current compute primitive within the stage.
     fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d;
-
-    /// Returns the stage memory config for the intermediary shared memory.
-    fn stage_memory_config<S: StageConfig>(
-        #[comptime] config: S,
-    ) -> comptime_type!(StageMemoryConfig);
 }
 
 /// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.
@@ -50,33 +44,63 @@ pub struct PartitionedStageMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    StageLhs: Stage<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage, TileKind = TM::LhsTile>,
-    StageRhs: Stage<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage, TileKind = TM::RhsTile>,
-    StageAcc: Stage<<<MP as MatmulPrecision>::Acc as InputPrecision>::Stage, TileKind = TM::AccTile>,
-    SP: StagePartitioner,
+    StageLhs: Stage<
+            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::LhsTile,
+        >,
+    StageRhs: Stage<
+            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::RhsTile,
+        >,
+    StageAcc: Stage<
+            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::AccTile,
+        >,
+    StageOut: Stage<
+            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            ReadWrite,
+            TileKind = TM::OutTile,
+        >,
+    SP: StagePartitioner<Writer<MP::Acc>: GlobalWriter<MP::Acc, Stage = StageOut>>,
     S: StageConfig<TileConfig = TM::Config>,
 > {
-    _phantom: PhantomData<(MP, TM, StageLhs, StageRhs, StageAcc, SP, S)>,
+    _phantom: PhantomData<(MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S)>,
 }
 
 #[cube]
-impl<MP, TM, StageLhs, StageRhs, StageAcc, SP, S> StageMatmul<MP>
-    for PartitionedStageMatmul<MP, TM, StageLhs, StageRhs, StageAcc, SP, S>
+impl<MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S> StageMatmul<MP>
+    for PartitionedStageMatmul<MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S>
 where
     MP: MatmulPrecision,
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
-            OutTile = Strided,
         >,
-    StageLhs:
-        Stage<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage, TileKind = TM::LhsTile>,
-    StageRhs:
-        Stage<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage, TileKind = TM::RhsTile>,
-    StageAcc:
-        Stage<<<MP as MatmulPrecision>::Acc as InputPrecision>::Stage, TileKind = TM::AccTile>,
-    SP: StagePartitioner,
+    StageLhs: Stage<
+            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::LhsTile,
+        >,
+    StageRhs: Stage<
+            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::RhsTile,
+        >,
+    StageAcc: Stage<
+            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            ReadOnly,
+            TileKind = TM::AccTile,
+        >,
+    StageOut: Stage<
+            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            ReadWrite,
+            TileKind = TM::OutTile,
+        >,
+    SP: StagePartitioner<Writer<MP::Acc>: GlobalWriter<MP::Acc, Stage = StageOut>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
@@ -84,10 +108,13 @@ where
     type LhsStage = StageLhs;
     type RhsStage = StageRhs;
     type AccStage = StageAcc;
+    type OutStage = StageOut;
+
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
-    type GlobalWriter = SP::Writer<AccG<MP>>;
+
+    type GlobalWriter = SP::Writer<MP::Acc>;
 
     fn execute(
         lhs_reader: &StageLhs,
@@ -150,25 +177,20 @@ where
         );
     }
 
-    fn write_results<G: global::GlobalConfig>(
-        acc: &Accumulators<MP, TM, S>,
-        out: &mut Self::GlobalWriter,
+    fn write_results<W: WriteEventListener, G: global::GlobalConfig>(
+        acc: &Self::Accumulators,
+        stage: &mut Self::OutStage,
+        listener: &mut W,
         partition_scheduler: &PartitionScheduler,
-        #[comptime] stage_config: S,
+        #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
     ) {
-        let out_stage = StridedStage::<AccS<MP>, StageLayout>::new(
-            StageIdent::Acc,
-            SP::stage_memory_config::<S>(stage_config),
-        );
-
-        let partition = SP::coordinates::<Self::Config>(stage_config);
-        let mut out_tile = out_stage.get_tile_mut(partition);
-
         let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
 
         let mut m_iter = comptime![0u32];
+
+        W::on_event(listener, global::WriteEvent::new_Begin());
 
         // Iterate over each tile in the partition
         #[unroll]
@@ -185,30 +207,28 @@ where
                 let tile_accumulator =
                     Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
 
+                let tile_pos = (m_load_iter, n_load_iter);
+                let mut tile = Self::OutStage::read_tile(stage, tile_pos);
+
                 // Write the results for one tile. To save shared memory space, it reuses the same spot for
                 // all tile in the partition
-                TM::write_results(&mut out_tile, tile_accumulator, stage_config.tile_config());
-
-                // Write the current tile result to global memory
-                Self::GlobalWriter::write(
-                    out,
-                    &out_tile,
-                    (m_load_iter, n_load_iter),
-                    global_config.plane_dim(),
-                    global_config.global_memory_config(MatmulIdent::Out),
-                );
+                TM::write_results(&mut tile, tile_accumulator, stage_config.tile_config());
+                W::on_event(listener, global::WriteEvent::new_TileStored(tile_pos));
 
                 comptime![n_iter += 1];
             }
             comptime![m_iter += 1];
         }
+
+        W::on_event(listener, global::WriteEvent::new_Finish());
     }
 
     fn init_writer(
         tensor: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
+        #[comptime] stage_config: Self::Config,
     ) -> Self::GlobalWriter {
-        SP::init_writer(tensor, config)
+        SP::init_writer::<MP::Acc, Self::Config>(tensor, config, stage_config)
     }
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {

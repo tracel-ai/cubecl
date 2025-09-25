@@ -23,7 +23,7 @@ pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>>
 }
 
 #[cube]
-impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
+impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA: TileAttention<AP>>
     StageAttention<AP> for DummyStageAttention<AP, S, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
@@ -36,7 +36,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
     type KeyValue = KeyValues<AP, TA, Self::Config>;
     type Score = Scores<AP, TA, Self::Config>;
     type Accumulator = Accumulators<AP, TA, Self::Config>;
-    type Writer = PlaneWriter<AP::EO>;
+    type Writer = PlaneWriter<(AP::EO, AP::EO)>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -61,7 +61,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
+                let key_tile = S::read_tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_tile,
@@ -113,7 +113,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
+                let value_tile = S::read_tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_tile,
@@ -191,7 +191,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer {
-        PlaneWriter::new(tensor, config)
+        PlaneWriter::new(tensor, config, stage_config)
     }
 
     fn write<G: GlobalAttentionConfig>(

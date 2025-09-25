@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    StageLhs: Stage<LhsS<MP>, TileKind = TMM::LhsTile>,
-    StageRhs: Stage<RhsS<MP>, TileKind = TMM::RhsTile>,
-    StageAcc: Stage<AccS<MP>, TileKind = TMM::AccTile>,
+    StageLhs: Stage<LhsS<MP>, ReadOnly, TileKind = TMM::LhsTile>,
+    StageRhs: Stage<RhsS<MP>, ReadOnly, TileKind = TMM::RhsTile>,
+    StageAcc: Stage<AccS<MP>, ReadOnly, TileKind = TMM::AccTile>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, StageLhs, StageRhs, StageAcc, S)>,
@@ -38,9 +38,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    StageLhs: Stage<LhsS<MP>, TileKind = TM::LhsTile>,
-    StageRhs: Stage<RhsS<MP>, TileKind = TM::RhsTile>,
-    StageAcc: Stage<AccS<MP>, TileKind = TM::AccTile>,
+    StageLhs: Stage<LhsS<MP>, ReadOnly, TileKind = TM::LhsTile>,
+    StageRhs: Stage<RhsS<MP>, ReadOnly, TileKind = TM::RhsTile>,
+    StageAcc: Stage<AccS<MP>, ReadOnly, TileKind = TM::AccTile>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]

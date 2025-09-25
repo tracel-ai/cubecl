@@ -51,6 +51,7 @@ impl RegisterFragmentReader for RegisterStageReader<Strided> {
             StageIdent::Lhs => load_lhs(tile, frag, config),
             StageIdent::Rhs => load_rhs(tile, frag, config),
             StageIdent::Acc => load_acc(tile, frag, config),
+            StageIdent::Out => panic!("Can't load out"),
         }
     }
 }
@@ -152,6 +153,7 @@ impl RegisterFragmentReader for RegisterStageReader<Filled> {
             StageIdent::Lhs => size.mk(),
             StageIdent::Rhs => size.nk(),
             StageIdent::Acc => size.mn(),
+            StageIdent::Out => size.mn(),
         };
 
         for i in 0..size {

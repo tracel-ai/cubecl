@@ -1,5 +1,3 @@
-use crate::components::LhsS;
-use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -18,13 +16,15 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::{AccR, InputPrecision};
 use crate::components::{AccS, ComputeResources};
 use crate::components::{LhsR, tile::io::Strided};
+use crate::components::{LhsS, global::WriteStageFamily};
+use crate::components::{MatmulLineSizes, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 /// Unit Matmul family for any precision
-pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: StageFamily, RA: StageFamily> {
-    _phantom: PhantomData<(TM, RF, RA)>,
+pub struct UnitMatmulFamily<TM: TileMatmulFamily, StageIn: StageFamily, StageAcc: StageFamily> {
+    _phantom: PhantomData<(TM, StageIn, StageAcc)>,
 }
 
 impl<
@@ -41,23 +41,28 @@ impl<
     type LhsStage = StageIn;
     type RhsStage = StageIn;
     type AccStage = StageAcc;
+    type OutStage = WriteStageFamily;
 
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
-        UnitMatmul<
-            MP,
-            TM::Matmul<
-                <MP::Lhs as InputPrecision>::Register,
-                <MP::Rhs as InputPrecision>::Register,
-                <MP::Acc as InputPrecision>::Register,
-            >,
-            StageIn::Stage<LhsS<MP>, TL>,
-            StageIn::Stage<RhsS<MP>, TR>,
-            StageAcc::Stage<AccS<MP>, TA>,
-        >;
+    type Matmul<
+        MP: MatmulPrecision,
+        TL: TilingLayout,
+        TR: TilingLayout,
+        TA: TilingLayout,
+        TO: TilingLayout,
+    > = UnitMatmul<
+        MP,
+        TM::Matmul<
+            <MP::Lhs as InputPrecision>::Register,
+            <MP::Rhs as InputPrecision>::Register,
+            <MP::Acc as InputPrecision>::Register,
+        >,
+        StageIn::Stage<LhsS<MP>, TL>,
+        StageIn::Stage<RhsS<MP>, TR>,
+        StageAcc::Stage<AccS<MP>, TA>,
+        PartitionedStage<AccS<MP>>,
+    >;
 
     type Config = UnitPartitionedStageConfig<TM::Config>;
-
-    type OutTile = Strided;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

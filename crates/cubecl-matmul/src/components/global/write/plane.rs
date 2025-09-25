@@ -1,51 +1,55 @@
 use crate::components::{
+    InputPrecision, StageIdent,
     global::{
+        GlobalWriter, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
         memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
-    tile::{StridedTile, io::Strided},
+    stage::{PlanePartitioner, StageConfig, StageMemoryConfig, StagePartitioner},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 
-use super::GlobalWriter;
-
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
 /// using a plane for each tile
-pub struct PlaneWriter<EG: Numeric> {
-    pub view: View<Line<EG>, TiledCoords, ReadWrite>,
+pub struct PlaneWriter<IP: InputPrecision> {
+    global: View<Line<IP::Global>, TiledCoords, ReadWrite>,
+    stage: PartitionedStage<IP::Stage>,
+
+    #[cube(comptime)]
+    plane_dim: u32,
+    #[cube(comptime)]
+    config: GlobalMemoryConfig,
 }
 
 #[cube]
-impl<EG: Numeric> PlaneWriter<EG> {
-    pub fn new(
-        view: View<Line<EG>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
+impl<IP: InputPrecision> PlaneWriter<IP> {
+    pub fn new<S: StageConfig>(
+        global: View<Line<IP::Global>, Coords2d, ReadWrite>,
+        #[comptime] global_config: GlobalMemoryConfig,
+        #[comptime] stage_config: S,
     ) -> Self {
-        PlaneWriter::<EG> {
-            view: view.view_mut(TiledLayout::new(config)),
+        let stage_mem_config = comptime![stage_memory_config(stage_config)];
+        let stage = PartitionedStage::new(tile_pos::<S>(stage_config), stage_mem_config);
+
+        PlaneWriter::<IP> {
+            global: global.view_mut(TiledLayout::new(global_config)),
+            stage,
+            plane_dim: stage_config.plane_dim(),
+            config: global_config,
         }
     }
-}
 
-#[cube]
-impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
-    type TileKind = Strided;
-
-    fn write<ES: Numeric>(
-        this: &mut Self,
-        smem_tile: &StridedTile<ES, ReadWrite>,
-        tile: Coords2d,
-        #[comptime] plane_dim: u32,
-        #[comptime] config: GlobalMemoryConfig,
-    ) {
+    fn write(&mut self, tile: Coords2d) {
+        let config = comptime![self.config];
+        let smem_tile = &self.stage.unit_tile;
         let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
         let output_line_size = config.global_line_size;
 
-        let unit_step = plane_dim * output_line_size;
+        let unit_step = comptime![self.plane_dim * output_line_size];
         let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
         let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
 
@@ -55,13 +59,51 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                write_line(&mut this.view, &smem_tile.slice, unit_write, tile);
+                write_line(&mut self.global, &smem_tile.slice, unit_write, tile);
             } else {
                 if unit_write < tile_size {
-                    write_line(&mut this.view, &smem_tile.slice, unit_write, tile);
+                    write_line(&mut self.global, &smem_tile.slice, unit_write, tile);
                 }
             }
         }
+    }
+}
+
+#[cube]
+fn tile_pos<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
+    PlanePartitioner::coordinates::<S>(config)
+}
+
+fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
+    let planes = config.num_main_flow_planes();
+    let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
+    let base = config.stage_memory_config(StageIdent::Acc);
+    StageMemoryConfig {
+        tiles_in_stage_row: planes / size_n,
+        tiles_in_stage_col: size_n,
+        ..base
+    }
+}
+
+#[cube]
+impl<IP: InputPrecision> WriteEventListener for PlaneWriter<IP> {
+    fn on_event(this: &mut Self, event: super::WriteEvent) {
+        #[allow(clippy::single_match)]
+        match event {
+            WriteEvent::TileStored { tile } => {
+                this.write(tile);
+            }
+            _ => {}
+        }
+    }
+}
+
+#[cube]
+impl<IP: InputPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
+    type Stage = PartitionedStage<IP::Stage>;
+
+    fn stage(this: &Self) -> Self::Stage {
+        this.stage
     }
 }
 

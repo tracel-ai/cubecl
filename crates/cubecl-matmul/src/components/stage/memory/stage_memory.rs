@@ -23,7 +23,7 @@ impl StageFamily for StridedStageFamily {
 /// abstracting its layout
 pub struct StridedStage<ES: Numeric, T: TilingLayout> {
     /// Underlying shared memory
-    smem: SharedMemory<Line<ES>>,
+    pub smem: SharedMemory<Line<ES>>,
     buffer_index: u32,
 
     #[cube(comptime)]
@@ -216,10 +216,19 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> Stage<ES> for StridedStage<ES, T> {
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadOnly> for StridedStage<ES, T> {
     type TileKind = Strided;
 
     fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
         this.get_tile(tile)
+    }
+}
+
+#[cube]
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadWrite> for StridedStage<ES, T> {
+    type TileKind = Strided;
+
+    fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        this.get_tile_mut(tile)
     }
 }
