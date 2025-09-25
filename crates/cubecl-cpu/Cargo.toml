@@ -96,9 +96,7 @@ half = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
 sysinfo = { workspace = true }
-
-[target.'cfg(target_os = "linux")'.dependencies]
-tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm", rev = "75780fbe097cce2ce11e3520e902d1784bfbd1d3" }
+tracel-llvm = { workspace = true }
 
 [dev-dependencies]
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
@@ -115,3 +113,6 @@ cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[build-dependencies]
+tracel-llvm-bundler = { version = "20.1.4-5"  }

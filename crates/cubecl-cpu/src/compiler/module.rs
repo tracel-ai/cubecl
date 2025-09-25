@@ -1,6 +1,6 @@
 use cubecl_core::prelude::KernelDefinition;
 use cubecl_opt::Optimizer;
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     ir::{Location, operation::OperationLike},
     pass::{self, PassManager},
@@ -9,7 +9,7 @@ use tracel_llvm::melior::{
 use super::{passes::shared_memories::SharedMemories, visitor::Visitor};
 
 pub(super) struct Module<'a> {
-    module: tracel_llvm::melior::ir::Module<'a>,
+    module: tracel_llvm::mlir_rs::ir::Module<'a>,
     #[allow(unused)]
     name: String,
     location: Location<'a>,
@@ -19,7 +19,7 @@ pub(super) struct Module<'a> {
 impl<'a> Module<'a> {
     pub(super) fn new(context: &'a Context, name: String) -> Self {
         let location = Location::unknown(context);
-        let module = tracel_llvm::melior::ir::Module::new(location);
+        let module = tracel_llvm::mlir_rs::ir::Module::new(location);
         Self {
             module,
             context,
@@ -50,7 +50,7 @@ impl<'a> Module<'a> {
         #[cfg(feature = "mlir-dump")]
         if let Ok(dir) = std::env::var("CUBECL_DEBUG_MLIR") {
             use std::path::PathBuf;
-            use tracel_llvm::melior::{
+            use tracel_llvm::mlir_rs::{
                 ir::operation::OperationPrintingFlags, pass::PassIrPrintingOptions,
             };
 
