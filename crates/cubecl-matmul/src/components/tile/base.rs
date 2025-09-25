@@ -1,14 +1,14 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources,
-    tile::io::{StageWriter, TileKind, WriteStageTile},
+    tile::io::{Tile, TileKind},
 };
 use crate::components::{MatmulLineSizes, MatmulSelection};
-use crate::components::{StageIdent, tile::io::StageReader};
-use crate::components::{error::MatmulSetupError, tile::io::ReadStageTile};
+use crate::components::{StageIdent, tile::io::TileMut};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -19,10 +19,10 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
             R,
             A,
             Config = Self::Config,
-            LhsStageReader: StageReader<TileKind = Self::LhsTile>,
-            RhsStageReader: StageReader<TileKind = Self::RhsTile>,
-            AccStageReader: StageReader<TileKind = Self::AccTile>,
-            OutStageWriter: StageWriter<TileKind = Self::OutTile>,
+            LhsTile = Self::LhsTile,
+            RhsTile = Self::RhsTile,
+            AccTile = Self::AccTile,
+            OutTile = Self::OutTile,
         >;
 
     /// Tile kind for Lhs
@@ -75,6 +75,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync {
     /// The configuration type associated with this Matmul.
     type Config: TileConfig;
+
     /// Contains Lhs data for computation
     type LhsFragment: CubeType;
     /// Contains Rhs data for computation
@@ -82,14 +83,14 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// Contains and accumulates results of the Tile Matmul execution
     type AccFragment: CubeType;
 
-    /// Reader for the lhs data
-    type LhsStageReader: StageReader;
-    /// Reader for the rhs data
-    type RhsStageReader: StageReader;
-    /// Reader for the accumulator data
-    type AccStageReader: StageReader;
-    /// Writer for the output data
-    type OutStageWriter: StageWriter;
+    /// Tile for the lhs data
+    type LhsTile: TileKind;
+    /// Tile for the rhs data
+    type RhsTile: TileKind;
+    /// Tile for the accumulator data
+    type AccTile: TileKind;
+    /// Tile for the output data
+    type OutTile: TileKind<ReadWrite>;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     fn execute(
@@ -109,7 +110,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
-        tile: ReadStageTile<Self::LhsStageReader, E>,
+        tile: &Tile<Self::LhsTile, E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -124,7 +125,7 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
-        tile: ReadStageTile<Self::RhsStageReader, E>,
+        tile: &Tile<Self::RhsTile, E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     );
@@ -140,14 +141,14 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(
-        tile: ReadStageTile<Self::AccStageReader, E>,
+        tile: &Tile<Self::AccTile, E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     );
 
     /// Write the content of the output container to the given slice
     fn write_results<E: Numeric>(
-        tile: &mut WriteStageTile<Self::OutStageWriter, E>,
+        tile: &mut TileMut<Self::OutTile, E>,
         out: &Self::AccFragment,
         #[comptime] config: Self::Config,
     );

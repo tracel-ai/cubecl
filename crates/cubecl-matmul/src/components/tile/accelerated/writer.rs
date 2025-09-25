@@ -1,13 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::{
-    as_cmma_layout,
-    tile::{
-        StridedTile,
-        io::{StageWriter, Strided},
-    },
-};
+use crate::components::{as_cmma_layout, tile::StridedTile};
 
 /// Writer using the cmma store function.
 #[derive(CubeType)]
@@ -24,8 +18,4 @@ impl CmmaStageWriter {
         let (mut slice, stride) = tile.as_unlined(line_size);
         cmma::store(&mut slice, fragment, stride, layout);
     }
-}
-
-impl StageWriter for CmmaStageWriter {
-    type TileKind = Strided;
 }

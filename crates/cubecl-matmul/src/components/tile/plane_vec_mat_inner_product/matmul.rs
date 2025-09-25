@@ -36,10 +36,10 @@ impl<E: Numeric> LineContainer<E> {
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
-    for PlaneVecMatInnerProduct<Acc>
+impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
+    for PlaneVecMatInnerProduct<AccTile>
 where
-    MatrixStageReader<Acc>: MatrixFragmentReader<TileKind = Acc>,
+    MatrixStageReader<AccTile>: MatrixFragmentReader<TileKind = AccTile>,
 {
     type Config = PlaneVecMatInnerProductConfig;
 
@@ -51,10 +51,10 @@ where
     // For each n: one line stored at unit pos 0, that will be reduced to a scalar only when writing at the end
     type AccFragment = Sequence<LineContainer<A>>;
 
-    type LhsStageReader = VectorStageReader;
-    type RhsStageReader = MatrixStageReader<Strided>;
-    type AccStageReader = MatrixStageReader<Acc>;
-    type OutStageWriter = MatrixStageWriter;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -99,27 +99,27 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] _config: Self::Config,
     ) {
-        Self::LhsStageReader::load_fragment(tile, lhs)
+        VectorStageReader::load_fragment(tile, lhs)
     }
 
     fn load_rhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsStageReader::load_fragment(tile, rhs, config)
+        MatrixStageReader::<Strided>::load_fragment(tile, rhs, config)
     }
 
     fn load_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
+        tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccStageReader::load_fragment(tile, acc, config);
+        MatrixStageReader::<AccTile>::load_fragment(tile, acc, config);
     }
 
     fn write_results<E: Numeric>(
@@ -127,7 +127,7 @@ where
         acc: &Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::OutStageWriter::store_fragment(tile, acc, config)
+        MatrixStageWriter::store_fragment(tile, acc, config)
     }
 }
 

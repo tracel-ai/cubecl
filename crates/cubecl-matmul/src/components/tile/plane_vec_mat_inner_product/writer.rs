@@ -3,7 +3,6 @@ use cubecl_core as cubecl;
 
 use crate::components::tile::{
     StridedTile,
-    io::{StageWriter, Strided},
     plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
 };
 
@@ -49,8 +48,4 @@ impl MatrixStageWriter {
             }
         }
     }
-}
-
-impl StageWriter for MatrixStageWriter {
-    type TileKind = Strided;
 }

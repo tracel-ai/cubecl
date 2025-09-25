@@ -24,19 +24,20 @@ pub struct RegisterMatmul<Acc: TileKind> {
 pub(super) const UNROLL: bool = false;
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
+impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
+    for RegisterMatmul<AccTile>
 where
-    RegisterStageReader<Acc>: RegisterFragmentReader<TileKind = Acc>,
+    RegisterStageReader<AccTile>: RegisterFragmentReader<TileKind = AccTile>,
 {
     type Config = RegisterConfig;
     type LhsFragment = Array<L>;
     type RhsFragment = Array<R>;
     type AccFragment = Array<A>;
 
-    type LhsStageReader = RegisterStageReader<Strided>;
-    type RhsStageReader = RegisterStageReader<Strided>;
-    type AccStageReader = RegisterStageReader<Acc>;
-    type OutStageWriter = RegisterStageWriter;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -63,27 +64,27 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsStageReader::load_fragment(tile, lhs, StageIdent::Lhs, config)
+        RegisterStageReader::<Strided>::load_fragment(tile, lhs, StageIdent::Lhs, config)
     }
 
     fn load_rhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsStageReader::load_fragment(tile, rhs, StageIdent::Rhs, config)
+        RegisterStageReader::<Strided>::load_fragment(tile, rhs, StageIdent::Rhs, config)
     }
 
     fn load_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
+        tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccStageReader::load_fragment(tile, acc, StageIdent::Acc, config);
+        RegisterStageReader::<AccTile>::load_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(
@@ -91,7 +92,7 @@ where
         acc: &Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::OutStageWriter::store_fragment(tile, acc, config)
+        RegisterStageWriter::store_fragment(tile, acc, config)
     }
 }
 

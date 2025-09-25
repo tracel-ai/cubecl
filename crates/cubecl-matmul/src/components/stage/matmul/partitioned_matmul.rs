@@ -1,9 +1,9 @@
+use crate::components::stage::StageMatmul;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::stage::{RowMajorTilingOrder, StageConfig};
 use crate::components::tile::TileMatmul;
-use crate::components::tile::io::ReadStageKind;
 use crate::components::{AccG, global::memory::GlobalMemoryConfig};
 use crate::components::{AccS, global};
 use crate::components::{InputPrecision, stage::Stage};
@@ -11,7 +11,6 @@ use crate::components::{MatmulIdent, tile::io::Strided};
 use crate::components::{MatmulPrecision, stage::StageMemoryConfig};
 use crate::components::{StageIdent, stage::StridedStage};
 use crate::components::{global::GlobalWriter, stage::ContiguousTilingLayout};
-use crate::components::{stage::StageMatmul, tile::io::StageWriter};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -51,63 +50,48 @@ pub struct PartitionedStageMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: Stage<
-            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::LhsStageReader>,
-        >,
-    RR: Stage<
-            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::RhsStageReader>,
-        >,
-    RA: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::AccStageReader>,
-        >,
+    StageLhs: Stage<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage, TileKind = TM::LhsTile>,
+    StageRhs: Stage<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage, TileKind = TM::RhsTile>,
+    StageAcc: Stage<<<MP as MatmulPrecision>::Acc as InputPrecision>::Stage, TileKind = TM::AccTile>,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 > {
-    _phantom: PhantomData<(MP, TM, RL, RR, RA, SP, S)>,
+    _phantom: PhantomData<(MP, TM, StageLhs, StageRhs, StageAcc, SP, S)>,
 }
 
 #[cube]
-impl<MP, TM, RL, RR, RA, SP, S> StageMatmul<MP>
-    for PartitionedStageMatmul<MP, TM, RL, RR, RA, SP, S>
+impl<MP, TM, StageLhs, StageRhs, StageAcc, SP, S> StageMatmul<MP>
+    for PartitionedStageMatmul<MP, TM, StageLhs, StageRhs, StageAcc, SP, S>
 where
     MP: MatmulPrecision,
     TM: TileMatmul<
             <MP::Lhs as InputPrecision>::Register,
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
-            OutStageWriter: StageWriter<TileKind = Strided>,
+            OutTile = Strided,
         >,
-    RL: Stage<
-            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::LhsStageReader>,
-        >,
-    RR: Stage<
-            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::RhsStageReader>,
-        >,
-    RA: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
-            TileKind = ReadStageKind<TM::AccStageReader>,
-        >,
+    StageLhs:
+        Stage<<<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage, TileKind = TM::LhsTile>,
+    StageRhs:
+        Stage<<<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage, TileKind = TM::RhsTile>,
+    StageAcc:
+        Stage<<<MP as MatmulPrecision>::Acc as InputPrecision>::Stage, TileKind = TM::AccTile>,
     SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
 
-    type LhsStage = RL;
-    type RhsStage = RR;
-    type AccStage = RA;
+    type LhsStage = StageLhs;
+    type RhsStage = StageRhs;
+    type AccStage = StageAcc;
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
     type GlobalWriter = SP::Writer<AccG<MP>>;
 
     fn execute(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
+        lhs_reader: &StageLhs,
+        rhs_reader: &StageRhs,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulators,
@@ -127,8 +111,8 @@ where
     }
 
     fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
+        lhs_reader: &StageLhs,
+        rhs_reader: &StageRhs,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulators,
@@ -136,7 +120,7 @@ where
         listener: SEL,
         partition_scheduler: &PartitionScheduler,
     ) {
-        PartitionMatmul::<MP, TM, RL, RR, RA, S>::execute_with_listener::<SEL>(
+        PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::execute_with_listener::<SEL>(
             lhs_reader,
             rhs_reader,
             lhs_fragment,
@@ -149,11 +133,11 @@ where
     }
 
     fn init_tile_inputs(#[comptime] config: Self::Config) -> (Self::LhsTile, Self::RhsTile) {
-        PartitionMatmul::<MP, TM, RL, RR, RA, S>::init_tile_inputs(config)
+        PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::init_tile_inputs(config)
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
-        PartitionMatmul::<MP, TM, RL, RR, RA, S>::init_accumulator(config)
+        PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::init_accumulator(config)
     }
 
     fn load_accumulators(
@@ -161,7 +145,9 @@ where
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     ) {
-        PartitionMatmul::<MP, TM, RL, RR, RA, S>::load_accumulator(reader, acc, config);
+        PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::load_accumulator(
+            reader, acc, config,
+        );
     }
 
     fn write_results<G: global::GlobalConfig>(

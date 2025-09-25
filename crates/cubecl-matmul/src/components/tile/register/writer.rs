@@ -3,7 +3,6 @@ use cubecl_core as cubecl;
 
 use crate::components::tile::{
     StridedTile,
-    io::{StageWriter, Strided},
     register::{UNROLL, config::RegisterConfig},
 };
 
@@ -29,8 +28,4 @@ impl RegisterStageWriter {
             tile.slice[i] = Line::cast_from(line);
         }
     }
-}
-
-impl StageWriter for RegisterStageWriter {
-    type TileKind = Strided;
 }

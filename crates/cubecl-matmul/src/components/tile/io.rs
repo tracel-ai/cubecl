@@ -23,7 +23,7 @@ impl<IO: SliceVisibility> TileKind<IO> for Strided {
     type Tile<E: Numeric> = StridedTile<E, IO>;
 }
 
-impl<IO: SliceVisibility> TileKind<IO> for Filled {
+impl TileKind<ReadOnly> for Filled {
     type Tile<E: Numeric> = E;
 }
 
@@ -31,24 +31,5 @@ impl<Inner: TileKind<IO>, IO: SliceVisibility> TileKind<IO> for CubeOption<Inner
     type Tile<E: Numeric> = CubeOption<Inner::Tile<E>>;
 }
 
-/// A tile matmul reader, with a specific tile kind
-pub trait StageReader {
-    /// The kind of the tile used as an input for the tile reader
-    type TileKind: TileKind;
-}
-
-/// A tile matmul wriiter, with a specific tile kind
-pub trait StageWriter {
-    /// The kind of the tile used as an output for the tile writer
-    type TileKind: TileKind<ReadWrite>;
-}
-
-/// The concrete tile type for a given reader and element type
-pub type ReadStageTile<L, E> = <<L as StageReader>::TileKind as TileKind>::Tile<E>;
-/// The tile kind of a given reader
-pub type ReadStageKind<L> = <L as StageReader>::TileKind;
-
-/// The concrete tile type for a given reader and element type
-pub type WriteStageTile<L, E> = <<L as StageWriter>::TileKind as TileKind<ReadWrite>>::Tile<E>;
-/// The tile kind of a given reader
-pub type WriteStageKind<L> = <L as StageWriter>::TileKind;
+pub type Tile<K, E> = <K as TileKind>::Tile<E>;
+pub type TileMut<K, E> = <K as TileKind<ReadWrite>>::Tile<E>;
