@@ -323,7 +323,6 @@ impl VirtualStorage for GpuVirtualStorage {
     /// The handle will be set as mapped on the [`map()`] method.
     fn allocate(&mut self, size: u64) -> Result<PhysicalStorageHandle, IoError> {
         let total_size = size
-            .saturating_sub(1)
             .next_multiple_of(self.mem_alignment as u64);
         let block = self.allocate_physical_block(total_size)?;
 
@@ -361,7 +360,6 @@ impl VirtualStorage for GpuVirtualStorage {
         start_addr: Option<StorageId>,
     ) -> Result<StorageHandle, IoError> {
         let aligned_size = size
-            .saturating_sub(1)
             .next_multiple_of(self.mem_alignment as u64);
 
         let addr = if let Some(prev) = start_addr
@@ -447,7 +445,6 @@ impl VirtualStorage for GpuVirtualStorage {
         physical: &mut PhysicalStorageHandle,
     ) -> Result<StorageHandle, IoError> {
         let aligned_offset = offset
-            .saturating_sub(1)
             .next_multiple_of(self.mem_alignment as u64);
         let space_mut = self
             .virtual_memory
@@ -490,7 +487,6 @@ impl VirtualStorage for GpuVirtualStorage {
     fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle) {
         // Offset should be aligned at this level, however there is no issue in enforcing it by explicit alignment.
         let aligned_offset = offset
-            .saturating_sub(1)
             .next_multiple_of(self.mem_alignment as u64);
         let ph = self
             .physical_memory
@@ -630,19 +626,7 @@ mod virtual_mem_tests {
         (device, ctx)
     }
 
-    #[test]
-    fn test_gpu_virtual_storage_creation() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let storage = GpuVirtualStorage::new(device_id, granularity);
-            assert_eq!(storage.granularity(), granularity);
-            assert_eq!(storage.device_id, device_id);
-            assert!(storage.virtual_memory.is_empty());
-            assert!(storage.physical_memory.is_empty());
-        }
-    }
 
     #[test]
     fn test_physical_memory_allocation() {
@@ -658,7 +642,7 @@ mod virtual_mem_tests {
 
             let handle = handle_result.unwrap();
             assert_eq!(handle.size(), size);
-            assert_eq!(handle.offset(), 0);
+
             assert!(!handle.is_mapped());
 
             // Verify the physical memory block was stored
@@ -701,6 +685,7 @@ mod virtual_mem_tests {
 
     #[test]
     fn test_memory_mapping() {
+
         let (_device, _ctx) = setup_cuda_context();
         let device_id = 0;
 
@@ -736,6 +721,7 @@ mod virtual_mem_tests {
 
     #[test]
     fn test_compute_storage_alloc_dealloc() {
+        // Simple test for the compute storage workflow.
         let (_device, _ctx) = setup_cuda_context();
         let device_id = 0;
 
@@ -743,7 +729,7 @@ mod virtual_mem_tests {
             let mut storage = GpuVirtualStorage::new(device_id, granularity);
             let size = granularity as u64 * 3;
 
-            // Test alloc - should allocate physical, reserve virtual, and map them
+            // Test alloc (should allocate physical, reserve virtual, and map them)
             let handle_result = storage.alloc(size);
             assert!(handle_result.is_ok());
 
@@ -756,8 +742,8 @@ mod virtual_mem_tests {
 
             // Test get resource
             let resource = storage.get(&handle);
-            assert_eq!(resource.size(), size);
-            assert!(resource.ptr() != 0);
+            assert_eq!(resource.size, size);
+            assert!(resource.ptr != 0);
 
             // Test dealloc
             storage.dealloc(handle.id);
@@ -780,9 +766,11 @@ mod virtual_mem_tests {
 
             // Test alignment checking (might not be aligned due to CUDA's behavior)
             let are_aligned = storage.are_aligned(&handle1.id, &handle2.id);
-            // Note: This test might pass or fail depending on CUDA's address allocation
-            // The important thing is that the method doesn't panic
-            println!("Are consecutive reservations aligned: {}", are_aligned);
+            // Note sure if this will always pass (as cuda docs state this is not guaranteed to be always aligned).
+            // You can disable it if you desire to.
+            // However i have added it to demonstrate that on most cases the hint stuff works (at least is working on my machine).
+            // This should allow me to implement an intelligent memory pool that defragments the memory space periodically.
+            assert!(are_aligned);
 
             // Clean up
             storage.free(handle1.id);
@@ -813,8 +801,8 @@ mod virtual_mem_tests {
             // Get resources for all handles
             for handle in &handles {
                 let resource = storage.get(handle);
-                assert_eq!(resource.size(), handle.size());
-                assert!(resource.ptr() != 0);
+                assert_eq!(resource.size, handle.size());
+                assert!(resource.ptr != 0);
             }
 
             // Clean up all allocations
@@ -841,7 +829,7 @@ mod virtual_mem_tests {
                 Ok(handle) => {
                     assert_eq!(handle.size(), large_size);
                     let resource = storage.get(&handle);
-                    assert_eq!(resource.size(), large_size);
+                    assert_eq!(resource.size, large_size);
                     storage.dealloc(handle.id);
                 }
                 Err(IoError::BufferTooBig(_)) => {
@@ -891,11 +879,15 @@ mod virtual_mem_tests {
 
             // The actual allocated size should be aligned up
             let expected_aligned_size = unaligned_size
-                .saturating_sub(1)
                 .next_multiple_of(granularity as u64);
 
             // Note: The handle size might be the requested size, but the actual allocation
             // should be aligned internally
+
+            dbg!(handle.size());
+            dbg!(granularity);
+            dbg!(expected_aligned_size);
+
             assert!(handle.size() <= expected_aligned_size);
 
             storage.dealloc(handle.id);

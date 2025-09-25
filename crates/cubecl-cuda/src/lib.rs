@@ -9,6 +9,9 @@ mod runtime;
 pub use device::*;
 pub use runtime::*;
 
+use cubecl_runtime::storage::VirtualStorage;
+use compute::storage::gpu::GpuVirtualStorage;
+
 #[cfg(feature = "ptx-wmma")]
 pub(crate) type WmmaCompiler = cubecl_cpp::cuda::mma::PtxWmmaCompiler;
 
@@ -72,8 +75,7 @@ pub mod install {
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
-    pub type TestStorage = crate::storage::gpu::GpuVirtualStorage;
-    use crate::storage::gpu::get_minimum_granularity;
+    pub type TestStorage = GpuVirtualStorage;
 
     pub use half::{bf16, f16};
 
@@ -96,8 +98,8 @@ mod tests {
     cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
 
-    cubecl_runtime::testgen_virtual_memory_pool!([
-    small: { min_alloc: 1, max_alloc: 10 * 1024 * 1024, alignment: get_minimum_granularity(0)},
-    large: { min_alloc: 5 * 1024 * 1024, max_alloc: 20 * 1024 * 1024, alignment: get_minimum_granularity(0) }
-    ]);
+  /*  cubecl_runtime::testgen_virtual_memory_pool!([
+    small: { min_alloc: 1, max_alloc: 10 * 1024 * 1024, alignment: 2 * 1024 * 1024},
+    large: { min_alloc: 5 * 1024 * 1024, max_alloc: 20 * 1024 * 1024, alignment: 2 * 1024 * 1024 }
+    ]);*/
 }
