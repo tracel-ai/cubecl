@@ -19,19 +19,19 @@ derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
+bincode = { version = "2.0.1", features = [
+    "alloc",
+    "serde",
+], default-features = false }
 fnv = "1"
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
     "alloc",
 ] } # alloc is for no_std, derive is needed
-serde_json = { version = "1.0.119", default-features = false }
 serde_bytes = { version = "0.11.17", default-features = false, features = [
     "alloc",
 ] } # alloc for no_std
-bincode = { version = "2.0.1", features = [
-    "alloc",
-    "serde",
-], default-features = false }
+serde_json = { version = "1.0.119", default-features = false }
 toml = "0.9.1"
 variadics_please = "1"
 
@@ -119,3 +119,6 @@ cfg_aliases = "0.2.1"
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0
+
+[profile.dev.build-override]
+opt-level = 3

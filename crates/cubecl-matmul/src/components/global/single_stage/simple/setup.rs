@@ -8,7 +8,6 @@ use crate::components::{
     stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
 };
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::{
@@ -34,7 +33,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
-            WriteCoords = Coords2d,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,

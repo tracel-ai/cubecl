@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::StageIdent;
 use crate::components::tile::{TileConfig, TileMatmul, register::reader::RegisterFragmentReader};
 use crate::components::tile::{
-    reader::Strided,
+    io::Strided,
     register::{
         config::{ProductType, RegisterConfig},
         reader::RegisterStageReader,
     },
 };
-use crate::components::tile::{reader::TileKind, tile_data::StridedTile};
+use crate::components::tile::{io::TileKind, tile_data::StridedTile};
+use crate::components::{StageIdent, tile::register::writer::RegisterStageWriter};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -21,7 +21,7 @@ pub struct RegisterMatmul<Acc: TileKind> {
 /// Doesn't impact performance much, but may increase kernel size too much when true (often ~6X).
 ///
 /// TODO: make it configurable
-static UNROLL: bool = false;
+pub(super) const UNROLL: bool = false;
 
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
@@ -36,6 +36,7 @@ where
     type LhsStageReader = RegisterStageReader<Strided>;
     type RhsStageReader = RegisterStageReader<Strided>;
     type AccStageReader = RegisterStageReader<Acc>;
+    type OutStageWriter = RegisterStageWriter;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -86,20 +87,11 @@ where
     }
 
     fn write_results<E: Numeric>(
+        tile: &mut StridedTile<E, ReadWrite>,
         acc: &Self::AccFragment,
-        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        let out_line_size = config.stage_line_size(StageIdent::Acc);
-        #[unroll(UNROLL)]
-        for i in 0..comptime!(config.tile_size().mn() / out_line_size) {
-            let mut line = Line::empty(out_line_size);
-            #[unroll(UNROLL)]
-            for j in 0..comptime!(out_line_size) {
-                line[j] = acc[i * out_line_size + j];
-            }
-            slice[i] = Line::cast_from(line);
-        }
+        Self::OutStageWriter::store_fragment(tile, acc, config)
     }
 }
 

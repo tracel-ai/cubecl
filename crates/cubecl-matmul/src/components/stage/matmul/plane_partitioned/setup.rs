@@ -1,4 +1,3 @@
-use crate::components::InputPrecision;
 use crate::components::LhsR;
 use crate::components::LhsS;
 use crate::components::MatmulLineSizes;
@@ -18,10 +17,10 @@ use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{AccR, AccS, ComputeResources};
+use crate::components::{InputPrecision, tile::io::Strided};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::layout::Coords2d;
 
 /// Plane Matmul family for any precision
 pub struct PlaneMatmulFamily<
@@ -34,7 +33,7 @@ pub struct PlaneMatmulFamily<
 }
 
 impl<
-    TM: TileMatmulFamily,
+    TM: TileMatmulFamily<OutTile = Strided>,
     LRF: StageFamily<TileKind = TM::LhsTile>,
     RRF: StageFamily<TileKind = TM::RhsTile>,
     RRA: StageFamily<TileKind = TM::AccTile>,
@@ -43,6 +42,7 @@ impl<
     type LhsStage = LRF;
     type RhsStage = RRF;
     type AccStage = RRA;
+
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
         PlaneMatmul<
             MP,
@@ -55,8 +55,10 @@ impl<
             RRF::Stage<RhsS<MP>, TR>,
             RRA::Stage<AccS<MP>, TA>,
         >;
+
     type Config = PlanePartitionedStageConfig<TM::Config>;
-    type WriteCoords = Coords2d;
+
+    type OutTile = Strided;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
         client: &ComputeClient<R::Server, R::Channel>,

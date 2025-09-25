@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
     global::GlobalConfig as _,
     stage::{StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::{FastDivmodArgs, tensor::layout::Coords2d};
+use cubecl_std::FastDivmodArgs;
 
 use crate::{
     components::{
@@ -23,7 +23,6 @@ impl<
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
-            WriteCoords = Coords2d,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for MultiStageTmaConvolutionFamily<SMM>
 {

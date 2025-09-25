@@ -2,10 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{
-        View,
-        layout::{Coordinates, Coords2d},
-    },
+    tensor::{View, layout::Coords2d},
 };
 
 use crate::components::{
@@ -22,7 +19,7 @@ use crate::components::{
 };
 use crate::components::{
     stage::{NumStages, PartitionScheduler, PartitionSchedulerScheme},
-    tile::reader::TileKind,
+    tile::io::TileKind,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -37,7 +34,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
             LhsStage = <Self::LhsStage as StageFamily>::Stage<LhsS<MP>, TL>,
             RhsStage = <Self::RhsStage as StageFamily>::Stage<RhsS<MP>, TR>,
             AccStage = <Self::AccStage as StageFamily>::Stage<AccS<MP>, TA>,
-            WriteCoords = Self::WriteCoords,
+            GlobalWriter: GlobalWriter<AccG<MP>, TileKind = Self::OutTile>
         >;
 
     /// Reader family for Lhs
@@ -46,8 +43,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     type RhsStage: StageFamily;
     /// Reader family for Acc
     type AccStage: StageFamily;
-    /// Writer coordinate type
-    type WriteCoords: Coordinates;
+    /// Writer tile kind
+    type OutTile: TileKind<ReadWrite>;
 
     /// The configuration type associated with this matmul family.
     type Config: StageConfig;
@@ -110,9 +107,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type RhsTile: CubeType;
 
     /// How to write to global memory after computation
-    type GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Self::WriteCoords>;
-    /// Coordinates used by the writer
-    type WriteCoords: Coordinates;
+    type GlobalWriter: GlobalWriter<AccG<MP>>;
 
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     ///
@@ -155,7 +150,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Inits the writer at the given offsets
     fn init_writer(
-        tensor: View<Line<AccG<MP>>, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self::GlobalWriter;
 
@@ -190,8 +185,6 @@ pub trait StageConfig:
             elements_in_tile_col: tiling.elements_in_tile_col(ident),
             tiles_in_stage_row: tiling.tiles_in_stage_row(ident),
             tiles_in_stage_col: tiling.tiles_in_stage_col(ident),
-            elements_in_stage_row: tiling.elements_in_stage_row(ident),
-            elements_in_stage_col: tiling.elements_in_stage_col(ident),
             stage_line_size: self.stage_line_size(ident),
             matrix_layout: self.matrix_layout(ident),
             num_stages: self.num_stages(ident),

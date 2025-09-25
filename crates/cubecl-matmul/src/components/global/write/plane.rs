@@ -1,6 +1,9 @@
-use crate::components::global::{
-    memory::GlobalMemoryConfig,
-    read::tiled::{TiledCoords, TiledLayout},
+use crate::components::{
+    global::{
+        memory::GlobalMemoryConfig,
+        read::tiled::{TiledCoords, TiledLayout},
+    },
+    tile::{StridedTile, io::Strided},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -30,11 +33,11 @@ impl<EG: Numeric> PlaneWriter<EG> {
 
 #[cube]
 impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
-    type Coordinates = Coords2d;
+    type TileKind = Strided;
 
-    fn write(
+    fn write<ES: Numeric>(
         this: &mut Self,
-        out_smem_slice: Slice<Line<EG>>,
+        smem_tile: &StridedTile<ES, ReadWrite>,
         tile: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] config: GlobalMemoryConfig,
@@ -52,10 +55,10 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
 
             #[allow(clippy::collapsible_else_if)]
             if comptime!(balanced_workload) {
-                write_line(&mut this.view, &out_smem_slice, unit_write, tile);
+                write_line(&mut this.view, &smem_tile.slice, unit_write, tile);
             } else {
                 if unit_write < tile_size {
-                    write_line(&mut this.view, &out_smem_slice, unit_write, tile);
+                    write_line(&mut this.view, &smem_tile.slice, unit_write, tile);
                 }
             }
         }
@@ -63,9 +66,9 @@ impl<EG: Numeric> GlobalWriter<EG> for PlaneWriter<EG> {
 }
 
 #[cube]
-fn write_line<EG: Numeric>(
+fn write_line<ES: Numeric, EG: Numeric>(
     view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
-    out_smem_slice: &Slice<Line<EG>>,
+    out_smem_slice: &Slice<Line<ES>, ReadWrite>,
     unit_write: u32,
     tile: Coords2d,
 ) {
@@ -91,5 +94,5 @@ fn write_line<EG: Numeric>(
         unimplemented!()
     };
 
-    view.write_checked((tile, unit_write), value);
+    view.write_checked((tile, unit_write), Line::cast_from(value));
 }

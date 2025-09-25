@@ -1,5 +1,3 @@
-use crate::components::MatmulPrecision;
-use crate::components::global::RoleRule;
 use crate::components::global::UnitWriter;
 use crate::components::stage::StageConfig;
 use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul;
@@ -7,6 +5,8 @@ use crate::components::stage::matmul::partitioned_matmul::StagePartitioner;
 use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConfig;
 use crate::components::tile::TileMatmul;
 use crate::components::{InputPrecision, global::memory::GlobalMemoryConfig};
+use crate::components::{MatmulPrecision, StageIdent};
+use crate::components::{global::RoleRule, stage::StageMemoryConfig};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::{View, layout::Coords2d};
@@ -39,10 +39,9 @@ pub struct UnitPartitioner {}
 #[cube]
 impl StagePartitioner for UnitPartitioner {
     type Writer<EO: Numeric> = UnitWriter<EO>;
-    type WriteCoords = Coords2d;
 
     fn init_writer<EO: Numeric>(
-        tensor: View<Line<EO>, Self::WriteCoords, ReadWrite>,
+        tensor: View<Line<EO>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer<EO> {
         UnitWriter::<EO>::new(tensor, config)
@@ -60,7 +59,18 @@ impl StagePartitioner for UnitPartitioner {
         )
     }
 
-    fn num_primitives<S: StageConfig>(#[comptime] config: S) -> comptime_type!(u32) {
-        config.num_main_flow_planes() * config.plane_dim()
+    fn stage_memory_config<S: StageConfig>(
+        #[comptime] config: S,
+    ) -> comptime_type!(StageMemoryConfig) {
+        comptime! {
+            let units = config.num_main_flow_planes() * config.plane_dim();
+            let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
+            let base = config.stage_memory_config(StageIdent::Acc);
+            StageMemoryConfig {
+                tiles_in_stage_row: units / size_n,
+                tiles_in_stage_col: size_n,
+                ..base
+            }
+        }
     }
 }

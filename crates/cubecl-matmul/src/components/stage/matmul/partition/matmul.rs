@@ -7,7 +7,7 @@ use crate::components::tile::TileMatmul;
 use crate::components::{AccS, stage::StageEvent};
 use crate::components::{InputPrecision, stage::Stage};
 use crate::components::{LhsS, MatmulPrecision, RhsS};
-use crate::components::{stage::StageConfig, tile::reader::StageKind};
+use crate::components::{stage::StageConfig, tile::io::ReadStageKind};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -20,9 +20,9 @@ pub struct PartitionMatmul<
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TMM::LhsStageReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TMM::RhsStageReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TMM::AccStageReader>>,
+    RL: Stage<LhsS<MP>, TileKind = ReadStageKind<TMM::LhsStageReader>>,
+    RR: Stage<RhsS<MP>, TileKind = ReadStageKind<TMM::RhsStageReader>>,
+    RA: Stage<AccS<MP>, TileKind = ReadStageKind<TMM::AccStageReader>>,
     S: StageConfig,
 > {
     _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
@@ -37,9 +37,9 @@ where
             <MP::Rhs as InputPrecision>::Register,
             <MP::Acc as InputPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TM::LhsStageReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TM::RhsStageReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TM::AccStageReader>>,
+    RL: Stage<LhsS<MP>, TileKind = ReadStageKind<TM::LhsStageReader>>,
+    RR: Stage<RhsS<MP>, TileKind = ReadStageKind<TM::RhsStageReader>>,
+    RA: Stage<AccS<MP>, TileKind = ReadStageKind<TM::AccStageReader>>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]

@@ -14,7 +14,7 @@ use crate::{
             ColMajorTilingOrder, FilledStageFamily, RowMajorTilingOrder, StridedStageFamily,
             UnitMatmulFamily,
         },
-        tile::{reader::Filled, register::RegisterMatmul},
+        tile::{io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,

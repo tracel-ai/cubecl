@@ -48,7 +48,6 @@ where
             LhsStage = StridedStage<LhsS<MP>, <LL as SyncFullLoadingStrategy>::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
     RL: SyncPartialLoadingStrategy,
 {

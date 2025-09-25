@@ -6,7 +6,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::tile::{
     StridedTile,
-    reader::{Filled, StageReader, Strided, TileKind},
+    io::{Filled, StageReader, Strided, TileKind},
 };
 
 /// Generic CMMA reader over any tile type

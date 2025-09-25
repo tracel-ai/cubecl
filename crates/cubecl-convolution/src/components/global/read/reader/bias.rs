@@ -89,7 +89,7 @@ fn init_stage<ES: Numeric>(
     let line_size = config.stage_line_size;
 
     let smem = SharedMemory::new_lined(
-        comptime!(config.elements_in_stage_col / line_size),
+        comptime!(config.elements_in_stage_col() / line_size),
         line_size,
     );
 

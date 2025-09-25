@@ -9,7 +9,6 @@ use cubecl_matmul::components::{
         StridedStageFamily,
     },
 };
-use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{
     ConvolutionConfig, ConvolutionProblem,
@@ -29,7 +28,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
-            WriteCoords = Coords2d,
         >,
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<

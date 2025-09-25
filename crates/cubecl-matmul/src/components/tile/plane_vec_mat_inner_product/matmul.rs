@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::components::StageIdent;
 use crate::components::tile::{
-    TileConfig, TileMatmul, plane_vec_mat_inner_product::reader::MatrixFragmentReader,
+    TileMatmul,
+    plane_vec_mat_inner_product::{reader::MatrixFragmentReader, writer::MatrixStageWriter},
 };
 use crate::components::tile::{
-    plane_vec_mat_inner_product::reader::MatrixStageReader, reader::Strided, tile_data::StridedTile,
+    io::Strided, plane_vec_mat_inner_product::reader::MatrixStageReader, tile_data::StridedTile,
 };
 use crate::components::tile::{
+    io::TileKind,
     plane_vec_mat_inner_product::{
         config::PlaneVecMatInnerProductConfig, reader::VectorStageReader,
     },
-    reader::TileKind,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -54,6 +54,7 @@ where
     type LhsStageReader = VectorStageReader;
     type RhsStageReader = MatrixStageReader<Strided>;
     type AccStageReader = MatrixStageReader<Acc>;
+    type OutStageWriter = MatrixStageWriter;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -122,40 +123,11 @@ where
     }
 
     fn write_results<E: Numeric>(
+        tile: &mut StridedTile<E, ReadWrite>,
         acc: &Self::AccFragment,
-        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS_X == 0 {
-            let out_line_size = config.stage_line_size(StageIdent::Acc);
-            let total_out_lines = config.n() / out_line_size;
-            let mut out_line_iter = comptime![0];
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..total_out_lines {
-                let mut out_line = Line::<E>::empty(out_line_size);
-                let mut within_line = comptime![0];
-
-                #[unroll]
-                #[allow(clippy::explicit_counter_loop)]
-                for _ in 0..out_line_size {
-                    let n = comptime!(out_line_iter * out_line_size + within_line);
-
-                    let line_container = acc.index(n);
-                    let mut sum = A::from_int(0);
-                    for i in 0..config.reduce_line_size() {
-                        sum += line_container.line[i];
-                    }
-
-                    out_line[within_line] = E::cast_from(sum);
-                    comptime![within_line += 1];
-                }
-
-                slice[out_line_iter] = out_line;
-                comptime![out_line_iter += 1];
-            }
-        }
+        Self::OutStageWriter::store_fragment(tile, acc, config)
     }
 }
 

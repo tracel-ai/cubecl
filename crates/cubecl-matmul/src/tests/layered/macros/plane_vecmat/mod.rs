@@ -7,7 +7,7 @@ macro_rules! testgen_matmul_plane_vecmat {
     () => {
         mod matmul_plane_vecmat {
             use super::*;
-            use cubecl_matmul::components::tile::reader::Filled;
+            use cubecl_matmul::components::tile::io::Filled;
             type TMM =
                 $crate::components::tile::plane_vec_mat_inner_product::PlaneVecMatInnerProduct<
                     Filled,

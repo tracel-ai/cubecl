@@ -4,7 +4,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{
     stage::{Stage, StageFamily, TilingLayout},
-    tile::reader::Filled,
+    tile::io::Filled,
 };
 
 pub struct FilledStageFamily;

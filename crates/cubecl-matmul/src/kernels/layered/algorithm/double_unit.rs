@@ -9,7 +9,7 @@ use crate::{
             read::sync_partial_cyclic::SyncPartialCyclicLoading,
         },
         stage::{FilledStageFamily, RowMajorTilingOrder, StridedStageFamily, UnitMatmulFamily},
-        tile::{reader::Filled, register::RegisterMatmul},
+        tile::{io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         Algorithm,

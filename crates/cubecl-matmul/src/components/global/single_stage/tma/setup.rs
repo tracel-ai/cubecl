@@ -15,7 +15,6 @@ use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 
@@ -30,7 +29,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
-            WriteCoords = Coords2d,
         >,
 {
     type Matmul<MP: MatmulPrecision> =

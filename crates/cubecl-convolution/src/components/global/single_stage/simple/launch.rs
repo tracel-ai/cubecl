@@ -3,7 +3,7 @@ use cubecl_matmul::components::{
     AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
     stage::{StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::{FastDivmodArgs, tensor::layout::Coords2d};
+use cubecl_std::FastDivmodArgs;
 
 use crate::{
     components::{
@@ -22,7 +22,6 @@ impl<
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
-            WriteCoords = Coords2d,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
 {

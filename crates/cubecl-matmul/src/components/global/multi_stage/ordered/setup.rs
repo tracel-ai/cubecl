@@ -7,7 +7,6 @@ use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -27,7 +26,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
-            WriteCoords = Coords2d,
         >,
     RL: SyncPartialLoadingStrategy,
 {

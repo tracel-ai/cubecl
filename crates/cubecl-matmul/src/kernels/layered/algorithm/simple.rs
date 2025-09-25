@@ -20,7 +20,7 @@ use crate::{
         },
         tile::{
             TileMatmulFamily,
-            reader::{Filled, Strided},
+            io::{Filled, Strided},
         },
     },
     kernels::layered::{
@@ -48,7 +48,8 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM:
+        TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {

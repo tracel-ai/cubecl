@@ -44,7 +44,6 @@ where
             LhsStage = StridedStage<LhsS<MP>, ConvTilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, ConvTilingLayout>,
             AccStage = BiasStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
 {
     type LhsGlobalReader = SyncFullStageGlobalReader<

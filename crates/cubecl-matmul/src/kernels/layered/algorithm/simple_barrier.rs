@@ -12,7 +12,7 @@ use crate::{
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             self,
-            reader::{Filled, Strided},
+            io::{Filled, Strided},
         },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
@@ -26,7 +26,12 @@ pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
 
 impl<TMM, L> Algorithm for SimpleBarrierAlgorithm<TMM, L>
 where
-    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
     L: AsyncFullLoadingStrategy,
 {
     type SelectionArgs = ();

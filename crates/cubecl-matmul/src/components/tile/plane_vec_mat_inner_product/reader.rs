@@ -9,8 +9,8 @@ use crate::components::{
     MatrixLayout,
     tile::{
         StridedTile,
+        io::{Filled, StageReader, Strided, TileKind},
         plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
-        reader::{Filled, StageReader, Strided, TileKind},
     },
 };
 

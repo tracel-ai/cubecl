@@ -7,7 +7,7 @@ use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
         StridedTile, TileConfig,
-        reader::{Filled, StageReader, Strided, TileKind},
+        io::{Filled, StageReader, Strided, TileKind},
         register::{
             RegisterMatmul,
             config::{ProductType, RegisterConfig},

@@ -13,10 +13,10 @@ use crate::components::{
     stage::{FilledStageFamily, StridedStageFamily},
 };
 use crate::components::{
-    global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::reader::Filled,
+    global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::io::Filled,
 };
 use crate::components::{
-    global::read::sync_partial_cyclic::SyncPartialCyclicLoading, tile::reader::Strided,
+    global::read::sync_partial_cyclic::SyncPartialCyclicLoading, tile::io::Strided,
 };
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
@@ -35,7 +35,12 @@ pub struct OrderedSelectionArgs {
 
 impl<TMM> Algorithm for OrderedDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = OrderedSelectionArgs;
     type TileMatmul = TMM;

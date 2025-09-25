@@ -60,7 +60,6 @@ where
             LhsStage = StridedStage<LhsS<MP>, TmaIm2colTiling>,
             RhsStage = StridedStage<RhsS<MP>, TmaWeightTiling>,
             AccStage = BiasStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
 {
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;

@@ -10,7 +10,7 @@ use crate::{
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             TileMatmulFamily,
-            reader::{Filled, Strided},
+            io::{Filled, Strided},
         },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
@@ -23,7 +23,8 @@ pub struct SimpleTmaAlgorithm<TMM> {
 
 impl<TMM> Algorithm for SimpleTmaAlgorithm<TMM>
 where
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM:
+        TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;

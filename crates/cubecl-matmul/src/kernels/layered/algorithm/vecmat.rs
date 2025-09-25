@@ -20,7 +20,7 @@ use crate::{
             ColMajorTilingOrder, FilledStageFamily, PartitionBuffering, PlaneMatmulFamily,
             RowMajorTilingOrder, StridedStageFamily,
         },
-        tile::{plane_vec_mat_inner_product::PlaneVecMatInnerProduct, reader::Filled},
+        tile::{io::Filled, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
     },
     kernels::layered::Algorithm,
 };

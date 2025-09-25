@@ -10,7 +10,7 @@ use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSet
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-    tile::reader::{Filled, Strided},
+    tile::io::{Filled, Strided},
 };
 use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingMatmulFamily,
@@ -42,7 +42,12 @@ pub struct DoubleBufferingArgs {
 
 impl<TMM> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
@@ -86,7 +91,12 @@ where
 
 impl<TMM> Algorithm for TilewiseDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
@@ -131,7 +141,12 @@ where
 
 impl<TMM> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;

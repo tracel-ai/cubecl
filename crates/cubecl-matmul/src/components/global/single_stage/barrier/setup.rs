@@ -10,7 +10,6 @@ use crate::components::{MatmulPrecision, stage::StridedStageFamily};
 use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 use crate::components::{MatmulSelection, stage::FilledStageFamily};
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_std::tensor::layout::Coords2d;
 
 /// Simple Barrier matmul family for any precision
 pub struct SimpleBarrierMatmulFamily<
@@ -29,7 +28,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
-            WriteCoords = Coords2d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,

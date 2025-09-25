@@ -6,7 +6,6 @@ use cubecl_matmul::components::{
     global::{read::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
     stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::tensor::layout::Coords2d;
 
 use crate::{
     components::{
@@ -31,7 +30,6 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
-            WriteCoords = Coords2d,
         >,
 {
     type Convolution<MP: MatmulPrecision> = SimpleTmaConvolution<

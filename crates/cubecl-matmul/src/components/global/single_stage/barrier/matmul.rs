@@ -44,7 +44,6 @@ where
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,

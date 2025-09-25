@@ -1,9 +1,10 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
+    MatrixLayout,
     global::{GlobalWriter, PlaneWriter, memory::GlobalMemoryConfig},
     stage::Stage,
-    tile::reader::Strided,
+    tile::{StridedTile, io::Strided},
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
@@ -213,6 +214,12 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         let end = start + out_smem_num_elements;
         let mut smem_slice = out_smem.slice_mut(start, end);
 
+        let tile = StridedTile::new_strided_mut(
+            smem_slice,
+            stage_config.tiling_scheme().elements_in_partition_seq_q(),
+            MatrixLayout::RowMajor,
+        );
+
         let mut q = comptime!(0u32);
 
         #[unroll]
@@ -231,7 +238,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
 
                 Self::Writer::write(
                     writer,
-                    smem_slice.to_slice(),
+                    &tile,
                     (q + UNIT_POS_Y * p.seq_q, kv.runtime()),
                     stage_config.plane_dim(),
                     global_config.global_memory_config(FlashIdent::Out),

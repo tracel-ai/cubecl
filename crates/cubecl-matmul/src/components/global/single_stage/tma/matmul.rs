@@ -32,7 +32,6 @@ where
             LhsStage = TmaStage<MP::Lhs>,
             RhsStage = TmaStage<MP::Rhs>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
 {
     type Config = SimpleTmaConfig<SMM::Config>;

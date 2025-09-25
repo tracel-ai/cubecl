@@ -25,7 +25,7 @@ pub enum ProductType {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
 pub struct RegisterConfig {
-    tile_size: TileSize,
+    pub tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,

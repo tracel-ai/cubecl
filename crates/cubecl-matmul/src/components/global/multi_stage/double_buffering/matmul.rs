@@ -32,7 +32,7 @@ pub struct DoubleBufferingMatmul<
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 > where
-    SMM::GlobalWriter: GlobalWriter<AccG<MP>, Coordinates = Coords2d>,
+    SMM::GlobalWriter: GlobalWriter<AccG<MP>>,
 {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
@@ -49,15 +49,16 @@ where
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+
     type LhsGlobalReader = SyncPartialStageGlobalReader<MP::Lhs, Self::Config, LL>;
     type RhsGlobalReader = SyncPartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
+
     type GlobalWriter = SMM::GlobalWriter;
     type Accumulators = SMM::Accumulators;
 
