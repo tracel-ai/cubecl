@@ -1,5 +1,5 @@
 use cubecl_core::ir::{IndexAssignOperator, IndexOperator, Operator, StorageType, VariableKind};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{
         arith, index, memref,
         ods::{self, llvm, vector},
