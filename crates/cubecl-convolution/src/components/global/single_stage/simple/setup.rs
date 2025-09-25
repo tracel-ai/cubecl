@@ -3,7 +3,10 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    global::{WriteTiling, read::NoLoadingValidation, single_stage::simple::SimpleConfig},
+    global::{
+        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
+        single_stage::simple::SimpleConfig,
+    },
     stage::{
         ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
         StridedStageFamily,
@@ -28,6 +31,7 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
+            OutStage = PartitionedStageFamily,
         >,
 {
     type Convolution<MP: MatmulPrecision> = SimpleConvolution<

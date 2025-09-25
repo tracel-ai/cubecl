@@ -141,7 +141,8 @@ pub fn execute_current_and_read_next<
 /// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_last_and_write_results<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
+    GW: GlobalWriter<MP::Acc>,
+    SMM: stage::StageMatmul<MP, OutStage = GW::Stage>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -149,12 +150,12 @@ pub fn execute_last_and_write_results<
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
-    out_writer: &mut SMM::GlobalWriter,
+    out_writer: &mut GW,
     specializer: &Specializer,
     partition_scheduler: &PartitionScheduler,
     #[comptime] config: G,
 ) {
-    let mut out_stage = <SMM::GlobalWriter as GlobalWriter<MP::Acc>>::stage(out_writer);
+    let mut out_stage = GW::stage(out_writer);
 
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
@@ -174,7 +175,7 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<SMM::GlobalWriter, G>(
+                SMM::write_results::<GW, G>(
                     acc,
                     &mut out_stage,
                     out_writer,
@@ -195,7 +196,7 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<SMM::GlobalWriter, G>(
+            SMM::write_results::<GW, G>(
                 acc,
                 &mut out_stage,
                 out_writer,

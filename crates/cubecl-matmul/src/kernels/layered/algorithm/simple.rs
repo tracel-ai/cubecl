@@ -11,7 +11,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
-            WriteStageFamily,
+            PlaneWriterFamily,
             read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
@@ -62,7 +62,7 @@ where
         StridedStageFamily,
         FilledStageFamily,
     >;
-    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL, PlaneWriterFamily>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 

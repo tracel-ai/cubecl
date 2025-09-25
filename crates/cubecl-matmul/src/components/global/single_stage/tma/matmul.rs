@@ -20,25 +20,27 @@ use crate::components::global::GlobalConfig;
 
 /// Performs matrix multiplication at the global level
 /// Similar to simple matmul but using tma loading
-pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>> {
-    _phantom: PhantomData<(MP, SMM)>,
+pub struct SimpleTmaMatmul<MP: MatmulPrecision, SMM: StageMatmul<MP>, GW: GlobalWriter<MP::Acc>> {
+    _phantom: PhantomData<(MP, SMM, GW)>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM>
+impl<MP: MatmulPrecision, SMM, GW> GlobalMatmul<MP> for SimpleTmaMatmul<MP, SMM, GW>
 where
     SMM: StageMatmul<
             MP,
             LhsStage = TmaStage<MP::Lhs>,
             RhsStage = TmaStage<MP::Rhs>,
             AccStage = FilledStage<AccS<MP>>,
+            OutStage = GW::Stage,
         >,
+    GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleTmaConfig<SMM::Config>;
     type LhsGlobalReader = TmaGlobalReader<MP::Lhs, Self::Config>;
     type RhsGlobalReader = TmaGlobalReader<MP::Rhs, Self::Config>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
-    type GlobalWriter = SMM::GlobalWriter;
+    type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -168,11 +170,8 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(
-            out.view_mut(layout).slice_mut_unchecked(offset, size),
-            conf,
-            config.stage_config(),
-        )
+        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
+        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

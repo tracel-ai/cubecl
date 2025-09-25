@@ -3,9 +3,9 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::global::read::sync_partial_tilewise::SyncPartialTilewiseLoading;
+use crate::components::global::read::sync_partial_cyclic::SyncPartialCyclicLoading;
 use crate::components::global::{
-    WriteStageFamily, read::sync_partial_cyclic::SyncPartialCyclicLoading,
+    PlaneWriterFamily, read::sync_partial_tilewise::SyncPartialTilewiseLoading,
 };
 use crate::components::stage::{ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
@@ -63,6 +63,7 @@ where
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -113,6 +114,7 @@ where
         // Other tiling orders are not supported
         SyncPartialTilewiseLoading<RowMajorTilingOrder>,
         SyncPartialTilewiseLoading<ColMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -162,6 +164,7 @@ where
         Self::StageMatmul,
         SyncPartialTilewiseLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

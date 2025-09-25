@@ -10,9 +10,9 @@ use cubecl_std::tensor::layout::Coords2d;
 
 pub type WriteTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 
-pub struct WriteStageFamily;
+pub struct PartitionedStageFamily;
 
-impl StageFamily<ReadWrite> for WriteStageFamily {
+impl StageFamily<ReadWrite> for PartitionedStageFamily {
     type TileKind = Strided;
 
     type Stage<ES: Numeric, T: TilingLayout> = PartitionedStage<ES>;

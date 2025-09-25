@@ -1,7 +1,8 @@
 use crate::components::{
     InputPrecision, StageIdent,
     global::{
-        GlobalWriter, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
+        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, WriteEvent,
+        WriteEventExpand, WriteEventListener,
         memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
@@ -102,6 +103,14 @@ impl<IP: InputPrecision> WriteEventListener for PlaneWriter<IP> {
 impl<IP: InputPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
     type Stage = PartitionedStage<IP::Stage>;
 
+    fn init<S: StageConfig>(
+        tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+        #[comptime] stage_config: S,
+    ) -> Self {
+        Self::new::<S>(tensor, config, stage_config)
+    }
+
     fn stage(this: &Self) -> Self::Stage {
         this.stage
     }
@@ -137,4 +146,11 @@ fn write_line<ES: Numeric, EG: Numeric>(
     };
 
     view.write_checked((tile, unit_write), Line::cast_from(value));
+}
+
+pub struct PlaneWriterFamily;
+
+impl GlobalWriterFamily for PlaneWriterFamily {
+    type Stage = PartitionedStageFamily;
+    type Writer<IP: InputPrecision> = PlaneWriter<IP>;
 }

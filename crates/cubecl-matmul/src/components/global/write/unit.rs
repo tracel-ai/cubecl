@@ -5,7 +5,8 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 use crate::components::{
     InputPrecision, StageIdent,
     global::{
-        GlobalWriter, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
+        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, WriteEvent,
+        WriteEventExpand, WriteEventListener,
         memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
@@ -89,7 +90,22 @@ impl<IP: InputPrecision> WriteEventListener for UnitWriter<IP> {
 impl<IP: InputPrecision> GlobalWriter<IP> for UnitWriter<IP> {
     type Stage = PartitionedStage<IP::Stage>;
 
+    fn init<S: StageConfig>(
+        tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
+        #[comptime] config: GlobalMemoryConfig,
+        #[comptime] stage_config: S,
+    ) -> Self {
+        Self::new::<S>(tensor, config, stage_config)
+    }
+
     fn stage(this: &Self) -> Self::Stage {
         this.stage
     }
+}
+
+pub struct UnitWriterFamily;
+
+impl GlobalWriterFamily for UnitWriterFamily {
+    type Stage = PartitionedStageFamily;
+    type Writer<IP: InputPrecision> = UnitWriter<IP>;
 }

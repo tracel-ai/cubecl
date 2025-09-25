@@ -3,17 +3,15 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
+use crate::components::stage::{PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{
     MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
+    global::PlaneWriterFamily,
 };
 use crate::components::{MultiRowStrategy, tile};
 use crate::components::{
     batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
     stage::{FilledStageFamily, StridedStageFamily},
-};
-use crate::components::{
-    global::WriteStageFamily,
-    stage::{PlaneMatmulFamily, RowMajorTilingOrder},
 };
 use crate::components::{
     global::multi_stage::ordered::OrderedDoubleBufferingMatmulFamily, tile::io::Filled,
@@ -56,6 +54,7 @@ where
     type GlobalMatmul = OrderedDoubleBufferingMatmulFamily<
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

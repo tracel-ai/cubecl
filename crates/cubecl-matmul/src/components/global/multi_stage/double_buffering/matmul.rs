@@ -1,10 +1,7 @@
-use crate::components::global::{GlobalConfig, GlobalWriter};
-use crate::components::global::{
-    PartitionedStage,
-    multi_stage::double_buffer_execution::{
-        execute_current_and_read_next, execute_last_and_write_results, read_first,
-    },
+use crate::components::global::multi_stage::double_buffer_execution::{
+    execute_current_and_read_next, execute_last_and_write_results, read_first,
 };
+use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, memory::SimpleGlobalLayout};
 use crate::components::{
     AccG,
@@ -34,28 +31,29 @@ pub struct DoubleBufferingMatmul<
     SMM: stage::StageMatmul<MP>,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
-> where
-    SMM::GlobalWriter: GlobalWriter<MP::Acc>,
-{
+    GW: GlobalWriter<MP::Acc>,
+> {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> global::GlobalMatmul<MP>
-    for DoubleBufferingMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
+    for DoubleBufferingMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: stage::StageMatmul<
             MP,
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            OutStage = PartitionedStage<AccS<MP>>,
+            OutStage = GW::Stage,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
@@ -63,7 +61,7 @@ where
     type RhsGlobalReader = SyncPartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
 
-    type GlobalWriter = SMM::GlobalWriter;
+    type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -176,7 +174,7 @@ where
 
         sync_cube();
 
-        execute_last_and_write_results::<MP, SMM, Self::Config>(
+        execute_last_and_write_results::<MP, GW, SMM, Self::Config>(
             &lhs_reader_b,
             &rhs_reader_b,
             &mut lhs_tile,
@@ -251,11 +249,8 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(
-            out.view_mut(layout).slice_mut_unchecked(offset, size),
-            conf,
-            config.stage_config,
-        )
+        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
+        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

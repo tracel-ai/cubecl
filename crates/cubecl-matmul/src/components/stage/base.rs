@@ -1,24 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{
-    CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords2d},
-};
+use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
-use crate::components::{
-    AccG,
-    error::MatmulSetupError,
-    global::{WriteEventListener, memory::GlobalMemoryConfig},
-    stage::StageMemoryConfig,
-};
 use crate::components::{AccS, global::MaxGlobalReaderPlanes};
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
 };
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{self, GlobalWriter, PlaneRoleConfig, RoleRuleConfig},
+    global::{self, PlaneRoleConfig, RoleRuleConfig},
     tile::TileConfig,
+};
+use crate::components::{
+    error::MatmulSetupError, global::WriteEventListener, stage::StageMemoryConfig,
 };
 use crate::components::{
     stage::{NumStages, PartitionScheduler, PartitionSchedulerScheme},
@@ -111,9 +105,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Rhs input of the underlying Tile Matmul
     type RhsTile: CubeType;
 
-    /// Type of the global writer for this stage matmul
-    type GlobalWriter: GlobalWriter<MP::Acc, Stage = Self::OutStage>;
-
     /// Executes the matrix multiplication of Lhs and Rhs, adding the result to the accumulator
     ///
     /// Equivalent to execute_with_listener with SEL:=NoEvent
@@ -152,13 +143,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     );
-
-    /// Inits the writer at the given offsets
-    fn init_writer(
-        tensor: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: Self::Config,
-    ) -> Self::GlobalWriter;
 
     /// Reads the result of the accumulator and hands it to the stage writer
     fn write_results<W: WriteEventListener, G: global::GlobalConfig>(

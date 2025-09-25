@@ -29,24 +29,29 @@ pub struct SimpleBarrierMatmul<
     SMM: StageMatmul<MP>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL, GW> GlobalMatmul<MP>
+    for SimpleBarrierMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: StageMatmul<
             MP,
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
+            OutStage = GW::Stage,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
     type LhsGlobalReader =
@@ -54,7 +59,7 @@ where
     type RhsGlobalReader =
         AsyncFullStageGlobalReader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
-    type GlobalWriter = SMM::GlobalWriter;
+    type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -116,7 +121,7 @@ where
             rhs_reader.advance_view();
         }
 
-        let mut out_stage = <Self::GlobalWriter as GlobalWriter<MP::Acc>>::stage(&out_writer);
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
         SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
@@ -188,11 +193,8 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(
-            out.view_mut(layout).slice_mut_unchecked(offset, size),
-            conf,
-            config.stage_config(),
-        )
+        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
+        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

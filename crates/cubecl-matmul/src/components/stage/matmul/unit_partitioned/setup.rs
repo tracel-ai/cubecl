@@ -16,7 +16,7 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::{AccR, InputPrecision};
 use crate::components::{AccS, ComputeResources};
 use crate::components::{LhsR, tile::io::Strided};
-use crate::components::{LhsS, global::WriteStageFamily};
+use crate::components::{LhsS, global::PartitionedStageFamily};
 use crate::components::{MatmulLineSizes, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -41,7 +41,7 @@ impl<
     type LhsStage = StageIn;
     type RhsStage = StageIn;
     type AccStage = StageAcc;
-    type OutStage = WriteStageFamily;
+    type OutStage = PartitionedStageFamily;
 
     type Matmul<
         MP: MatmulPrecision,

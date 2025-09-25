@@ -1,6 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
     AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    global::PartitionedStageFamily,
     stage::{StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::FastDivmodArgs;
@@ -22,6 +23,7 @@ impl<
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
+            OutStage = PartitionedStageFamily,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
 {

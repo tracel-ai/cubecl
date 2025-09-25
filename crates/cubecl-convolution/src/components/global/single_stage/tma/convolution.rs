@@ -8,7 +8,8 @@ use cubecl_core::{
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalConfig as _, GlobalWriter, read::arrive_tma, single_stage::tma::SimpleTmaConfig,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter, read::arrive_tma,
+        single_stage::tma::SimpleTmaConfig,
     },
     stage::{StageMatmul, StridedStage},
 };
@@ -49,6 +50,7 @@ where
             LhsStage = StridedStage<LhsS<MP>, TmaIm2colTiling>,
             RhsStage = StridedStage<RhsS<MP>, TmaWeightTiling>,
             AccStage = BiasStage<AccS<MP>>,
+            OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
@@ -56,8 +58,8 @@ where
     type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs, Self::Config>;
     type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs, SMM::Config>;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
+    type GlobalWriter = PlaneWriter<MP::Acc>;
 
-    type GlobalWriter = SMM::GlobalWriter;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -183,7 +185,7 @@ where
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out = OutLayout::new(runtime_args, global_conf);
         let out = out.view_mut(layout_global).view_mut(layout_out);
-        SMM::init_writer(
+        Self::GlobalWriter::new::<SMM::Config>(
             out.slice_mut_unchecked(offset, slice_size),
             global_conf,
             config.stage_config(),

@@ -7,7 +7,7 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            WriteStageFamily, read::AsyncFullLoadingStrategy,
+            PlaneWriterFamily, read::AsyncFullLoadingStrategy,
             single_stage::barrier::SimpleBarrierMatmulFamily,
         },
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
@@ -43,7 +43,7 @@ where
         StridedStageFamily,
         FilledStageFamily,
     >;
-    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L, PlaneWriterFamily>;
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

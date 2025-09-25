@@ -16,7 +16,7 @@ use cubecl_std::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use super::{GlobalWriter, read::ReaderMode};
+use super::read::ReaderMode;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -73,7 +73,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     /// Global reader for matrix C (Accumulator/Bias)
     type AccGlobalReader: CubeType;
     /// Writer to store the output stage into global memory
-    type GlobalWriter: GlobalWriter<MP::Acc>;
+    type GlobalWriter: CubeType;
 
     /// The accumulator type for the tile matmul
     type Accumulators: CubeType;

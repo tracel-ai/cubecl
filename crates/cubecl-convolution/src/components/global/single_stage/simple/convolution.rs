@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalConfig as _, GlobalWriter,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
         read::{SyncFullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
@@ -44,6 +44,7 @@ where
             LhsStage = StridedStage<LhsS<MP>, ConvTilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, ConvTilingLayout>,
             AccStage = BiasStage<AccS<MP>>,
+            OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
     type LhsGlobalReader = SyncFullStageGlobalReader<
@@ -58,8 +59,8 @@ where
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
+    type GlobalWriter = PlaneWriter<MP::Acc>;
 
-    type GlobalWriter = SMM::GlobalWriter;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -181,7 +182,7 @@ where
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out = OutLayout::new(runtime_args, global_conf);
         let out = out.view_mut(layout_global).view_mut(layout_out);
-        SMM::init_writer(
+        Self::GlobalWriter::new::<SMM::Config>(
             out.slice_mut_unchecked(offset, slice_size),
             global_conf,
             config.stage_config(),

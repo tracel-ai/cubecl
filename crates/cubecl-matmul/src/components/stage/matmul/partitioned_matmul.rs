@@ -1,35 +1,21 @@
 use crate::components::MatmulPrecision;
 use crate::components::global;
+use crate::components::stage::StageConfig;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
-use crate::components::stage::{RowMajorTilingOrder, StageConfig};
 use crate::components::tile::TileMatmul;
-use crate::components::{AccG, global::memory::GlobalMemoryConfig};
 use crate::components::{InputPrecision, stage::Stage};
-use crate::components::{global::GlobalWriter, stage::ContiguousTilingLayout};
 use crate::components::{global::WriteEventListener, stage::StageMatmul};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::{View, layout::Coords2d};
-
-type StageLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+use cubecl_std::tensor::layout::Coords2d;
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).
 /// Controls global writeback and and compute indexing.
 pub trait StagePartitioner: Send + Sync + 'static {
-    /// Writer used to store accumulators back to global memory.
-    type Writer<IP: InputPrecision>: GlobalWriter<IP>;
-
-    /// Initializes a writer at the given global offsets.
-    fn init_writer<IP: InputPrecision, S: StageConfig>(
-        tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
-    ) -> Self::Writer<IP>;
-
     /// Returns the (row, col) of the current compute primitive within the stage.
     fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d;
 }
@@ -64,9 +50,10 @@ pub struct PartitionedStageMatmul<
             ReadWrite,
             TileKind = TM::OutTile,
         >,
-    SP: StagePartitioner<Writer<MP::Acc>: GlobalWriter<MP::Acc, Stage = StageOut>>,
+    SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 > {
+    #[allow(clippy::type_complexity)]
     _phantom: PhantomData<(MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S)>,
 }
 
@@ -100,7 +87,7 @@ where
             ReadWrite,
             TileKind = TM::OutTile,
         >,
-    SP: StagePartitioner<Writer<MP::Acc>: GlobalWriter<MP::Acc, Stage = StageOut>>,
+    SP: StagePartitioner,
     S: StageConfig<TileConfig = TM::Config>,
 {
     type Config = S;
@@ -113,8 +100,6 @@ where
     type Accumulators = Accumulators<MP, TM, S>;
     type LhsTile = Sequence<TM::LhsFragment>;
     type RhsTile = RhsTile<TM::RhsFragment>;
-
-    type GlobalWriter = SP::Writer<MP::Acc>;
 
     fn execute(
         lhs_reader: &StageLhs,
@@ -221,14 +206,6 @@ where
         }
 
         W::on_event(listener, global::WriteEvent::new_Finish());
-    }
-
-    fn init_writer(
-        tensor: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: Self::Config,
-    ) -> Self::GlobalWriter {
-        SP::init_writer::<MP::Acc, Self::Config>(tensor, config, stage_config)
     }
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {

@@ -1,4 +1,7 @@
-use crate::components::global::read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
+use crate::components::global::{
+    GlobalWriterFamily,
+    read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy},
+};
 use crate::components::global::{
     WriteTiling,
     multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
@@ -18,19 +21,23 @@ use super::OrderedDoubleBufferingGlobalConfig;
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
-impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
+impl<SMM, RL, GW> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL, GW>
 where
     SMM: stage::StageMatmulFamily<
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
+            OutStage = GW::Stage,
         >,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,
@@ -42,6 +49,7 @@ where
             WriteTiling,
         >,
         RL,
+        GW::Writer<MP::Acc>,
     >;
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
 
