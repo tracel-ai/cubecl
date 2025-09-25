@@ -10,11 +10,10 @@ pub struct WgpuAllocController {
 
 impl AllocationController for WgpuAllocController {
     fn dealloc(&mut self, _allocation: &cubecl_common::bytes::Allocation) {
-        // We unmap the buffer and release the binding so that the same buffer can be used again.
-        self.staging_buffer.unmap();
-
         let old = self.bindings.take();
         core::mem::drop(old);
+        // We unmap the buffer and release the binding so that the same buffer can be used again.
+        self.staging_buffer.unmap();
     }
 }
 
