@@ -11,7 +11,8 @@
 ///
 /// Note that when a user requests for memory, we give him (or her), an slice handle, which includes a pointer (storage id) to the main page where this handle belongs to and an offset within the handle.
 ///
-/// It is the responsability of the memory system to guarantee that the handle is valid. Therefore, before each allocation, we ensure all the physical handles backing the slice are mapped.
+/// It is the responsability of the memory system to guarantee that the handle is valid.
+///Therefore, before each allocation, we ensure all the physical handles backing the slice are mapped.
 ///
 /// At allocation time, there will be only one physical handle backing the slice.
 /// This phyical handle will be the same size as the slice size.
