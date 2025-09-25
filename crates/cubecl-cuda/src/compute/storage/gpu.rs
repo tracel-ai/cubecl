@@ -346,7 +346,7 @@ impl VirtualStorage for GpuVirtualStorage {
         if let Some(a) = self.virtual_memory.get(lhs)
             && let Some(b) = self.virtual_memory.get(rhs)
         {
-            return (a.ptr() + a.size() == b.ptr());
+            return a.ptr() + a.size() == b.ptr();
         };
         false
     }
@@ -579,6 +579,17 @@ impl Drop for GpuVirtualStorage {
 }
 unsafe impl Send for GpuVirtualStorage {}
 
+// Added for testing purposes.
+impl Default for GpuVirtualStorage {
+    fn default() -> Self {
+
+        let granularity = get_minimum_granularity(0).unwrap();
+        Self ::new(
+            0,
+            granularity
+        )
+    }
+}
 pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
     unsafe {
         let mut granularity = 0;
