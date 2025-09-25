@@ -10,8 +10,10 @@ use crate::{memory_management::memory_pool::calculate_padding, server::IoError};
 use alloc::vec::Vec;
 use hashbrown::{HashMap, HashSet};
 
-const DEFRAG_THRESHOLD: usize = 20;
+
 // Hardcoded the value for testing
+const DEFRAG_THRESHOLD: usize = 20;
+
 
 /// A virtual slice that represents a fragment of a virtual memory page
 /// backed by a physical handle (or not, if unmapped).
@@ -19,7 +21,49 @@ const DEFRAG_THRESHOLD: usize = 20;
 pub(crate) struct VirtualSlice {
     /// The underlying slice information
     pub slice: Slice,
-    /// Physical memory handles backing this slice
+    /// Physical memory handles backing this slice.
+    /// At allocation time, there will be only one physical handle backing the slice.
+    /// This phyical handle will be the same size as the slice size.
+    /// If the slice is merged with other slices in the same page, their physical handles will be combined.
+    /// When a slice is splitted in two, it must be either unmapped (physical_handles is `None`) or cut up at some point in the physical handles vector.
+    ///
+    /// Therefore, this memory pool will work better if the physical handles are of a small, predictable size.
+    ///
+    /// Consider the following:
+    ///
+    /// We have a mapped slice (V1) with the following layout:
+    ///
+    /// ------------------------------
+    /// | Ph1 | Ph2 | Ph3 | Ph5       | -> [V1] [ ADDR + SIZE + OFFSET]
+    /// ------------------------------
+    ///
+    /// Where all handles are of size `alignment`(but ph5 which is size = alignment * 2)
+    ///
+    /// Then, V1 can be part of a memory page (P0), which is just an address space that is contiguous to the user, with the following layout:
+    ///
+    /// P0 -> VIRTUAL ADDR : 0             [V0] OFFSET = 0; SIZE = PH1 + PH2 + PH3 + PH4 + PH5
+    ///    -> VIRTUAL ADDR: 0 + [Size(v0)] [V1] OFFSET = PH0; SIZE = PH1 + PH2 + PH3 + PH4 + PH5
+    ///
+    /// Additionally, pages are allocated in a contiguous manner, leveraging the power of [`cuMemAddressReserve`] which allows you to provide a hint to the driver in order to allocate virtual memory at a specific address.
+    ///
+    /// So then, the next page will be allocated:
+    ///
+    /// P1 -> VIRTUAL ADDR : P0_SIZE    [V2] OFFSET = 0, SIZE = P6
+    ///
+    /// At defragmentation (periodically every N allocations) the following will happen (assuming all alices are free):
+    ///
+    /// 1. P0 and P1 will be combined in a single logical page (P0), without making any call to the driver or moving memory.
+    /// 2. The remaining page (P0) will be compacted by merging adjacent pairs of free slices into a single slice, which will now consist of multiple handles and will be ready to be split at next reservation.
+    ///
+    /// Example:
+    ///
+    /// When both slices V0, V1, V2 are free, we are allowed to merge them in a single bigger slice:
+    ///
+    /// P0 -> VIRTUAL ADDR : 0             [V0] OFFSET = 0; SIZE = PH1 + PH2 + PH3 + PH4 + PH5 + P0 + V2-SIZE
+    ///
+    /// Notice that V0 and V1 were mapped, but V2 was not (this is a pretty rare case, but I wanted to show it here in order to demonstrate the actual workflow). Therefore the new big slice is not completely mapped. This can cause problems if we then try to split the slice to get the unmapped portion.
+    ///
+    /// To avoid that, at reservation time, we allocate a handle of enough size to fill-in the missing size of the partially-mapped slice. If the required size for the handle is bigger than max_alloc_size, we allocate n handles until we match target. As allocations should always be aligned to self.alignment (in practice the minimum granularity or GPU page size), the case where the required handle is smaller than min_alloc size should never happen.
     pub physical_handles: Option<Vec<PhysicalStorageHandle>>,
 }
 
@@ -53,6 +97,8 @@ impl MemoryFragment for VirtualSlice {
                 let mut total_size = 0;
                 let mut new_handles: Vec<PhysicalStorageHandle> = Vec::new();
 
+                // Here we split the handles of the slice.
+                // This is tricky since we want to ensure handle order is kept correct.
                 while let Some(handle) = handles.pop() {
                     total_size += handle.size();
 
@@ -62,7 +108,8 @@ impl MemoryFragment for VirtualSlice {
 
                     new_handles.push(handle);
                 }
-
+                /// Use reverse here to maintain handles order.
+                new_handles.reverse()
                 Some(new_handles)
             } else {
                 None
@@ -334,9 +381,9 @@ impl VirtualMemoryPool {
     /// Virtual memory works best when the variability of the physical allocations is low.
     /// Therefore, provided that we can only allocate chunks that are multiples of the gpu page size (2MiB) on CUDA,
     /// Therefore, it might be useful to have buckets of free physical chunks given their size. I am using the search index here to search for physical allocations given their size for this purpose.
-    pub fn new(min_alloc_size: u64, max_alloc_size: u64, alignment: u64) -> Self {
+    pub fn new( max_alloc_size: u64, alignment: u64) -> Self {
         // Ensure the allocation range is aligned to the granularity.
-        let min_alloc_size = min_alloc_size.saturating_sub(1).next_multiple_of(alignment);
+        let min_alloc_size = alignment; // min alloc size will always be alignment.
         let max_alloc_size = max_alloc_size.saturating_sub(1).next_multiple_of(alignment);
 
 
@@ -599,11 +646,25 @@ impl VirtualMemoryPool {
 
         // CASE B: PARTIALLY MAPPED SLICE
         } else if old_slice.mapped_size() < effective_size {
+
+
             let mut handles = old_slice.physical_handles.clone().unwrap();
             let size_to_map = effective_size - old_slice.mapped_size();
-            let mut physical = self.get_or_alloc_physical(storage, size_to_map).ok()?;
-            storage.map(id, old_slice_offset, &mut physical).ok()?;
-            handles.push(physical);
+            let num_handles_required = size_to_map.div_ceil(self.max_alloc_size);
+            let remaining = size_to_map % self.max_alloc_size;
+            let mut offset = old_slice_offset;
+
+            for _ in 0..num_handles_required {
+                let mut physical = self.get_or_alloc_physical(storage, self.max_alloc_size).ok()?;
+                storage.map(id, offset, &mut physical).ok()?;
+                offset += self.max_alloc_size;
+                handles.push(physical);
+            }
+
+            let mut ph_remanent =  self.get_or_alloc_physical(storage, remaining).ok()?;
+            storage.map(id, offset, &mut ph_remanent).ok()?;
+            handles.push(physical_remanent);
+
             Some(handles)
 
         }// BEST CASE: COMPLETELY MAPPED:
