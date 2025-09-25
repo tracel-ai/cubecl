@@ -19,8 +19,8 @@ const DEFRAG_THRESHOLD: usize = 20;
 pub(crate) struct VirtualSlice {
     /// The underlying slice information
     pub slice: Slice,
-    /// Physical memory handle backing this slice
-    pub physical_handle: Option<PhysicalStorageHandle>,
+    /// Physical memory handles backing this slice
+    pub physical_handles: Option<Vec<PhysicalStorageHandle>>,
 }
 
 /// A Virtual Slice is of course a memory fragment.
@@ -39,18 +39,38 @@ impl MemoryFragment for VirtualSlice {
         self.slice.id()
     }
 
-    /// For a slice to be splitted the memory pool needs to unmap it first, taking the storage handle from it.
-    /// Then it can map it back.
-    /// Additionally, non-free virtual slices cannot be split as they might be currently in use by any kernel.
+    /// Non-free virtual slices cannot be split as they might be currently in use by any kernel.
     fn split(&mut self, offset_slice: u64, buffer_alignment: u64) -> Option<Self> {
-        if !self.is_free() || self.physical_handle.is_some() {
+        if !self.is_free() {
             return None;
         }
 
+        let size_new = self.effective_size() - offset_slice;
+
         if let Some(new_slice) = self.slice.split(offset_slice, buffer_alignment) {
+            // Split the physical handles of this slice.
+            let physical_handles = if let Some(handles) = self.physical_handles.as_mut() {
+                let mut total_size = 0;
+                let mut new_handles: Vec<PhysicalStorageHandle> = Vec::new();
+
+                while let Some(handle) = handles.pop() {
+                    total_size += handle.size();
+
+                    if total_size >= size_new {
+                        break;
+                    }
+
+                    new_handles.push(handle);
+                }
+
+                Some(new_handles)
+            } else {
+                None
+            };
+
             return Some(Self {
                 slice: new_slice,
-                physical_handle: None,
+                physical_handles,
             });
         }
         None
@@ -62,10 +82,10 @@ impl MemoryFragment for VirtualSlice {
 }
 
 impl VirtualSlice {
-    pub fn new(slice: Slice, physical_handle: Option<PhysicalStorageHandle>) -> Self {
+    pub fn new(slice: Slice, physical_handles: Option<Vec<PhysicalStorageHandle>>) -> Self {
         Self {
             slice,
-            physical_handle,
+            physical_handles,
         }
     }
 
@@ -77,16 +97,47 @@ impl VirtualSlice {
         self.slice.storage.offset()
     }
 
+    pub fn set_offset(&mut self, offset: u64) {
+        self.slice.storage.utilization.offset = offset;
+    }
+
+    pub fn set_page(&mut self, page: StorageId) {
+        self.slice.storage.id = page;
+    }
+
     pub fn storage_size(&self) -> u64 {
         self.slice.storage.size()
     }
 
-    pub fn unmap(&mut self) -> Option<PhysicalStorageHandle> {
-        self.physical_handle.take()
+    pub fn unmap(&mut self) -> Option<Vec<PhysicalStorageHandle>> {
+        self.physical_handles.take()
     }
 
-    pub fn map(&mut self, handle: PhysicalStorageHandle) {
-        self.physical_handle = Some(handle);
+    pub fn map(&mut self, handles: Vec<PhysicalStorageHandle>) {
+        self.physical_handles = Some(handles);
+    }
+
+    fn is_mapped(&self) -> bool {
+        self.physical_handles.is_some()
+    }
+
+
+    /// Check the total size of this handle that is mapped
+    fn mapped_size(&self) -> u64 {
+        if let Some(handles) = &self.physical_handles {
+            return handles.iter().map(|h| h.size()).sum();
+        }
+        0u64
+    }
+
+
+
+    pub fn set_size(&mut self, size: u64) {
+        self.slice.storage.utilization.size = size;
+    }
+
+    pub fn set_padding(&mut self, padding: u64) {
+        self.slice.padding = padding;
     }
 }
 
@@ -95,13 +146,14 @@ impl VirtualSlice {
 #[derive(Debug)]
 pub(crate) struct VirtualMemoryPage {
     /// Map from offset to slice ID
+    /// Uses a btree map instead of hashmap to ensure offsets are ordered.
     pub slices: HashMap<u64, SliceId>,
     /// The virtual storage ID for this page
     pub storage_id: StorageId,
     /// Total size of this page
     pub size: u64,
     /// Id of the next memory page (linked list)
-    pub next_page_id: Option<StorageId>
+    pub next_page_id: Option<StorageId>,
 }
 
 impl VirtualMemoryPage {
@@ -110,7 +162,7 @@ impl VirtualMemoryPage {
             slices: HashMap::new(),
             storage_id,
             size,
-            next_page_id: None
+            next_page_id: None,
         }
     }
 
@@ -160,6 +212,8 @@ impl MemoryChunk for VirtualMemoryPage {
             None => return false,
         };
 
+
+        // Return the second slice, but also check if the first slice is mapped.
         let next_slice_address = {
             let first_slice = match slices.get(&first_slice_id) {
                 Some(s) => s,
@@ -168,13 +222,25 @@ impl MemoryChunk for VirtualMemoryPage {
             first_slice_address + first_slice.effective_size()
         };
 
+        // Search for the second slice.
         if let Some(next_slice_id) = self.find_slice(next_slice_address) {
-            let (next_slice_eff_size, next_slice_is_free) = {
+            let (next_slice_eff_size, next_slice_is_free, next_slice_handles) = {
                 let next_slice = match slices.get(&next_slice_id) {
                     Some(s) => s,
                     None => return false,
                 };
-                (next_slice.effective_size(), next_slice.is_free())
+
+                let next_slice_data = if next_slice.is_free() && next_slice.is_mapped() {
+                    next_slice.physical_handles.clone()
+                } else {
+                    None
+                };
+
+                (
+                    next_slice.effective_size(),
+                    next_slice.is_free(),
+                    next_slice_data,
+                )
             };
 
             if next_slice_is_free {
@@ -189,6 +255,20 @@ impl MemoryChunk for VirtualMemoryPage {
                 };
                 first_slice.slice.padding = 0;
 
+                // We need to merge the physical handles here in case they exist.
+                if next_slice_handles.is_some()
+                    && let Some(handles) = first_slice.physical_handles.as_mut()
+                {
+                    handles.extend(next_slice_handles.unwrap());
+
+                } else if next_slice_handles.is_some() {
+
+                    // Note that a completely valid slice needs to be either completely mapped or unmapped
+                    // If you are carefully reading the code you will notice that here we might be combining a non-mapped slice with a mapped one, which could result in a partial mapping and would not be valid.
+                    // To account for that, we fill the missing mappings in the [`try_reserve`] method.
+                    // This is an optimization I have added in order to reduce the total number of API calls to map memory.
+                    first_slice.map(next_slice_handles.unwrap());
+                }
                 // Cleanup the extra slice
                 self.slices.remove(&next_slice_address);
                 slices.remove(&next_slice_id);
@@ -204,8 +284,11 @@ impl MemoryChunk for VirtualMemoryPage {
     }
 
     /// Insert a slice at the specific address on this chunk.
+    /// Ensures we cannot insert two slices at the same offset in the page.
     fn insert_slice(&mut self, address: u64, slice: Self::Key) {
-        self.slices.insert(address, slice);
+        if self.slices.get(&address).is_none() {
+            self.slices.insert(address, slice);
+        };
     }
 }
 
@@ -234,11 +317,17 @@ pub(crate) struct VirtualMemoryPool {
     max_alloc_size: u64,
     /// Memory alignment
     alignment: u64,
-    /// Page size
-    page_size: u64,
+    /// This flags allow to have a fully contiguous virtual address space. The allocation workflow is the following:
+    /// |------------------|    |------------------|            |------------------|
+    /// |  page 1          | -> |  page 2          | [.....] -> |  page n          |
+    /// |------------------|    |------------------|            |------------------|
+    /// Where page n - 1 starts where page n ends and so on.
+    /// Pages are memory ranges that are contiguous by definition, and slices inside pages can be merged and split on demand, without the need of any API calls.
+    /// To merge a range of pages into a single one we will need an API call to the driver, although if pages are actually contiguous it is not necessary.
     /// Keep track of last allocated page for better alignment:
-    last_allocated_page: Option<StorageId>
-
+    last_allocated_page: Option<StorageId>,
+    /// Keep track of the first page that was allocated after last defragmentation
+    first_page: Option<StorageId>,
 }
 
 impl VirtualMemoryPool {
@@ -268,8 +357,8 @@ impl VirtualMemoryPool {
             min_alloc_size,
             max_alloc_size,
             alignment,
-            page_size,
-            last_allocated_page: None
+            last_allocated_page: None,
+            first_page: None,
         }
     }
 
@@ -279,6 +368,8 @@ impl VirtualMemoryPool {
         storage: &mut Storage,
         size: u64,
     ) -> Result<PhysicalStorageHandle, IoError> {
+
+        // Physical memory should always be aligned.
         let aligned_size = size.next_multiple_of(self.alignment);
         assert!(
             aligned_size > self.min_alloc_size && aligned_size < self.max_alloc_size,
@@ -317,19 +408,22 @@ impl VirtualMemoryPool {
     fn create_virtual_page<Storage: VirtualStorage>(
         &mut self,
         storage: &mut Storage,
+        page_size: u64,
         previous_page: Option<StorageId>,
     ) -> Result<StorageId, IoError> {
-        // Reserve virtual address space
-        let handle = storage.reserve(self.page_size, previous_page)?;
+        // Reserve virtual address space of the required size.
+        // An advantage of using this memory pool over the sliced pool is that virtual pages are dynamically sized.
+        // This allows to make certain optimizations, like merging all free pages into a single big virtual page.
+        let handle = storage.reserve(page_size, previous_page)?;
         let storage_id = handle.id;
 
         // Create the page
-        let page = VirtualMemoryPage::new(storage_id, self.page_size);
+        let page = VirtualMemoryPage::new(storage_id, page_size);
         self.pages.insert(storage_id, page);
 
         self.ring.push_page(storage_id);
         // I maintain a ring buffer and a storage index for pages to search them by page size.
-        self.storage_index.insert(storage_id, self.page_size);
+        self.storage_index.insert(storage_id, page_size);
 
         Ok(storage_id)
     }
@@ -353,7 +447,7 @@ impl VirtualMemoryPool {
         Slice::new(storage, handle, padding)
     }
 
-    /// Compact a page by merging adjacent free slices
+    /// Completely compact a page by merging adjacent free slices
     fn compact_page(&mut self, page_id: &StorageId) {
         if let Some(page) = self.pages.get_mut(page_id) {
             let page_addresses: Vec<u64> = page.slices.keys().cloned().collect();
@@ -373,16 +467,67 @@ impl VirtualMemoryPool {
     /// This method implements the main defragmentation algorithm of the memory spaces.
     /// Compacts pages, collects free slices and unmaps them from their physical handles.
     /// The handles then become available for use when [`try_reserve`] or [`alloc`] come in.
-    pub fn defragment<Storage: VirtualStorage>(
-        &mut self,
-        storage: &mut Storage,
-    ) {
-        // First compact all pages. This was already done by the [SlicedPool]
-        let keys: Vec<StorageId> = self.pages.keys().cloned().collect();
+    pub fn defragment<Storage: VirtualStorage>(&mut self, storage: &mut Storage) {
+        // First merge all pages
+        if let Some(first) = self.first_page {
+            let mut current = first;
 
-        for id in keys {
+            while let Some(next) = self.pages.get(&current).unwrap().next_page().cloned() {
+                // Query the storage to check if they are aligned.
+                if storage.are_aligned(&current, &next) {
+                    // Get the size of the first page to calculate the offset
+                    let page_1_size = self.pages.get(&current).unwrap().size;
+
+                    // Remove the second page to avoid borrow checker issues
+                    let mut page_2 = self.pages.remove(&next).unwrap();
+
+                    // Move all slices from page_2 to page_1 with adjusted offsets
+                    let slices_to_move: Vec<(u64, SliceId)> = page_2.slices.drain().collect();
+
+                    for (old_offset, slice_id) in slices_to_move {
+                        let new_offset = page_1_size + old_offset;
+
+                        // Update the slice's storage information
+                        if let Some(virtual_slice) = self.virtual_slices.get_mut(&slice_id) {
+                            virtual_slice.slice.storage.id = current; // Change to first page's ID
+                            virtual_slice.slice.storage.utilization.offset = new_offset;
+                        }
+
+                        // Insert the slice into the first page with new offset
+                        self.pages
+                            .get_mut(&current)
+                            .unwrap()
+                            .slices
+                            .insert(new_offset, slice_id);
+                    }
+
+                    // Update the first page's size to include the second page
+                    self.pages.get_mut(&current).unwrap().size += page_2.size;
+
+                    // Update the next page pointer to skip the merged page
+                    self.pages.get_mut(&current).unwrap().next_page_id = page_2.next_page_id;
+
+                    // Remove the second page from ring buffer and storage index
+                    self.storage_index.remove(&next);
+                    self.ring.remove_page(&next);
+
+                    // Continue with the same current page since we merged the next one
+                    continue;
+                }
+
+                current = next;
+            }
+        }
+
+        // At this point, pages have been merged into a single one big chunk.
+        // Therefore we can now try to compact them, merging all contiguous free slices.
+        // In the sliced pool, you could only compact at a single page level, therefore the maximum compactability you could achieve if of size [`page_size`]
+
+        let ids: Vec<StorageId> = self.pages.keys().cloned().collect();
+        for id in ids {
             self.compact_page(&id);
         }
+
         // Collect all free slices.
         let free_slice_ids: Vec<SliceId> = self
             .virtual_slices
@@ -399,17 +544,19 @@ impl VirtualMemoryPool {
         // The physical handles will be automatically reused on any [`alloc`] or [`try_reserve`]
         // calls.
         for slice_id in &free_slice_ids {
-
             if let Some(mut slice) = self.virtual_slices.remove(slice_id) {
                 // Check if we can unmap the slice and release the handle if so.
-                if let Some(mut handle) = slice.unmap() {
-                    storage.unmap(slice.storage_id(), slice.storage_offset(), &mut handle);
-                    // Will be reused on alloc or reserve.
-                    self.release_physical(handle);
+                if let Some(handles) = slice.unmap() {
+
+
+                    for mut handle in handles {
+                        storage.unmap(slice.storage_id(), slice.storage_offset(), &mut handle);
+                        // Will be reused on alloc or reserve.
+                        self.release_physical(handle);
+                    }
                 }
             }
         }
-
     }
 }
 
@@ -425,6 +572,8 @@ impl VirtualMemoryPool {
     }
 
     /// Attempt to reserve an slice of an specific size
+    /// Will search for the first free slice that has enough size and split it if necessary.
+    /// If the slice is not mapped, it will map it automatically.
     fn try_reserve<Storage: VirtualStorage>(
         &mut self,
         size: u64,
@@ -434,29 +583,48 @@ impl VirtualMemoryPool {
         let effective_size = size + padding;
 
         // Try to find a free slice using the ring buffer
+        // This method will automatically find the first slice that is bigger than [`effective_size`], and split it if necessary.
         let slice_id =
             self.ring
                 .find_free_slice(effective_size, &mut self.pages, &mut self.virtual_slices)?; // Return None if no slice is found.
 
         let old_slice = self.virtual_slices.get(&slice_id)?;
-        let old_slice_offset = old_slice.slice.storage.offset();
-        let id = old_slice.slice.storage.id;
+        let old_slice_offset = old_slice.storage_offset();
+        let id = old_slice.storage_id();
 
         // Get or allocate physical handle if needed
-        let physical_handle = if old_slice.physical_handle.is_none() {
+        // Note that as free slices from very old pages are unmapped during defragmentation to reuse their handles,
+        // we might see here that the slice is not mapped, so just in case we map it if necessary to ensure memory is always valid.
+        // CASE A: COMPLETELY UNMAPPED SLICE
+        let physical_handles = if !old_slice.is_mapped() {
             // Physical handles are released here after n allocations.
             let mut physical = self.get_or_alloc_physical(storage, effective_size).ok()?;
             storage.map(id, old_slice_offset, &mut physical).ok()?;
+            Some(vec![physical])
 
-            Some(physical)
-        } else {
-            old_slice.physical_handle.clone()
-        }?;
+        // CASE B: PARTIALLY MAPPED SLICE
+        } else if old_slice.mapped_size() < effective_size {
+            let mut handles = old_slice.physical_handles.clone().unwrap();
+            let size_to_map = effective_size - old_slice.mapped_size();
+            let mut physical = self.get_or_alloc_physical(storage, size_to_map).ok()?;
+            storage.map(id, old_slice_offset, &mut physical).ok()?;
+            handles.push(physical);
+            Some(handles)
+
+        }// BEST CASE: COMPLETELY MAPPED:
+        else {
+            old_slice.physical_handles.clone()
+        };
 
         let virtual_slice = self.virtual_slices.get_mut(&slice_id)?;
-        virtual_slice.slice.padding = padding;
-        virtual_slice.slice.storage.utilization.size = size;
-        virtual_slice.map(physical_handle);
+        virtual_slice.set_padding(padding);
+        virtual_slice.set_size(size);
+
+        if let Some(ph_handles) = physical_handles {
+
+            virtual_slice.map(ph_handles);
+
+        };
 
         Some(virtual_slice.slice.handle.clone())
     }
@@ -468,22 +636,27 @@ impl VirtualMemoryPool {
         alloc_counter: usize,
         storage: &mut Storage,
     ) -> Result<SliceHandle, IoError> {
-
-
-        /// Defragment and reset tracking every DEFRAG_THRESHOLD allocations.
+        // Defragment and reset tracking every DEFRAG_THRESHOLD allocations.
         if alloc_counter % DEFRAG_THRESHOLD == 0 {
             self.defragment(storage);
             self.recently_added_pages.clear();
             self.recently_allocated_size = 0;
+            self.first_page = None;
         };
 
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
+        // Create a new virtual page.
+        // The idea is that first page reservation always is of effective_size.
+        // This minimizes extra padding and enforces alignment, as we here do not need fixed-size pages.
+        let page_id =
+            self.create_virtual_page(storage, effective_size, self.last_allocated_page)?;
+        // Attempt to allocate the page contiguous to the last allocated one always. This should enforce better page alignment.
 
-        // Create a new virtual page
-        let page_id = self.create_virtual_page(storage, self.last_allocated_page)?; // Attempt to allocate the page contiguous to the last one always. This should enforce better page alignment.
-
+        if self.first_page.is_none() {
+            self.first_page = Some(page_id)
+        };
 
         // Maintain the chain of contiguous pages.
         if let Some(last_allocation) = self.last_allocated_page {
@@ -492,11 +665,12 @@ impl VirtualMemoryPool {
             };
         };
 
+        // Update tracking structures.
         self.last_allocated_page = Some(page_id);
         self.recently_added_pages.insert(page_id);
-        self.recently_allocated_size += self.page_size;
+        self.recently_allocated_size += effective_size;
 
-        // Create the main slice
+        // Create the main slice on the page.
         let slice = self.create_slice(0, size, page_id);
         let slice_handle = slice.handle.clone();
         let slice_id = slice.id();
@@ -504,33 +678,17 @@ impl VirtualMemoryPool {
 
         // Get physical backing
         let mut physical = self.get_or_alloc_physical(storage, effective_size)?;
-
         // Map physical to virtual
         storage.map(page_id, slice_offset, &mut physical)?;
-
         // Create virtual slice
-        let virtual_slice = VirtualSlice::new(slice, Some(physical));
+        let virtual_slice = VirtualSlice::new(slice, Some(vec![physical]));
         self.virtual_slices.insert(slice_id, virtual_slice);
 
-        // Update page
+        // Update page, inserting the slice at the correct offset.
         if let Some(page) = self.pages.get_mut(&page_id) {
             page.insert_slice(slice_offset, slice_id);
         }
-
-        // Create extra slice if needed
-        if effective_size < self.page_size {
-            let extra_slice =
-                self.create_slice(effective_size, self.page_size - effective_size, page_id);
-            let extra_id = extra_slice.id();
-            let extra_offset = extra_slice.storage.offset();
-            let extra_virtual = VirtualSlice::new(extra_slice, None);
-            self.virtual_slices.insert(extra_id, extra_virtual);
-
-            if let Some(page) = self.pages.get_mut(&page_id) {
-                page.insert_slice(extra_offset, extra_id);
-            }
-        }
-
+        // We do not need to create an extra slice, as the created slice currently is of the same size as the page.
         Ok(slice_handle)
     }
 

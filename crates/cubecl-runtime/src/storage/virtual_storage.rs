@@ -17,7 +17,6 @@ pub struct PhysicalStorageHandle {
 }
 
 impl PhysicalStorageHandle {
-
     /// Constructor for the Physical Storage Handle
     pub fn new(id: PhysicalStorageId, utilization: StorageUtilization) -> Self {
         Self {
@@ -26,7 +25,6 @@ impl PhysicalStorageHandle {
             mapped: false,
         }
     }
-
 
     /// Id of the handle
     pub fn id(&self) -> PhysicalStorageId {
@@ -49,7 +47,6 @@ impl PhysicalStorageHandle {
     }
 }
 
-
 /// Virtual Storage trait.
 pub trait VirtualStorage: ComputeStorage {
     /// Retrieves the minimum allocation granularity of this storage. All physical and virtual allocations should be aligned.
@@ -62,7 +59,11 @@ pub trait VirtualStorage: ComputeStorage {
     fn release(&mut self, id: PhysicalStorageId);
 
     /// Reserves an address space of a given size. Padding should be automatically added to meet the granularity requirements. The parameter `start_addr` is the id of the address space which should end at the beginning of the next reservation (if applicable).
-    fn reserve(&mut self, size: u64, start_addr: Option<StorageId>) -> Result<StorageHandle, IoError>;
+    fn reserve(
+        &mut self,
+        size: u64,
+        start_addr: Option<StorageId>,
+    ) -> Result<StorageHandle, IoError>;
 
     /// Releases the virtual address range associated with this handle.
     fn free(&mut self, id: StorageId);
@@ -78,4 +79,7 @@ pub trait VirtualStorage: ComputeStorage {
     /// Unmap the handles
     fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle);
 
+    /// Checks if two address spaces are contiguous in memory (the first one ends where the second one starts).
+    /// This is useful to perform defragmentation.
+    fn are_aligned(&self, lhs: &StorageId, rhs: &StorageId) -> bool;
 }
