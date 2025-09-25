@@ -5,11 +5,11 @@ use cubecl_matmul::components::{
     stage::Stage,
     tile::reader::Strided,
 };
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::View;
 use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
+use crate::components::StageMask;
 use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
@@ -43,11 +43,13 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::Score,
+        mask: StageMask,
         accumulator: &mut Self::Accumulator,
         state: &mut StageState<AP>,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
+        let partition_mask = mask.to_partition(UNIT_POS_Y);
+
         let p = config.tiling_scheme().partition_size;
 
         let mut kv = comptime![0u32];
@@ -97,7 +99,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
 
                 let row_stats = TA::score_to_prob(
                     score_frag,
-                    out_of_bound_mask,
+                    partition_mask.to_tile(q, kv),
                     state_q,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );

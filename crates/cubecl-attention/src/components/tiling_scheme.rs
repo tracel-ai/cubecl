@@ -14,8 +14,12 @@ impl AttentionTilingScheme {
         self.stage_size.seq_q * self.elements_in_partition_seq_q()
     }
 
+    pub fn elements_in_stage_seq_kv(&self) -> u32 {
+        self.elements_in_partition_seq_kv()
+    }
+
     pub fn elements_in_partition_seq_q(&self) -> u32 {
-        self.tile_size.seq_q * self.partition_size.seq_q
+        self.elements_in_tile_seq_q() * self.partition_size.seq_q
     }
 
     pub fn elements_in_partition_head_dim(&self) -> u32 {
@@ -23,11 +27,19 @@ impl AttentionTilingScheme {
     }
 
     pub fn elements_in_partition_seq_kv(&self) -> u32 {
-        self.tile_size.seq_kv * self.partition_size.seq_kv
+        self.elements_in_tile_seq_kv() * self.partition_size.seq_kv
     }
 
     pub fn elements_in_partition_val_dim(&self) -> u32 {
         self.tile_size.val_dim * self.partition_size.val_dim
+    }
+
+    pub fn elements_in_tile_seq_q(&self) -> u32 {
+        self.tile_size.seq_q
+    }
+
+    pub fn elements_in_tile_seq_kv(&self) -> u32 {
+        self.tile_size.seq_kv
     }
 }
 
