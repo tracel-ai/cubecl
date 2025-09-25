@@ -36,6 +36,8 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
                 .global_config()
                 .tiling_scheme()
                 .elements_in_stage_seq_q();
+
+        let seq_q = query.shape(1);
         let seq_kv = key.shape(1);
 
         let global_config = config.global_config();
@@ -44,6 +46,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
             GA::init_key_reader(key, global_config),
             GA::init_value_reader(value, global_config),
             GA::init_writer(q_offset, out, global_config),
+            seq_q,
             seq_kv,
             config.global_config(),
         )

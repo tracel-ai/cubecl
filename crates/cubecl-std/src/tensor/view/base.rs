@@ -228,6 +228,11 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
+    /// Read a line at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
+    pub fn read_masked(&self, pos: C, mask_value: E) -> E {
+        unexpanded!()
+    }
+
     /// Interpret this view as a linear slice encompassing the entire view.
     ///
     /// # Safety
@@ -268,6 +273,18 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         pos: C::ExpandType,
     ) -> ExpandElementTyped<E> {
         self.inner.read().__expand_read_checked_method(scope, pos)
+    }
+
+    /// Expand method for [TensorView::read_masked]
+    pub fn __expand_read_masked_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        mask_value: E::ExpandType,
+    ) -> ExpandElementTyped<E> {
+        self.inner
+            .read()
+            .__expand_read_masked_method(scope, pos, mask_value)
     }
 
     /// Expand method for [TensorView::line_size]

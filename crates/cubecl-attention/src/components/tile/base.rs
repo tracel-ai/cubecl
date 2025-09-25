@@ -5,11 +5,10 @@ use cubecl_matmul::components::{
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::StridedTile,
 };
-use cubecl_std::CubeOption;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AvailableLineSizes, TileMask, tile::dummy::FlashMatmulConfig,
 };
 use crate::components::{InvalidConfigError, tile::dummy::RunningState};
 
@@ -99,7 +98,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn score_to_prob(
         score_prob: &mut Self::ScoreProb,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
+        mask: TileMask,
         state: &RunningState<AP::EA>,
         #[comptime] dk: u32,
     ) -> RowStats<AP::EA>;

@@ -1,18 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::stage::StridedStage;
-use cubecl_std::CubeOption;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
+use crate::components::GlobalMask;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::{
     AttentionGlobalLayout,
     dummy::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
@@ -45,6 +44,7 @@ impl<
         mut key_reader: Self::KeyReader,
         mut value_reader: Self::ValueReader,
         mut writer: Self::Writer,
+        seq_q: u32,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
@@ -59,18 +59,9 @@ impl<
         let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
+        let mask = GlobalMask::new(seq_q, seq_kv, config.tiling_scheme());
 
         for i in 0..num_stage_iterations {
-            let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                let seq_q_stage = config
-                    .stage_config()
-                    .tiling_scheme()
-                    .elements_in_stage_seq_q();
-                CubeOption::new_Some((seq_q_stage, seq_kv - i * seq_kv_stage))
-            } else {
-                CubeOption::new_None()
-            };
-
             key_reader.read_transposed(config);
             value_reader.read(config);
             sync_cube();
@@ -81,9 +72,9 @@ impl<
                 &query,
                 &mut key_value,
                 &mut score_prob,
+                mask.to_stage(CUBE_POS, i),
                 &mut accumulator,
                 &mut stage_state,
-                out_of_bounds_mask,
                 config.stage_config(),
             );
 
