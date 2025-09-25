@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
         read::ReaderMode,
     },
-    stage::StageConfig,
+    stage::{StageConfig, StageMemoryConfig},
 };
 
 use super::*;
@@ -50,10 +50,9 @@ impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
 
 impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
     type StageConfig = M::StageConfig;
-    type StageMemoryConfig = <M::StageConfig as StageConfig>::StageMemoryConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-        self.stage_config().stage_memory_config()
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config().stage_memory_config(ident.into_stage())
     }
 
     fn stage_config(&self) -> Self::StageConfig {

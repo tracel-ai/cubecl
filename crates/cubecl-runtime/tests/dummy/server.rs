@@ -31,6 +31,7 @@ use cubecl_runtime::{
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
+    logger: Arc<ServerLogger>,
 }
 
 #[derive(Debug, Clone)]
@@ -66,6 +67,10 @@ impl ComputeServer for DummyServer {
     type Kernel = KernelTask;
     type Storage = BytesStorage;
     type Info = ();
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.logger.clone()
+    }
 
     fn create(
         &mut self,
@@ -150,7 +155,6 @@ impl ComputeServer for DummyServer {
         _count: CubeCount,
         bindings: Bindings,
         _mode: ExecutionMode,
-        _logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         let mut resources: Vec<_> = bindings
@@ -211,6 +215,7 @@ impl ComputeServer for DummyServer {
 impl DummyServer {
     pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
         Self {
+            logger: Arc::new(ServerLogger::default()),
             memory_management,
             timestamps: TimestampProfiler::default(),
         }

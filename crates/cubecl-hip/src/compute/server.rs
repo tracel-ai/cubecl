@@ -15,6 +15,7 @@ use cubecl_core::server::{
 };
 use cubecl_core::server::{Binding, Bindings};
 use cubecl_core::{MemoryConfiguration, future, prelude::*};
+use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, offset_handles};
@@ -37,6 +38,10 @@ impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
     type Storage = GpuStorage;
     type Info = ();
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        self.streams.logger.clone()
+    }
 
     fn create(
         &mut self,
@@ -129,10 +134,10 @@ impl ComputeServer for HipServer {
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         let mut kernel_id = kernel.id();
+        let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
         let mut command = self.command(stream_id, bindings.buffers.iter());
 
@@ -241,12 +246,16 @@ impl HipServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
     ) -> Self {
+        let config = GlobalConfig::get();
+        let max_streams = config.streaming.max_streams;
+
         Self {
             ctx,
             mem_alignment,
             streams: MultiStream::new(
+                Arc::new(ServerLogger::default()),
                 HipStreamBackend::new(mem_props, mem_config, mem_alignment),
-                8,
+                max_streams,
             ),
         }
     }

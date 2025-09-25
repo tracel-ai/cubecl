@@ -5,8 +5,8 @@ use crate::components::global::read::SyncPartialLoadingStrategy;
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
-use crate::components::{error::MatmulSetupError, stage::FillStageReaderFamily};
-use crate::components::{global::GlobalMatmulFamily, stage::PartialStageReaderFamily};
+use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
+use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords2d;
@@ -26,9 +26,9 @@ pub struct DoubleBufferingMatmulFamily<
 impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
 where
     SMM: stage::StageMatmulFamily<
-            LhsStageReader = PartialStageReaderFamily,
-            RhsStageReader = PartialStageReaderFamily,
-            AccStageReader = FillStageReaderFamily,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = FilledStageFamily,
             WriteCoords = Coords2d,
         >,
     LL: SyncPartialLoadingStrategy,

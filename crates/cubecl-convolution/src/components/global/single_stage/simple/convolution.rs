@@ -9,7 +9,7 @@ use cubecl_matmul::components::{
         read::{SyncFullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
-    stage::{FullStageReader, RowMajorTilingOrder, StageMatmul},
+    stage::{RowMajorTilingOrder, StageMatmul, StridedStage},
 };
 use cubecl_std::{
     CubeOption,
@@ -22,7 +22,7 @@ use crate::{
         global::{
             ConvTilingLayout, GlobalConvolution,
             layout::{Im2colLayout, NhwcLayout, OutLayout, WeightLayout},
-            read::bias::{BiasGlobalReader, BiasStageReader},
+            read::bias::{BiasGlobalReader, BiasStage},
         },
     },
     kernels::layered::selector::RuntimeArgs,
@@ -41,9 +41,9 @@ impl<MP: MatmulPrecision, SMM> GlobalConvolution<MP> for SimpleConvolution<MP, S
 where
     SMM: StageMatmul<
             MP,
-            LhsStageReader = FullStageReader<LhsS<MP>, ConvTilingLayout>,
-            RhsStageReader = FullStageReader<RhsS<MP>, ConvTilingLayout>,
-            AccStageReader = BiasStageReader<AccS<MP>>,
+            LhsStage = StridedStage<LhsS<MP>, ConvTilingLayout>,
+            RhsStage = StridedStage<RhsS<MP>, ConvTilingLayout>,
+            AccStage = BiasStage<AccS<MP>>,
             WriteCoords = Coords2d,
         >,
 {
@@ -82,7 +82,7 @@ where
 
         sync_cube();
 
-        SMM::load_accumulators(&acc_reader.stage_reader(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
         for _ in 0..num_loops {
             sync_cube();
@@ -93,8 +93,8 @@ where
             sync_cube();
 
             SMM::execute(
-                &lhs_reader.stage_reader(),
-                &rhs_reader.stage_reader(),
+                &lhs_reader.stage(),
+                &rhs_reader.stage(),
                 &mut lhs_tile,
                 &mut rhs_tile,
                 acc,
@@ -160,7 +160,12 @@ where
         slice_size: u32,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new::<Self::Config>(bias, n_offset, slice_size, config)
+        Self::AccGlobalReader::new(
+            bias,
+            n_offset,
+            slice_size,
+            config.stage_memory_config(MatmulIdent::Out),
+        )
     }
 
     fn init_global_writer(

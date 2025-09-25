@@ -6,15 +6,13 @@ use cubecl_core::{
     prelude::{Numeric, TensorHandleRef},
 };
 use cubecl_matmul::components::{
-    MatmulElems, MatmulSelection, MatmulSetupError, tile::reader::Strided,
+    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily,
+    tile::reader::Strided,
 };
 
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    MatmulIdent,
-    global::args::TensorArgs,
-    stage::{FullStageReaderFamily, PlaneMatmulFamily},
-    tile::TileMatmulFamily,
+    MatmulIdent, global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
 };
 
 use cubecl_std::{
@@ -40,9 +38,9 @@ impl<TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = CubeO
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        FullStageReaderFamily,
-        FullStageReaderFamily,
-        Option<FullStageReaderFamily>,
+        StridedStageFamily,
+        StridedStageFamily,
+        Option<StridedStageFamily>,
     >;
     type GlobalConvolution = SimpleConvolutionFamily<Self::StageMatmul>;
 

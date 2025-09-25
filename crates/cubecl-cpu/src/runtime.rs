@@ -19,6 +19,8 @@ use crate::{
     device::CpuDevice,
 };
 
+const LOAD_WIDTH: usize = 512;
+
 #[derive(Default)]
 pub struct RuntimeOptions {
     /// Configures the memory management.
@@ -99,11 +101,15 @@ impl Runtime for CpuRuntime {
         &[64, 32, 16, 8, 4, 2, 1]
     }
 
-    fn line_size_type(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
-        Self::supported_line_sizes()
-            .iter()
-            .filter(|v| **v as usize * elem.size() <= 64)
-            .cloned() // 128 bits
+    fn io_optimized_line_sizes(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let max = (LOAD_WIDTH / elem.size_bits()) as u8;
+        let supported = Self::supported_line_sizes();
+        supported.iter().filter(move |v| **v <= max).cloned()
+    }
+
+    fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
+        let max = LOAD_WIDTH / elem.size_bits();
+        (1..max as u8).rev().filter(|v| v.is_power_of_two())
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

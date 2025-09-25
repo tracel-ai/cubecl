@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 
 use cubecl_std::CubeOption;
 
-use crate::components::tile::Tile;
+use crate::components::tile::StridedTile;
 
 /// Kind (family) of the tiles returned by a tile reader and ingested by a tile matmul reader
 pub trait TileKind: CubeType + Send + Sync + 'static {
@@ -20,7 +20,7 @@ pub struct Strided {}
 pub struct Filled {}
 
 impl TileKind for Strided {
-    type Tile<E: Numeric> = Tile<E>;
+    type Tile<E: Numeric> = StridedTile<E>;
 }
 
 impl TileKind for Filled {
@@ -32,12 +32,12 @@ impl<Inner: TileKind> TileKind for CubeOption<Inner> {
 }
 
 /// A tile matmul reader, with a specific tile kind
-pub trait TileReader {
+pub trait StageReader {
     /// The kind of the tile used as an input for the tile reader
     type TileKind: TileKind;
 }
 
 /// The concrete tile type for a given reader and element type
-pub type ReaderTile<L, E> = <<L as TileReader>::TileKind as TileKind>::Tile<E>;
+pub type StageTile<L, E> = <<L as StageReader>::TileKind as TileKind>::Tile<E>;
 /// The tile kind of a given reader
-pub type ReaderKind<L> = <L as TileReader>::TileKind;
+pub type StageKind<L> = <L as StageReader>::TileKind;

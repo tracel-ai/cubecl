@@ -2,7 +2,7 @@ use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{StageMemory, StridedTilingLayout};
+use crate::components::stage::{StridedStage, StridedTilingLayout};
 use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use cubecl_core as cubecl;
@@ -94,7 +94,7 @@ impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStrided
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<IP::Global>,
-        stage: &mut StageMemory<IP::Stage, StridedTilingLayout>,
+        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;

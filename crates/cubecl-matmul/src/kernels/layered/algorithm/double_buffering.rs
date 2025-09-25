@@ -3,11 +3,9 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::global::multi_stage::double_buffering::DoubleBufferingMatmulFamily;
+use crate::components::global::read::sync_partial_cyclic::SyncPartialCyclicLoading;
 use crate::components::global::read::sync_partial_tilewise::SyncPartialTilewiseLoading;
-use crate::components::stage::{
-    ColMajorTilingOrder, PartialStageReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
-};
+use crate::components::stage::{ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
 use crate::components::{
@@ -15,7 +13,8 @@ use crate::components::{
     tile::reader::{Filled, Strided},
 };
 use crate::components::{
-    global::read::sync_partial_cyclic::SyncPartialCyclicLoading, stage::FillStageReaderFamily,
+    global::multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+    stage::{FilledStageFamily, StridedStageFamily},
 };
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
@@ -49,9 +48,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialStageReaderFamily,
-        PartialStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
@@ -93,9 +92,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialStageReaderFamily,
-        PartialStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
@@ -138,9 +137,9 @@ where
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<
         Self::TileMatmul,
-        PartialStageReaderFamily,
-        PartialStageReaderFamily,
-        FillStageReaderFamily,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
     >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,

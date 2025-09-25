@@ -4,7 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{read::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
-    stage::{FullStageReaderFamily, StageConfig as _, StageMatmulFamily},
+    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -28,9 +28,9 @@ pub struct MultiStageTmaConvolutionFamily<SMM: StageMatmulFamily> {
 impl<SMM> GlobalConvolutionFamily for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<
-            LhsStageReader = FullStageReaderFamily,
-            RhsStageReader = FullStageReaderFamily,
-            AccStageReader = Option<FullStageReaderFamily>,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = Option<StridedStageFamily>,
             WriteCoords = Coords2d,
         >,
 {

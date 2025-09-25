@@ -6,7 +6,7 @@ use cubecl_core::{
     ir::{Builtin, StorageType},
     prelude::KernelDefinition,
 };
-use tracel_llvm::melior::ir::{
+use tracel_llvm::mlir_rs::ir::{
     Block, BlockRef, Location, Region,
     r#type::{FunctionType, IntegerType, MemRefType},
 };

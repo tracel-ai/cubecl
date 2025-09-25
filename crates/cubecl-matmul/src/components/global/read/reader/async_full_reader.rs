@@ -3,9 +3,8 @@ use std::marker::PhantomData;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::{CopyMechanism, GlobalConfig};
-use crate::components::stage::FullStageReader;
 use crate::components::stage::TilingLayout;
-use crate::components::stage::{self, StageMemory};
+use crate::components::stage::{self, StridedStage};
 use crate::components::{InputPrecision, MatmulIdent};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -47,7 +46,7 @@ pub struct AsyncFullStageGlobalReader<
     G: GlobalConfig,
 > {
     tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -71,10 +70,9 @@ impl<
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage_memory = StageMemory::new::<G::StageMemoryConfig>(
-            1u32,
+        let mut stage_memory = StridedStage::new(
             comptime!(ident.into_stage()),
-            config.stage_memory_config(),
+            config.stage_memory_config(ident),
         );
         let (shape_row, shape_col) = view.shape();
         let tensor_reader = GlobalIterator::new(view, k_step, ident.view_direction(), true);
@@ -143,8 +141,8 @@ impl<
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage_reader(&self) -> FullStageReader<IP::Stage, L::TilingLayout> {
-        FullStageReader::new(self.stage_memory, comptime!(self.ident.into_stage()))
+    pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
+        self.stage_memory
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

@@ -375,16 +375,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let lhs = self.compile_variable(op.lhs);
         let rhs = self.compile_variable(op.rhs);
         let out = self.compile_variable(out);
-        let lhs_ty = lhs.item();
 
-        let lhs_id = self.read(&lhs);
-        let rhs_id = self.read_as(&rhs, &lhs_ty);
+        let in_ty = out.item().same_vectorization(lhs.elem());
+
+        let lhs_id = self.read_as(&lhs, &in_ty);
+        let rhs_id = self.read_as(&rhs, &in_ty);
         let out_id = self.write_id(&out);
         self.mark_uniformity(out_id, uniform);
 
         let ty = out.item().id(self);
 
-        exec(self, lhs_ty, ty, lhs_id, rhs_id, out_id);
+        exec(self, in_ty, ty, lhs_id, rhs_id, out_id);
         self.write(&out, out_id);
     }
 

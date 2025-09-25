@@ -115,10 +115,10 @@ where
         StreamId,
         Callback<BindingResource<<Server::Storage as ComputeStorage>::Resource>>,
     ),
+    Logger(Callback<Arc<ServerLogger>>),
     ExecuteKernel(
         (Server::Kernel, CubeCount, ExecutionMode, StreamId),
         Bindings,
-        Arc<ServerLogger>,
     ),
     Flush(StreamId),
     Sync(StreamId, Callback<()>),
@@ -156,6 +156,9 @@ where
                         let data = server.read(descriptors, stream).await;
                         callback.send(data).await.unwrap();
                     }
+                    Message::Logger(callback) => {
+                        callback.send(server.logger()).await.unwrap();
+                    }
                     Message::Write(descriptors, stream, callback) => {
                         let descriptors = descriptors
                             .iter()
@@ -168,8 +171,8 @@ where
                         let data = server.get_resource(binding, stream);
                         callback.send(data).await.unwrap();
                     }
-                    Message::ExecuteKernel(kernel, bindings, logger) => unsafe {
-                        server.execute(kernel.0, kernel.1, bindings, kernel.2, logger, kernel.3);
+                    Message::ExecuteKernel(kernel, bindings) => unsafe {
+                        server.execute(kernel.0, kernel.1, bindings, kernel.2, kernel.3);
                     },
                     Message::Sync(stream, callback) => {
                         server.sync(stream).await;
@@ -225,6 +228,17 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
+    fn logger(&self) -> Arc<ServerLogger> {
+        let (callback, response) = async_channel::unbounded();
+
+        self.state
+            .sender
+            .send_blocking(Message::Logger(callback))
+            .unwrap();
+
+        handle_response(response.recv_blocking())
+    }
+
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
@@ -319,7 +333,6 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         self.state
@@ -327,7 +340,6 @@ where
             .send_blocking(Message::ExecuteKernel(
                 (kernel, count, kind, stream_id),
                 bindings,
-                logger,
             ))
             .unwrap();
     }

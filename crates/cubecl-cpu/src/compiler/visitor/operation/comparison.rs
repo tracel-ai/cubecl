@@ -1,5 +1,5 @@
 use cubecl_core::ir::Comparison;
-use tracel_llvm::melior::dialect::arith::{self, CmpfPredicate, CmpiPredicate};
+use tracel_llvm::mlir_rs::dialect::arith::{self, CmpfPredicate, CmpiPredicate};
 
 use crate::compiler::visitor::prelude::*;
 

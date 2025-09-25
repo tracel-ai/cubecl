@@ -292,6 +292,7 @@ pub(crate) fn create_client_on_setup(
         options.tasks_max,
         setup.backend,
         time_measurement,
+        alloc::sync::Arc::new(ServerLogger::default()),
     );
     let channel = Channel::new(server);
 

@@ -18,6 +18,9 @@ use alloc::vec::Vec;
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
+    /// Retrieve the server logger.
+    fn logger(&self) -> Arc<ServerLogger>;
+
     /// Create a new handle given a set of descriptors
     fn create(
         &self,
@@ -67,7 +70,6 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         count: CubeCount,
         bindings: Bindings,
         mode: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     );
 

@@ -54,6 +54,10 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
+    fn logger(&self) -> Arc<ServerLogger> {
+        todo!();
+    }
+
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
@@ -110,18 +114,12 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     ) {
         unsafe {
-            self.server.borrow_mut().execute(
-                kernel_description,
-                count,
-                bindings,
-                kind,
-                logger,
-                stream_id,
-            )
+            self.server
+                .borrow_mut()
+                .execute(kernel_description, count, bindings, kind, stream_id)
         }
     }
 

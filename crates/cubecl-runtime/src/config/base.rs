@@ -1,3 +1,5 @@
+use crate::config::streaming::StreamingConfig;
+
 use super::{autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig};
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -20,6 +22,10 @@ pub struct GlobalConfig {
     /// Configuration for compilation settings.
     #[serde(default)]
     pub compilation: CompilationConfig,
+
+    /// Configuration for streaming settings.
+    #[serde(default)]
+    pub streaming: StreamingConfig,
 }
 
 impl GlobalConfig {

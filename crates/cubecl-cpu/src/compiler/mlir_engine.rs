@@ -12,7 +12,7 @@ use std::{
 
 use super::module::Module;
 use cubecl_core::prelude::KernelDefinition;
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     Context, ExecutionEngine,
     dialect::DialectRegistry,
     utility::{register_all_dialects, register_all_llvm_translations, register_all_passes},

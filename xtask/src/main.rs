@@ -3,7 +3,6 @@ mod commands;
 #[macro_use]
 extern crate log;
 
-use std::time::Instant;
 use tracel_xtask::prelude::*;
 
 #[macros::base_commands(
@@ -31,21 +30,23 @@ pub enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
-    let start = Instant::now();
-    let args = init_xtask::<Command>()?;
+    let args = init_xtask::<Command>(parse_args::<Command>()?)?;
     match args.command {
-        Command::Build(cmd_args) => commands::build::handle_command(cmd_args),
-        Command::Check(cmd_args) => commands::check::handle_command(cmd_args),
-        Command::Test(cmd_args) => commands::test::handle_command(cmd_args),
+        Command::Build(cmd_args) => {
+            commands::build::handle_command(cmd_args, args.environment, args.context)
+        }
+        Command::Check(cmd_args) => {
+            commands::check::handle_command(cmd_args, args.environment, args.context)
+        }
+        Command::Test(cmd_args) => {
+            commands::test::handle_command(cmd_args, args.environment, args.context)
+        }
         Command::Book(cmd_args) => cmd_args.parse(),
         Command::Profile(cmd_args) => cmd_args.run(),
-        Command::Validate(cmd_args) => commands::validate::handle_command(&cmd_args),
+        Command::Validate(cmd_args) => {
+            commands::validate::handle_command(&cmd_args, args.environment, args.context)
+        }
         _ => dispatch_base_commands(args),
     }?;
-    let duration = start.elapsed();
-    info!(
-        "\x1B[32;1mTime elapsed for the current execution: {}\x1B[0m",
-        format_duration(&duration)
-    );
     Ok(())
 }

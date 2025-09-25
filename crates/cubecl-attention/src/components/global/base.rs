@@ -1,13 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, FlashIdent,
-    global::dummy::QueryReader,
-    stage::{StageAttentionConfig, dummy::AttentionStageMemoryConfig},
+    global::dummy::QueryReader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -89,8 +88,8 @@ pub trait GlobalAttentionConfig:
     type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn score_stage_memory_config(&self) -> StageMemoryConfig;
+    fn value_stage_memory_config(&self) -> StageMemoryConfig;
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;

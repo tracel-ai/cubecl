@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use args_manager::{ArgsManager, ArgsManagerBuilder};
 use cubecl_core::{ir::Builtin, prelude::KernelDefinition};
 use cubecl_opt::{NodeIndex, Optimizer};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     Context,
     dialect::{
         func,
@@ -148,7 +148,7 @@ impl<'a> Visitor<'a> {
         context: &'a Context,
         location: Location<'a>,
         kernel: &'b KernelDefinition,
-        module: &tracel_llvm::melior::ir::Module<'a>,
+        module: &tracel_llvm::mlir_rs::ir::Module<'a>,
         opt: &Optimizer,
         shared_memories: &SharedMemories,
     ) {
@@ -213,7 +213,7 @@ impl<'a> Visitor<'a> {
 
     pub(self) fn insert_builtin_loop(
         block: BlockRef<'a, 'a>,
-        module: &tracel_llvm::melior::ir::Module<'a>,
+        module: &tracel_llvm::mlir_rs::ir::Module<'a>,
         opt: &Optimizer,
         context: &'a Context,
         location: Location<'a>,

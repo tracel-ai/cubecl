@@ -4,10 +4,9 @@ use crate::components::global::base::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlobalConfig;
 use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
-use crate::components::stage::PartialStageReader;
 use crate::components::stage::TilingLayout;
-use crate::components::stage::{self, StageMemory};
-use crate::components::{InputPrecision, MatmulIdent, StageIdent};
+use crate::components::stage::{self, StridedStage};
+use crate::components::{InputPrecision, MatmulIdent};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -49,7 +48,7 @@ pub struct AsyncBufferGlobalReader<
     L: AsyncPartialLoadingStrategy,
 > {
     tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -68,10 +67,9 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
-        let stage_memory = StageMemory::new::<S::StageMemoryConfig>(
-            2u32,
+        let stage_memory = StridedStage::new(
             comptime!(ident.into_stage()),
-            config.stage_memory_config(),
+            config.stage_memory_config(ident),
         );
         let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), true);
 
@@ -93,43 +91,36 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage_reader(
-        this: &Self,
+    pub fn stage(
+        &mut self,
         #[comptime] stage_buffer: StageBuffer,
-    ) -> PartialStageReader<IP::Stage, L::TilingLayout> {
-        PartialStageReader::new(
-            this.stage_memory,
-            stage_buffer,
-            comptime! {
-                let stage_ident: StageIdent = this.ident.into();
-                stage_ident
-            },
-        )
+    ) -> StridedStage<IP::Stage, L::TilingLayout> {
+        self.stage_memory.with_buffer_index(stage_buffer.to_index())
     }
 
     /// Advance the view over global memory along the k dimension.
-    pub fn advance_view(this: &mut Self) {
-        this.tensor_reader.advance();
+    pub fn advance_view(&mut self) {
+        self.tensor_reader.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(
-        this: &mut Self,
+        &mut self,
         mechanism: &CM,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
-        let mut loading_job = match this.loading_job {
+        let mut loading_job = match self.loading_job {
             CubeOption::Some(job) => match stage_buffer {
                 StageBuffer::A => job.0,
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
                 StageBuffer::A => {
-                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(0u32, this.ident, config)
+                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(0u32, self.ident, config)
                 }
                 StageBuffer::B => {
-                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(1u32, this.ident, config)
+                    L::new_job::<IP, DoubleBufferingGlobalConfig<S>>(1u32, self.ident, config)
                 }
             },
         };
@@ -139,8 +130,8 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
             L::Job::<IP>::execute_task::<CM, DoubleBufferingGlobalConfig<S>>(
                 &mut loading_job,
                 task_id,
-                &this.tensor_reader,
-                &mut this.stage_memory,
+                &self.tensor_reader,
+                &mut self.stage_memory,
                 mechanism,
                 config,
             );
@@ -149,11 +140,11 @@ impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncParti
 
     /// Zero out the stage memory
     pub fn clear_stage(
-        this: &mut Self,
+        &mut self,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
-        this.stage_memory
-            .clear_stage::<DoubleBufferingGlobalConfig<S>>(stage_buffer, this.ident, config)
+        self.stage_memory
+            .clear_stage::<DoubleBufferingGlobalConfig<S>>(stage_buffer, self.ident, config)
     }
 }

@@ -10,7 +10,7 @@ use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
-use crate::components::stage::StageReaderFamily;
+use crate::components::stage::StageFamily;
 use crate::components::stage::matmul::unit_partitioned::UnitMatmul;
 use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConfig;
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
@@ -24,19 +24,19 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::layout::Coords2d;
 
 /// Unit Matmul family for any precision
-pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: StageReaderFamily, RA: StageReaderFamily> {
+pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: StageFamily, RA: StageFamily> {
     _phantom: PhantomData<(TM, RF, RA)>,
 }
 
 impl<
     TM: TileMatmulFamily<LhsTile = RF::TileKind, RhsTile = RF::TileKind, AccTile = RA::TileKind>,
-    RF: StageReaderFamily,
-    RA: StageReaderFamily,
+    RF: StageFamily,
+    RA: StageFamily,
 > StageMatmulFamily for UnitMatmulFamily<TM, RF, RA>
 {
-    type LhsStageReader = RF;
-    type RhsStageReader = RF;
-    type AccStageReader = RA;
+    type LhsStage = RF;
+    type RhsStage = RF;
+    type AccStage = RA;
     type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
         UnitMatmul<
             MP,
@@ -45,9 +45,9 @@ impl<
                 <MP::Rhs as InputPrecision>::Register,
                 <MP::Acc as InputPrecision>::Register,
             >,
-            RF::Reader<LhsS<MP>, TL>,
-            RF::Reader<RhsS<MP>, TR>,
-            RA::Reader<AccS<MP>, TA>,
+            RF::Stage<LhsS<MP>, TL>,
+            RF::Stage<RhsS<MP>, TR>,
+            RA::Stage<AccS<MP>, TA>,
         >;
     type WriteCoords = Coords2d;
     type Config = UnitPartitionedStageConfig<TM::Config>;

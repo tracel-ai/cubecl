@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
 
@@ -12,7 +12,7 @@ pub struct QueryFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> QueryFragment<FP, FM> {
     pub fn new<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         #[comptime] config: FM::Config,
     ) -> QueryFragment<FP, FM> {
         QueryFragment::<FP, FM> {

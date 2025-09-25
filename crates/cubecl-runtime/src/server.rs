@@ -52,6 +52,9 @@ where
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Retrieve the server logger.
+    fn logger(&self) -> Arc<ServerLogger>;
+
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
@@ -117,7 +120,6 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
         stream_id: StreamId,
     );
 

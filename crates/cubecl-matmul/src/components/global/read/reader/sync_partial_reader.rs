@@ -11,8 +11,7 @@ use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
-use crate::components::stage::PartialStageReader;
-use crate::components::stage::StageMemory;
+use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -50,8 +49,8 @@ pub struct SyncPartialStageGlobalReader<
     G: GlobalConfig,
     L: SyncPartialLoadingStrategy,
 > {
-    tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StageMemory<IP::Stage, L::TilingLayout>,
+    global_iter: GlobalIterator<IP::Global>,
+    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -70,12 +69,11 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StageMemory::new::<G::StageMemoryConfig>(
-            2u32,
+        let stage_memory = StridedStage::new(
             comptime!(ident.into_stage()),
-            config.stage_memory_config(),
+            config.stage_memory_config(ident),
         );
-        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
+        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
@@ -86,7 +84,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
         };
 
         SyncPartialStageGlobalReader::<IP, G, L> {
-            tensor_reader,
+            global_iter,
             stage_memory,
             loading_job,
             ident,
@@ -95,20 +93,16 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage_reader(
+    pub fn stage(
         &self,
         #[comptime] stage_buffer: StageBuffer,
-    ) -> PartialStageReader<IP::Stage, L::TilingLayout> {
-        PartialStageReader::new(
-            self.stage_memory,
-            stage_buffer,
-            comptime!(self.ident.into_stage()),
-        )
+    ) -> StridedStage<IP::Stage, L::TilingLayout> {
+        self.stage_memory.with_buffer_index(stage_buffer.to_index())
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(&mut self) {
-        self.tensor_reader.advance();
+        self.global_iter.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory
@@ -134,7 +128,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
             L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
-                &self.tensor_reader,
+                &self.global_iter,
                 &mut self.stage_memory,
                 config,
             );
@@ -184,7 +178,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
         L::Job::<IP>::execute_task::<G>(
             &mut job_iterator.job,
             task_id,
-            &this.tensor_reader,
+            &this.global_iter,
             &mut this.stage_memory,
             config,
         );
@@ -209,7 +203,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
             L::Job::<IP>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
-                &this.tensor_reader,
+                &this.global_iter,
                 &mut this.stage_memory,
                 config,
             );

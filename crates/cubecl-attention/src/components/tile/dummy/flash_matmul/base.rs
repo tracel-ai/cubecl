@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
-use cubecl_matmul::components::tile::Tile;
+use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -40,7 +40,7 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     );
 
     fn allocate_fill_query<EI: Numeric>(
-        tile: &Tile<EI>,
+        tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query;
 
@@ -49,7 +49,7 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
     fn fill_key_value<E: Numeric>(
-        tile: &Tile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
@@ -68,12 +68,12 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
 
     // These methods should be deletable when we have proper control over fragments
     fn tmp_fill_accumulator(
-        tile: &Tile<FP::A>,
+        tile: &StridedTile<FP::A>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
     fn tmp_fill_prob(
-        tile: &Tile<FP::SP>,
+        tile: &StridedTile<FP::SP>,
         prob: &mut Self::ScoreProb,
         #[comptime] config: Self::Config,
     );
