@@ -10,34 +10,39 @@ use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::StageMask;
+use crate::components::attention_types::*;
 use crate::components::stage::dummy::{
     Accumulators, DummyStageConfig, KeyValues, Queries, SoftmaxPartition,
 };
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
-use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{AttentionIdent, global::dummy::QueryReader};
+use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{stage::dummy::StageState, tile::RowWise};
 
-pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
-    _phantom: PhantomData<(AP, R, TA)>,
+pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, TA: TileAttention<AP>> {
+    _phantom: PhantomData<(AP, SK, SV, TA)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAttention<AP>>
-    StageAttention<AP> for DummyStageAttention<AP, S, TA>
+impl<
+    AP: AttentionPrecision,
+    SK: Stage<KS<AP>, TileKind = Strided>,
+    SV: Stage<VS<AP>, TileKind = Strided>,
+    TA: TileAttention<AP>,
+> StageAttention<AP> for DummyStageAttention<AP, SK, SV, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
-    type KeyStage = S;
-    type ValueStage = S;
+    type KeyStage = SK;
+    type ValueStage = SV;
 
     type State = StageState<AP>;
     type QueryPartition = Queries<AP, TA, Self::Config>;
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
     type AccumulatorPartition = Accumulators<AP, TA, Self::Config>;
-    type Writer = PlaneWriter<AP::EO>;
+    type Writer = PlaneWriter<OG<AP>>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -65,7 +70,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
                 let key_smem_slice =
-                    <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
+                    <SK as Stage<KS<AP>>>::read_tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_smem_slice,
@@ -77,7 +82,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             }
 
             let mut q = comptime![0u32];
-            let mut scales = Sequence::<RowWise<AP::EA>>::new();
+            let mut scales = Sequence::<RowWise<ACC<AP>>>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
@@ -118,7 +123,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 let value_smem_slice =
-                    <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
+                    <SV as Stage<VS<AP>>>::read_tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_smem_slice,
@@ -193,7 +198,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
     }
 
     fn init_writer(
-        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
+        tensor: View<Line<OG<AP>>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer {
         PlaneWriter::new(tensor, config)
@@ -210,7 +215,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         let out_smem_num_elements = stage_config.tiling_scheme().elements_in_partition_seq_q()
             * stage_config.tiling_scheme().elements_in_partition_val_dim();
 
-        let mut out_smem = SharedMemory::<AP::EO>::new_lined(
+        let mut out_smem = SharedMemory::<OG<AP>>::new_lined(
             comptime!(out_smem_num_elements * stage_config.num_planes()),
             1u32,
         );

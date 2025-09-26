@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::attention_types::*;
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
@@ -61,18 +62,18 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
 
     // These methods should be deletable when we have proper control over fragments
     fn tmp_fill_accumulator(
-        tile: &StridedTile<FP::A>,
+        tile: &StridedTile<ACC<AP>>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
     fn tmp_fill_prob(
-        tile: &StridedTile<FP::SP>,
+        tile: &StridedTile<SM<AP>>,
         prob: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     );
     fn tmp_write_softmax(
         softmax: &Self::Softmax,
-        slice: &mut SliceMut<Line<FP::SP>>,
+        slice: &mut SliceMut<Line<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -99,7 +100,7 @@ pub trait FlashMatmulConfig:
 
 pub trait FlashMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<F: FlashPrecision>: AttentionMatmul<F, Config = Self::Config>;
+    type Matmul<AP: AttentionPrecision>: AttentionMatmul<AP, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
     type Config: FlashMatmulConfig;

@@ -3,8 +3,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, AttentionTileSize, AttentionIdent,
-    tile::dummy::{FlashMatmulConfig, FlashPrecision},
+    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize, attention_types::*,
+    tile::dummy::FlashMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 
@@ -167,8 +167,8 @@ impl AcceleratedFlashMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: AP::EI::as_type_native_unchecked()
-                == <AP::FlashPrecision as FlashPrecision>::Q::as_type_native_unchecked(),
+            cast_query: QG::<AP>::as_type_native_unchecked()
+                == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
         }
         .validate()

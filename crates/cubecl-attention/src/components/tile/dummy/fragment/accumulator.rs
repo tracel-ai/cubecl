@@ -4,18 +4,19 @@ use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionIdent;
+use crate::components::AttentionPrecision;
+use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::FlashMatmulConfig;
-use crate::components::tile::dummy::FlashPrecision;
 
 #[derive(CubeType)]
-pub struct DummyAccumulator<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    tmp_smem: SharedMemory<FP::A>,
-    pub fragment: FM::Accumulator,
+pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    tmp_smem: SharedMemory<ACC<AP>>,
+    pub fragment: AM::Accumulator,
 
     row: u32,
     col_start: u32,
@@ -30,14 +31,14 @@ pub struct DummyAccumulator<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     #[cube(comptime)]
     num_cols_per_unit: u32,
     #[cube(comptime)]
-    config: FM::Config,
+    config: AM::Config,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> DummyAccumulator<FP, FM> {
-    pub fn new(#[comptime] config: FM::Config) -> DummyAccumulator<FP, FM> {
-        let mut fragment = FM::allocate_accumulator(config);
-        FM::zero_accumulator(&mut fragment, config);
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyAccumulator<AP, AM> {
+    pub fn new(#[comptime] config: AM::Config) -> DummyAccumulator<AP, AM> {
+        let mut fragment = AM::allocate_accumulator(config);
+        AM::zero_accumulator(&mut fragment, config);
 
         let num_rows = config.attention_tile_size().num_rows(AttentionIdent::Out);
         let num_cols = config.attention_tile_size().num_cols(AttentionIdent::Out);
@@ -51,7 +52,7 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> DummyAccumulator<FP, FM> {
         let tmp_smem_start = UNIT_POS_Y * acc_size;
         let tmp_smem_end = tmp_smem_start + acc_size;
 
-        DummyAccumulator::<FP, FM> {
+        DummyAccumulator::<AP, AM> {
             tmp_smem: SharedMemory::new(acc_size * config.num_planes()),
             fragment,
             row,
@@ -67,14 +68,16 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> DummyAccumulator<FP, FM> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> AccumulatorTile<FP::A> for DummyAccumulator<FP, FM> {
-    fn scale(&mut self, scale: &RowWise<FP::A>, #[comptime] scale_op: ScaleMode) {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<ACC<AP>>
+    for DummyAccumulator<AP, AM>
+{
+    fn scale(&mut self, scale: &RowWise<ACC<AP>>, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
             .try_cast_unchecked();
 
-        FM::write_results::<FP::A>(&self.fragment, &mut slice, self.config);
+        AM::write_results::<ACC<AP>>(&self.fragment, &mut slice, self.config);
 
         if self.row < self.num_rows {
             #[unroll]
@@ -98,12 +101,12 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> AccumulatorTile<FP::A> for Dum
             }
         }
 
-        let tile = StridedTile::<FP::A> {
-            slice: slice.to_slice(),
-            stride: self.num_cols.runtime(),
-            layout: MatrixLayout::RowMajor,
-        };
+        let tile = StridedTile::<ACC<AP>>::new_strided(
+            slice.to_slice(),
+            self.num_cols.runtime(),
+            MatrixLayout::RowMajor,
+        );
 
-        FM::tmp_fill_accumulator(&tile, &mut self.fragment, self.config);
+        AM::tmp_fill_accumulator(&tile, &mut self.fragment, self.config);
     }
 }

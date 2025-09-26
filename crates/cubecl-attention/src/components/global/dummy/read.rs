@@ -1,3 +1,4 @@
+use crate::components::attention_types::*;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
@@ -13,17 +14,17 @@ use std::marker::PhantomData;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::{AttentionPrecision, AttentionIdent};
+use crate::components::{AttentionIdent, AttentionPrecision};
 
 #[derive(CubeType)]
 pub struct QueryReader<AP: AttentionPrecision> {
-    query: View<Line<AP::EI>, Coords2d>,
+    query: View<Line<QG<AP>>, Coords2d>,
 }
 
 #[derive(CubeType)]
 pub struct DummyKeyReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    global_iter: GlobalIterator<AP::EI>,
-    stage_memory: StridedStage<AP::ES, AttentionTilingLayout>,
+    global_iter: GlobalIterator<KG<AP>>,
+    stage_memory: StridedStage<KS<AP>, AttentionTilingLayout>,
 
     #[cube(comptime)]
     _phantom: PhantomData<G>,
@@ -31,8 +32,8 @@ pub struct DummyKeyReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[derive(CubeType)]
 pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    global_iter: GlobalIterator<AP::EI>,
-    stage_memory: StridedStage<AP::ES, AttentionTilingLayout>,
+    global_iter: GlobalIterator<VG<AP>>,
+    stage_memory: StridedStage<VS<AP>, AttentionTilingLayout>,
 
     #[cube(comptime)]
     _phantom: PhantomData<G>,
@@ -40,7 +41,7 @@ pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<AP: AttentionPrecision> QueryReader<AP> {
-    pub fn new(q_offset: u32, query: View<Line<AP::EI>, Coords2d>) -> Self {
+    pub fn new(q_offset: u32, query: View<Line<QG<AP>>, Coords2d>) -> Self {
         let query = query.slice((q_offset, 0), query.shape());
 
         QueryReader::<AP> { query }
@@ -50,15 +51,14 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         &self,
         tile: Coords2d,
         #[comptime] config: S,
-    ) -> StridedTile<AP::EI> {
+    ) -> StridedTile<QG<AP>> {
         let (row_in_partition, col) = tile;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
         let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
-        StridedTile::<AP::EI> {
-            slice: self
-                .query
+        StridedTile::<QG<AP>>::new_strided(
+            self.query
                 .slice(
                     (
                         row * attention_tile_size.seq_q,
@@ -67,15 +67,15 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
                     (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
                 )
                 .to_linear_slice(),
-            stride: config.tiling_scheme().elements_in_partition_head_dim(),
-            layout: MatrixLayout::RowMajor,
-        }
+            config.tiling_scheme().elements_in_partition_head_dim(),
+            MatrixLayout::RowMajor,
+        )
     }
 }
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
-    pub fn new(key: View<Line<AP::EI>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
+    pub fn new(key: View<Line<KG<AP>>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(key, step, ViewDirection::Row, false);
         let stage_memory = StridedStage::new(StageIdent::Rhs, config.score_stage_memory_config());
 
@@ -86,7 +86,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
         }
     }
 
-    pub fn stage(&self) -> StridedStage<AP::ES, AttentionTilingLayout> {
+    pub fn stage(&self) -> StridedStage<KS<AP>, AttentionTilingLayout> {
         self.stage_memory
     }
 
@@ -153,7 +153,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
-    pub fn new(value: View<Line<AP::EI>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
+    pub fn new(value: View<Line<VG<AP>>, Coords2d>, step: u32, #[comptime] config: G) -> Self {
         let global_iter = GlobalIterator::new(value, step, ViewDirection::Row, false);
         let stage_memory = StridedStage::new(StageIdent::Rhs, config.value_stage_memory_config());
 
@@ -164,7 +164,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
         }
     }
 
-    pub fn stage(&self) -> StridedStage<AP::ES, AttentionTilingLayout> {
+    pub fn stage(&self) -> StridedStage<VS<AP>, AttentionTilingLayout> {
         self.stage_memory
     }
 

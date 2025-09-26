@@ -3,13 +3,13 @@ use cubecl_matmul::components::ComputeResources;
 use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
     tile::dummy::{
-        FlashMatmulFamily, FlashPrecision,
+        FlashMatmulFamily,
         accelerated::{AcceleratedFlashMatmul, AcceleratedFlashMatmulConfig},
     },
 };
 
 impl FlashMatmulFamily for AcceleratedFlashMatmul {
-    type Matmul<F: FlashPrecision> = AcceleratedFlashMatmul;
+    type Matmul<AP: AttentionPrecision> = AcceleratedFlashMatmul;
 
     type Config = AcceleratedFlashMatmulConfig;
 

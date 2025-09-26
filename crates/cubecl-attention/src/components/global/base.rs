@@ -4,8 +4,8 @@ use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::Stage
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, AttentionIdent,
+    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, attention_types::*,
     global::dummy::QueryReader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
@@ -61,23 +61,23 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_query_reader(
         q_offset: u32,
-        query: VirtualTensor<AP::EI>,
+        query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP>;
 
     fn init_key_reader(
-        key: VirtualTensor<AP::EI>,
+        key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader;
 
     fn init_value_reader(
-        value: VirtualTensor<AP::EI>,
+        value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader;
 
     fn init_writer(
         q_offset: u32,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer;
 }

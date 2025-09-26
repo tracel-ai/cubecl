@@ -1,30 +1,31 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::dummy::{AttentionMatmul, FlashPrecision};
+use crate::components::AttentionPrecision;
+use crate::components::tile::dummy::AttentionMatmul;
 
 #[derive(CubeType)]
-pub enum KeyValueFragment<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    Reuse(ReuseKV<FP, FM>),
-    Key(Key<FP, FM>),
-    Value(Value<FP, FM>),
+pub enum KeyValueFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    Reuse(ReuseKV<AP, AM>),
+    Key(Key<AP, AM>),
+    Value(Value<AP, AM>),
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
-    pub fn new_key_value(#[comptime] config: FM::Config) -> Self {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
+    pub fn new_key_value(#[comptime] config: AM::Config) -> Self {
         Self::new_Reuse(ReuseKV::new(config))
     }
 
-    pub fn new_key(#[comptime] config: FM::Config) -> Self {
+    pub fn new_key(#[comptime] config: AM::Config) -> Self {
         Self::new_Key(Key::new(config))
     }
 
-    pub fn new_value(#[comptime] config: FM::Config) -> Self {
+    pub fn new_value(#[comptime] config: AM::Config) -> Self {
         Self::new_Value(Value::new(config))
     }
 
-    pub fn key(&self) -> &FM::KeyValue {
+    pub fn key(&self) -> &AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Key(key) => &key.fragment,
@@ -32,7 +33,7 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
         }
     }
 
-    pub fn key_mut(&mut self) -> &mut FM::KeyValue {
+    pub fn key_mut(&mut self) -> &mut AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Key(key) => &mut key.fragment,
@@ -40,7 +41,7 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
         }
     }
 
-    pub fn value(&self) -> &FM::KeyValue {
+    pub fn value(&self) -> &AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),
@@ -48,7 +49,7 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
         }
     }
 
-    pub fn value_mut(&mut self) -> &mut FM::KeyValue {
+    pub fn value_mut(&mut self) -> &mut AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),
@@ -58,42 +59,42 @@ impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
 }
 
 #[derive(CubeType)]
-pub struct ReuseKV<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    pub fragment: FM::KeyValue,
+pub struct ReuseKV<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    pub fragment: AM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> ReuseKV<FP, FM> {
-    pub fn new(#[comptime] config: FM::Config) -> Self {
-        let fragment = FM::allocate_key_value(config);
-        ReuseKV::<FP, FM> { fragment }
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> ReuseKV<AP, AM> {
+    pub fn new(#[comptime] config: AM::Config) -> Self {
+        let fragment = AM::allocate_key_value(config);
+        ReuseKV::<AP, AM> { fragment }
     }
 }
 
 #[derive(CubeType)]
-pub struct Key<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    pub fragment: FM::KeyValue,
+pub struct Key<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    pub fragment: AM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> Key<FP, FM> {
-    pub fn new(#[comptime] config: FM::Config) -> Self {
-        Key::<FP, FM> {
-            fragment: FM::allocate_key(config),
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> Key<AP, AM> {
+    pub fn new(#[comptime] config: AM::Config) -> Self {
+        Key::<AP, AM> {
+            fragment: AM::allocate_key(config),
         }
     }
 }
 
 #[derive(CubeType)]
-pub struct Value<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    pub fragment: FM::KeyValue,
+pub struct Value<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    pub fragment: AM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> Value<FP, FM> {
-    pub fn new(#[comptime] config: FM::Config) -> Self {
-        Value::<FP, FM> {
-            fragment: FM::allocate_value(config),
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> Value<AP, AM> {
+    pub fn new(#[comptime] config: AM::Config) -> Self {
+        Value::<AP, AM> {
+            fragment: AM::allocate_value(config),
         }
     }
 }

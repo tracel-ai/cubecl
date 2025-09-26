@@ -4,36 +4,37 @@ use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
 use crate::components::TileMask;
+use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
-use crate::components::tile::dummy::{DummySoftmax, AttentionMatmul, FlashPrecision};
+use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
     tile::dummy::{KeyValueFragment, QueryFragment},
 };
 
-pub struct DummyTileAttention<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
-    _phantom: PhantomData<(FP, FM)>,
+pub struct DummyTileAttention<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    _phantom: PhantomData<(AP, AM)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttention<AP>
-    for DummyTileAttention<AP::FlashPrecision, FM>
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
+    for DummyTileAttention<AP, AM>
 {
-    type Config = FM::Config;
+    type Config = AM::Config;
 
-    type QueryTile = QueryFragment<AP::FlashPrecision, FM>;
-    type KeyValueTile = KeyValueFragment<AP::FlashPrecision, FM>;
-    type SoftmaxTile = DummySoftmax<AP::FlashPrecision, FM>;
-    type AccumulatorTile = DummyAccumulator<AP::FlashPrecision, FM>;
+    type QueryTile = QueryFragment<AP, AM>;
+    type KeyValueTile = KeyValueFragment<AP, AM>;
+    type SoftmaxTile = DummySoftmax<AP, AM>;
+    type AccumulatorTile = DummyAccumulator<AP, AM>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
-        prev_state: &RunningState<AP::EA>,
+        prev_state: &RunningState<SM<AP>>,
         #[comptime] _config: Self::Config,
     ) {
         acc.scale(&prev_state.l, ScaleMode::Divide);
@@ -41,17 +42,17 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
 
     fn write_results(
         acc: &Self::AccumulatorTile,
-        slice: &mut SliceMut<Line<AP::EO>>,
+        slice: &mut SliceMut<Line<OG<AP>>>,
         #[comptime] tile_config: Self::Config,
     ) {
-        FM::write_results(&acc.fragment, slice, tile_config)
+        AM::write_results(&acc.fragment, slice, tile_config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile {
         Self::AccumulatorTile::new(config)
     }
 
-    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::QueryTile {
+    fn init_query(tile: &StridedTile<QG<AP>>, #[comptime] config: Self::Config) -> Self::QueryTile {
         Self::QueryTile::new(tile, config)
     }
 
@@ -76,7 +77,7 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     ) {
-        FM::fill_key_value(tile, rhs.key_mut(), config);
+        AM::fill_key_value(tile, rhs.key_mut(), config);
     }
 
     fn fill_value<E: Numeric>(
@@ -84,11 +85,11 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     ) {
-        FM::fill_key_value(tile, rhs.value_mut(), config);
+        AM::fill_key_value(tile, rhs.value_mut(), config);
     }
 
     fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config) {
-        FM::zero_softmax(&mut score.fragment, config);
+        AM::zero_softmax(&mut score.fragment, config);
     }
 
     fn accumulate_score(
@@ -97,7 +98,7 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
         softmax: &mut Self::SoftmaxTile,
         #[comptime] config: Self::Config,
     ) {
-        FM::score_matmul(
+        AM::score_matmul(
             &query.fragment,
             key_value.key(),
             &mut softmax.fragment,
@@ -108,10 +109,10 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &mut RunningState<AP::EA>,
+        state: &mut RunningState<SM<AP>>,
         #[comptime] dk: u32,
-    ) -> RowWise<AP::EA> {
-        let inv_sqrt_dk = AP::EA::new(comptime!(1.0 / (dk as f32).sqrt()));
+    ) -> RowWise<ACC<AP>> {
+        let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         softmax.scale_and_mask(inv_sqrt_dk, mask);
 
@@ -124,12 +125,12 @@ impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttent
         softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
-        scale: &RowWise<AP::EA>,
+        scale: &RowWise<ACC<AP>>,
         #[comptime] config: Self::Config,
     ) {
         accumulator.scale(scale, ScaleMode::Multiply);
 
-        FM::value_matmul(
+        AM::value_matmul(
             &softmax.fragment,
             key_value.value(),
             &mut accumulator.fragment,

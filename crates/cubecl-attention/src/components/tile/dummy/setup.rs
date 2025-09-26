@@ -17,8 +17,7 @@ pub struct DummyTileAttentionFamily<FM: FlashMatmulFamily> {
 }
 
 impl<FM: FlashMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM> {
-    type Attention<AP: AttentionPrecision> =
-        DummyTileAttention<AP::FlashPrecision, FM::Matmul<AP::FlashPrecision>>;
+    type Attention<AP: AttentionPrecision> = DummyTileAttention<AP, FM::Matmul<AP>>;
 
     type Config = FM::Config;
 

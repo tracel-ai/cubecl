@@ -4,8 +4,9 @@ use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::Stage
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::{AttentionIdent, StageMask};
+use crate::components::attention_types::*;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::{AttentionIdent, StageMask};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -20,8 +21,8 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyStage = <Self::KeyStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
-            ValueStage = <Self::ValueStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
+            KeyStage = <Self::KeyStage as StageFamily>::Stage<KS<AP>, AttentionTilingLayout>,
+            ValueStage = <Self::ValueStage as StageFamily>::Stage<VS<AP>, AttentionTilingLayout>,
         >;
 
     /// The configuration type associated with this Attention family.
@@ -93,7 +94,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     );
 
     fn init_writer(
-        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
+        tensor: View<Line<OG<AP>>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self::Writer;
 

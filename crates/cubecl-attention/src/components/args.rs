@@ -455,7 +455,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
-        TensorQueryExpand::__expand_line_size_method(self.clone(), &mut scope)
+        TensorKeyExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -529,7 +529,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
-        TensorQueryExpand::__expand_line_size_method(self.clone(), &mut scope)
+        TensorValueExpand::__expand_line_size_method(self.clone(), &mut scope)
     }
 }
 
@@ -1067,7 +1067,6 @@ mod __query {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                ident: self.ident,
             }
         }
     }
@@ -1115,7 +1114,6 @@ mod __key {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                ident: self.ident,
             }
         }
     }
@@ -1151,7 +1149,7 @@ mod __value {
     impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeType
         for TensorValue<Q, K, V, O, GA>
     {
-        type ExpandType = TensorQueryExpand<Q, K, V, O, GA>;
+        type ExpandType = TensorValueExpand<Q, K, V, O, GA>;
     }
 
     impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
@@ -1160,7 +1158,6 @@ mod __value {
         fn clone(&self) -> Self {
             Self {
                 state: self.state.clone(),
-                ident: self.ident,
             }
         }
     }

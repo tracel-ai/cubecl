@@ -5,6 +5,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::AttentionIdent;
+use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
 use crate::components::tile::RunningState;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
@@ -309,7 +310,7 @@ impl<
 
 #[derive(CubeType)]
 pub struct StageState<AP: AttentionPrecision> {
-    sequence: Sequence<RunningState<AP::EA>>,
+    sequence: Sequence<RunningState<SM<AP>>>,
 }
 
 #[cube]
@@ -320,7 +321,7 @@ impl<AP: AttentionPrecision> StageState<AP> {
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(RunningState::<AP::EA>::init(
+            sequence.push(RunningState::<SM<AP>>::init(
                 config.num_rows_per_unit(AttentionIdent::Softmax),
             ));
         }
@@ -328,11 +329,11 @@ impl<AP: AttentionPrecision> StageState<AP> {
         StageState::<AP> { sequence }
     }
 
-    pub fn get_at(&self, #[comptime] q: u32) -> &RunningState<AP::EA> {
+    pub fn get_at(&self, #[comptime] q: u32) -> &RunningState<SM<AP>> {
         self.sequence.index(q)
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut RunningState<AP::EA> {
+    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut RunningState<SM<AP>> {
         self.sequence.index_mut(q)
     }
 }

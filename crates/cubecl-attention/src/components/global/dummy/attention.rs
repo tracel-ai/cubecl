@@ -5,6 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::components::GlobalMask;
+use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::{
     AttentionGlobalLayout,
@@ -12,11 +13,11 @@ use crate::components::global::{
 };
 use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
+use crate::components::{AttentionIdent, global::dummy::QueryReader};
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
 };
-use crate::components::{AttentionIdent, global::dummy::QueryReader};
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
     _phantom: PhantomData<(AP, SA)>,
@@ -26,8 +27,8 @@ pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> 
 impl<
     SA: StageAttention<
             AP,
-            KeyStage = StridedStage<AP::ES, AttentionTilingLayout>,
-            ValueStage = StridedStage<AP::ES, AttentionTilingLayout>,
+            KeyStage = StridedStage<KS<AP>, AttentionTilingLayout>,
+            ValueStage = StridedStage<VS<AP>, AttentionTilingLayout>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
@@ -90,17 +91,20 @@ impl<
 
     fn init_query_reader(
         q_offset: u32,
-        query: VirtualTensor<AP::EI>,
+        query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP> {
-        let layout =
-            AttentionGlobalLayout::new(&query, 0, config.global_memory_config(AttentionIdent::Query));
+        let layout = AttentionGlobalLayout::new(
+            &query,
+            0,
+            config.global_memory_config(AttentionIdent::Query),
+        );
 
         QueryReader::<AP>::new(q_offset, query.view(layout))
     }
 
     fn init_key_reader(
-        key: VirtualTensor<AP::EI>,
+        key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader {
         let step = reduction_step::<Self::Config>(config);
@@ -110,18 +114,21 @@ impl<
     }
 
     fn init_value_reader(
-        value: VirtualTensor<AP::EI>,
+        value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader {
         let step = reduction_step::<Self::Config>(config);
-        let layout =
-            AttentionGlobalLayout::new(&value, 0, config.global_memory_config(AttentionIdent::Value));
+        let layout = AttentionGlobalLayout::new(
+            &value,
+            0,
+            config.global_memory_config(AttentionIdent::Value),
+        );
         DummyValueReader::new(value.view(layout), step, config)
     }
 
     fn init_writer(
         q_offset: u32,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let conf = config.global_memory_config(AttentionIdent::Out);

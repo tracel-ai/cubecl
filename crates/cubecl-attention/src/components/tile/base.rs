@@ -9,6 +9,7 @@ use cubecl_matmul::components::{
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
+    attention_types::*,
     tile::{RowWise, RunningState, dummy::FlashMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
@@ -51,24 +52,24 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type QueryTile: CubeType;
     type KeyValueTile: CubeType;
-    type SoftmaxTile: SoftmaxTile<AP::FlashPrecision>;
-    type AccumulatorTile: AccumulatorTile<AP::EA>;
+    type SoftmaxTile: SoftmaxTile<AP>;
+    type AccumulatorTile: AccumulatorTile<ACC<AP>>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
-        prev_state: &RunningState<AP::EA>,
+        prev_state: &RunningState<SM<AP>>,
         #[comptime] config: Self::Config,
     );
 
     fn write_results(
         acc: &Self::AccumulatorTile,
-        slice: &mut SliceMut<Line<AP::EO>>,
+        slice: &mut SliceMut<Line<OG<AP>>>,
         #[comptime] tile_config: Self::Config,
     );
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile;
 
-    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::QueryTile;
+    fn init_query(tile: &StridedTile<QG<AP>>, #[comptime] config: Self::Config) -> Self::QueryTile;
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
     fn init_key(#[comptime] config: Self::Config) -> Self::KeyValueTile;
@@ -100,15 +101,15 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &mut RunningState<AP::EA>,
+        state: &mut RunningState<SM<AP>>,
         #[comptime] dk: u32,
-    ) -> RowWise<AP::EA>;
+    ) -> RowWise<ACC<AP>>;
 
     fn accumulate_value(
         softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
-        scale: &RowWise<AP::EA>,
+        scale: &RowWise<ACC<AP>>,
         #[comptime] config: Self::Config,
     );
 }
