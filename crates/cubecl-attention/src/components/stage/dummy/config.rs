@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
+    AttentionSetupError, AttentionTilingScheme, FlashIdent, stage::StageAttentionConfig,
     tile::dummy::FlashMatmulConfig,
 };
 
@@ -44,6 +44,10 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
 
     fn reuse_key_value(&self) -> bool {
         self.reuse_key_value
+    }
+
+    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32 {
+        self.tile_config.num_rows_per_unit(ident)
     }
 }
 

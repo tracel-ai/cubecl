@@ -127,6 +127,10 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
+
+    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32 {
+        1u32
+    }
 }
 
 impl DummyRegisterFlashMatmulConfig {

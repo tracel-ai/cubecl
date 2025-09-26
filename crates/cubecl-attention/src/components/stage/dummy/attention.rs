@@ -10,12 +10,14 @@ use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::StageMask;
-use crate::components::stage::dummy::StageState;
-use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
+use crate::components::stage::dummy::{
+    Accumulators, DummyStageConfig, KeyValues, Queries, SoftmaxPartition,
+};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{FlashIdent, global::dummy::QueryReader};
+use crate::components::{stage::dummy::StageState, tile::RowWise};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, R, TA)>,
@@ -31,21 +33,21 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
     type ValueStage = S;
 
     type State = StageState<AP>;
-    type Query = Queries<AP, TA, Self::Config>;
-    type KeyValue = KeyValues<AP, TA, Self::Config>;
-    type Score = Scores<AP, TA, Self::Config>;
-    type Accumulator = Accumulators<AP, TA, Self::Config>;
+    type QueryPartition = Queries<AP, TA, Self::Config>;
+    type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
+    type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
+    type AccumulatorPartition = Accumulators<AP, TA, Self::Config>;
     type Writer = PlaneWriter<AP::EO>;
 
     fn execute(
         key_reader: &Self::KeyStage,
         value_reader: &Self::ValueStage,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::Score,
+        query_partition: &Self::QueryPartition,
+        key_value_partition: &mut Self::KeyValuePartition,
+        softmax_partition: &mut Self::SoftmaxPartition,
         mask: StageMask,
-        accumulator: &mut Self::Accumulator,
-        state: &mut StageState<AP>,
+        accumulator_partition: &mut Self::AccumulatorPartition,
+        state: &mut Self::State,
         #[comptime] config: Self::Config,
     ) {
         let partition_mask = mask.to_partition(UNIT_POS_Y);
@@ -62,11 +64,12 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
+                let key_smem_slice =
+                    <S as Stage<AP::ES>>::read_tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
-                    &key_tile,
-                    key_value.get_key_at_mut(hd, kv, config),
+                    &key_smem_slice,
+                    key_value_partition.get_key_at_mut(hd, kv, config),
                     config.tile_config(),
                 );
 
@@ -74,37 +77,46 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             }
 
             let mut q = comptime![0u32];
-            let mut scales = Sequence::<AP::EA>::new();
+            let mut scales = Sequence::<RowWise<AP::EA>>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.seq_q {
-                let score_frag = score_prob.get_at_mut(q, kv, config);
-                TA::zero_score(score_frag, config.tile_config());
+                let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
+                TA::zero_softmax(softmax_tile, config.tile_config());
 
                 let mut hd = comptime![0u32];
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.head_dim {
-                    let query_frag = query.get_at(q, hd, config);
-                    let key_frag = key_value.get_key_at(hd, kv, config);
+                    let query_tile = query_partition.get_at(q, hd, config);
+                    let key_tile = key_value_partition.get_key_at(hd, kv, config);
 
-                    TA::accumulate_score(query_frag, key_frag, score_frag, config.tile_config());
+                    TA::accumulate_score(query_tile, key_tile, softmax_tile, config.tile_config());
 
                     comptime![hd += 1];
                 }
 
                 let state_q = state.get_at_mut(q);
 
-                let row_stats = TA::score_to_prob(
-                    score_frag,
+                let accumulator_scale = TA::softmax(
+                    softmax_tile,
                     partition_mask.to_tile(q, kv),
                     state_q,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );
 
-                scales.push(TA::update_state(state_q, &row_stats));
+                scales.push(accumulator_scale);
+
+                // let row_stats = TA::score_to_prob(
+                //     softmax,
+                //     partition_mask.to_tile(q, kv),
+                //     state_q,
+                //     config.tiling_scheme().elements_in_partition_head_dim(),
+                // );
+
+                // TA::update_state(state_q, &row_stats));
 
                 comptime![q += 1];
             }
@@ -114,11 +126,12 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
+                let value_smem_slice =
+                    <S as Stage<AP::ES>>::read_tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
-                    &value_tile,
-                    key_value.get_value_at_mut(kv, vd, config),
+                    &value_smem_slice,
+                    key_value_partition.get_value_at_mut(kv, vd, config),
                     config.tile_config(),
                 );
 
@@ -131,16 +144,16 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
-                let score_frag = score_prob.get_at(q, kv, config);
+                let score_frag = softmax_partition.get_at(q, kv, config);
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
                     TA::accumulate_value(
                         score_frag,
-                        key_value.get_value_at(kv, vd, config),
-                        accumulator.get_at_mut(q, vd, config),
-                        *scales.index(q),
+                        key_value_partition.get_value_at(kv, vd, config),
+                        accumulator_partition.get_at_mut(q, vd, config),
+                        scales.index(q),
                         config.tile_config(),
                     );
 
@@ -155,8 +168,8 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
     }
 
     fn rescale(
-        acc: &mut Self::Accumulator,
-        state: StageState<AP>,
+        acc: &mut Self::AccumulatorPartition,
+        state: Self::State,
         #[comptime] config: Self::Config,
     ) {
         let p = config.tiling_scheme().partition_size;
@@ -172,7 +185,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 TA::rescale(
-                    Self::Accumulator::get_at_mut(acc, q, vd, config),
+                    Self::AccumulatorPartition::get_at_mut(acc, q, vd, config),
                     state.get_at(q),
                     config.tile_config(),
                 );
@@ -184,7 +197,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         }
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> StageState<AP> {
+    fn init_state(#[comptime] config: Self::Config) -> Self::State {
         StageState::<AP>::init::<Self::Config>(config)
     }
 
@@ -196,7 +209,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
     }
 
     fn write<G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
+        acc: &Self::AccumulatorPartition,
         writer: &mut Self::Writer,
         #[comptime] stage_config: Self::Config,
         #[comptime] global_config: G,
@@ -226,7 +239,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 TA::write_results(
-                    Self::Accumulator::get_at(acc, q, kv, stage_config),
+                    Self::AccumulatorPartition::get_at(acc, q, kv, stage_config),
                     &mut smem_slice,
                     stage_config.tile_config(),
                 );
@@ -246,15 +259,20 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
         }
     }
 
-    fn init_fragments(
+    fn init_partitions(
         query_loader: QueryReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
+    ) -> (
+        Self::QueryPartition,
+        Self::KeyValuePartition,
+        Self::SoftmaxPartition,
+        Self::AccumulatorPartition,
+    ) {
         (
-            Self::Query::new(query_loader, config),
-            Self::KeyValue::new(config),
-            Self::Score::new(config),
-            Self::Accumulator::new(config),
+            Self::QueryPartition::new(query_loader, config),
+            Self::KeyValuePartition::new(config),
+            Self::SoftmaxPartition::new(config),
+            Self::AccumulatorPartition::new(config),
         )
     }
 }

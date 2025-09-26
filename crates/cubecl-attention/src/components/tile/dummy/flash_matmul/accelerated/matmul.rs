@@ -3,11 +3,18 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::FlashIdent;
+use crate::components::tile::AccumulatorFragment;
+use crate::components::tile::SoftmaxFragment;
 use crate::components::tile::dummy::accelerated::AcceleratedFlashMatmulConfig;
 use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedFlashMatmul;
+
+#[cube]
+impl<E: Float> SoftmaxFragment<E> for cmma::Matrix<E> {}
+#[cube]
+impl<E: Float> AccumulatorFragment<E> for cmma::Matrix<E> {}
 
 #[cube]
 impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {

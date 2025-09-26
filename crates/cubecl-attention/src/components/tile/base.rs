@@ -6,11 +6,13 @@ use cubecl_matmul::components::{
     tile::StridedTile,
 };
 
+use crate::components::InvalidConfigError;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, TileMask, tile::dummy::FlashMatmulConfig,
+    AttentionSetupError, AvailableLineSizes,
+    tile::{RowWise, RunningState, dummy::FlashMatmulConfig},
 };
-use crate::components::{InvalidConfigError, tile::dummy::RunningState};
+use crate::components::{TileMask, tile::SoftmaxTile};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
@@ -47,78 +49,83 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: FlashMatmulConfig;
 
-    type Query: CubeType;
-    type KeyValue: CubeType;
-    type ScoreProb: CubeType;
-    type Accumulator: CubeType;
-    type OutOfBoundMask: CubeType;
+    type QueryTile: CubeType;
+    type KeyValueTile: CubeType;
+    type SoftmaxTile: SoftmaxTile<AP::FlashPrecision>;
+    type AccumulatorTile: CubeType;
 
     fn rescale(
-        acc: &mut Self::Accumulator,
+        acc: &mut Self::AccumulatorTile,
         prev_state: &RunningState<AP::EA>,
         #[comptime] config: Self::Config,
     );
 
     fn write_results(
-        acc: &Self::Accumulator,
+        acc: &Self::AccumulatorTile,
         slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
     );
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile;
 
-    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::Query;
+    fn init_query(tile: &StridedTile<AP::EI>, #[comptime] config: Self::Config) -> Self::QueryTile;
 
-    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
-    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValue;
-    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
+    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValueTile;
+    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
 
-    fn init_score(#[comptime] config: Self::Config) -> Self::ScoreProb;
+    fn init_score(#[comptime] config: Self::Config) -> Self::SoftmaxTile;
 
     fn fill_key<E: Numeric>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValue,
+        rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
     fn fill_value<E: Numeric>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValue,
+        rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
-    fn zero_score(score: &mut Self::ScoreProb, #[comptime] config: Self::Config);
+    fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config);
 
     fn accumulate_score(
-        query: &Self::Query,
-        key_value: &Self::KeyValue,
-        score_prob: &mut Self::ScoreProb,
+        query: &Self::QueryTile,
+        key_value: &Self::KeyValueTile,
+        score_prob: &mut Self::SoftmaxTile,
         #[comptime] config: Self::Config,
     );
 
-    fn score_to_prob(
-        score_prob: &mut Self::ScoreProb,
+    fn softmax(
+        softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &RunningState<AP::EA>,
-        #[comptime] dk: u32,
-    ) -> RowStats<AP::EA>;
-
-    fn update_state(
         state: &mut RunningState<AP::EA>,
-        score_prob_row_stats: &RowStats<AP::EA>,
-    ) -> AP::EA;
+        #[comptime] dk: u32,
+    ) -> RowWise<AP::EA>;
+    // fn score_to_prob(
+    //     score_prob: &mut Self::Softmax,
+    //     mask: TileMask,
+    //     state: &RunningState<AP::EA>,
+    //     #[comptime] dk: u32,
+    // ) -> RowStats<AP::EA>;
+
+    // fn update_state(
+    //     state: &mut RunningState<AP::EA>,
+    //     score_prob_row_stats: &RowStats<AP::EA>,
+    // ) -> AP::EA;
 
     fn accumulate_value(
-        score_prob: &Self::ScoreProb,
-        key_value: &Self::KeyValue,
-        accumulator: &mut Self::Accumulator,
-        scale: AP::EA,
+        score_prob: &Self::SoftmaxTile,
+        key_value: &Self::KeyValueTile,
+        accumulator: &mut Self::AccumulatorTile,
+        scale: &RowWise<AP::EA>,
         #[comptime] config: Self::Config,
     );
 }
 
-#[derive(CubeType)]
-pub struct RowStats<E: Numeric> {
-    pub m: E,
-    pub prob_row_sum: E,
-}
+// #[derive(CubeType)]
+// pub struct RowStats<E: Numeric> {
+//     pub m: E,
+//     pub prob_row_sum: E,
+// }

@@ -4,12 +4,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::tile::AccumulatorFragment;
+use crate::components::tile::SoftmaxFragment;
 use crate::components::tile::dummy::dummy_register::DummyRegisterFlashMatmulConfig;
 use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashPrecision};
 
 /// Dummy FlashMatmul implementation using simple arrays
 /// Only lane 0 performs computations, other lanes idle
 pub struct DummyRegisterFlashMatmul;
+
+#[cube]
+impl<E: Float> SoftmaxFragment<E> for Array<E> {}
+#[cube]
+impl<E: Float> AccumulatorFragment<E> for Array<E> {}
 
 #[cube]
 impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {

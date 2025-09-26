@@ -117,10 +117,12 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
     }
 
     fn num_units_per_row(&self, ident: FlashIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
         self.plane_dim / self.attention_tile_size.num_rows(ident)
     }
 
     fn num_cols_per_unit(&self, ident: FlashIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
         self.attention_tile_size
             .num_cols(ident)
             .div_ceil(self.num_units_per_row(ident))
@@ -128,6 +130,11 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
 
     fn check_bounds(&self) -> bool {
         self.check_bounds
+    }
+
+    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
+        self.attention_tile_size.num_rows(ident) / self.plane_dim
     }
 }
 

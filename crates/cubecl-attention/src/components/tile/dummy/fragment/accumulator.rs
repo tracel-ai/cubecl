@@ -4,12 +4,18 @@ use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::FlashIdent;
+use crate::components::tile::AccumulatorTile;
+use crate::components::tile::AccumulatorTileExpand;
+use crate::components::tile::RowWise;
+use crate::components::tile::ScaleMode;
+use crate::components::tile::SoftmaxTile;
 use crate::components::tile::dummy::FlashMatmul;
 use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::tile::dummy::FlashPrecision;
+use std::marker::PhantomData;
 
 #[derive(CubeType)]
-pub struct AccumulatorFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct DummyAccumulator<FP: FlashPrecision, FM: FlashMatmul<FP>> {
     tmp_smem: SharedMemory<FP::A>,
     pub fragment: FM::Accumulator,
 
@@ -30,8 +36,8 @@ pub struct AccumulatorFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
-    pub fn new(#[comptime] config: FM::Config) -> AccumulatorFragment<FP, FM> {
+impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummyAccumulator<FP, FM> {
+    pub fn new(#[comptime] config: FM::Config) -> DummyAccumulator<FP, FM> {
         let mut fragment = FM::allocate_accumulator(config);
         FM::zero_accumulator(&mut fragment, config);
 
@@ -47,7 +53,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
         let tmp_smem_start = UNIT_POS_Y * acc_size;
         let tmp_smem_end = tmp_smem_start + acc_size;
 
-        AccumulatorFragment::<FP, FM> {
+        DummyAccumulator::<FP, FM> {
             tmp_smem: SharedMemory::new(acc_size * config.num_planes()),
             fragment,
             row,
@@ -60,8 +66,17 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
             config,
         }
     }
+}
 
-    pub fn scale(&mut self, factor: FP::A) {
+#[cube]
+impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorTile<FP::A> for DummyAccumulator<FP, FM> {
+    type Fragment = FM::Accumulator;
+
+    fn zero(&mut self) {
+        todo!()
+    }
+
+    fn scale(&mut self, scale: &RowWise<FP::A>, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
@@ -75,8 +90,18 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorFragment<FP, FM> {
                 let col = self.col_start + i;
 
                 if col < self.num_cols {
-                    slice[self.row * self.num_cols + col] =
-                        slice[self.row * self.num_cols + col] * Line::cast_from(factor);
+                    match scale_op {
+                        ScaleMode::Multiply => {
+                            slice[self.row * self.num_cols + col] = slice
+                                [self.row * self.num_cols + col]
+                                * Line::cast_from(scale.index(0u32))
+                        }
+                        ScaleMode::Divide => {
+                            slice[self.row * self.num_cols + col] = slice
+                                [self.row * self.num_cols + col]
+                                / Line::cast_from(scale.index(0u32))
+                        }
+                    }
                 }
             }
         }

@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::tile::{AccumulatorFragment, SoftmaxFragment};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
@@ -22,8 +23,8 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     type Config: FlashMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type ScoreProb: CubeType;
-    type Accumulator: CubeType;
+    type ScoreProb: SoftmaxFragment<FP::SP>;
+    type Accumulator: AccumulatorFragment<FP::A>;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -99,6 +100,7 @@ pub trait FlashMatmulConfig:
 
     fn num_units_per_row(&self, ident: FlashIdent) -> u32;
     fn num_cols_per_unit(&self, ident: FlashIdent) -> u32;
+    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32;
 
     fn check_bounds(&self) -> bool;
 }
