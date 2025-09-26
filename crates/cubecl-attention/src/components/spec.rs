@@ -3,10 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::*;
 use half::{bf16, f16};
 
-use crate::components::{
-    args::{AttentionArgs, TensorArgs},
-    tile::dummy::FlashPrecision,
-};
+use crate::components::args::{AttentionArgs, TensorArgs};
 
 /// Attention spec definiting each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
@@ -27,112 +24,155 @@ impl<AP: AttentionPrecision> AttentionSpec for AP {
     type Args = TensorArgs;
 }
 
-/// Matrix multiplication precisions.
-pub trait AttentionPrecision: Send + Sync + Copy + 'static {
-    /// Element type of each input tensors of the kernel.
-    type EI: Float;
-    /// Element of mask
-    type EM: Numeric;
-    /// Element type for the shared memories used to read inputs.
-    type ES: Float;
-    /// Element type for the shared memories or fragments used to accumulate
-    /// smaller matmul results before writing to the output tensor.
-    type EA: Float;
-    /// Element type of the output tensor of the kernel.
-    type EO: Float;
-
-    type FlashPrecision: FlashPrecision<Q = Self::ES, KV = Self::ES, SP = Self::EA, A = Self::EA>;
+pub trait QueryPrecision: Send + Sync + Copy + 'static {
+    type Global: Float;
+    type Tile: Float;
 }
 
-impl<T: AttentionPrecision> FlashPrecision for T {
-    type Q = T::ES;
-    type KV = T::ES;
-    type SP = T::EA;
-    type A = T::EA;
+pub trait KeyValuePrecision: Send + Sync + Copy + 'static {
+    type Global: Float;
+    type Stage: Float;
+    type Tile: Float;
+}
+
+pub trait AttentionPrecision: Send + Sync + Copy + 'static {
+    type Query: QueryPrecision;
+    type Key: KeyValuePrecision;
+    type Value: KeyValuePrecision;
+    type Softmax: Float;
+    type Accumulator: Float;
+    type Mask: Numeric;
+    type Out: Float;
+}
+
+impl QueryPrecision for f16 {
+    type Global = f16;
+    type Tile = f16;
+}
+
+impl QueryPrecision for bf16 {
+    type Global = bf16;
+    type Tile = bf16;
+}
+
+impl QueryPrecision for flex32 {
+    type Global = f32;
+    type Tile = f16;
+}
+
+impl QueryPrecision for f32 {
+    type Global = f32;
+    type Tile = f32;
+}
+
+impl QueryPrecision for f64 {
+    type Global = f64;
+    type Tile = f32;
+}
+
+impl KeyValuePrecision for f16 {
+    type Global = f16;
+    type Stage = f16;
+    type Tile = f16;
+}
+
+impl KeyValuePrecision for bf16 {
+    type Global = bf16;
+    type Stage = bf16;
+    type Tile = bf16;
+}
+
+impl KeyValuePrecision for flex32 {
+    type Global = f32;
+    type Stage = f16;
+    type Tile = f16;
+}
+
+impl KeyValuePrecision for f32 {
+    type Global = f32;
+    type Stage = f32;
+    type Tile = f32;
+}
+
+impl KeyValuePrecision for f64 {
+    type Global = f64;
+    type Stage = f32;
+    type Tile = f32;
 }
 
 impl AttentionPrecision for f16 {
-    type EI = f16;
-    type EM = u8;
-    type ES = f16;
+    type Query = f16;
+    type Key = f16;
+    type Value = f16;
     #[cfg(target_os = "macos")]
-    type EA = f16;
+    type Softmax = f16;
+    #[cfg(target_os = "macos")]
+    type Accumulator = f16;
     #[cfg(not(target_os = "macos"))]
-    type EA = f32;
-    type EO = f16;
-
-    type FlashPrecision = Self;
+    type Softmax = f32;
+    #[cfg(not(target_os = "macos"))]
+    type Softmax = f32;
+    type Mask = u8;
+    type Out = f16;
 }
 
 impl AttentionPrecision for flex32 {
-    type EI = f32;
-    type EM = u8;
-    type ES = f16;
-    type EA = f32;
-    type EO = f32;
-    type FlashPrecision = Self;
+    type Query = flex32;
+    type Key = flex32;
+    type Value = flex32;
+    #[cfg(target_os = "macos")]
+    type Softmax = f16;
+    #[cfg(target_os = "macos")]
+    type Accumulator = f16;
+    #[cfg(not(target_os = "macos"))]
+    type Softmax = f32;
+    #[cfg(not(target_os = "macos"))]
+    type Softmax = f32;
+    type Mask = u8;
+    type Out = f32;
 }
 
 impl AttentionPrecision for bf16 {
-    type EI = bf16;
-    type EM = u8;
-    type ES = bf16;
+    type Query = bf16;
+    type Key = bf16;
+    type Value = bf16;
     #[cfg(target_os = "macos")]
-    type EA = bf16;
+    type Softmax = bf16;
+    #[cfg(target_os = "macos")]
+    type Accumulator = bf16;
     #[cfg(not(target_os = "macos"))]
-    type EA = f32;
-    type EO = bf16;
-    type FlashPrecision = Self;
+    type Softmax = f32;
+    #[cfg(not(target_os = "macos"))]
+    type Softmax = f32;
+    type Mask = u8;
+    type Out = bf16;
 }
 
 impl AttentionPrecision for f32 {
-    type EI = f32;
-    type EM = u8;
-    type ES = f32;
-    type EA = f32;
-    type EO = f32;
-    type FlashPrecision = Self;
+    type Query = f32;
+    type Key = f32;
+    type Value = f32;
+    type Softmax = f32;
+    type Accumulator = f32;
+    type Mask = u8;
+    type Out = f32;
 }
 
 impl AttentionPrecision for f64 {
-    type EI = f64;
-    type EM = u8;
-    type ES = f32;
-    type EA = f32;
-    type EO = f64;
-    type FlashPrecision = Self;
-}
-
-#[derive(Clone, Copy)]
-pub struct ReplaceES<MP: AttentionPrecision, ES: Float> {
-    _phantom: PhantomData<(ES, MP)>,
-}
-
-impl<AP: AttentionPrecision, ES: Float> AttentionPrecision for ReplaceES<AP, ES> {
-    type EI = AP::EI;
-    type EM = AP::EM;
-    type ES = ES;
-    type EA = AP::EA;
-    type EO = AP::EO;
-    type FlashPrecision = Self;
-}
-
-impl<EI: Float, EM: Numeric, ES: Float, EA: Float, EO: Float> AttentionPrecision
-    for (EI, EM, ES, EA, EO)
-{
-    type EI = EI;
-    type EM = EM;
-    type ES = ES;
-    type EA = EA;
-    type EO = EO;
-    type FlashPrecision = Self;
+    type Query = f64;
+    type Key = f64;
+    type Value = f64;
+    type Softmax = f32;
+    type Accumulator = f32;
+    type Mask = u8;
+    type Out = f64;
 }
 
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as AttentionArgs>::Input<EI<MS>>;
+pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>>;
 
 /// Output argument
-pub type OutputArg<MS> = <Args<MS> as AttentionArgs>::Output<EO<MS>>;
+pub type OutputArg<AS> = <Args<AS> as AttentionArgs>::Output<OG<AS>>;
 
 /// Input runtime argument
 pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
@@ -140,10 +180,25 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 /// Output runtime argument
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
-pub type EI<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EI;
-pub type EM<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EM;
-pub type ES<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::ES;
-pub type EA<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EA;
-pub type EO<MS> = <<MS as AttentionSpec>::Precision as AttentionPrecision>::EO;
+pub type QG<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Query as QueryPrecision>::Global;
+pub type QT<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Query as QueryPrecision>::Tile;
+pub type KG<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as KeyValuePrecision>::Global;
+pub type KS<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as KeyValuePrecision>::Stage;
+pub type KT<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as KeyValuePrecision>::Tile;
+pub type VG<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as KeyValuePrecision>::Global;
+pub type VS<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as KeyValuePrecision>::Stage;
+pub type VT<AS> =
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as KeyValuePrecision>::Tile;
+pub type SM<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Softmax;
+pub type ACC<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Accumulator;
+pub type MSK<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Mask;
+pub type OG<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Out;
 
 pub type Args<MS> = <MS as AttentionSpec>::Args;

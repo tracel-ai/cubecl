@@ -9,19 +9,19 @@ use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
-use crate::components::tile::dummy::{DummySoftmax, FlashMatmul, FlashPrecision};
+use crate::components::tile::dummy::{DummySoftmax, AttentionMatmul, FlashPrecision};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
     tile::dummy::{KeyValueFragment, QueryFragment},
 };
 
-pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct DummyTileAttention<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     _phantom: PhantomData<(FP, FM)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<AP>
+impl<AP: AttentionPrecision, FM: AttentionMatmul<AP::FlashPrecision>> TileAttention<AP>
     for DummyTileAttention<AP::FlashPrecision, FM>
 {
     type Config = FM::Config;

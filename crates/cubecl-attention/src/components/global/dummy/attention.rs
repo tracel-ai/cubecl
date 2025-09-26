@@ -16,7 +16,7 @@ use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
 };
-use crate::components::{FlashIdent, global::dummy::QueryReader};
+use crate::components::{AttentionIdent, global::dummy::QueryReader};
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
     _phantom: PhantomData<(AP, SA)>,
@@ -94,7 +94,7 @@ impl<
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP> {
         let layout =
-            AttentionGlobalLayout::new(&query, 0, config.global_memory_config(FlashIdent::Query));
+            AttentionGlobalLayout::new(&query, 0, config.global_memory_config(AttentionIdent::Query));
 
         QueryReader::<AP>::new(q_offset, query.view(layout))
     }
@@ -105,7 +105,7 @@ impl<
     ) -> Self::KeyReader {
         let step = reduction_step::<Self::Config>(config);
         let layout =
-            AttentionGlobalLayout::new(&key, 0, config.global_memory_config(FlashIdent::Key));
+            AttentionGlobalLayout::new(&key, 0, config.global_memory_config(AttentionIdent::Key));
         DummyKeyReader::new(key.view(layout), step, config)
     }
 
@@ -115,7 +115,7 @@ impl<
     ) -> Self::ValueReader {
         let step = reduction_step::<Self::Config>(config);
         let layout =
-            AttentionGlobalLayout::new(&value, 0, config.global_memory_config(FlashIdent::Value));
+            AttentionGlobalLayout::new(&value, 0, config.global_memory_config(AttentionIdent::Value));
         DummyValueReader::new(value.view(layout), step, config)
     }
 
@@ -124,7 +124,7 @@ impl<
         out: VirtualTensor<AP::EO, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let conf = config.global_memory_config(FlashIdent::Out);
+        let conf = config.global_memory_config(AttentionIdent::Out);
         let layout = AttentionGlobalLayout::new(&out, 0, conf);
         let out = out.view_mut(layout);
         SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()), conf)

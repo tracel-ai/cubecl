@@ -4,9 +4,10 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionPartitionSize, AttentionPrecision, AttentionProblem, AttentionSelection,
-        AttentionSetupError, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
-        AvailableLineSizes, FlashIdent, args::TensorInputsLaunch, batch::HypercubeSelection,
+        AttentionIdent, AttentionPartitionSize, AttentionPrecision, AttentionProblem,
+        AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
+        AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch,
+        batch::HypercubeSelection,
     },
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
@@ -66,10 +67,10 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         &AP::EO::as_type_native_unchecked(),
     );
     let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
-        .filter_with_tensor(FlashIdent::Query, query.strides, query.shape)
-        .filter_with_tensor(FlashIdent::Key, key.strides, key.shape)
-        .filter_with_tensor(FlashIdent::Value, value.strides, value.shape)
-        .filter_with_tensor(FlashIdent::Out, out.strides, out.shape)
+        .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
+        .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
+        .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
+        .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape)
         .pick_max()
         .unwrap();
 

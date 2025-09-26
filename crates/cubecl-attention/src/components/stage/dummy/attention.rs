@@ -16,7 +16,7 @@ use crate::components::stage::dummy::{
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
-use crate::components::{FlashIdent, global::dummy::QueryReader};
+use crate::components::{AttentionIdent, global::dummy::QueryReader};
 use crate::components::{stage::dummy::StageState, tile::RowWise};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
@@ -240,7 +240,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
                     smem_slice.to_slice(),
                     (q + UNIT_POS_Y * p.seq_q, kv.runtime()),
                     stage_config.plane_dim(),
-                    global_config.global_memory_config(FlashIdent::Out),
+                    global_config.global_memory_config(AttentionIdent::Out),
                 );
 
                 comptime![kv += 1];

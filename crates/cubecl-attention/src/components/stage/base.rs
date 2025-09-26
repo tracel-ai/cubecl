@@ -4,7 +4,7 @@ use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::Stage
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::{FlashIdent, StageMask};
+use crate::components::{AttentionIdent, StageMask};
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -124,5 +124,5 @@ pub trait StageAttentionConfig:
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;
 
-    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32;
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 }

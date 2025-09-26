@@ -1,17 +1,17 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
+use crate::components::tile::dummy::{AttentionMatmul, FlashPrecision};
 
 #[derive(CubeType)]
-pub enum KeyValueFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub enum KeyValueFragment<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     Reuse(ReuseKV<FP, FM>),
     Key(Key<FP, FM>),
     Value(Value<FP, FM>),
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> KeyValueFragment<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> KeyValueFragment<FP, FM> {
     pub fn new_key_value(#[comptime] config: FM::Config) -> Self {
         Self::new_Reuse(ReuseKV::new(config))
     }
@@ -58,12 +58,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> KeyValueFragment<FP, FM> {
 }
 
 #[derive(CubeType)]
-pub struct ReuseKV<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct ReuseKV<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     pub fragment: FM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ReuseKV<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> ReuseKV<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
         let fragment = FM::allocate_key_value(config);
         ReuseKV::<FP, FM> { fragment }
@@ -71,12 +71,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> ReuseKV<FP, FM> {
 }
 
 #[derive(CubeType)]
-pub struct Key<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct Key<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     pub fragment: FM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> Key<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> Key<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
         Key::<FP, FM> {
             fragment: FM::allocate_key(config),
@@ -85,12 +85,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> Key<FP, FM> {
 }
 
 #[derive(CubeType)]
-pub struct Value<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct Value<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     pub fragment: FM::KeyValue,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> Value<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> Value<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
         Value::<FP, FM> {
             fragment: FM::allocate_value(config),

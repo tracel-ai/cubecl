@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{PartitionSize, TileSize};
 
-use crate::components::FlashIdent;
+use crate::components::AttentionIdent;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AttentionTilingScheme {
@@ -74,25 +74,25 @@ impl AttentionTileSize {
         self.seq_q * self.val_dim
     }
 
-    pub fn num_rows(&self, ident: FlashIdent) -> u32 {
+    pub fn num_rows(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.seq_q,
-            FlashIdent::Key => self.seq_kv,
-            FlashIdent::Softmax => self.seq_q,
-            FlashIdent::Value => self.seq_kv,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => self.seq_q,
+            AttentionIdent::Query => self.seq_q,
+            AttentionIdent::Key => self.seq_kv,
+            AttentionIdent::Softmax => self.seq_q,
+            AttentionIdent::Value => self.seq_kv,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => self.seq_q,
         }
     }
 
-    pub(crate) fn num_cols(&self, ident: FlashIdent) -> u32 {
+    pub(crate) fn num_cols(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.head_dim,
-            FlashIdent::Key => self.head_dim,
-            FlashIdent::Softmax => self.seq_kv,
-            FlashIdent::Value => self.val_dim,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => self.val_dim,
+            AttentionIdent::Query => self.head_dim,
+            AttentionIdent::Key => self.head_dim,
+            AttentionIdent::Softmax => self.seq_kv,
+            AttentionIdent::Value => self.val_dim,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => self.val_dim,
         }
     }
 
@@ -125,25 +125,25 @@ pub struct AttentionPartitionSize {
     pub val_dim: u32,
 }
 impl AttentionPartitionSize {
-    pub(crate) fn num_rows(&self, ident: FlashIdent) -> u32 {
+    pub(crate) fn num_rows(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.seq_q,
-            FlashIdent::Key => self.seq_kv,
-            FlashIdent::Softmax => self.seq_q,
-            FlashIdent::Value => self.seq_kv,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => self.seq_q,
+            AttentionIdent::Query => self.seq_q,
+            AttentionIdent::Key => self.seq_kv,
+            AttentionIdent::Softmax => self.seq_q,
+            AttentionIdent::Value => self.seq_kv,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => self.seq_q,
         }
     }
 
-    pub(crate) fn num_cols(&self, ident: FlashIdent) -> u32 {
+    pub(crate) fn num_cols(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.head_dim,
-            FlashIdent::Key => self.head_dim,
-            FlashIdent::Softmax => self.seq_kv,
-            FlashIdent::Value => self.val_dim,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => self.val_dim,
+            AttentionIdent::Query => self.head_dim,
+            AttentionIdent::Key => self.head_dim,
+            AttentionIdent::Softmax => self.seq_kv,
+            AttentionIdent::Value => self.val_dim,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => self.val_dim,
         }
     }
 

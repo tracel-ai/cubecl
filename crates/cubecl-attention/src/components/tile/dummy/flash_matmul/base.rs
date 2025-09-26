@@ -4,21 +4,14 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
+    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
 };
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub trait FlashPrecision: Send + Sync + Copy + 'static {
-    type Q: Float;
-    type KV: Float;
-    type SP: Float;
-    type A: Float;
-}
-
 #[cube]
-pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
+pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: FlashMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
@@ -92,21 +85,21 @@ pub trait FlashMatmulConfig:
 
     // TODO try to remove this
     fn num_planes(&self) -> u32;
-    fn stage_line_size(&self, ident: FlashIdent) -> u32;
+    fn stage_line_size(&self, ident: AttentionIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
 
-    fn num_units_per_row(&self, ident: FlashIdent) -> u32;
-    fn num_cols_per_unit(&self, ident: FlashIdent) -> u32;
-    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32;
+    fn num_units_per_row(&self, ident: AttentionIdent) -> u32;
+    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32;
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 
     fn check_bounds(&self) -> bool;
 }
 
 pub trait FlashMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<F: FlashPrecision>: FlashMatmul<F, Config = Self::Config>;
+    type Matmul<F: FlashPrecision>: AttentionMatmul<F, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
     type Config: FlashMatmulConfig;

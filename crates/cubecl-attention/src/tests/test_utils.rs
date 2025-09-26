@@ -15,7 +15,7 @@ use cubecl_runtime::MmaConfig;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{AttentionPrecision, AttentionProblem, FlashIdent},
+    components::{AttentionPrecision, AttentionProblem, AttentionIdent},
     tests::attention_test_launcher::{strides, tensor_size},
 };
 
@@ -341,13 +341,13 @@ where
     let masked = mask.is_some();
 
     // Precompute strides for indexing
-    let query_strides = strides(problem, FlashIdent::Query);
-    let key_strides = strides(problem, FlashIdent::Key);
-    let value_strides = strides(problem, FlashIdent::Value);
-    let mask_strides = strides(problem, FlashIdent::Mask);
-    let out_strides = strides(problem, FlashIdent::Out);
+    let query_strides = strides(problem, AttentionIdent::Query);
+    let key_strides = strides(problem, AttentionIdent::Key);
+    let value_strides = strides(problem, AttentionIdent::Value);
+    let mask_strides = strides(problem, AttentionIdent::Mask);
+    let out_strides = strides(problem, AttentionIdent::Out);
 
-    let out_size = tensor_size(problem, FlashIdent::Out);
+    let out_size = tensor_size(problem, AttentionIdent::Out);
     let mut out = vec![P::EG::from_int(0); out_size];
 
     // scaling factor 1/sqrt(dk)

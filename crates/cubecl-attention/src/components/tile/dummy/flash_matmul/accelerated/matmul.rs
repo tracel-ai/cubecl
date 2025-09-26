@@ -2,15 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::FlashIdent;
+use crate::components::AttentionIdent;
 use crate::components::tile::dummy::accelerated::AcceleratedFlashMatmulConfig;
-use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashPrecision};
+use crate::components::tile::dummy::{AttentionMatmul, FlashMatmulConfig as _, FlashPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedFlashMatmul;
 
 #[cube]
-impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
+impl<FP: FlashPrecision> AttentionMatmul<FP> for AcceleratedFlashMatmul {
     type Config = AcceleratedFlashMatmulConfig;
     type Query = cmma::Matrix<FP::Q>;
     type KeyValue = cmma::Matrix<FP::KV>;
@@ -39,7 +39,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Query));
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Query));
         let size = config.attention_tile_size().to_score_matmul_tile_size();
 
         if config.cast_query() {
@@ -119,7 +119,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Key));
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Key));
         cmma::load(rhs, &slice, stride);
     }
 
@@ -176,7 +176,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for AcceleratedFlashMatmul {
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(FlashIdent::Out));
+        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Out));
         cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
     }
     fn tmp_fill_prob(

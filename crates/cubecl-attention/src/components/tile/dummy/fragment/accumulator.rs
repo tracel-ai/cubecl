@@ -3,17 +3,17 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::FlashIdent;
+use crate::components::AttentionIdent;
 use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::ScaleMode;
-use crate::components::tile::dummy::FlashMatmul;
+use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::tile::dummy::FlashPrecision;
 
 #[derive(CubeType)]
-pub struct DummyAccumulator<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct DummyAccumulator<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     tmp_smem: SharedMemory<FP::A>,
     pub fragment: FM::Accumulator,
 
@@ -34,15 +34,15 @@ pub struct DummyAccumulator<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummyAccumulator<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> DummyAccumulator<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> DummyAccumulator<FP, FM> {
         let mut fragment = FM::allocate_accumulator(config);
         FM::zero_accumulator(&mut fragment, config);
 
-        let num_rows = config.attention_tile_size().num_rows(FlashIdent::Out);
-        let num_cols = config.attention_tile_size().num_cols(FlashIdent::Out);
-        let num_units_per_row = config.num_units_per_row(FlashIdent::Out);
-        let num_cols_per_unit = config.num_cols_per_unit(FlashIdent::Out);
+        let num_rows = config.attention_tile_size().num_rows(AttentionIdent::Out);
+        let num_cols = config.attention_tile_size().num_cols(AttentionIdent::Out);
+        let num_units_per_row = config.num_units_per_row(AttentionIdent::Out);
+        let num_cols_per_unit = config.num_cols_per_unit(AttentionIdent::Out);
 
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
@@ -67,7 +67,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummyAccumulator<FP, FM> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorTile<FP::A> for DummyAccumulator<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> AccumulatorTile<FP::A> for DummyAccumulator<FP, FM> {
     fn scale(&mut self, scale: &RowWise<FP::A>, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem

@@ -5,15 +5,15 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::tile::RowWise;
 use crate::components::{
-    FlashIdent, TileMask,
+    AttentionIdent, TileMask,
     tile::{
         RunningState, SoftmaxTile, SoftmaxTileExpand,
-        dummy::{FlashMatmul, FlashMatmulConfig, FlashPrecision},
+        dummy::{AttentionMatmul, FlashMatmulConfig, FlashPrecision},
     },
 };
 
 #[derive(CubeType)]
-pub struct DummySoftmax<FP: FlashPrecision, FM: FlashMatmul<FP>> {
+pub struct DummySoftmax<FP: FlashPrecision, FM: AttentionMatmul<FP>> {
     tmp_smem: SharedMemory<FP::SP>,
     pub fragment: FM::Softmax,
 
@@ -34,15 +34,15 @@ pub struct DummySoftmax<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummySoftmax<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> DummySoftmax<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
         let mut fragment = FM::allocate_softmax(config);
         FM::zero_softmax(&mut fragment, config);
 
-        let num_rows = config.attention_tile_size().num_rows(FlashIdent::Softmax);
-        let num_cols = config.attention_tile_size().num_cols(FlashIdent::Softmax);
-        let num_units_per_row = config.num_units_per_row(FlashIdent::Softmax);
-        let num_cols_per_unit = config.num_cols_per_unit(FlashIdent::Softmax);
+        let num_rows = config.attention_tile_size().num_rows(AttentionIdent::Softmax);
+        let num_cols = config.attention_tile_size().num_cols(AttentionIdent::Softmax);
+        let num_units_per_row = config.num_units_per_row(AttentionIdent::Softmax);
+        let num_cols_per_unit = config.num_cols_per_unit(AttentionIdent::Softmax);
 
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
@@ -67,7 +67,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummySoftmax<FP, FM> {
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> SoftmaxTile<FP> for DummySoftmax<FP, FM> {
+impl<FP: FlashPrecision, FM: AttentionMatmul<FP>> SoftmaxTile<FP> for DummySoftmax<FP, FM> {
     fn init_state() -> RunningState<FP::SP> {
         RunningState::init(1u32)
     }

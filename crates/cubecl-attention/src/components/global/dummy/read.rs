@@ -13,7 +13,7 @@ use std::marker::PhantomData;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::{AttentionPrecision, FlashIdent};
+use crate::components::{AttentionPrecision, AttentionIdent};
 
 #[derive(CubeType)]
 pub struct QueryReader<AP: AttentionPrecision> {
@@ -93,7 +93,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
     pub fn read_transposed(&mut self, #[comptime] config: G) {
         // TODO this reader is bad
         if UNIT_POS_Y == 0 {
-            let memory_config = config.global_memory_config(FlashIdent::Key);
+            let memory_config = config.global_memory_config(AttentionIdent::Key);
 
             let mut slice = self.stage_memory.as_slice_mut(1u32);
 
@@ -171,7 +171,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
     pub fn read(&mut self, #[comptime] config: G) {
         if UNIT_POS_Y == 0 {
             // TODO this reader is bad, it's not coalesced
-            let memory_config = config.global_memory_config(FlashIdent::Value);
+            let memory_config = config.global_memory_config(AttentionIdent::Value);
             let mut slice = self.stage_memory.as_slice_mut(1u32);
 
             let tile_rows = memory_config.elements_in_tile_row;

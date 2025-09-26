@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::FlashIdent;
+use crate::components::AttentionIdent;
 use crate::components::global::dummy::QueryReader;
 use crate::components::tile::RunningState;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
@@ -321,7 +321,7 @@ impl<AP: AttentionPrecision> StageState<AP> {
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
             sequence.push(RunningState::<AP::EA>::init(
-                config.num_rows_per_unit(FlashIdent::Softmax),
+                config.num_rows_per_unit(AttentionIdent::Softmax),
             ));
         }
 
