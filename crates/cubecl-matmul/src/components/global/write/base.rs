@@ -1,5 +1,5 @@
 use crate::components::{
-    InputPrecision,
+    MatrixPrecision,
     global::{WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
     stage::{Stage, StageConfig, StageFamily},
 };
@@ -9,7 +9,7 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 
 pub trait GlobalWriterFamily: 'static + Send + Sync {
     type Stage: StageFamily<ReadWrite>;
-    type Writer<IP: InputPrecision>: GlobalWriter<
+    type Writer<IP: MatrixPrecision>: GlobalWriter<
             IP,
             Stage = <Self::Stage as StageFamily<ReadWrite>>::Stage<IP::Stage, WriteTiling>,
         >;
@@ -18,7 +18,7 @@ pub trait GlobalWriterFamily: 'static + Send + Sync {
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait GlobalWriter<IP: InputPrecision>:
+pub trait GlobalWriter<IP: MatrixPrecision>:
     WriteEventListener + CubeType + 'static + Send + Sync
 {
     /// Tile stage that stores the data for this writer

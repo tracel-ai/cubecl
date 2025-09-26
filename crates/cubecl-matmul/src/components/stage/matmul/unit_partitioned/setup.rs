@@ -13,7 +13,7 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{AccR, InputPrecision};
+use crate::components::{AccR, MatrixPrecision};
 use crate::components::{AccS, ComputeResources};
 use crate::components::{LhsR, tile::io::Strided};
 use crate::components::{LhsS, global::PartitionedStageFamily};
@@ -52,9 +52,9 @@ impl<
     > = UnitMatmul<
         MP,
         TM::Matmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
         StageIn::Stage<LhsS<MP>, TL>,
         StageIn::Stage<RhsS<MP>, TR>,

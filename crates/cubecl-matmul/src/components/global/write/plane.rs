@@ -1,5 +1,5 @@
 use crate::components::{
-    InputPrecision, StageIdent,
+    MatrixPrecision, StageIdent,
     global::{
         GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, WriteEvent,
         WriteEventExpand, WriteEventListener,
@@ -7,6 +7,7 @@ use crate::components::{
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{PlanePartitioner, StageConfig, StageMemoryConfig, StagePartitioner},
+    tile::StridedTile,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -16,7 +17,7 @@ use cubecl_std::tensor::layout::Coords2d;
 #[derive(CubeType)]
 /// Writes tiles from out shared memory to output global memory
 /// using a plane for each tile
-pub struct PlaneWriter<IP: InputPrecision> {
+pub struct PlaneWriter<IP: MatrixPrecision> {
     global: View<Line<IP::Global>, TiledCoords, ReadWrite>,
     stage: PartitionedStage<IP::Stage>,
 
@@ -27,7 +28,7 @@ pub struct PlaneWriter<IP: InputPrecision> {
 }
 
 #[cube]
-impl<IP: InputPrecision> PlaneWriter<IP> {
+impl<IP: MatrixPrecision> PlaneWriter<IP> {
     pub fn new<S: StageConfig>(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
         #[comptime] global_config: GlobalMemoryConfig,
@@ -44,29 +45,14 @@ impl<IP: InputPrecision> PlaneWriter<IP> {
         }
     }
 
-    fn write(&mut self, tile: Coords2d) {
-        let config = comptime![self.config];
-        let smem_tile = &self.stage.unit_tile;
-        let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
-        let output_line_size = config.global_line_size;
-
-        let unit_step = comptime![self.plane_dim * output_line_size];
-        let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
-        let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
-
-        #[unroll(num_unit_writes == 1)]
-        for i in 0..num_unit_writes {
-            let unit_write = UNIT_POS_X * output_line_size + i * unit_step;
-
-            #[allow(clippy::collapsible_else_if)]
-            if comptime!(balanced_workload) {
-                write_line(&mut self.global, &smem_tile.slice, unit_write, tile);
-            } else {
-                if unit_write < tile_size {
-                    write_line(&mut self.global, &smem_tile.slice, unit_write, tile);
-                }
-            }
-        }
+    fn write(&mut self, tile_pos: Coords2d) {
+        plane_write::<IP::Stage, IP::Global>(
+            &mut self.global,
+            &self.stage.unit_tile,
+            tile_pos,
+            comptime![self.plane_dim],
+            comptime![self.config],
+        )
     }
 }
 
@@ -87,7 +73,7 @@ fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
 }
 
 #[cube]
-impl<IP: InputPrecision> WriteEventListener for PlaneWriter<IP> {
+impl<IP: MatrixPrecision> WriteEventListener for PlaneWriter<IP> {
     fn on_event(this: &mut Self, event: super::WriteEvent) {
         #[allow(clippy::single_match)]
         match event {
@@ -100,7 +86,7 @@ impl<IP: InputPrecision> WriteEventListener for PlaneWriter<IP> {
 }
 
 #[cube]
-impl<IP: InputPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
+impl<IP: MatrixPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
     type Stage = PartitionedStage<IP::Stage>;
 
     fn init<S: StageConfig>(
@@ -113,6 +99,36 @@ impl<IP: InputPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
 
     fn stage(this: &Self) -> Self::Stage {
         this.stage
+    }
+}
+
+#[cube]
+pub fn plane_write<ES: Numeric, EG: Numeric>(
+    global: &mut View<Line<EG>, TiledCoords, ReadWrite>,
+    smem_tile: &StridedTile<ES, ReadWrite>,
+    tile_pos: Coords2d,
+    #[comptime] plane_dim: u32,
+    #[comptime] config: GlobalMemoryConfig,
+) {
+    let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+    let output_line_size = config.global_line_size;
+
+    let unit_step = comptime![plane_dim * output_line_size];
+    let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
+    let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
+
+    #[unroll(num_unit_writes == 1)]
+    for i in 0..num_unit_writes {
+        let unit_write = UNIT_POS_X * output_line_size + i * unit_step;
+
+        #[allow(clippy::collapsible_else_if)]
+        if comptime!(balanced_workload) {
+            write_line(global, &smem_tile.slice, unit_write, tile_pos);
+        } else {
+            if unit_write < tile_size {
+                write_line(global, &smem_tile.slice, unit_write, tile_pos);
+            }
+        }
     }
 }
 
@@ -152,5 +168,5 @@ pub struct PlaneWriterFamily;
 
 impl GlobalWriterFamily for PlaneWriterFamily {
     type Stage = PartitionedStageFamily;
-    type Writer<IP: InputPrecision> = PlaneWriter<IP>;
+    type Writer<IP: MatrixPrecision> = PlaneWriter<IP>;
 }

@@ -44,7 +44,7 @@ impl<ES: Numeric> PartitionedStage<ES> {
 impl<ES: Numeric> Stage<ES, ReadWrite> for PartitionedStage<ES> {
     type TileKind = Strided;
 
-    fn read_tile(this: &Self, _tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+    fn tile(this: &Self, _tile: Coords2d) -> StridedTile<ES, ReadWrite> {
         this.unit_tile
     }
 }

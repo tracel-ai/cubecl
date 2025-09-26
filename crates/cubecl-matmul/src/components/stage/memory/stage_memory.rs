@@ -219,7 +219,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadOnly> for StridedStage<ES, T> {
     type TileKind = Strided;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
         this.get_tile(tile)
     }
 }
@@ -228,7 +228,7 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadOnly> for StridedStage<ES, T> {
 impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadWrite> for StridedStage<ES, T> {
     type TileKind = Strided;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
         this.get_tile_mut(tile)
     }
 }

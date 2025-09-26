@@ -1,5 +1,5 @@
 use crate::components::{
-    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    MatrixPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
     global::{
         CopyMechanism, GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -52,9 +52,9 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 #[cube]
 impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<IP: InputPrecision> = AsyncFullMaximizeUnitCountJob;
+    type Job<IP: MatrixPrecision> = AsyncFullMaximizeUnitCountJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullMaximizeUnitCountJob {
@@ -106,7 +106,7 @@ pub struct AsyncFullMaximizeUnitCountJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
+impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsyncFullMaximizeUnitCountJob
 {
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(

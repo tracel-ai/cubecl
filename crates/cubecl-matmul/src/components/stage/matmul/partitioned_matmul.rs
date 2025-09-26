@@ -5,7 +5,7 @@ use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul,
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{NoEvent, StageEventListener};
 use crate::components::tile::TileMatmul;
-use crate::components::{InputPrecision, stage::Stage};
+use crate::components::{MatrixPrecision, stage::Stage};
 use crate::components::{global::WriteEventListener, stage::StageMatmul};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -26,27 +26,27 @@ pub trait StagePartitioner: Send + Sync + 'static {
 pub struct PartitionedStageMatmul<
     MP: MatmulPrecision,
     TM: TileMatmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
     StageLhs: Stage<
-            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::LhsTile,
         >,
     StageRhs: Stage<
-            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::RhsTile,
         >,
     StageAcc: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::AccTile,
         >,
     StageOut: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage,
             ReadWrite,
             TileKind = TM::OutTile,
         >,
@@ -63,27 +63,27 @@ impl<MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S> StageMatmul<MP>
 where
     MP: MatmulPrecision,
     TM: TileMatmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
     StageLhs: Stage<
-            <<MP as MatmulPrecision>::Lhs as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::LhsTile,
         >,
     StageRhs: Stage<
-            <<MP as MatmulPrecision>::Rhs as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::RhsTile,
         >,
     StageAcc: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage,
             ReadOnly,
             TileKind = TM::AccTile,
         >,
     StageOut: Stage<
-            <<MP as MatmulPrecision>::Acc as InputPrecision>::Stage,
+            <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage,
             ReadWrite,
             TileKind = TM::OutTile,
         >,
@@ -193,7 +193,7 @@ where
                     Accumulators::<MP, TM, S>::get_at(acc, m_iter, n_iter, stage_config);
 
                 let tile_pos = (m_load_iter, n_load_iter);
-                let mut tile = Self::OutStage::read_tile(stage, tile_pos);
+                let mut tile = Self::OutStage::tile(stage, tile_pos);
 
                 // Write the results for one tile. To save shared memory space, it reuses the same spot for
                 // all tile in the partition

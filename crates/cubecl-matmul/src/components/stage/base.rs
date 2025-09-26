@@ -239,7 +239,7 @@ pub trait Stage<ES: Numeric, IO: SliceVisibility = ReadOnly>:
     type TileKind: TileKind<IO>;
 
     /// Slices a tile with offset (`row`, `col`) from the stage and returns it
-    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES>;
+    fn tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES>;
 }
 
 /// Stage family for any precision
@@ -254,9 +254,9 @@ pub trait StageFamily<IO: SliceVisibility = ReadOnly>: Send + Sync + 'static {
 impl<ES: Numeric, IO: SliceVisibility, Inner: Stage<ES, IO>> Stage<ES, IO> for CubeOption<Inner> {
     type TileKind = CubeOption<Inner::TileKind>;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES> {
+    fn tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES> {
         match this {
-            CubeOption::Some(reader) => CubeOption::new_Some(Inner::read_tile(reader, tile)),
+            CubeOption::Some(reader) => CubeOption::new_Some(Inner::tile(reader, tile)),
             CubeOption::None => CubeOption::new_None(),
         }
     }

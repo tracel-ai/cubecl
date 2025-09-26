@@ -89,6 +89,6 @@ mod tests {
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, bf16: bf16, f32: tf32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_random::testgen_random!();
-    //cubecl_attention::testgen_attention!();
+    cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
 }

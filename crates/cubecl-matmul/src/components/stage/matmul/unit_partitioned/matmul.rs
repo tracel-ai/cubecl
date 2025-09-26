@@ -1,4 +1,4 @@
-use crate::components::InputPrecision;
+use crate::components::MatrixPrecision;
 use crate::components::MatmulPrecision;
 use crate::components::global::RoleRule;
 use crate::components::stage::StageConfig;
@@ -15,9 +15,9 @@ use cubecl_std::tensor::layout::Coords2d;
 pub type UnitMatmul<
     MP: MatmulPrecision,
     TM: TileMatmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
     StageLhs,
     StageRhs,

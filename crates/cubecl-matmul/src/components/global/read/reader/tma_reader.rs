@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::MatrixLayout;
 use crate::components::stage::{RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum};
-use crate::components::{InputPrecision, MatmulIdent};
+use crate::components::{MatrixPrecision, MatmulIdent};
 use crate::components::{
     global::{GlobalConfig, memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -15,7 +15,7 @@ use crate::components::{
 /// TMA uses contiguous tiling, but with a special tiling order
 pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
 /// TMA uses standard full stage to tile reader
-pub type TmaStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaTiling>;
+pub type TmaStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaTiling>;
 
 #[derive(CubeType, Clone, Copy)]
 /// A special tiling order where:
@@ -64,7 +64,7 @@ impl TilingOrder for TmaTilingOrder {
 
 #[derive(CubeType)]
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
-pub struct TmaGlobalReader<IP: InputPrecision, G: GlobalConfig> {
+pub struct TmaGlobalReader<IP: MatrixPrecision, G: GlobalConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
     pub stage: StridedStage<IP::Stage, TmaTiling>,
     #[cube(comptime)]
@@ -74,7 +74,7 @@ pub struct TmaGlobalReader<IP: InputPrecision, G: GlobalConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig> TmaGlobalReader<IP, G> {
+impl<IP: MatrixPrecision, G: GlobalConfig> TmaGlobalReader<IP, G> {
     /// Create a TmaGlobalReader
     pub fn new(
         tensor: TensorMap<IP::Global>,

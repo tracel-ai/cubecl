@@ -1,7 +1,7 @@
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_core::{intrinsic, prelude::*};
 
-use cubecl_matmul::components::{InputPrecision, MatmulIdent, StageIdent};
+use cubecl_matmul::components::{MatrixPrecision, MatmulIdent, StageIdent};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::{
@@ -11,11 +11,11 @@ use crate::{
 use cubecl_matmul::components::stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage};
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaIm2colTiling>;
+pub type TmaIm2colStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaIm2colTiling>;
 
 /// Reader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
-pub struct TmaIm2colGlobalReader<IP: InputPrecision, G: ConvGemmConfig> {
+pub struct TmaIm2colGlobalReader<IP: MatrixPrecision, G: ConvGemmConfig> {
     pub map: Im2colTmaReader<IP::Global>,
     pub stages: Sequence<StridedStage<IP::Stage, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
@@ -24,7 +24,7 @@ pub struct TmaIm2colGlobalReader<IP: InputPrecision, G: ConvGemmConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, G: ConvGemmConfig> TmaIm2colGlobalReader<IP, G> {
+impl<IP: MatrixPrecision, G: ConvGemmConfig> TmaIm2colGlobalReader<IP, G> {
     pub fn new(
         tensor: VirtualTensor<IP::Global>,
         x_offset: u32,

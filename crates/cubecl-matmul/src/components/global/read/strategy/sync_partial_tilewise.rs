@@ -5,7 +5,7 @@ use crate::components::global::read::SyncPartialLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
-    FormattedConfigError, InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
+    FormattedConfigError, MatrixPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
@@ -92,9 +92,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 #[cube]
 impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: InputPrecision> = SyncPartialTilewiseJob;
+    type Job<IP: MatrixPrecision> = SyncPartialTilewiseJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -160,7 +160,7 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
     for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -223,7 +223,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
         this: &Self,
         tile: Coords2d,
         line_index_within_tile: u32,

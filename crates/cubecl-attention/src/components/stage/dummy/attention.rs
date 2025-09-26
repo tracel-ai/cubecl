@@ -1,42 +1,43 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    MatrixLayout,
-    global::{GlobalWriter, PlaneWriter, memory::GlobalMemoryConfig},
+    global::{WriteEvent, WriteEventListener},
     stage::Stage,
-    tile::{StridedTile, io::Strided},
+    tile::io::Strided,
 };
 use cubecl_std::CubeOption;
-use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
+use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
-use crate::components::{FlashIdent, global::dummy::QueryReader};
 
-pub struct DummyStageAttention<AP: AttentionPrecision, R, TA: TileAttention<AP>> {
-    _phantom: PhantomData<(AP, R, TA)>,
+pub struct DummyStageAttention<AP: AttentionPrecision, S, SO, TA: TileAttention<AP>> {
+    _phantom: PhantomData<(AP, S, SO, TA)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA: TileAttention<AP>>
-    StageAttention<AP> for DummyStageAttention<AP, S, TA>
+impl<
+    AP: AttentionPrecision,
+    S: Stage<AP::ES, ReadOnly, TileKind = Strided>,
+    SO: Stage<AP::EO, ReadWrite, TileKind = Strided>,
+    TA: TileAttention<AP>,
+> StageAttention<AP> for DummyStageAttention<AP, S, SO, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
     type KeyStage = S;
     type ValueStage = S;
+    type OutStage = SO;
 
     type State = StageState<AP>;
     type Query = Queries<AP, TA, Self::Config>;
     type KeyValue = KeyValues<AP, TA, Self::Config>;
     type Score = Scores<AP, TA, Self::Config>;
     type Accumulator = Accumulators<AP, TA, Self::Config>;
-    type Writer = PlaneWriter<(AP::EO, AP::EO)>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -61,7 +62,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA:
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = S::read_tile(key_reader, (hd, kv).runtime());
+                let key_tile = S::tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_tile,
@@ -113,7 +114,7 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA:
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = S::read_tile(value_reader, (kv, vd).runtime());
+                let value_tile = S::tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_tile,
@@ -187,40 +188,16 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA:
         StageState::<AP>::init::<Self::Config>(config)
     }
 
-    fn init_writer(
-        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::Writer {
-        PlaneWriter::new(tensor, config, stage_config)
-    }
-
-    fn write<G: GlobalAttentionConfig>(
+    fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
         acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+        stage: &mut Self::OutStage,
+        writer: &mut W,
         #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
     ) {
         let p = stage_config.tiling_scheme().partition_size;
-
-        let out_smem_num_elements = stage_config.tiling_scheme().elements_in_partition_seq_q()
-            * stage_config.tiling_scheme().elements_in_partition_val_dim();
-
-        let mut out_smem = SharedMemory::<AP::EO>::new_lined(
-            comptime!(out_smem_num_elements * stage_config.num_planes()),
-            1u32,
-        );
-
-        let start = UNIT_POS_Y * out_smem_num_elements;
-        let end = start + out_smem_num_elements;
-        let mut smem_slice = out_smem.slice_mut(start, end);
-
-        let tile = StridedTile::new_strided_mut(
-            smem_slice,
-            stage_config.tiling_scheme().elements_in_partition_seq_q(),
-            MatrixLayout::RowMajor,
-        );
-
         let mut q = comptime!(0u32);
+
+        W::on_event(writer, WriteEvent::new_Begin());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
@@ -230,25 +207,24 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, ReadOnly, TileKind = Strided>, TA:
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
+                let tile_pos = (q + UNIT_POS_Y * p.seq_q, kv.runtime());
+                let mut tile = Self::OutStage::tile(stage, tile_pos);
+
                 TA::write_results(
+                    &mut tile,
                     Self::Accumulator::get_at(acc, q, kv, stage_config),
-                    &mut smem_slice,
                     stage_config.tile_config(),
                 );
 
-                Self::Writer::write(
-                    writer,
-                    &tile,
-                    (q + UNIT_POS_Y * p.seq_q, kv.runtime()),
-                    stage_config.plane_dim(),
-                    global_config.global_memory_config(FlashIdent::Out),
-                );
+                W::on_event(writer, WriteEvent::new_TileStored(tile_pos));
 
                 comptime![kv += 1];
             }
 
             comptime![q += 1];
         }
+
+        W::on_event(writer, WriteEvent::new_Finish());
     }
 
     fn init_fragments(

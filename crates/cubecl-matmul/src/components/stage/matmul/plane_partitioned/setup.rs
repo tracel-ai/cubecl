@@ -15,7 +15,7 @@ use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{AccR, AccS, ComputeResources};
-use crate::components::{InputPrecision, global::PartitionedStage};
+use crate::components::{MatrixPrecision, global::PartitionedStage};
 use crate::components::{LhsR, global::PartitionedStageFamily};
 use crate::components::{LhsS, tile::io::Strided};
 use core::marker::PhantomData;
@@ -53,9 +53,9 @@ impl<
     > = PlaneMatmul<
         MP,
         TM::Matmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
         StageLhs::Stage<LhsS<MP>, TL>,
         StageRhs::Stage<RhsS<MP>, TR>,
