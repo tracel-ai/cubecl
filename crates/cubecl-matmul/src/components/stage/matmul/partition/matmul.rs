@@ -47,8 +47,8 @@ where
     /// Execute all Tile Matmuls inside the partition
     /// Can be with single or double buffering
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
-        lhs_reader: &StageLhs,
-        rhs_reader: &StageRhs,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragments: &mut RhsTile<TM::RhsFragment>,
         acc: &mut Accumulators<MP, TM, S>,
@@ -58,8 +58,8 @@ where
     ) {
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
-                lhs_reader,
-                rhs_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_fragment,
                 rhs_fragment,
                 acc,
@@ -68,8 +68,8 @@ where
                 partition_iterator,
             ),
             RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<SEL>(
-                lhs_reader,
-                rhs_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_fragment,
                 rhs_fragments,
                 acc,
@@ -117,13 +117,13 @@ where
         Accumulators::<MP, TM, S>::new(config)
     }
 
-    /// Fill accumulators through an AccumulatorReader
+    /// Fill accumulators through a stage
     pub fn load_accumulator(
-        reader: &StageAcc,
+        stage: &StageAcc,
         acc: &mut Accumulators<MP, TM, S>,
         #[comptime] config: S,
     ) {
-        acc.load::<StageAcc>(reader, config);
+        acc.load::<StageAcc>(stage, config);
     }
 
     /// Execute partition matmul with a single buffer for rhs.
@@ -131,8 +131,8 @@ where
     /// This function can call functions at various events through the listener.
     #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener<S>>(
-        lhs_reader: &StageLhs,
-        rhs_reader: &StageRhs,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragment: &mut TM::RhsFragment,
         acc: &mut Accumulators<MP, TM, S>,
@@ -165,7 +165,7 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = StageLhs::tile(lhs_reader, (m_load_iter, k_load_iter));
+                let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
                 TM::load_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -191,7 +191,7 @@ where
             for _ in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
-                let rhs_tile_next = StageRhs::tile(rhs_reader, (k_load_iter, n_load_iter));
+                let rhs_tile_next = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
                 TM::load_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
@@ -246,8 +246,8 @@ where
     ///
     /// This function can call functions at various events through the listener.
     fn execute_double_buffer<SEL: StageEventListener<S>>(
-        lhs_reader: &StageLhs,
-        rhs_reader: &StageRhs,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragments: &mut (TM::RhsFragment, TM::RhsFragment),
         acc: &mut Accumulators<MP, TM, S>,
@@ -281,7 +281,7 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = StageLhs::tile(lhs_reader, (m_load_iter, k_load_iter));
+                let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
                 TM::load_lhs(
                     &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
@@ -303,7 +303,7 @@ where
             let mut n_iter = comptime![0u32];
             let n_load_iter = partition_scheduler.map_n(n_iter);
 
-            let rhs_tile_first = StageRhs::tile(rhs_reader, (k_load_iter, n_load_iter));
+            let rhs_tile_first = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
             TM::load_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
@@ -325,7 +325,7 @@ where
                 };
 
                 let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
-                let rhs_tile_next = StageRhs::tile(rhs_reader, (k_load_iter, n_load_iter));
+                let rhs_tile_next = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
                 TM::load_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,

@@ -50,10 +50,10 @@ impl<
         }
     }
 
-    /// Load all accumulators from the specified reader
+    /// Load all accumulators from the specified stage
     pub fn load<R: Stage<AccS<MP>, ReadOnly, TileKind = TM::AccTile>>(
         &mut self,
-        reader: &R,
+        stage: &R,
         #[comptime] config: S,
     ) {
         let size_m = comptime![config.tiling_scheme().tiles_in_stage_partition_m()];
@@ -63,7 +63,7 @@ impl<
             #[unroll]
             for n in 0..size_n {
                 let acc = self.get_at_mut(unwrap(m), unwrap(n), config);
-                let tile = R::tile(reader, (m, n));
+                let tile = R::tile(stage, (m, n));
                 TM::load_acc(&tile, acc, config.tile_config());
             }
         }

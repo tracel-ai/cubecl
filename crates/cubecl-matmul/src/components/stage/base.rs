@@ -34,13 +34,13 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
             OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<AccS<MP>, TO>,
         >;
 
-    /// Reader family for Lhs
+    /// Stage family for Lhs
     type LhsStage: StageFamily;
-    /// Reader family for Rhs
+    /// Stage family for Rhs
     type RhsStage: StageFamily;
-    /// Reader family for Acc
+    /// Stage family for Acc
     type AccStage: StageFamily;
-    /// Writer tile kind
+    /// Stage family for Out
     type OutStage: StageFamily<ReadWrite>;
 
     /// The configuration type associated with this matmul family.
@@ -229,13 +229,13 @@ pub enum PartitionBuffering {
     Double,
 }
 
-/// Reader used to load the stage memory (if applicable) into tiles, with the same kind used by the
+/// Stage that can be divided into tiles, with the same kind used by the
 /// tile matmul readers.
 #[cube]
 pub trait Stage<ES: Numeric, IO: SliceVisibility = ReadOnly>:
     CubeType + Send + Sync + 'static
 {
-    /// The kind (or family) of the tiles being returned by this reader
+    /// The kind (or family) of the tiles contained in this stage
     type TileKind: TileKind<IO>;
 
     /// Slices a tile with offset (`row`, `col`) from the stage and returns it
@@ -246,7 +246,7 @@ pub trait Stage<ES: Numeric, IO: SliceVisibility = ReadOnly>:
 pub trait StageFamily<IO: SliceVisibility = ReadOnly>: Send + Sync + 'static {
     /// The tile kind (family) contained in the stage
     type TileKind: TileKind<IO>;
-    /// The concrete reader type of this family, instantiated with the type and layout
+    /// The concrete stage type of this family, instantiated with the type and layout
     type Stage<ES: Numeric, T: TilingLayout>: Stage<ES, IO, TileKind = Self::TileKind>;
 }
 
@@ -256,7 +256,7 @@ impl<ES: Numeric, IO: SliceVisibility, Inner: Stage<ES, IO>> Stage<ES, IO> for C
 
     fn tile(this: &Self, tile: Coords2d) -> <Self::TileKind as TileKind<IO>>::Tile<ES> {
         match this {
-            CubeOption::Some(reader) => CubeOption::new_Some(Inner::tile(reader, tile)),
+            CubeOption::Some(stage) => CubeOption::new_Some(Inner::tile(stage, tile)),
             CubeOption::None => CubeOption::new_None(),
         }
     }

@@ -15,7 +15,7 @@ pub enum WriteEvent {
 }
 
 #[cube]
-/// Function that is called at each [StageEvent]
+/// Function that is called at each [WriteEvent]
 pub trait WriteEventListener: CubeType {
     fn on_event(this: &mut Self, event: WriteEvent);
 }

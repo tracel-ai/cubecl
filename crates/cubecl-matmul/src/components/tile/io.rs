@@ -5,7 +5,7 @@ use cubecl_std::CubeOption;
 
 use crate::components::tile::StridedTile;
 
-/// Kind (family) of the tiles returned by a tile reader and ingested by a tile matmul reader
+/// Kind (family) of the tiles returned by a stage and ingested by a tile matmul reader
 pub trait TileKind<IO: SliceVisibility = ReadOnly>: CubeType + Send + Sync + 'static {
     /// Concrete tile instantiated with the element type
     type Tile<E: Numeric>: CubeType;

@@ -102,8 +102,8 @@ where
     type RhsTile = RhsTile<TM::RhsFragment>;
 
     fn execute(
-        lhs_reader: &StageLhs,
-        rhs_reader: &StageRhs,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulators,
@@ -111,8 +111,8 @@ where
         partition_scheduler: &PartitionScheduler,
     ) {
         Self::execute_with_listener::<NoEvent>(
-            lhs_reader,
-            rhs_reader,
+            lhs_stage,
+            rhs_stage,
             lhs_fragment,
             rhs_fragments,
             acc,
@@ -123,8 +123,8 @@ where
     }
 
     fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
-        lhs_reader: &StageLhs,
-        rhs_reader: &StageRhs,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Self::LhsTile,
         rhs_fragments: &mut Self::RhsTile,
         acc: &mut Self::Accumulators,
@@ -133,8 +133,8 @@ where
         partition_scheduler: &PartitionScheduler,
     ) {
         PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::execute_with_listener::<SEL>(
-            lhs_reader,
-            rhs_reader,
+            lhs_stage,
+            rhs_stage,
             lhs_fragment,
             rhs_fragments,
             acc,
@@ -153,12 +153,12 @@ where
     }
 
     fn load_accumulators(
-        reader: &Self::AccStage,
+        stage: &Self::AccStage,
         acc: &mut Self::Accumulators,
         #[comptime] config: Self::Config,
     ) {
         PartitionMatmul::<MP, TM, StageLhs, StageRhs, StageAcc, S>::load_accumulator(
-            reader, acc, config,
+            stage, acc, config,
         );
     }
 
@@ -196,7 +196,7 @@ where
                 let mut tile = Self::OutStage::tile(stage, tile_pos);
 
                 // Write the results for one tile. To save shared memory space, it reuses the same spot for
-                // all tile in the partition
+                // all tiles in the partition
                 TM::write_results(&mut tile, tile_accumulator, stage_config.tile_config());
                 W::on_event(listener, global::WriteEvent::new_TileStored(tile_pos));
 
