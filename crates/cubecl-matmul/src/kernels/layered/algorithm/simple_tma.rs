@@ -6,11 +6,11 @@ use crate::{
     components::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-        global::single_stage::tma::SimpleTmaMatmulFamily,
+        global::{PlaneWriterFamily, single_stage::tma::SimpleTmaMatmulFamily},
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             TileMatmulFamily,
-            reader::{Filled, Strided},
+            io::{Filled, Strided},
         },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
@@ -23,7 +23,8 @@ pub struct SimpleTmaAlgorithm<TMM> {
 
 impl<TMM> Algorithm for SimpleTmaAlgorithm<TMM>
 where
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM:
+        TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
@@ -33,7 +34,7 @@ where
         StridedStageFamily,
         FilledStageFamily,
     >;
-    type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul>;
+    type GlobalMatmul = SimpleTmaMatmulFamily<Self::StageMatmul, PlaneWriterFamily>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 

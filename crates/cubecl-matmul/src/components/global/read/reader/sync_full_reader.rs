@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::InputPrecision;
 use crate::components::MatmulIdent;
+use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -29,10 +29,10 @@ pub trait SyncFullLoadingStrategy:
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: LoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<IP>;
@@ -44,7 +44,7 @@ pub trait SyncFullLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncFullStageGlobalReader<
-    IP: InputPrecision,
+    IP: MatrixPrecision,
     G: GlobalConfig,
     L: SyncFullLoadingStrategy,
 > {
@@ -58,7 +58,7 @@ pub struct SyncFullStageGlobalReader<
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
+impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
     SyncFullStageGlobalReader<IP, G, L>
 {
     /// Create a new SyncFullStageGlobalReader
@@ -124,7 +124,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
+impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecutor<G>
     for SyncFullStageGlobalReader<IP, G, L>
 {
     type JobIterator = SyncFullStageJobIterator<IP, L>;
@@ -210,7 +210,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecuto
 
 #[derive(CubeType)]
 /// A comptime iterator over a job for sync full stage reader
-pub struct SyncFullStageJobIterator<IP: InputPrecision, L: SyncFullLoadingStrategy> {
+pub struct SyncFullStageJobIterator<IP: MatrixPrecision, L: SyncFullLoadingStrategy> {
     job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
@@ -218,7 +218,7 @@ pub struct SyncFullStageJobIterator<IP: InputPrecision, L: SyncFullLoadingStrate
 }
 
 #[cube]
-impl<IP: InputPrecision, L: SyncFullLoadingStrategy> JobIterator
+impl<IP: MatrixPrecision, L: SyncFullLoadingStrategy> JobIterator
     for SyncFullStageJobIterator<IP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {

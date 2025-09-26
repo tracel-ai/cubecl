@@ -1,22 +1,36 @@
-use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::{
+    MatrixPrecision,
+    global::{WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
+    stage::{Stage, StageConfig, StageFamily},
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::{Coordinates, Coords2d};
+use cubecl_std::tensor::{View, layout::Coords2d};
+
+pub trait GlobalWriterFamily: 'static + Send + Sync {
+    type Stage: StageFamily<ReadWrite>;
+    type Writer<IP: MatrixPrecision>: GlobalWriter<
+            IP,
+            Stage = <Self::Stage as StageFamily<ReadWrite>>::Stage<IP::Stage, WriteTiling>,
+        >;
+}
 
 #[cube]
 /// Responsible of writing the accumulated stage matmul output
 /// to global memory
-pub trait GlobalWriter<EO: Numeric>: CubeType + 'static + Send + Sync {
-    /// Coordinates used to index the tensor
-    type Coordinates: Coordinates;
+pub trait GlobalWriter<IP: MatrixPrecision>:
+    WriteEventListener + CubeType + 'static + Send + Sync
+{
+    /// Tile stage that stores the data for this writer
+    type Stage: Stage<IP::Stage, ReadWrite>;
 
-    /// Writes the given slice to global memory, at a position that depends on
-    /// plane and accumulator indexes.
-    fn write(
-        this: &mut Self,
-        out_smem_slice: Slice<Line<EO>>,
-        tile: Coords2d,
-        #[comptime] plane_dim: u32,
+    /// Init this writer from a global tensor and config
+    fn init<S: StageConfig>(
+        tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalMemoryConfig,
-    );
+        #[comptime] stage_config: S,
+    ) -> Self;
+
+    /// Stage used by this writer
+    fn stage(this: &Self) -> Self::Stage;
 }

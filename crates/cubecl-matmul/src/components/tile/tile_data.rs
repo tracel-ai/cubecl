@@ -3,12 +3,12 @@ use cubecl_core::prelude::*;
 
 use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
-#[derive(CubeType, Clone)]
+#[derive(CubeType, Clone, Copy)]
 /// Tile with a linear major dimension, and a strided minor dimension.
 /// Basic tile kind supported by all stage matmuls.
-pub struct StridedTile<ES: Numeric> {
+pub struct StridedTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
     /// Slice containing all data
-    pub slice: Slice<Line<ES>>,
+    pub slice: Slice<Line<ES>, IO>,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
     #[cube(comptime)]
@@ -40,6 +40,28 @@ impl<ES: Numeric> StridedTile<ES> {
         }
     }
 
+    /// Creates a tile from a contiguous slice of data.
+    ///
+    /// The slice length must exactly match the tile size.
+    pub fn new_contiguous_mut(
+        slice: Slice<Line<ES>, ReadWrite>,
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedTile<ES, ReadWrite> {
+        let layout = config.matrix_layout;
+        let stride = match layout {
+            MatrixLayout::RowMajor => config.elements_in_tile_col,
+            MatrixLayout::ColMajor => config.elements_in_tile_row,
+        };
+
+        let stride = comptime![stride / config.stage_line_size];
+
+        StridedTile::<ES, ReadWrite> {
+            slice,
+            stride,
+            layout,
+        }
+    }
+
     /// Creates a tile from a strided slice of data.
     ///
     /// The slice must include all elements of the tile, though it may include unused gaps.
@@ -55,12 +77,30 @@ impl<ES: Numeric> StridedTile<ES> {
         }
     }
 
+    /// Creates a tile from a strided slice of data.
+    ///
+    /// The slice must include all elements of the tile, though it may include unused gaps.
+    pub fn new_strided_mut(
+        slice: Slice<Line<ES>, ReadWrite>,
+        stride: u32,
+        #[comptime] layout: MatrixLayout,
+    ) -> StridedTile<ES, ReadWrite> {
+        StridedTile::<ES, ReadWrite> {
+            slice,
+            stride,
+            layout,
+        }
+    }
+}
+
+#[cube]
+impl<ES: Numeric, IO: SliceVisibility> StridedTile<ES, IO> {
     /// Returns the tile as an unlined (scalar) slice.
     ///
     /// Returns:
     /// - The unlined slice
     /// - The updated stride to account for line width removal
-    pub fn as_unlined(&self, #[comptime] stage_line_size: u32) -> (Slice<ES>, u32) {
+    pub fn as_unlined(&self, #[comptime] stage_line_size: u32) -> (Slice<ES, IO>, u32) {
         (
             self.slice.try_cast_unchecked(),
             self.stride * stage_line_size,

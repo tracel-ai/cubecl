@@ -1,7 +1,7 @@
 use crate::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalMatmul,
+        GlobalMatmul, GlobalWriter,
         memory::SimpleGlobalLayout,
         read::{SyncFullLoadingStrategy, SyncFullStageGlobalReader, ZeroGlobalReader},
         single_stage::simple::SimpleConfig,
@@ -27,28 +27,30 @@ pub struct SimpleMatmul<
     SMM: StageMatmul<MP>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 > {
-    _phantom: PhantomData<(MP, SMM, LL, RL)>,
+    _phantom: PhantomData<(MP, SMM, LL, RL, GW)>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL, GW> GlobalMatmul<MP> for SimpleMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: StageMatmul<
             MP,
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
+            OutStage = GW::Stage,
         >,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleConfig<SMM::Config>;
     type LhsGlobalReader = SyncFullStageGlobalReader<MP::Lhs, Self::Config, LL>;
     type RhsGlobalReader = SyncFullStageGlobalReader<MP::Rhs, Self::Config, RL>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
-    type GlobalWriter = SMM::GlobalWriter;
+    type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -94,8 +96,11 @@ where
             rhs_reader.advance_view();
         }
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -163,7 +168,8 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
+        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

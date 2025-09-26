@@ -1,17 +1,17 @@
 use std::marker::PhantomData;
 
-use crate::components::StageIdent;
 use crate::components::tile::{
-    TileConfig, TileMatmul, plane_vec_mat_inner_product::reader::MatrixFragmentReader,
+    TileMatmul,
+    plane_vec_mat_inner_product::{reader::MatrixFragmentReader, writer::MatrixStageWriter},
 };
 use crate::components::tile::{
-    plane_vec_mat_inner_product::reader::MatrixStageReader, reader::Strided, tile_data::StridedTile,
+    io::Strided, plane_vec_mat_inner_product::reader::MatrixStageReader, tile_data::StridedTile,
 };
 use crate::components::tile::{
+    io::TileKind,
     plane_vec_mat_inner_product::{
         config::PlaneVecMatInnerProductConfig, reader::VectorStageReader,
     },
-    reader::TileKind,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -36,10 +36,10 @@ impl<E: Numeric> LineContainer<E> {
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
-    for PlaneVecMatInnerProduct<Acc>
+impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
+    for PlaneVecMatInnerProduct<AccTile>
 where
-    MatrixStageReader<Acc>: MatrixFragmentReader<TileKind = Acc>,
+    MatrixStageReader<AccTile>: MatrixFragmentReader<TileKind = AccTile>,
 {
     type Config = PlaneVecMatInnerProductConfig;
 
@@ -51,9 +51,10 @@ where
     // For each n: one line stored at unit pos 0, that will be reduced to a scalar only when writing at the end
     type AccFragment = Sequence<LineContainer<A>>;
 
-    type LhsStageReader = VectorStageReader;
-    type RhsStageReader = MatrixStageReader<Strided>;
-    type AccStageReader = MatrixStageReader<Acc>;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -98,64 +99,35 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] _config: Self::Config,
     ) {
-        Self::LhsStageReader::load_fragment(tile, lhs)
+        VectorStageReader::load_fragment(tile, lhs)
     }
 
     fn load_rhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsStageReader::load_fragment(tile, rhs, config)
+        MatrixStageReader::<Strided>::load_fragment(tile, rhs, config)
     }
 
     fn load_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
+        tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccStageReader::load_fragment(tile, acc, config);
+        MatrixStageReader::<AccTile>::load_fragment(tile, acc, config);
     }
 
     fn write_results<E: Numeric>(
+        tile: &mut StridedTile<E, ReadWrite>,
         acc: &Self::AccFragment,
-        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        if UNIT_POS_X == 0 {
-            let out_line_size = config.stage_line_size(StageIdent::Acc);
-            let total_out_lines = config.n() / out_line_size;
-            let mut out_line_iter = comptime![0];
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..total_out_lines {
-                let mut out_line = Line::<E>::empty(out_line_size);
-                let mut within_line = comptime![0];
-
-                #[unroll]
-                #[allow(clippy::explicit_counter_loop)]
-                for _ in 0..out_line_size {
-                    let n = comptime!(out_line_iter * out_line_size + within_line);
-
-                    let line_container = acc.index(n);
-                    let mut sum = A::from_int(0);
-                    for i in 0..config.reduce_line_size() {
-                        sum += line_container.line[i];
-                    }
-
-                    out_line[within_line] = E::cast_from(sum);
-                    comptime![within_line += 1];
-                }
-
-                slice[out_line_iter] = out_line;
-                comptime![out_line_iter += 1];
-            }
-        }
+        MatrixStageWriter::store_fragment(tile, acc, config)
     }
 }
 

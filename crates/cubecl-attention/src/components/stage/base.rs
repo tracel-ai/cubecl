@@ -1,7 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageFamily};
-use cubecl_std::tensor::{View, layout::Coords2d};
+use cubecl_matmul::components::{
+    global::{WriteEventListener, WriteTiling},
+    stage::StageFamily,
+};
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::StageMask;
@@ -22,6 +24,7 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
             Config = Self::Config,
             KeyStage = <Self::KeyStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
             ValueStage = <Self::ValueStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
+            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<AP::EO, WriteTiling>,
         >;
 
     /// The configuration type associated with this Attention family.
@@ -29,6 +32,7 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 
     type KeyStage: StageFamily;
     type ValueStage: StageFamily;
+    type OutStage: StageFamily<ReadWrite>;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -52,6 +56,7 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyStage: CubeType;
     type ValueStage: CubeType;
+    type OutStage: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
@@ -62,8 +67,6 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyValue: CubeType;
     type Score: CubeType;
     type Accumulator: CubeType;
-
-    type Writer: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> StageState<AP>;
 
@@ -85,17 +88,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    fn write<G: GlobalAttentionConfig>(
+    fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
         acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+        stage: &mut Self::OutStage,
+        writer: &mut W,
         #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     );
-
-    fn init_writer(
-        tensor: View<Line<AP::EO>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::Writer;
 
     fn init_fragments(
         query_loader: QueryReader<AP>,

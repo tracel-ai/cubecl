@@ -1,7 +1,7 @@
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::{StridedStage, TilingLayout};
-use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent};
+use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -11,7 +11,7 @@ use cubecl_core::prelude::*;
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
@@ -31,7 +31,7 @@ pub trait LoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Cl
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait AsyncLoadingJob<IP: InputPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
+pub trait AsyncLoadingJob<IP: MatrixPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
     /// Execute the `task_id`th loading task
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,

@@ -7,6 +7,7 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
+            UnitWriterFamily,
             read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
@@ -14,7 +15,7 @@ use crate::{
             ColMajorTilingOrder, FilledStageFamily, RowMajorTilingOrder, StridedStageFamily,
             UnitMatmulFamily,
         },
-        tile::{reader::Filled, register::RegisterMatmul},
+        tile::{io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -48,7 +49,7 @@ where
     type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul<Filled>;
     type StageMatmul = UnitMatmulFamily<Self::TileMatmul, StridedStageFamily, FilledStageFamily>;
-    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL, UnitWriterFamily>;
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

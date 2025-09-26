@@ -1,10 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::tile_data::StridedTile;
 use crate::components::tile::{TileConfig, TileMatmul, accelerated::reader::CmmaFragmentReader};
+use crate::components::tile::{accelerated::writer::CmmaStageWriter, tile_data::StridedTile};
 use crate::components::tile::{
     accelerated::{config::AcceleratedConfig, reader::CmmaStageReader},
-    reader::{Strided, TileKind},
+    io::{Strided, TileKind},
 };
 use crate::components::{StageIdent, as_cmma_layout};
 use cubecl_core as cubecl;
@@ -17,19 +17,20 @@ pub struct AcceleratedMatmul<Acc: TileKind> {
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A>
-    for AcceleratedMatmul<Acc>
+impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
+    for AcceleratedMatmul<AccTile>
 where
-    CmmaStageReader<Acc>: CmmaFragmentReader<TileKind = Acc>,
+    CmmaStageReader<AccTile>: CmmaFragmentReader<TileKind = AccTile>,
 {
     type Config = AcceleratedConfig;
     type LhsFragment = cmma::Matrix<L>;
     type RhsFragment = cmma::Matrix<R>;
     type AccFragment = cmma::Matrix<A>;
 
-    type LhsStageReader = CmmaStageReader<Strided>;
-    type RhsStageReader = CmmaStageReader<Strided>;
-    type AccStageReader = CmmaStageReader<Acc>;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -69,11 +70,11 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsStageReader::load_fragment(
+        CmmaStageReader::<Self::LhsTile>::load_fragment(
             tile,
             lhs,
             CubeOption::new_None(),
@@ -82,11 +83,11 @@ where
     }
 
     fn load_rhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsStageReader::load_fragment(
+        CmmaStageReader::<Self::RhsTile>::load_fragment(
             tile,
             rhs,
             CubeOption::new_None(),
@@ -95,12 +96,12 @@ where
     }
 
     fn load_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
+        tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        Self::AccStageReader::load_fragment(
+        CmmaStageReader::<Self::AccTile>::load_fragment(
             tile,
             acc,
             CubeOption::new_Some(layout),
@@ -109,17 +110,13 @@ where
     }
 
     fn write_results<E: Numeric>(
+        tile: &mut StridedTile<E, ReadWrite>,
         out: &Self::AccFragment,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let acc = cmma::cast::<A, E>(out);
-        cmma::store(
-            slice,
-            &acc,
-            config.tile_size().n(),
-            cmma::MatrixLayout::RowMajor,
-        );
+        let out = cmma::cast::<A, E>(out);
+        let line_size = tile.slice.line_size();
+        CmmaStageWriter::store_fragment(tile, &out, line_size);
     }
 
     fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {

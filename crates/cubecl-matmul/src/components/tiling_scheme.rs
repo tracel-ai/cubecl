@@ -170,6 +170,7 @@ impl TilingScheme {
             StageIdent::Lhs => self.count_1d(child_level, parent_level, MatmulDim::M),
             StageIdent::Rhs => self.count_1d(child_level, parent_level, MatmulDim::K),
             StageIdent::Acc => self.count_1d(child_level, parent_level, MatmulDim::M),
+            StageIdent::Out => self.count_1d(child_level, parent_level, MatmulDim::M),
         }
     }
 
@@ -183,6 +184,7 @@ impl TilingScheme {
             StageIdent::Lhs => self.count_1d(child_level, parent_level, MatmulDim::K),
             StageIdent::Rhs => self.count_1d(child_level, parent_level, MatmulDim::N),
             StageIdent::Acc => self.count_1d(child_level, parent_level, MatmulDim::N),
+            StageIdent::Out => self.count_1d(child_level, parent_level, MatmulDim::N),
         }
     }
 
@@ -209,6 +211,7 @@ impl TilingScheme {
             StageIdent::Lhs => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::K),
             StageIdent::Rhs => self.count_2d(child_level, parent_level, MatmulDim::K, MatmulDim::N),
             StageIdent::Acc => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::N),
+            StageIdent::Out => self.count_2d(child_level, parent_level, MatmulDim::M, MatmulDim::N),
         }
     }
 }

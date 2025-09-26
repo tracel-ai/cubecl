@@ -25,7 +25,7 @@ pub enum ProductType {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
 pub struct RegisterConfig {
-    tile_size: TileSize,
+    pub tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -46,6 +46,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
+            StageIdent::Out => MatrixLayout::RowMajor,
         }
     }
 
@@ -54,6 +55,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -62,6 +64,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 

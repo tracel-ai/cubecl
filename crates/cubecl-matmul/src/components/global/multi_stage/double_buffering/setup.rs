@@ -1,7 +1,8 @@
-use crate::components::global::multi_stage::double_buffering::{
-    DoubleBufferingGlobalConfig, DoubleBufferingMatmul,
+use crate::components::global::{
+    GlobalWriterFamily,
+    multi_stage::double_buffering::{DoubleBufferingGlobalConfig, DoubleBufferingMatmul},
 };
-use crate::components::global::read::SyncPartialLoadingStrategy;
+use crate::components::global::{WriteTiling, read::SyncPartialLoadingStrategy};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
@@ -9,7 +10,6 @@ use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 /// Double buffering matmul family for any precision
@@ -17,28 +17,32 @@ pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
-impl<SMM, LL, RL> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL>
+impl<SMM, LL, RL, GW> GlobalMatmulFamily for DoubleBufferingMatmulFamily<SMM, LL, RL, GW>
 where
     SMM: stage::StageMatmulFamily<
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = FilledStageFamily,
-            WriteCoords = Coords2d,
+            OutStage = GW::Stage,
         >,
     LL: SyncPartialLoadingStrategy,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
         MP,
-        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout>,
+        SMM::Matmul<MP, LL::TilingLayout, RL::TilingLayout, NoTilingLayout, WriteTiling>,
         LL,
         RL,
+        GW::Writer<MP::Acc>,
     >;
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 

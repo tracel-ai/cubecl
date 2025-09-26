@@ -6,7 +6,7 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlo
 use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StridedStage};
-use crate::components::{InputPrecision, MatmulIdent};
+use crate::components::{MatmulIdent, MatrixPrecision};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
@@ -23,10 +23,10 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: MatrixPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] buffer_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -42,7 +42,7 @@ pub trait AsyncPartialLoadingStrategy: 'static + Send + Sync + Clone + LoadingVa
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncBufferGlobalReader<
-    IP: InputPrecision,
+    IP: MatrixPrecision,
     S: stage::StageConfig,
     CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
@@ -57,7 +57,7 @@ pub struct AsyncBufferGlobalReader<
 }
 
 #[cube]
-impl<IP: InputPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
+impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPartialLoadingStrategy>
     AsyncBufferGlobalReader<IP, S, CM, L>
 {
     /// Create a new AsyncBufferGlobalReader

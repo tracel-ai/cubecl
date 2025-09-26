@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalConfig as _,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
         read::{SyncFullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
@@ -44,7 +44,7 @@ where
             LhsStage = StridedStage<LhsS<MP>, ConvTilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, ConvTilingLayout>,
             AccStage = BiasStage<AccS<MP>>,
-            WriteCoords = Coords2d,
+            OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
     type LhsGlobalReader = SyncFullStageGlobalReader<
@@ -59,8 +59,8 @@ where
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
+    type GlobalWriter = PlaneWriter<MP::Acc>;
 
-    type GlobalWriter = SMM::GlobalWriter;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -108,8 +108,11 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -179,7 +182,11 @@ where
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
         let layout_out = OutLayout::new(runtime_args, global_conf);
         let out = out.view_mut(layout_global).view_mut(layout_out);
-        SMM::init_writer(out.slice_mut_unchecked(offset, slice_size), global_conf)
+        Self::GlobalWriter::new::<SMM::Config>(
+            out.slice_mut_unchecked(offset, slice_size),
+            global_conf,
+            config.stage_config(),
+        )
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

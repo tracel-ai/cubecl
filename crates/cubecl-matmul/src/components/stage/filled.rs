@@ -4,7 +4,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::{
     stage::{Stage, StageFamily, TilingLayout},
-    tile::reader::Filled,
+    tile::io::Filled,
 };
 
 pub struct FilledStageFamily;
@@ -28,10 +28,10 @@ impl<ES: Numeric> FilledStage<ES> {
 }
 
 #[cube]
-impl<ES: Numeric> Stage<ES> for FilledStage<ES> {
+impl<ES: Numeric> Stage<ES, ReadOnly> for FilledStage<ES> {
     type TileKind = Filled;
 
-    fn read_tile(this: &Self, _tile: Coords2d) -> ES {
+    fn tile(this: &Self, _tile: Coords2d) -> ES {
         this.value
     }
 }

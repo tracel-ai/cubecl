@@ -287,7 +287,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                         total_tile_count_y,
                     )
                 }
-                StageIdent::Acc => (
+                StageIdent::Acc | StageIdent::Out => (
                     0u32,
                     0u32,
                     config.tiles_in_stage_row,
@@ -345,8 +345,8 @@ impl StridedTilingLayout {
         let stage_line_size = config.stage_line_size;
 
         let slice_length = match comptime!(matrix_layout) {
-            MatrixLayout::RowMajor => config.elements_in_stage_col,
-            MatrixLayout::ColMajor => config.elements_in_stage_row,
+            MatrixLayout::RowMajor => config.elements_in_stage_col(),
+            MatrixLayout::ColMajor => config.elements_in_stage_row(),
         } / stage_line_size;
 
         let start = slice_length * nth;

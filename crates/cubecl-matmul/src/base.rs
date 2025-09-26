@@ -9,7 +9,7 @@ use cubecl_std::tensor::TensorHandle;
 use crate::{
     components::{
         AccG, LhsG, MatmulSetupError, RhsG,
-        tile::{accelerated::AcceleratedMatmul, reader::Filled},
+        tile::{accelerated::AcceleratedMatmul, io::Filled},
     },
     kernels::layered::{
         Selection,

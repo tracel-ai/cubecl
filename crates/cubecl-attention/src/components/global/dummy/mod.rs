@@ -2,6 +2,7 @@ mod attention;
 mod config;
 mod read;
 mod setup;
+mod writer;
 
 pub use attention::*;
 pub use read::*;

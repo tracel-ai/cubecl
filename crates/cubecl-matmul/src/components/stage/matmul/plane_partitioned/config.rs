@@ -88,6 +88,7 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
             StageIdent::Lhs => self.num_stages.lhs,
             StageIdent::Rhs => self.num_stages.rhs,
             StageIdent::Acc => 1,
+            StageIdent::Out => 1,
         }
     }
 }

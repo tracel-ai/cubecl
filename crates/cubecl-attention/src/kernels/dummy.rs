@@ -1,4 +1,4 @@
-use cubecl_matmul::components::stage::StridedStageFamily;
+use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::{
     components::{
@@ -16,7 +16,8 @@ pub struct DummyAlgorithm {}
 impl Algorithm for DummyAlgorithm {
     // type TileAttention = DummyTileAttentionFamily<AcceleratedFlashMatmul>;
     type TileAttention = DummyTileAttentionFamily<DummyRegisterFlashMatmul>;
-    type StageAttention = DummyStageAttentionFamily<Self::TileAttention, StridedStageFamily>;
+    type StageAttention =
+        DummyStageAttentionFamily<Self::TileAttention, StridedStageFamily, PartitionedStageFamily>;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 

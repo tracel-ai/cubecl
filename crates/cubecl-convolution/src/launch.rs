@@ -15,17 +15,17 @@ use crate::{
 };
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::components::{
-    self, AvailableLineSizes, InputPrecision, LhsG, MatmulElems, MatmulIdent, MatmulPrecision,
-    MatmulSelection, RhsG,
+    self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
+    MatrixPrecision, RhsG,
 };
 
 type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<
-    <<MP as MatmulPrecision>::Lhs as InputPrecision>::Global,
-    <<MP as MatmulPrecision>::Rhs as InputPrecision>::Global,
-    <<MP as MatmulPrecision>::Acc as InputPrecision>::Global,
+    <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Global,
+    <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Global,
+    <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Global,
 >;
 type Output<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Output<
-    <<MP as MatmulPrecision>::Acc as InputPrecision>::Global,
+    <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Global,
 >;
 
 #[derive(Clone)]

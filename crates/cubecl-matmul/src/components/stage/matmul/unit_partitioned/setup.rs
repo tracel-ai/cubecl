@@ -1,6 +1,3 @@
-use crate::components::LhsR;
-use crate::components::LhsS;
-use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -16,40 +13,55 @@ use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConf
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{AccR, InputPrecision};
+use crate::components::{AccR, MatrixPrecision};
 use crate::components::{AccS, ComputeResources};
+use crate::components::{LhsR, tile::io::Strided};
+use crate::components::{LhsS, global::PartitionedStageFamily};
+use crate::components::{MatmulLineSizes, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
-use cubecl_std::tensor::layout::Coords2d;
 
 /// Unit Matmul family for any precision
-pub struct UnitMatmulFamily<TM: TileMatmulFamily, RF: StageFamily, RA: StageFamily> {
-    _phantom: PhantomData<(TM, RF, RA)>,
+pub struct UnitMatmulFamily<TM: TileMatmulFamily, StageIn: StageFamily, StageAcc: StageFamily> {
+    _phantom: PhantomData<(TM, StageIn, StageAcc)>,
 }
 
 impl<
-    TM: TileMatmulFamily<LhsTile = RF::TileKind, RhsTile = RF::TileKind, AccTile = RA::TileKind>,
-    RF: StageFamily,
-    RA: StageFamily,
-> StageMatmulFamily for UnitMatmulFamily<TM, RF, RA>
+    TM: TileMatmulFamily<
+            LhsTile = StageIn::TileKind,
+            RhsTile = StageIn::TileKind,
+            AccTile = StageAcc::TileKind,
+            OutTile = Strided,
+        >,
+    StageIn: StageFamily,
+    StageAcc: StageFamily,
+> StageMatmulFamily for UnitMatmulFamily<TM, StageIn, StageAcc>
 {
-    type LhsStage = RF;
-    type RhsStage = RF;
-    type AccStage = RA;
-    type Matmul<MP: MatmulPrecision, TL: TilingLayout, TR: TilingLayout, TA: TilingLayout> =
-        UnitMatmul<
-            MP,
-            TM::Matmul<
-                <MP::Lhs as InputPrecision>::Register,
-                <MP::Rhs as InputPrecision>::Register,
-                <MP::Acc as InputPrecision>::Register,
-            >,
-            RF::Stage<LhsS<MP>, TL>,
-            RF::Stage<RhsS<MP>, TR>,
-            RA::Stage<AccS<MP>, TA>,
-        >;
-    type WriteCoords = Coords2d;
+    type LhsStage = StageIn;
+    type RhsStage = StageIn;
+    type AccStage = StageAcc;
+    type OutStage = PartitionedStageFamily;
+
+    type Matmul<
+        MP: MatmulPrecision,
+        TL: TilingLayout,
+        TR: TilingLayout,
+        TA: TilingLayout,
+        TO: TilingLayout,
+    > = UnitMatmul<
+        MP,
+        TM::Matmul<
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
+        >,
+        StageIn::Stage<LhsS<MP>, TL>,
+        StageIn::Stage<RhsS<MP>, TR>,
+        StageAcc::Stage<AccS<MP>, TA>,
+        PartitionedStage<AccS<MP>>,
+    >;
+
     type Config = UnitPartitionedStageConfig<TM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(

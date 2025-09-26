@@ -1,10 +1,10 @@
 use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
-use crate::components::tile::{TileMatmulFamily, reader::Strided};
+use crate::components::tile::{TileMatmulFamily, io::Strided};
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
 };
-use crate::components::{error::MatmulSetupError, tile::reader::TileKind};
+use crate::components::{error::MatmulSetupError, tile::io::TileKind};
 use crate::components::{
     resource::ComputeResources,
     tile::register::reader::{RegisterFragmentReader, RegisterStageReader},
@@ -21,6 +21,7 @@ where
     type LhsTile = Strided;
     type RhsTile = Strided;
     type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn requires_accelerator() -> bool {
         false
