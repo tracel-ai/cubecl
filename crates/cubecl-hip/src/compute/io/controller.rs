@@ -1,18 +1,20 @@
 use crate::compute::storage::cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource};
-use cubecl_common::bytes::{Allocation, AllocationController};
+use cubecl_common::bytes::{Allocation, BytesBacking};
 use cubecl_runtime::memory_management::SliceBinding;
-use std::ptr::NonNull;
+use std::{marker::PhantomData, ptr::NonNull};
 
 /// Controller for managing pinned (page-locked) host memory allocations.
 ///
 /// This struct ensures that the associated memory binding remains alive until
 /// explicitly deallocated, allowing the pinned memory to be reused for other memory operations.
-pub struct PinnedMemoryManagedAllocController {
+pub struct PinnedMemoryManagedAllocController<'a> {
     /// The memory binding, kept alive until deallocation.
     binding: Option<SliceBinding>,
+
+    allocation: Allocation<'a>,
 }
 
-impl PinnedMemoryManagedAllocController {
+impl PinnedMemoryManagedAllocController<'_> {
     /// Creates a new allocation controller for pinned host memory.
     ///
     /// # Arguments
@@ -27,7 +29,7 @@ impl PinnedMemoryManagedAllocController {
     /// # Panics
     ///
     /// Panics if the provided `resource.ptr` is a null pointer.
-    pub fn init(binding: SliceBinding, resource: PinnedMemoryResource) -> (Self, Allocation) {
+    pub fn init(binding: SliceBinding, resource: PinnedMemoryResource) -> Self {
         let ptr = resource.ptr;
         let size = resource.size;
 
@@ -35,19 +37,30 @@ impl PinnedMemoryManagedAllocController {
             ptr: NonNull::new(ptr).expect("Pinned memory pointer must not be null"),
             size,
             align: PINNED_MEMORY_ALIGNMENT,
+            _lifetime: PhantomData,
         };
 
-        (
-            Self {
-                binding: Some(binding),
-            },
+        Self {
             allocation,
-        )
+            binding: Some(binding),
+        }
     }
 }
 
-impl AllocationController for PinnedMemoryManagedAllocController {
-    fn dealloc(&mut self, _allocation: &Allocation) {
+impl BytesBacking for PinnedMemoryManagedAllocController<'_> {
+    fn dealloc(&mut self) {
         self.binding = None;
+    }
+
+    fn alloc_align(&self) -> usize {
+        self.allocation.align
+    }
+
+    fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+        self.allocation.memory_mut()
+    }
+
+    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+        self.allocation.memory()
     }
 }

@@ -1,23 +1,36 @@
-use cubecl_common::bytes::{Allocation, AllocationController};
+use cubecl_common::bytes::{Allocation, BytesBacking};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use std::{alloc::Layout, ptr::NonNull};
+use std::{alloc::Layout, marker::PhantomData, ptr::NonNull};
 
-pub struct CpuAllocController {
+pub struct CpuAllocController<'a> {
     binding: Option<Binding>,
+    allocation: Allocation<'a>,
 }
 
-impl AllocationController for CpuAllocController {
-    fn dealloc(&mut self, _allocation: &Allocation) {
+impl BytesBacking for CpuAllocController<'_> {
+    fn dealloc(&mut self) {
         self.binding = None;
+    }
+
+    fn alloc_align(&self) -> usize {
+        self.allocation.align
+    }
+
+    fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+        self.allocation.memory_mut()
+    }
+
+    fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
+        self.allocation.memory()
     }
 }
 
-impl CpuAllocController {
+impl CpuAllocController<'_> {
     pub fn init(
         binding: Binding,
         memory_management: &mut MemoryManagement<BytesStorage>,
-    ) -> Result<(Self, Allocation), IoError> {
+    ) -> Result<Self, IoError> {
         let resource = memory_management
             .get_resource(
                 binding.memory.clone(),
@@ -36,13 +49,12 @@ impl CpuAllocController {
             ptr: NonNull::new(ptr).unwrap(),
             size,
             align,
+            _lifetime: PhantomData,
         };
 
-        Ok((
-            Self {
-                binding: Some(binding),
-            },
+        Ok(Self {
+            binding: Some(binding),
             allocation,
-        ))
+        })
     }
 }

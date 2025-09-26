@@ -67,9 +67,9 @@ impl CpuServer {
             let mut result = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
                 let len = desc.binding.size() as usize;
-                let (controller, alloc) =
+                let controller =
                     CpuAllocController::init(desc.binding, &mut ctx.memory_management)?;
-                result.push(unsafe { Bytes::from_raw_parts(alloc, len, Box::new(controller)) });
+                result.push(unsafe { Bytes::from_raw_parts(len, Box::new(controller)) });
             }
             Ok(result)
         }
