@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::attention_types::*;
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{
     GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::reader::Strided,
@@ -22,8 +23,12 @@ pub struct DummyStageAttentionFamily<TA: TileAttentionFamily, RF: StageFamily> {
 impl<TA: TileAttentionFamily, RF: StageFamily<TileKind = Strided>> StageAttentionFamily
     for DummyStageAttentionFamily<TA, RF>
 {
-    type Attention<AP: AttentionPrecision> =
-        DummyStageAttention<AP, RF::Stage<AP::ES, AttentionTilingLayout>, TA::Attention<AP>>;
+    type Attention<AP: AttentionPrecision> = DummyStageAttention<
+        AP,
+        RF::Stage<KS<AP>, AttentionTilingLayout>,
+        RF::Stage<VS<AP>, AttentionTilingLayout>,
+        TA::Attention<AP>,
+    >;
 
     type KeyStage = RF;
     type ValueStage = RF;

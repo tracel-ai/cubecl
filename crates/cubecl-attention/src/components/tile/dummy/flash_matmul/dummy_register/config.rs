@@ -2,9 +2,10 @@ use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileCo
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use crate::components::attention_types::*;
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, AttentionTileSize, FlashIdent,
-    tile::dummy::{FlashMatmulConfig, FlashPrecision},
+    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
+    tile::dummy::FlashMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 
@@ -95,14 +96,14 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         self.num_planes
     }
 
-    fn stage_line_size(&self, ident: FlashIdent) -> u32 {
+    fn stage_line_size(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.query_stage_line_size,
-            FlashIdent::Key => self.key_value_stage_line_size,
-            FlashIdent::ScoreProb => unreachable!("Not a materialized stage"),
-            FlashIdent::Value => self.key_value_stage_line_size,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => 1,
+            AttentionIdent::Query => self.query_stage_line_size,
+            AttentionIdent::Key => self.key_value_stage_line_size,
+            AttentionIdent::Softmax => unreachable!("Not a materialized stage"),
+            AttentionIdent::Value => self.key_value_stage_line_size,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => 1,
         }
     }
 
@@ -114,14 +115,20 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         self.cast_query
     }
 
-    fn num_units_per_row(&self, ident: FlashIdent) -> u32 {
+    fn num_units_per_row(&self, ident: AttentionIdent) -> u32 {
         self.plane_dim / self.attention_tile_size.num_rows(ident)
     }
 
-    fn num_cols_per_unit(&self, ident: FlashIdent) -> u32 {
+    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32 {
         self.attention_tile_size
             .num_cols(ident)
             .div_ceil(self.num_units_per_row(ident))
+    }
+
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32 {
+        self.attention_tile_size
+            .num_rows(ident)
+            .div_ceil(self.plane_dim)
     }
 
     fn check_bounds(&self) -> bool {
@@ -144,8 +151,8 @@ impl DummyRegisterFlashMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: AP::EI::as_type_native_unchecked()
-                == <AP::FlashPrecision as FlashPrecision>::Q::as_type_native_unchecked(),
+            cast_query: QG::<AP>::as_type_native_unchecked()
+                == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
         }
         .validate()

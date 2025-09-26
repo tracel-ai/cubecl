@@ -4,9 +4,10 @@ use cubecl_std::tensor::TensorHandle;
 
 use crate::{
     components::{
-        AttentionPartitionSize, AttentionPrecision, AttentionProblem, AttentionSelection,
-        AttentionSetupError, AttentionStageSize, AttentionTileSize, AttentionTilingScheme,
-        AvailableLineSizes, FlashIdent, args::TensorInputsLaunch, batch::HypercubeSelection,
+        AttentionIdent, AttentionPartitionSize, AttentionPrecision, AttentionProblem,
+        AttentionSelection, AttentionSetupError, AttentionStageSize, AttentionTileSize,
+        AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
+        batch::HypercubeSelection,
     },
     kernels::{Algorithm, dummy::DummyAlgorithm},
 };
@@ -24,10 +25,10 @@ pub enum Strategy {
 pub fn launch<R: Runtime, AP: AttentionPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server, R::Channel>,
-    query: TensorHandle<R, AP::EI>,
-    key: TensorHandle<R, AP::EI>,
-    value: TensorHandle<R, AP::EI>,
-    out: TensorHandle<R, AP::EO>,
+    query: TensorHandle<R, QG<AP>>,
+    key: TensorHandle<R, KG<AP>>,
+    value: TensorHandle<R, VG<AP>>,
+    out: TensorHandle<R, OG<AP>>,
 ) -> Result<(), AttentionSetupError> {
     launch_ref::<R, AP>(
         strategy,
@@ -61,15 +62,15 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &AP::EI::as_type_native_unchecked(),
-        &AP::EM::as_type_native_unchecked(),
-        &AP::EO::as_type_native_unchecked(),
+        &QG::<AP>::as_type_native_unchecked(),
+        &MSK::<AP>::as_type_native_unchecked(),
+        &OG::<AP>::as_type_native_unchecked(),
     );
     let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
-        .filter_with_tensor(FlashIdent::Query, query.strides, query.shape)
-        .filter_with_tensor(FlashIdent::Key, key.strides, key.shape)
-        .filter_with_tensor(FlashIdent::Value, value.strides, value.shape)
-        .filter_with_tensor(FlashIdent::Out, out.strides, out.shape)
+        .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
+        .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
+        .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
+        .filter_with_tensor(AttentionIdent::Out, out.strides, out.shape)
         .pick_max()
         .unwrap();
 

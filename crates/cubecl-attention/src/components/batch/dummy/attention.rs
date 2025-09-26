@@ -5,6 +5,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
+    attention_types::*,
     batch::{
         BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
     },
@@ -22,10 +23,10 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     type Config = DummyBatchConfig<GA::Config>;
 
     fn execute(
-        query: VirtualTensor<AP::EI>,
-        key: VirtualTensor<AP::EI>,
-        value: VirtualTensor<AP::EI>,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        query: VirtualTensor<QG<AP>>,
+        key: VirtualTensor<KG<AP>>,
+        value: VirtualTensor<VG<AP>>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         _cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {

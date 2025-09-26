@@ -5,13 +5,13 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, InvalidConfigError,
     tile::dummy::{
-        FlashMatmulFamily, FlashPrecision,
+        FlashMatmulFamily,
         dummy_register::{DummyRegisterFlashMatmul, DummyRegisterFlashMatmulConfig},
     },
 };
 
 impl FlashMatmulFamily for DummyRegisterFlashMatmul {
-    type Matmul<F: FlashPrecision> = DummyRegisterFlashMatmul;
+    type Matmul<F: AttentionPrecision> = DummyRegisterFlashMatmul;
 
     type Config = DummyRegisterFlashMatmulConfig;
 
