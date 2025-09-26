@@ -178,6 +178,7 @@ impl ComputeStorage for GpuStorage {
 struct GpuMemoryBlock {
     handle: CUmemGenericAllocationHandle,
     size: u64,
+    mapped: bool,
 }
 
 impl GpuMemoryBlock {
@@ -191,9 +192,18 @@ impl GpuMemoryBlock {
         self.size
     }
 
+    /// Set the block to mapped state
+    fn set_mapped(&mut self, mapped: bool) {
+        self.mapped = mapped;
+    }
+
     /// Constructor
     fn new(handle: CUmemGenericAllocationHandle, size: u64) -> Self {
-        Self { handle, size }
+        Self {
+            handle,
+            size,
+            mapped: false,
+        }
     }
 }
 
@@ -223,28 +233,56 @@ impl GpuVirtualAddressSpace {
     }
 }
 
-/// A CUDA buffer storage for virtual memory.
+/// Memory allocation mode.
+#[derive(Default)]
+pub enum GpuAllocationMode {
+    /// Standard allocation mode disables virtual memory support
+    #[default]
+    Standard = 0,
+    /// Virtual memory is enabled
+    Virtual = 1,
+}
+
+/// A CUDA buffer storage with support for virtual memory.
+/// Maybe you could consider refactoring by merging this struct with the GpuStorage struct, so that a single GpuStorage is preserved. This storage type implements both the [`VirtualStorage`]and the [`ComputeStorage`] trait, which allows it to manage both types of allocations depending on the [`mode`].
 pub struct GpuVirtualStorage {
     /// Id of the device where the virtual memory is going to be allocated with this storage.
     device_id: i32,
-    /// Minimum allocation granularity of the target device.
+    /// Minimum allocation granularity of the target device. Can be set to other value if allocation mode is not virtual memory.
     mem_alignment: usize,
     /// Reserved virtual memory ranges. Can be either mapped or unmapped.
     virtual_memory: HashMap<StorageId, GpuVirtualAddressSpace>,
-    /// Queue of available physical blocks to request for mapping
+    /// Map of  physical blocks
     physical_memory: HashMap<PhysicalStorageId, GpuMemoryBlock>,
+    /// Memory: I want this storage type to also support standard allocation mode, so that both standard pools and virtual pools can use it.
+    memory: HashMap<StorageId, cudarc::driver::sys::CUdeviceptr>,
+    /// Deallocations
+    deallocations: Vec<StorageId>,
+    /// Stream
+    stream: cudarc::driver::sys::CUstream,
     /// Ptr bindings
     ptr_bindings: PtrBindings,
+    /// Mode
+    alloc_mode: GpuAllocationMode,
 }
 
 impl GpuVirtualStorage {
-    pub fn new(device_id: i32, granularity: usize) -> Self {
+    pub fn new(
+        device_id: i32,
+        stream: cudarc::driver::sys::CUstream,
+        granularity: usize,
+        alloc_mode: GpuAllocationMode,
+    ) -> Self {
         Self {
             device_id,
             mem_alignment: granularity,
             virtual_memory: HashMap::new(),
             physical_memory: HashMap::new(),
             ptr_bindings: PtrBindings::new(),
+            memory: HashMap::new(),
+            deallocations: Vec::new(),
+            stream,
+            alloc_mode,
         }
     }
 
@@ -284,6 +322,19 @@ impl GpuVirtualStorage {
         }
     }
 
+    /// Deallocates buffers marked for deallocation.
+    ///
+    /// This method processes all pending deallocations by freeing the associated GPU memory.
+    pub fn perform_deallocations(&mut self) {
+        for id in self.deallocations.drain(..) {
+            if let Some(ptr) = self.memory.remove(&id) {
+                unsafe {
+                    cudarc::driver::result::free_async(ptr, self.stream).unwrap();
+                }
+            }
+        }
+    }
+
     /// Sets the access permissions for the target device on an allocated and mapped virtual address space.
     /// In practice, permissions can be set for other devices than self, allowing to share virtual address spaces accross device (aka RDMA), however this is not yet implemented.
     fn set_access_permissions(
@@ -318,12 +369,20 @@ impl VirtualStorage for GpuVirtualStorage {
         self.mem_alignment
     }
 
+    /// Whether virtual memory is enabled (depends on allocation mode)
+    fn is_virtual_mem_enabled(&self) -> bool {
+        matches!(self.alloc_mode, GpuAllocationMode::Virtual)
+    }
+
     /// Allocates a physical memory block of the target size, ensuring the size is aligned to [`self.granularity()`].
     /// Returns a handle containing the size and status of the allocation (unmapped).
     /// The handle will be set as mapped on the [`map()`] method.
     fn allocate(&mut self, size: u64) -> Result<PhysicalStorageHandle, IoError> {
-        let total_size = size
-            .next_multiple_of(self.mem_alignment as u64);
+        if !self.is_virtual_mem_enabled() {
+            return Err(IoError::Unknown("Virtual memory is disabled!".to_string()));
+        }
+
+        let total_size = size.next_multiple_of(self.mem_alignment as u64);
         let block = self.allocate_physical_block(total_size)?;
 
         let id = PhysicalStorageId::new();
@@ -359,8 +418,11 @@ impl VirtualStorage for GpuVirtualStorage {
         size: u64,
         start_addr: Option<StorageId>,
     ) -> Result<StorageHandle, IoError> {
-        let aligned_size = size
-            .next_multiple_of(self.mem_alignment as u64);
+        if !self.is_virtual_mem_enabled() {
+            return Err(IoError::Unknown("Virtual memory is disabled!".to_string()));
+        }
+
+        let aligned_size = size.next_multiple_of(self.mem_alignment as u64);
 
         let addr = if let Some(prev) = start_addr
             && let Some(space) = self.virtual_memory.get(&prev)
@@ -429,6 +491,8 @@ impl VirtualStorage for GpuVirtualStorage {
     /// Frees a physical memory chunk by returning it to the driver.
     fn release(&mut self, id: PhysicalStorageId) {
         if let Some(handle) = self.physical_memory.remove(&id) {
+            // Runtime check to ensure we do not attempt to free mapped memory
+            assert!(!handle.mapped, "Cannot release a mapped handle!");
             unsafe {
                 cuMemRelease(handle.handle());
             }
@@ -444,11 +508,14 @@ impl VirtualStorage for GpuVirtualStorage {
         offset: u64,
         physical: &mut PhysicalStorageHandle,
     ) -> Result<StorageHandle, IoError> {
-        let aligned_offset = offset
-            .next_multiple_of(self.mem_alignment as u64);
-        let space_mut = self
+        if !self.is_virtual_mem_enabled() {
+            return Err(IoError::Unknown("Virtual memory is disabled!".to_string()));
+        }
+
+        let aligned_offset = offset.next_multiple_of(self.mem_alignment as u64);
+        let space = self
             .virtual_memory
-            .get_mut(&id)
+            .get(&id)
             .expect("Storage handle not found");
 
         let ph = self
@@ -457,13 +524,13 @@ impl VirtualStorage for GpuVirtualStorage {
             .expect("Storage handle not found");
 
         // Map each block
-        let size = space_mut.size();
+        let size = space.size();
         let ph_size = ph.size();
 
         if (aligned_offset + ph_size) > size {
             return Err(IoError::InvalidHandle);
         }
-        let addr = space_mut.start_address + aligned_offset;
+        let addr = space.start_address + aligned_offset;
         unsafe {
             if let Err(e) = cuMemMap(addr, ph_size as usize, 0, ph.handle(), 0).result() {
                 return Err(IoError::Unknown(format!("CUDA map failed: {:?}", e)));
@@ -472,6 +539,12 @@ impl VirtualStorage for GpuVirtualStorage {
 
         self.set_access_permissions(addr, ph_size, self.device_id)?;
         physical.set_mapped(true);
+
+        let ph_mut = self
+            .physical_memory
+            .get_mut(&physical.id())
+            .expect("Storage handle not found");
+        ph_mut.set_mapped(true);
         let handle = StorageHandle::new(
             id,
             StorageUtilization {
@@ -486,22 +559,20 @@ impl VirtualStorage for GpuVirtualStorage {
     /// Both the address space and the handle should be valid. However, it does not check whether this two structures are actually mapped. Therefore, it is the responsability of the memory pool to keep track of actual mappings from physical handles to virtual address spaces.
     fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle) {
         // Offset should be aligned at this level, however there is no issue in enforcing it by explicit alignment.
-        let aligned_offset = offset
-            .next_multiple_of(self.mem_alignment as u64);
-        let ph = self
-            .physical_memory
-            .get(&physical.id())
-            .expect("Storage handle not found");
+        let aligned_offset = offset.next_multiple_of(self.mem_alignment as u64);
 
-        let aligned_size = ph.size();
+        if let Some(ph) = self.physical_memory.get_mut(&physical.id()) {
+            let aligned_size = ph.size();
 
-        if let Some(mapping) = self.virtual_memory.get(&id) {
-            let addr = mapping.ptr() + aligned_offset;
-            unsafe {
-                cuMemUnmap(addr, aligned_size as usize);
+            if let Some(mapping) = self.virtual_memory.get(&id) {
+                let addr = mapping.ptr() + aligned_offset;
+                unsafe {
+                    cuMemUnmap(addr, aligned_size as usize);
+                }
+
+                physical.set_mapped(false);
+                ph.set_mapped(false);
             }
-
-            physical.set_mapped(false);
         }
     }
 }
@@ -513,14 +584,20 @@ impl ComputeStorage for GpuVirtualStorage {
         self.mem_alignment
     }
 
-    /// Returns the resource to which this handle points to.
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
-        let reservation = self
-            .virtual_memory
-            .get(&handle.id)
-            .expect("Storage handle not found");
+        // It is critical to manage this properly.
+        let ptr = match self.alloc_mode {
+            GpuAllocationMode::Standard => self
+                .memory
+                .get(&handle.id)
+                .expect("Storage handle not found"),
+            GpuAllocationMode::Virtual => &self
+                .virtual_memory
+                .get(&handle.id)
+                .expect("Storage handle not found")
+                .ptr(),
+        };
 
-        let ptr = reservation.ptr();
         let offset = handle.offset();
         let size = handle.size();
         let ptr = self.ptr_bindings.register(ptr + offset);
@@ -533,24 +610,42 @@ impl ComputeStorage for GpuVirtualStorage {
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
-        let mut physical_handle = self.allocate(size)?;
-        let handle = self.reserve(size, None)?;
-        self.map(handle.id, 0, &mut physical_handle)?;
-        Ok(handle)
+        let id = StorageId::new();
+        let ptr = unsafe { cudarc::driver::result::malloc_async(self.stream, size as usize) };
+        let ptr = match ptr {
+            Ok(ptr) => ptr,
+            Err(DriverError(cudarc::driver::sys::CUresult::CUDA_ERROR_OUT_OF_MEMORY)) => {
+                return Err(IoError::BufferTooBig(size as usize));
+            }
+            Err(other) => {
+                return Err(IoError::Unknown(format!(
+                    "CUDA allocation error: {}",
+                    other
+                )));
+            }
+        };
+
+        self.memory.insert(id, ptr);
+        Ok(StorageHandle::new(
+            id,
+            StorageUtilization { offset: 0, size },
+        ))
     }
 
     fn dealloc(&mut self, id: StorageId) {
-        self.free(id);
+        self.deallocations.push(id);
     }
 
     fn flush(&mut self) {
-        // No flush. We do not keep track of deallocations
+        self.perform_deallocations();
     }
 }
 
 /// When dropped releases all resources.
 impl Drop for GpuVirtualStorage {
     fn drop(&mut self) {
+        self.flush();
+
         for (_, reservation) in self.virtual_memory.drain() {
             // Get reservation details before removing it
             let virtual_addr = reservation.ptr();
@@ -575,17 +670,6 @@ impl Drop for GpuVirtualStorage {
 }
 unsafe impl Send for GpuVirtualStorage {}
 
-// Added for testing purposes.
-impl Default for GpuVirtualStorage {
-    fn default() -> Self {
-
-        let granularity = get_minimum_granularity(0).unwrap();
-        Self ::new(
-            0,
-            granularity
-        )
-    }
-}
 pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
     unsafe {
         let mut granularity = 0;
@@ -607,7 +691,7 @@ pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
     }
 }
 
-
+impl cubecl_runtime::storage::VirtualStorage for GpuStorage {}
 
 #[cfg(test)]
 mod virtual_mem_tests {
@@ -625,8 +709,6 @@ mod virtual_mem_tests {
         };
         (device, ctx)
     }
-
-
 
     #[test]
     fn test_physical_memory_allocation() {
@@ -685,7 +767,6 @@ mod virtual_mem_tests {
 
     #[test]
     fn test_memory_mapping() {
-
         let (_device, _ctx) = setup_cuda_context();
         let device_id = 0;
 
@@ -878,20 +959,14 @@ mod virtual_mem_tests {
             let handle = storage.alloc(unaligned_size).unwrap();
 
             // The actual allocated size should be aligned up
-            let expected_aligned_size = unaligned_size
-                .next_multiple_of(granularity as u64);
+            let expected_aligned_size = unaligned_size.next_multiple_of(granularity as u64);
 
             // Note: The handle size might be the requested size, but the actual allocation
             // should be aligned internally
-
-            dbg!(handle.size());
-            dbg!(granularity);
-            dbg!(expected_aligned_size);
 
             assert!(handle.size() <= expected_aligned_size);
 
             storage.dealloc(handle.id);
         }
     }
-
 }

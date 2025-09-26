@@ -1,6 +1,7 @@
 use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::storage::VirtualStorage;
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
 
@@ -57,6 +58,8 @@ impl BytesResource {
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
+
+impl VirtualStorage for BytesStorage {}
 
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;

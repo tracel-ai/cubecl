@@ -1,4 +1,5 @@
 use cubecl_core::server::IoError;
+use cubecl_runtime::storage::VirtualStorage;
 use cubecl_runtime::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use hashbrown::HashMap;
 use std::num::NonZeroU64;
@@ -59,6 +60,9 @@ impl WgpuStorage {
         }
     }
 }
+
+/// Override VirtualStorage
+impl VirtualStorage for WgpuStorage {}
 
 impl ComputeStorage for WgpuStorage {
     type Resource = WgpuResource;

@@ -142,6 +142,7 @@ impl ComputeStorage for GpuStorage {
     }
 }
 
+impl cubecl_runtime::storage::VirtualStorage for GpuStorage {}
 unsafe impl Send for GpuStorage {}
 unsafe impl Send for GpuResource {}
 

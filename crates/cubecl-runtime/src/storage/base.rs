@@ -1,3 +1,4 @@
+use super::virtual_storage::VirtualStorage;
 use core::fmt::Debug;
 
 use crate::{
@@ -69,7 +70,7 @@ impl StorageHandle {
 }
 
 /// Storage types are responsible for allocating and deallocating memory.
-pub trait ComputeStorage: Send {
+pub trait ComputeStorage: Send + VirtualStorage {
     /// The resource associated type determines the way data is implemented and how
     /// it can be accessed by kernels.
     type Resource: Send;

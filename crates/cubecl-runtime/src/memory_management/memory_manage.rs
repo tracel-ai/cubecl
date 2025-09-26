@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualMemoryPool},
 };
 use crate::{
     server::IoError,
@@ -19,6 +19,7 @@ pub use super::memory_pool::{SliceBinding, handle::*};
 enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
+    Virtual(VirtualMemoryPool),
 }
 
 impl MemoryPool for DynamicPool {
@@ -26,6 +27,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
             DynamicPool::Exclusive(m) => m.get(binding),
+            DynamicPool::Virtual(m) => m.get(binding),
         }
     }
 
@@ -33,6 +35,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
+            DynamicPool::Virtual(m) => m.try_reserve(size),
         }
     }
 
@@ -44,6 +47,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
+            DynamicPool::Virtual(m) => m.alloc(storage, size),
         }
     }
 
@@ -51,6 +55,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
+            DynamicPool::Virtual(m) => m.get_memory_usage(),
         }
     }
 
@@ -58,6 +63,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.max_alloc_size(),
             DynamicPool::Exclusive(m) => m.max_alloc_size(),
+            DynamicPool::Virtual(m) => m.max_alloc_size(),
         }
     }
 
@@ -70,6 +76,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Virtual(m) => m.cleanup(storage, alloc_nr, explicit),
         }
     }
 }
@@ -219,6 +226,47 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     })
                     .collect()
             }
+            MemoryConfiguration::VirtualMemory => {
+                if properties.virtual_memory_supported {
+                    // Collect the minimum granularity of the target device.
+                    let minimum_granularity = properties.alignment;
+                    // I am following `PyTorch approach here. PyTorch maintains two virtual memory pools.
+                    // One of them makes allocations aligned to 10 * min_granularity (huge pages), mainly useful with LLMs and very large models that allocate huge tensors.
+                    //
+                    // The other makes finer grained allocations aligned to gpu page size. It is better to set the second one's max_alloc_size equal to the granularity, as it will make memory reuse easier by enforcing all physical allocations to be the same size.
+                    let small_dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                        * (1.0 + minimum_granularity as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        as u64;
+                    let big_dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                        * (1.0 + (minimum_granularity * 5) as f64 / (DEALLOC_SCALE_MB as f64))
+                            .round()) as u64;
+                    vec![
+                        // Bigger pool.
+                        // Max alloc size is 10 * min_granularity (about 20MiB)
+                        // Alignment is half that value, so the pool will allocate physical blocks of sizes ranging from 10MiB to 20MiB.
+                        MemoryPoolOptions {
+                            pool_type: PoolType::VirtualMemory {
+                                max_alloc_size: 10 * minimum_granularity,
+                                alignment: 5 * minimum_granularity,
+                            },
+                            // The dealloc period depends on the expected size of the allocations.
+                            dealloc_period: Some(big_dealloc_period),
+                        },
+                        // Smaller pool, fixed size physical allocations,
+                        // Always allocates memory of about 2MiB.
+                        MemoryPoolOptions {
+                            pool_type: PoolType::VirtualMemory {
+                                max_alloc_size: minimum_granularity,
+                                alignment: minimum_granularity,
+                            },
+                            dealloc_period: Some(small_dealloc_period),
+                        },
+                    ]
+                // In case virtual memory is not set to be supported return an empty vector, which in practice will fallback to use the static pool.
+                } else {
+                    Vec::new()
+                }
+            }
             MemoryConfiguration::Custom { pool_options } => pool_options,
         };
 
@@ -244,12 +292,19 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         options.dealloc_period.unwrap_or(u64::MAX),
                     ))
                 }
+                PoolType::VirtualMemory {
+                    max_alloc_size,
+                    alignment,
+                } => DynamicPool::Virtual(VirtualMemoryPool::new(
+                    max_alloc_size,
+                    alignment,
+                    options.dealloc_period.unwrap_or(u64::MAX),
+                )),
             })
             .collect();
 
         Self {
             static_pool: StaticPool::new(properties.max_page_size),
-            //virtual_pool:
             pools,
             storage,
             alloc_reserve_count: 0,

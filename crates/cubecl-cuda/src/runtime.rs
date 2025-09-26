@@ -98,6 +98,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         alignment: mem_alignment as u64,
         // TODO: We should have a fallback when peer access isn't supported.
         data_transfer_async: true,
+        virtual_memory_supported: false,
     };
 
     let mut comp_opts = CompilationOptions::default();

@@ -1,6 +1,6 @@
 use super::{SliceBinding, SliceHandle, SliceId};
 use crate::storage::StorageUtilization;
-use crate::storage::VirtualStorage;
+//use crate::storage::VirtualStorage;
 use crate::{
     memory_management::MemoryUsage,
     server::IoError,

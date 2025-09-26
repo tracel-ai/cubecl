@@ -1,5 +1,4 @@
 use crate::server::IoError;
-use crate::storage::ComputeStorage;
 use crate::storage::StorageUtilization;
 use crate::storage::{StorageHandle, StorageId};
 use crate::storage_id_type;
@@ -48,38 +47,63 @@ impl PhysicalStorageHandle {
 }
 
 /// Virtual Storage trait.
-pub trait VirtualStorage: ComputeStorage {
+/// I want to make this trait optional. However, to be able to use it on the memory manager I have to restrict the type of Storage with VirtualStorage trait bounds.
+/// Therefore all methods will have a default implementation.
+/// By enforcing the ComputeStorage to inherit from it, all storages that implement ComputeStorage will automatically implement the default implementation of VirtualStorage.
+/// Then, at runtime, the memory pools can check the method [`is_virtual_mem_enabled`] to verify is virtual memory is supported on the target backend.
+pub trait VirtualStorage {
     /// Retrieves the minimum allocation granularity of this storage. All physical and virtual allocations should be aligned.
-    fn granularity(&self) -> usize;
+    fn granularity(&self) -> usize {
+        0 // Default granularity is zero when virtual memory is not supported.
+    }
+
+    /// Check whether virtual mem is supported
+    fn is_virtual_mem_enabled(&self) -> bool {
+        false
+    }
 
     /// Allocate physical memory of hthe requested size
-    fn allocate(&mut self, size: u64) -> Result<PhysicalStorageHandle, IoError>;
+    fn allocate(&mut self, _size: u64) -> Result<PhysicalStorageHandle, IoError> {
+        Err(IoError::Unknown(
+            "Virtual memory is not supported!".to_string(),
+        ))
+    }
 
     /// Releases a physical memory handle to the driver (explicit).
-    fn release(&mut self, id: PhysicalStorageId);
+    fn release(&mut self, _id: PhysicalStorageId) {}
 
     /// Reserves an address space of a given size. Padding should be automatically added to meet the granularity requirements. The parameter `start_addr` is the id of the address space which should end at the beginning of the next reservation (if applicable).
     fn reserve(
         &mut self,
-        size: u64,
-        start_addr: Option<StorageId>,
-    ) -> Result<StorageHandle, IoError>;
+        _size: u64,
+        _start_addr: Option<StorageId>,
+    ) -> Result<StorageHandle, IoError> {
+        Err(IoError::Unknown(
+            "Virtual memory is not supported!".to_string(),
+        ))
+    }
 
     /// Releases the virtual address range associated with this handle.
-    fn free(&mut self, id: StorageId);
+    fn free(&mut self, _id: StorageId) {}
 
     /// Map physical memory to a range of virtual addresses
     fn map(
         &mut self,
-        id: StorageId,
-        offset: u64,
-        physical_storage: &mut PhysicalStorageHandle,
-    ) -> Result<StorageHandle, IoError>;
+        _id: StorageId,
+        _offset: u64,
+        _physical_storage: &mut PhysicalStorageHandle,
+    ) -> Result<StorageHandle, IoError> {
+        Err(IoError::Unknown(
+            "Virtual memory is not supported!".to_string(),
+        ))
+    }
 
     /// Unmap the handles
-    fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle);
+    fn unmap(&mut self, _id: StorageId, _offset: u64, _physical: &mut PhysicalStorageHandle) {}
 
     /// Checks if two address spaces are contiguous in memory (the first one ends where the second one starts).
     /// This is useful to perform defragmentation.
-    fn are_aligned(&self, lhs: &StorageId, rhs: &StorageId) -> bool;
+    fn are_aligned(&self, _lhs: &StorageId, _rhs: &StorageId) -> bool {
+        false
+    }
 }

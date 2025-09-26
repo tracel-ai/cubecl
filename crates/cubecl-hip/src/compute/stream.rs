@@ -47,6 +47,7 @@ impl EventStreamBackend for HipStreamBackend {
                 max_page_size: self.mem_props.max_page_size,
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
             },
             self.mem_config.clone(),
         );
