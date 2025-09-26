@@ -20,7 +20,9 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::ResolvedStreams,
 };
-use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMap, cuMemcpy2DAsync_v2};
+use cudarc::driver::sys::{
+    CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
+};
 use std::{ffi::c_void, ops::DerefMut, sync::Arc};
 
 #[derive(new)]
@@ -336,42 +338,16 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        let rank = shape.len();
-
         if !valid_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides);
         }
 
         let resource = self.resource(binding)?;
-
         let current = self.streams.current();
 
-        if rank > 1 {
-            let dim_x = shape[rank - 1];
-            let width_bytes = dim_x * elem_size;
-            let dim_y: usize = shape.iter().rev().skip(1).product();
-            let pitch = strides[rank - 2] * elem_size;
-
-            let cpy = CUDA_MEMCPY2D_st {
-                srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-                srcHost: data.as_ptr() as *const c_void,
-                srcPitch: width_bytes,
-                dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-                dstDevice: resource.ptr,
-                dstPitch: pitch,
-                WidthInBytes: width_bytes,
-                Height: dim_y,
-                ..Default::default()
-            };
-
-            unsafe {
-                cuMemcpy2DAsync_v2(&cpy, current.sys).result().unwrap();
-            }
-        } else {
-            unsafe {
-                cudarc::driver::result::memcpy_htod_async(resource.ptr, data, current.sys).unwrap();
-            }
-        };
+        unsafe {
+            write_to_gpu(shape, strides, elem_size, data, resource.ptr, current.sys);
+        }
 
         Ok(())
     }
@@ -404,19 +380,32 @@ impl<'a> Command<'a> {
     /// * `id` - The unique identifier for the data transfer.
     /// * `src` - The descriptor for the source GPU memory.
     pub fn data_transfer_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let src_resource = self.resource(src.binding).unwrap();
+        let peer = false;
 
-        let client = DataTransferRuntime::client();
-        let current = self.streams.current();
+        if peer {
+            let src_resource = self.resource(src.binding).unwrap();
+            let client = DataTransferRuntime::client();
+            let current = self.streams.current();
 
-        let handle = DataTransferItem {
-            stream: current.sys,
-            context: self.ctx.context,
-            resource: src_resource,
-        };
-        let fence = Fence::new(current.sys);
+            let handle = DataTransferItem {
+                stream: current.sys,
+                context: self.ctx.context,
+                resource: src_resource,
+            };
+            let fence = Fence::new(current.sys);
 
-        client.register_src(id, handle, fence);
+            client.register_src_peer(id, handle, fence);
+        } else {
+            let client = DataTransferRuntime::client();
+
+            let shape = src.shape.to_vec();
+            let strides = src.strides.to_vec();
+            let elem_size = src.elem_size;
+            let data = self.read_async(vec![src]);
+            let fut = Box::pin(async move { data.await.unwrap().remove(0) });
+
+            client.register_src_normal(id, fut, shape, strides, elem_size);
+        }
     }
 
     /// Registers a destination for an asynchronous data transfer operation.
@@ -502,4 +491,41 @@ impl<'a> Command<'a> {
             }
         };
     }
+}
+
+pub(crate) unsafe fn write_to_gpu(
+    shape: &[usize],
+    strides: &[usize],
+    elem_size: usize,
+    data: &[u8],
+    dst_ptr: u64,
+    stream: *mut CUstream_st,
+) {
+    let rank = shape.len();
+    if rank > 1 {
+        let dim_x = shape[rank - 1];
+        let width_bytes = dim_x * elem_size;
+        let dim_y: usize = shape.iter().rev().skip(1).product();
+        let pitch = strides[rank - 2] * elem_size;
+
+        let cpy = CUDA_MEMCPY2D_st {
+            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+            srcHost: data.as_ptr() as *const c_void,
+            srcPitch: width_bytes,
+            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+            dstDevice: dst_ptr,
+            dstPitch: pitch,
+            WidthInBytes: width_bytes,
+            Height: dim_y,
+            ..Default::default()
+        };
+
+        unsafe {
+            cuMemcpy2DAsync_v2(&cpy, stream).result().unwrap();
+        }
+    } else {
+        unsafe {
+            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream).unwrap();
+        }
+    };
 }

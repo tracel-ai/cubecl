@@ -1,5 +1,8 @@
+use crate::compute::command::write_to_gpu;
 use crate::compute::{storage::gpu::GpuResource, sync::Fence};
+use cubecl_common::bytes::Bytes;
 use cubecl_common::stub::Mutex;
+use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::IoError;
 use cubecl_runtime::data_service::DataTransferId;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
@@ -34,13 +37,20 @@ pub struct DataServiceClient {
 
 /// The message of a transaction.
 enum DataTransferMsg {
-    Src {
+    SrcPeer {
         /// The unique identifier of the transaction.
         id: DataTransferId,
         /// The item to send.
         item: DataTransferItem,
         /// The fence to wait before executing the data transfer.
         fence: Fence,
+    },
+    SrcNormal {
+        id: DataTransferId,
+        bytes: DynFut<Bytes>,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
     },
     Dest(DataTransferId, DataTransferItem, SyncSender<()>),
 }
@@ -57,9 +67,28 @@ impl DataServiceClient {
     /// # Panics
     ///
     /// If the data service channel is closed.
-    pub fn register_src(&self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
+    pub fn register_src_peer(&self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
         self.sender
-            .send(DataTransferMsg::Src { id, item, fence })
+            .send(DataTransferMsg::SrcPeer { id, item, fence })
+            .unwrap();
+    }
+
+    pub fn register_src_normal(
+        &self,
+        id: DataTransferId,
+        bytes: DynFut<Bytes>,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
+    ) {
+        self.sender
+            .send(DataTransferMsg::SrcNormal {
+                id,
+                bytes,
+                shape,
+                strides,
+                elem_size,
+            })
             .unwrap();
     }
 
@@ -112,19 +141,58 @@ impl DataTransferRuntime {
     fn run(mut self) {
         while let Ok(msg) = self.recv.recv() {
             match msg {
-                DataTransferMsg::Src { id, item, fence } => {
-                    self.register_src(id, item, fence);
+                DataTransferMsg::SrcPeer { id, item, fence } => {
+                    self.register_src_peer(id, item, fence);
                 }
                 DataTransferMsg::Dest(id, handle, sender) => {
                     self.recv(id, handle, sender);
                 }
+                DataTransferMsg::SrcNormal {
+                    id,
+                    bytes,
+                    shape,
+                    strides,
+                    elem_size,
+                } => self.register_src_normal(id, bytes, shape, strides, elem_size),
             }
         }
     }
 
-    fn register_src(&mut self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
+    fn register_src_normal(
+        &mut self,
+        id: DataTransferId,
+        bytes: DynFut<Bytes>,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
+    ) {
         let transfer = self.transfers.remove(&id);
-        let info = DataTransferInfoSrc { fence, item };
+        let info = DataTransferInfoSrc::Normal {
+            bytes,
+            shape,
+            strides,
+            elem_size,
+        };
+
+        match transfer {
+            Some(mut transfer) => {
+                assert!(transfer.info_src.is_none(), "Can't send twice");
+
+                transfer.info_src = Some(info);
+                transfer.execute().unwrap();
+            }
+            None => {
+                let transfer = DataTransferInfo {
+                    info_src: Some(info),
+                    ..Default::default()
+                };
+                self.transfers.insert(id, transfer);
+            }
+        }
+    }
+    fn register_src_peer(&mut self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
+        let transfer = self.transfers.remove(&id);
+        let info = DataTransferInfoSrc::Peer { fence, item };
 
         match transfer {
             Some(mut transfer) => {
@@ -174,9 +242,17 @@ struct DataTransferInfo {
     info_dest: Option<DataTransferInfoDest>,
 }
 
-struct DataTransferInfoSrc {
-    fence: Fence,
-    item: DataTransferItem,
+enum DataTransferInfoSrc {
+    Peer {
+        item: DataTransferItem,
+        fence: Fence,
+    },
+    Normal {
+        bytes: DynFut<Bytes>,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
+    },
 }
 
 struct DataTransferInfoDest {
@@ -189,17 +265,64 @@ impl DataTransferInfo {
         let info_src = self.info_src.expect("To be filled");
         let info_dest = self.info_dest.expect("To be filled");
 
+        match info_src {
+            DataTransferInfoSrc::Peer {
+                item: data_transfer_item,
+                fence,
+            } => Self::execute_peer(fence, data_transfer_item, info_dest),
+            DataTransferInfoSrc::Normal {
+                bytes,
+                shape,
+                strides,
+                elem_size,
+            } => Self::execute_sync(bytes, shape, strides, elem_size, info_dest),
+        }
+    }
+
+    fn execute_sync(
+        bytes: DynFut<Bytes>,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        elem_size: usize,
+        info_dest: DataTransferInfoDest,
+    ) -> Result<(), IoError> {
+        let bytes = future::block_on(bytes);
+        let data: &[u8] = bytes.as_ref();
+
         unsafe {
             cudarc::driver::result::ctx::set_current(info_dest.item.context).unwrap();
 
-            info_src.fence.wait_async(info_dest.item.stream);
+            write_to_gpu(
+                &shape,
+                &strides,
+                elem_size,
+                data,
+                info_dest.item.resource.ptr,
+                info_dest.item.stream,
+            );
+        }
+
+        info_dest.callback.send(()).unwrap();
+
+        Ok(())
+    }
+
+    fn execute_peer(
+        src_fence: Fence,
+        src_data: DataTransferItem,
+        info_dest: DataTransferInfoDest,
+    ) -> Result<(), IoError> {
+        unsafe {
+            cudarc::driver::result::ctx::set_current(info_dest.item.context).unwrap();
+
+            src_fence.wait_async(info_dest.item.stream);
             let num_bytes = info_dest.item.resource.size as usize;
 
             let result = sys::cuMemcpyPeerAsync(
                 info_dest.item.resource.ptr,
                 info_dest.item.context,
-                info_src.item.resource.ptr,
-                info_src.item.context,
+                src_data.resource.ptr,
+                src_data.context,
                 num_bytes,
                 info_dest.item.stream,
             )
@@ -207,14 +330,13 @@ impl DataTransferInfo {
 
             // TODO: We should have a fallback when peer access isn't supported.
             if let Err(_err) = result {
-                enable_one_way_peer_access(info_src.item.context)
-                    .expect("Can't enable peer access");
+                enable_one_way_peer_access(src_data.context).expect("Can't enable peer access");
 
                 sys::cuMemcpyPeerAsync(
                     info_dest.item.resource.ptr,
                     info_dest.item.context,
-                    info_src.item.resource.ptr,
-                    info_src.item.context,
+                    src_data.resource.ptr,
+                    src_data.context,
                     num_bytes,
                     info_dest.item.stream,
                 )
