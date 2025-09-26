@@ -5,7 +5,7 @@ use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StridedStage};
-use crate::components::{MatrixPrecision, MatmulIdent};
+use crate::components::{MatmulIdent, MatrixPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;

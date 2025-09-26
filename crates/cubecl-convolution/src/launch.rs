@@ -15,8 +15,8 @@ use crate::{
 };
 use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
 use cubecl_matmul::components::{
-    self, AvailableLineSizes, MatrixPrecision, LhsG, MatmulElems, MatmulIdent, MatmulPrecision,
-    MatmulSelection, RhsG,
+    self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
+    MatrixPrecision, RhsG,
 };
 
 type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<

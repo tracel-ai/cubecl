@@ -5,7 +5,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
-use crate::components::{MatrixPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

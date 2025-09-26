@@ -1,7 +1,7 @@
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_core::{intrinsic, prelude::*};
 
-use cubecl_matmul::components::{MatrixPrecision, MatmulIdent, StageIdent};
+use cubecl_matmul::components::{MatmulIdent, MatrixPrecision, StageIdent};
 use cubecl_std::{FastDivmod, tensor::r#virtual::VirtualTensor};
 
 use crate::{

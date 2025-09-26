@@ -6,7 +6,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::MatrixLayout;
 use crate::components::stage::{RowMajorTilingOrder, StageMemoryConfig, TilingOrderEnum};
-use crate::components::{MatrixPrecision, MatmulIdent};
+use crate::components::{MatmulIdent, MatrixPrecision};
 use crate::components::{
     global::{GlobalConfig, memory::MappedTensorReader},
     stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage, TilingOrder},

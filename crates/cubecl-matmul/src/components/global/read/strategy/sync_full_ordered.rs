@@ -3,7 +3,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
-    FormattedConfigError, MatrixPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use cubecl_core as cubecl;

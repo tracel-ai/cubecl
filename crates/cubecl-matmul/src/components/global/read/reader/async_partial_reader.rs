@@ -6,7 +6,7 @@ use crate::components::global::multi_stage::double_buffering::DoubleBufferingGlo
 use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StridedStage};
-use crate::components::{MatrixPrecision, MatmulIdent};
+use crate::components::{MatmulIdent, MatrixPrecision};
 use core::marker::PhantomData;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;

@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
-use crate::components::MatrixPrecision;
 use crate::components::MatmulIdent;
+use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;

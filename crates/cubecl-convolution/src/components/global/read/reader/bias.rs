@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use cubecl_matmul::components::{
-    MatrixPrecision, MatmulIdent, StageIdent,
+    MatmulIdent, MatrixPrecision, StageIdent,
     global::GlobalConfig,
     stage::{StageMemoryConfig, StridedStage},
 };

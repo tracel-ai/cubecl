@@ -1,5 +1,5 @@
-use crate::components::MatrixPrecision;
 use crate::components::MatmulPrecision;
+use crate::components::MatrixPrecision;
 use crate::components::global::RoleRule;
 use crate::components::stage::StageConfig;
 use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul;

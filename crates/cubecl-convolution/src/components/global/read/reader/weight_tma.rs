@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
-    MatrixPrecision, MatmulIdent, StageIdent, stage::StageMemoryConfig,
+    MatmulIdent, MatrixPrecision, StageIdent, stage::StageMemoryConfig,
 };
 use cubecl_std::FastDivmod;
 

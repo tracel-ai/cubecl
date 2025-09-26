@@ -1,7 +1,7 @@
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::{StridedStage, TilingLayout};
-use crate::components::{MatrixPrecision, InvalidConfigError, MatmulIdent};
+use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

@@ -5,7 +5,7 @@ use crate::components::global::read::SyncPartialLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
-    FormattedConfigError, MatrixPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},

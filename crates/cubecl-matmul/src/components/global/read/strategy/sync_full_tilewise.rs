@@ -4,7 +4,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{
-    FormattedConfigError, MatrixPrecision, InvalidConfigError, MatmulIdent, TilingScheme,
+    FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},

@@ -1,5 +1,5 @@
 use crate::components::{
-    MatrixPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
     global::{
         CopyMechanism, GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},

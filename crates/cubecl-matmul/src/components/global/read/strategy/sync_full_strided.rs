@@ -3,8 +3,8 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StridedStage, StridedTilingLayout};
-use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{MatrixPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 

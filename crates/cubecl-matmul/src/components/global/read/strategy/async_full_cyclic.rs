@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    MatrixPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
     global::{
         CopyMechanism, GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
