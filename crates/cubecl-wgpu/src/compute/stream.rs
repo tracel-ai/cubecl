@@ -253,11 +253,13 @@ impl WgpuStream {
 
         let queue = self.queue.clone();
 
+        let poll = self.poll.start_polling();
         Box::pin(async move {
             let (sender, receiver) = async_channel::bounded::<()>(1);
             queue.on_submitted_work_done(move || {
                 // Signal that we're done.
                 let _ = sender.try_send(());
+                core::mem::drop(poll);
             });
             let _ = receiver.recv().await;
         })
