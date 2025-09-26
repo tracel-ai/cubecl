@@ -1,5 +1,5 @@
 use cubecl_core::ir::{Bitwise, ElemType, IntKind, UIntKind};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::arith::{self, CmpiPredicate},
     dialect::llvm,
     ir::r#type::IntegerType,

@@ -5,15 +5,14 @@ use cubecl_matmul::components::{
     stage::Stage,
     tile::io::Strided,
 };
-use cubecl_std::CubeOption;
 use std::marker::PhantomData;
 
-use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries, Scores};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{StageMask, global::dummy::QueryReader};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, S, SO, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, S, SO, TA)>,
@@ -45,11 +44,13 @@ impl<
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score_prob: &mut Self::Score,
+        mask: StageMask,
         accumulator: &mut Self::Accumulator,
         state: &mut StageState<AP>,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     ) {
+        let partition_mask = mask.to_partition(UNIT_POS_Y);
+
         let p = config.tiling_scheme().partition_size;
 
         let mut kv = comptime![0u32];
@@ -99,7 +100,7 @@ impl<
 
                 let row_stats = TA::score_to_prob(
                     score_frag,
-                    out_of_bound_mask,
+                    partition_mask.to_tile(q, kv),
                     state_q,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );

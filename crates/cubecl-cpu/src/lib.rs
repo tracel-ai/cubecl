@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 #[macro_use]
 extern crate derive_new;
 
@@ -19,8 +17,7 @@ mod tests {
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, f32: f32]);
     cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
 
-    // Deactivated for now as it makes the CI hang
-    // cubecl_reduce::testgen_reduce!([f16, f32, f64]);
+    cubecl_reduce::testgen_reduce!([f16, f32, f64]);
 }
 
 pub mod compiler;

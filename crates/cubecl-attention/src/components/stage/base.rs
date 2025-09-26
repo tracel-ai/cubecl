@@ -4,9 +4,9 @@ use cubecl_matmul::components::{
     global::{WriteEventListener, WriteTiling},
     stage::StageFamily,
 };
-use cubecl_std::CubeOption;
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::StageMask;
 use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -76,9 +76,9 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query: &Self::Query,
         key_value: &mut Self::KeyValue,
         score: &mut Self::Score,
+        mask: StageMask,
         accumulator: &mut Self::Accumulator,
         prev_state: &mut StageState<AP>,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 

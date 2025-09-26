@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self, Arithmetic};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{
         arith::{self},
         llvm,

@@ -54,6 +54,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_reader: Self::KeyReader,
         value_reader: Self::ValueReader,
         writer: Self::Writer,
+        seq_q: u32,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     );
