@@ -96,7 +96,7 @@ where
             rhs_reader.advance_view(k_step);
         }
 
-        let mut out_stage = <Self::GlobalWriter as GlobalWriter<MP::Acc>>::stage(&out_writer);
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
         SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
