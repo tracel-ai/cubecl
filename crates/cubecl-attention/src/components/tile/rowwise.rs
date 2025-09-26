@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-
 #[derive(CubeType)]
 pub struct RowWise<E: Float> {
     #[cube(comptime)]
@@ -18,6 +17,12 @@ pub struct RowVal<E: Float> {
 impl<E: Float> RowVal<E> {
     pub fn new(val: E) -> RowVal<E> {
         RowVal::<E> { val }
+    }
+
+    pub fn cast<E2: Float>(&self) -> RowVal<E2> {
+        RowVal::<E2> {
+            val: E2::cast_from(self.val),
+        }
     }
 }
 
@@ -53,6 +58,15 @@ impl<E: Float> RowWise<E> {
             let value = self.vals.index(i);
             place.val = value.val;
         }
+    }
+
+    pub fn cast<E2: Float>(&self) -> RowWise<E2> {
+        let mut vals = Sequence::new();
+        #[unroll]
+        for i in 0..self.num_rows {
+            vals.push(self.vals.index(i).cast::<E2>());
+        }
+        RowWise::<E2>::new(self.num_rows, vals)
     }
 }
 

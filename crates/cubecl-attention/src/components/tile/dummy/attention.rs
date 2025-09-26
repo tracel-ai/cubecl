@@ -37,7 +37,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         prev_state: &RunningState<SM<AP>>,
         #[comptime] _config: Self::Config,
     ) {
-        acc.scale(&prev_state.l, ScaleMode::Divide);
+        acc.scale(&prev_state.l.cast::<ACC<AP>>(), ScaleMode::Divide);
     }
 
     fn write_results(
