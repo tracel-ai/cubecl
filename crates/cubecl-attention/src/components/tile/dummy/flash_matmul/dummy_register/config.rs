@@ -99,7 +99,7 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         match ident {
             FlashIdent::Query => self.query_stage_line_size,
             FlashIdent::Key => self.key_value_stage_line_size,
-            FlashIdent::ScoreProb => unreachable!("Not a materialized stage"),
+            FlashIdent::Softmax => unreachable!("Not a materialized stage"),
             FlashIdent::Value => self.key_value_stage_line_size,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => 1,
@@ -124,12 +124,14 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
             .div_ceil(self.num_units_per_row(ident))
     }
 
-    fn check_bounds(&self) -> bool {
-        self.check_bounds
+    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32 {
+        self.attention_tile_size
+            .num_rows(ident)
+            .div_ceil(self.plane_dim)
     }
 
-    fn num_rows_per_unit(&self, ident: FlashIdent) -> u32 {
-        1u32
+    fn check_bounds(&self) -> bool {
+        self.check_bounds
     }
 }
 

@@ -1,9 +1,9 @@
 pub mod dummy;
 
-mod accumulator;
 mod base;
-mod softmax;
+mod rowwise;
+mod tiles;
 
-pub use accumulator::*;
 pub use base::*;
-pub use softmax::*;
+pub use rowwise::*;
+pub use tiles::*;

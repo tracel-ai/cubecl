@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::tile::{AccumulatorFragment, SoftmaxFragment};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
@@ -23,18 +22,18 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     type Config: FlashMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type ScoreProb: SoftmaxFragment<FP::SP>;
-    type Accumulator: AccumulatorFragment<FP::A>;
+    type Softmax: CubeType;
+    type Accumulator: CubeType;
 
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::ScoreProb,
+        out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     );
 
     fn value_matmul(
-        lhs: &Self::ScoreProb,
+        lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -55,8 +54,8 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_score_prob(#[comptime] config: Self::Config) -> Self::ScoreProb;
-    fn zero_score_prob(score_prob: &mut Self::ScoreProb, #[comptime] config: Self::Config);
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
@@ -75,11 +74,11 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
     );
     fn tmp_fill_prob(
         tile: &StridedTile<FP::SP>,
-        prob: &mut Self::ScoreProb,
+        prob: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     );
-    fn tmp_write_score_prob(
-        score_prob: &Self::ScoreProb,
+    fn tmp_write_softmax(
+        softmax: &Self::Softmax,
         slice: &mut SliceMut<Line<FP::SP>>,
         #[comptime] config: Self::Config,
     );

@@ -224,7 +224,7 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: FlashIdent) -> [usize; 4]
             problem.num_heads,
             problem.val_dim,
         ],
-        FlashIdent::ScoreProb => unreachable!("Not a materialized tensor"),
+        FlashIdent::Softmax => unreachable!("Not a materialized tensor"),
     }
 }
 

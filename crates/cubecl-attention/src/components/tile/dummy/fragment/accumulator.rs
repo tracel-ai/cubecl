@@ -8,11 +8,9 @@ use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::ScaleMode;
-use crate::components::tile::SoftmaxTile;
 use crate::components::tile::dummy::FlashMatmul;
 use crate::components::tile::dummy::FlashMatmulConfig;
 use crate::components::tile::dummy::FlashPrecision;
-use std::marker::PhantomData;
 
 #[derive(CubeType)]
 pub struct DummyAccumulator<FP: FlashPrecision, FM: FlashMatmul<FP>> {
@@ -70,12 +68,6 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummyAccumulator<FP, FM> {
 
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> AccumulatorTile<FP::A> for DummyAccumulator<FP, FM> {
-    type Fragment = FM::Accumulator;
-
-    fn zero(&mut self) {
-        todo!()
-    }
-
     fn scale(&mut self, scale: &RowWise<FP::A>, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem

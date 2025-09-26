@@ -109,15 +109,6 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
 
                 scales.push(accumulator_scale);
 
-                // let row_stats = TA::score_to_prob(
-                //     softmax,
-                //     partition_mask.to_tile(q, kv),
-                //     state_q,
-                //     config.tiling_scheme().elements_in_partition_head_dim(),
-                // );
-
-                // TA::update_state(state_q, &row_stats));
-
                 comptime![q += 1];
             }
 
@@ -144,13 +135,13 @@ impl<AP: AttentionPrecision, S: Stage<AP::ES, TileKind = Strided>, TA: TileAtten
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.seq_q {
                 let mut vd = comptime![0u32];
-                let score_frag = softmax_partition.get_at(q, kv, config);
+                let softmax_tile = softmax_partition.get_at(q, kv, config);
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
                 for _ in 0..p.val_dim {
                     TA::accumulate_value(
-                        score_frag,
+                        softmax_tile,
                         key_value_partition.get_value_at(kv, vd, config),
                         accumulator_partition.get_at_mut(q, vd, config),
                         scales.index(q),

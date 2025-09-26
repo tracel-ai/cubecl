@@ -4,12 +4,12 @@ use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
 use crate::components::TileMask;
+use crate::components::tile::AccumulatorTile as _;
+use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::ScaleMode;
-use crate::components::tile::accumulator::AccumulatorTile as _;
-use crate::components::tile::accumulator::AccumulatorTileExpand;
+use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
 use crate::components::tile::dummy::{DummySoftmax, FlashMatmul, FlashPrecision};
-use crate::components::tile::softmax::SoftmaxTileExpand;
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
@@ -67,7 +67,7 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         Self::KeyValueTile::new_value(config)
     }
 
-    fn init_score(#[comptime] config: Self::Config) -> Self::SoftmaxTile {
+    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile {
         Self::SoftmaxTile::new(config)
     }
 
@@ -88,19 +88,19 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
     }
 
     fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config) {
-        FM::zero_score_prob(&mut score.fragment, config);
+        FM::zero_softmax(&mut score.fragment, config);
     }
 
     fn accumulate_score(
         query: &Self::QueryTile,
         key_value: &Self::KeyValueTile,
-        score_prob: &mut Self::SoftmaxTile,
+        softmax: &mut Self::SoftmaxTile,
         #[comptime] config: Self::Config,
     ) {
         FM::score_matmul(
             &query.fragment,
             key_value.key(),
-            &mut score_prob.fragment,
+            &mut softmax.fragment,
             config,
         );
     }
@@ -120,48 +120,8 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         softmax.to_prob(state, &score_max)
     }
 
-    // fn score_to_prob(
-    //     score_prob: &mut Self::Softmax,
-    //     mask: TileMask,
-    //     state: &RunningState<AP::EA>,
-    //     #[comptime] dk: u32,
-    // ) -> RowStats<AP::EA> {
-    //     let inv_sqrt_dk = AP::EA::new(comptime!(1.0 / (dk as f32).sqrt()));
-
-    //     score_prob.multiply_score(inv_sqrt_dk);
-
-    //     score_prob.apply_mask(mask);
-
-    //     let max = score_prob.row_max(state.m);
-
-    //     score_prob.to_prob(max);
-    //     let prob_row_sum = score_prob.row_sum();
-
-    //     RowStats::<AP::EA> {
-    //         m: max,
-    //         prob_row_sum,
-    //     }
-    // }
-
-    // fn update_state(
-    //     state: &mut RunningState<AP::EA>,
-    //     score_prob_row_stats: &RowStats<AP::EA>,
-    // ) -> AP::EA {
-    //     let prev_m = state.m;
-    //     let prev_l = state.l;
-    //     let new_m = score_prob_row_stats.m;
-
-    //     let exp_m_diff = Exp::exp(prev_m - new_m);
-    //     let new_l = exp_m_diff * prev_l + score_prob_row_stats.prob_row_sum;
-
-    //     state.m = new_m;
-    //     state.l = new_l;
-
-    //     exp_m_diff
-    // }
-
     fn accumulate_value(
-        score_prob: &Self::SoftmaxTile,
+        softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
         scale: &RowWise<AP::EA>,
@@ -170,32 +130,10 @@ impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<
         accumulator.scale(scale, ScaleMode::Multiply);
 
         FM::value_matmul(
-            &score_prob.fragment,
+            &softmax.fragment,
             key_value.value(),
             &mut accumulator.fragment,
             config,
         );
     }
-
-    // #[derive(CubeType)]
-    // pub struct RunningState<E: Float> {
-    //     pub m: E,
-    //     pub l: E,
-    // }
-
-    // #[cube]
-    // impl<E: Float> RunningState<E> {
-    //     pub fn init() -> Self {
-    //         RunningState::<E> {
-    //             // TODO Neg infinity
-    //             m: E::from_int(-99999999999),
-    //             l: E::from_int(0),
-    //         }
-    //     }
-
-    //     pub fn update(&mut self, m_new: E, l_new: E) {
-    //         self.m = m_new;
-    //         self.l = l_new;
-    //     }
-    // }
 }

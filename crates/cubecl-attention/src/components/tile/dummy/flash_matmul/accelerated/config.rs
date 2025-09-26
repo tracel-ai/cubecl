@@ -101,7 +101,7 @@ impl FlashMatmulConfig for AcceleratedFlashMatmulConfig {
         match ident {
             FlashIdent::Query => self.query_stage_line_size,
             FlashIdent::Key => self.key_value_stage_line_size,
-            FlashIdent::ScoreProb => unreachable!("Not a materialized stage"),
+            FlashIdent::Softmax => unreachable!("Not a materialized stage"),
             FlashIdent::Value => self.key_value_stage_line_size,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => 1,

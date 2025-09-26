@@ -15,7 +15,7 @@ use crate::components::{
 #[derive(CubeType)]
 pub struct DummySoftmax<FP: FlashPrecision, FM: FlashMatmul<FP>> {
     tmp_smem: SharedMemory<FP::SP>,
-    pub fragment: FM::ScoreProb,
+    pub fragment: FM::Softmax,
 
     row: u32,
     col_start: u32,
@@ -36,18 +36,18 @@ pub struct DummySoftmax<FP: FlashPrecision, FM: FlashMatmul<FP>> {
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummySoftmax<FP, FM> {
     pub fn new(#[comptime] config: FM::Config) -> Self {
-        let mut fragment = FM::allocate_score_prob(config);
-        FM::zero_score_prob(&mut fragment, config);
+        let mut fragment = FM::allocate_softmax(config);
+        FM::zero_softmax(&mut fragment, config);
 
-        let num_rows = config.attention_tile_size().num_rows(FlashIdent::ScoreProb);
-        let num_cols = config.attention_tile_size().num_cols(FlashIdent::ScoreProb);
-        let num_units_per_row = config.num_units_per_row(FlashIdent::ScoreProb);
-        let num_cols_per_unit = config.num_cols_per_unit(FlashIdent::ScoreProb);
+        let num_rows = config.attention_tile_size().num_rows(FlashIdent::Softmax);
+        let num_cols = config.attention_tile_size().num_cols(FlashIdent::Softmax);
+        let num_units_per_row = config.num_units_per_row(FlashIdent::Softmax);
+        let num_cols_per_unit = config.num_cols_per_unit(FlashIdent::Softmax);
 
         let row = UNIT_POS_X / num_units_per_row;
         let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
 
-        let score_size = config.attention_tile_size().score_prob_size();
+        let score_size = config.attention_tile_size().softmax_size();
         let tmp_smem_start = UNIT_POS_Y * score_size;
         let tmp_smem_end = tmp_smem_start + score_size;
 
@@ -68,18 +68,12 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> DummySoftmax<FP, FM> {
 
 #[cube]
 impl<FP: FlashPrecision, FM: FlashMatmul<FP>> SoftmaxTile<FP> for DummySoftmax<FP, FM> {
-    type Fragment = FM::ScoreProb;
-
     fn init_state() -> RunningState<FP::SP> {
         RunningState::init(1u32)
     }
 
     fn zero(&mut self) {
-        FM::zero_score_prob(&mut self.fragment, self.config);
-    }
-
-    fn fragment(&mut self) -> &mut Self::Fragment {
-        &mut self.fragment
+        FM::zero_softmax(&mut self.fragment, self.config);
     }
 
     fn scale_and_mask(&mut self, scale: FP::SP, mask: TileMask) {
@@ -88,7 +82,7 @@ impl<FP: FlashPrecision, FM: FlashMatmul<FP>> SoftmaxTile<FP> for DummySoftmax<F
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
             .try_cast_unchecked();
 
-        FM::tmp_write_score_prob(&self.fragment, &mut slice, self.config);
+        FM::tmp_write_softmax(&self.fragment, &mut slice, self.config);
 
         if self.row < self.num_rows {
             #[unroll]

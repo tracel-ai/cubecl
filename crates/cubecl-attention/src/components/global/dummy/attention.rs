@@ -53,7 +53,7 @@ impl<
 
         let mut stage_state = SA::init_state(config.stage_config());
 
-        let (query, mut key_value, mut score_prob, mut accumulator) =
+        let (query, mut key_value, mut softmax, mut accumulator) =
             SA::init_partitions(query_reader, config.stage_config());
 
         let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
@@ -71,7 +71,7 @@ impl<
                 &value_stage,
                 &query,
                 &mut key_value,
-                &mut score_prob,
+                &mut softmax,
                 mask.to_stage(CUBE_POS, i),
                 &mut accumulator,
                 &mut stage_state,

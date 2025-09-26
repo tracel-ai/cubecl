@@ -2,7 +2,7 @@
 pub enum FlashIdent {
     Query,
     Key,
-    ScoreProb,
+    Softmax,
     Value,
     Mask,
     Out,

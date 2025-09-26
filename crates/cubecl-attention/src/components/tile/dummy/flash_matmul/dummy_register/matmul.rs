@@ -4,8 +4,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::tile::AccumulatorFragment;
-use crate::components::tile::SoftmaxFragment;
 use crate::components::tile::dummy::dummy_register::DummyRegisterFlashMatmulConfig;
 use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashPrecision};
 
@@ -14,23 +12,18 @@ use crate::components::tile::dummy::{FlashMatmul, FlashMatmulConfig as _, FlashP
 pub struct DummyRegisterFlashMatmul;
 
 #[cube]
-impl<E: Float> SoftmaxFragment<E> for Array<E> {}
-#[cube]
-impl<E: Float> AccumulatorFragment<E> for Array<E> {}
-
-#[cube]
 impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     type Config = DummyRegisterFlashMatmulConfig;
 
     type Query = Array<FP::Q>;
     type KeyValue = Array<FP::KV>;
-    type ScoreProb = Array<FP::SP>;
+    type Softmax = Array<FP::SP>;
     type Accumulator = Array<FP::A>;
 
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::ScoreProb,
+        out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS_X == 0 {
@@ -53,7 +46,7 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
     }
 
     fn value_matmul(
-        lhs: &Self::ScoreProb,
+        lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -129,15 +122,15 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         sync_cube();
     }
 
-    fn allocate_score_prob(#[comptime] config: Self::Config) -> Self::ScoreProb {
-        Array::<FP::SP>::new(config.attention_tile_size().score_prob_size())
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
+        Array::<FP::SP>::new(config.attention_tile_size().softmax_size())
     }
 
-    fn zero_score_prob(score_prob: &mut Self::ScoreProb, #[comptime] config: Self::Config) {
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config) {
         if UNIT_POS_X == 0 {
-            let len = config.attention_tile_size().score_prob_size();
+            let len = config.attention_tile_size().softmax_size();
             for i in 0..len {
-                score_prob[i] = FP::SP::from_int(0);
+                softmax[i] = FP::SP::from_int(0);
             }
         }
         sync_cube();
@@ -190,11 +183,11 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
 
     fn tmp_fill_prob(
         tile: &StridedTile<FP::SP>,
-        prob: &mut Self::ScoreProb,
+        prob: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS_X == 0 {
-            let len = config.attention_tile_size().score_prob_size();
+            let len = config.attention_tile_size().softmax_size();
             for i in 0..len {
                 prob[i] = tile.as_unlined(1u32).0[i];
             }
@@ -203,15 +196,15 @@ impl<FP: FlashPrecision> FlashMatmul<FP> for DummyRegisterFlashMatmul {
         sync_cube();
     }
 
-    fn tmp_write_score_prob(
-        score_prob: &Self::ScoreProb,
+    fn tmp_write_softmax(
+        softmax: &Self::Softmax,
         slice: &mut SliceMut<Line<FP::SP>>,
         #[comptime] config: Self::Config,
     ) {
         if UNIT_POS_X == 0 {
-            let size = config.attention_tile_size().score_prob_size();
+            let size = config.attention_tile_size().softmax_size();
             for i in 0..size {
-                slice[i] = Line::cast_from(score_prob[i]);
+                slice[i] = Line::cast_from(softmax[i]);
             }
         }
 

@@ -62,7 +62,7 @@ impl AttentionTileSize {
         self.head_dim * self.seq_kv
     }
 
-    pub fn score_prob_size(&self) -> u32 {
+    pub fn softmax_size(&self) -> u32 {
         self.seq_q * self.seq_kv
     }
 
@@ -78,7 +78,7 @@ impl AttentionTileSize {
         match ident {
             FlashIdent::Query => self.seq_q,
             FlashIdent::Key => self.seq_kv,
-            FlashIdent::ScoreProb => self.seq_q,
+            FlashIdent::Softmax => self.seq_q,
             FlashIdent::Value => self.seq_kv,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => self.seq_q,
@@ -89,7 +89,7 @@ impl AttentionTileSize {
         match ident {
             FlashIdent::Query => self.head_dim,
             FlashIdent::Key => self.head_dim,
-            FlashIdent::ScoreProb => self.seq_kv,
+            FlashIdent::Softmax => self.seq_kv,
             FlashIdent::Value => self.val_dim,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => self.val_dim,
@@ -129,7 +129,7 @@ impl AttentionPartitionSize {
         match ident {
             FlashIdent::Query => self.seq_q,
             FlashIdent::Key => self.seq_kv,
-            FlashIdent::ScoreProb => self.seq_q,
+            FlashIdent::Softmax => self.seq_q,
             FlashIdent::Value => self.seq_kv,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => self.seq_q,
@@ -140,7 +140,7 @@ impl AttentionPartitionSize {
         match ident {
             FlashIdent::Query => self.head_dim,
             FlashIdent::Key => self.head_dim,
-            FlashIdent::ScoreProb => self.seq_kv,
+            FlashIdent::Softmax => self.seq_kv,
             FlashIdent::Value => self.val_dim,
             FlashIdent::Mask => todo!(),
             FlashIdent::Out => self.val_dim,

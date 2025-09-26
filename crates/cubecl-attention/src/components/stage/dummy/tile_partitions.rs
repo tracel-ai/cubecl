@@ -277,7 +277,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.seq_kv) {
-            sequence.push(TA::init_score(config.tile_config()));
+            sequence.push(TA::init_softmax(config.tile_config()));
         }
 
         SoftmaxPartition::<AP, TA, S> {
@@ -321,7 +321,7 @@ impl<AP: AttentionPrecision> StageState<AP> {
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
             sequence.push(RunningState::<AP::EA>::init(
-                config.num_rows_per_unit(FlashIdent::ScoreProb),
+                config.num_rows_per_unit(FlashIdent::Softmax),
             ));
         }
 
