@@ -179,9 +179,9 @@ impl WgpuStream {
                 staging_info
                     .into_iter()
                     .map(|(staging, binding, size)| {
-                        let (controller, alloc) =
-                            WgpuAllocController::init(binding, staging.buffer, size);
-                        unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) }
+                        let controller =
+                            Box::new(WgpuAllocController::init(binding, staging.buffer));
+                        unsafe { Bytes::from_raw_parts(size, controller) }
                     })
                     .collect()
             };

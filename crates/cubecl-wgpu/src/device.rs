@@ -12,7 +12,7 @@ use cubecl_common::device::{Device, DeviceId};
 /// let device_gpu_1 = WgpuDevice::DiscreteGpu(0); // First discrete GPU found.
 /// let device_gpu_2 = WgpuDevice::DiscreteGpu(1);  // Second discrete GPU found.
 /// ```
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub enum WgpuDevice {
     /// Discrete GPU with the given index. The index is the index of the discrete GPU in the list
     /// of all discrete GPUs found on the system.
@@ -34,6 +34,7 @@ pub enum WgpuDevice {
     /// This will prioritize GPUs wgpu recognizes as "high power". Additionally, you can override this using
     /// the `CUBECL_WGPU_DEFAULT_DEVICE` environment variable. This variable is spelled as if i was a WgpuDevice,
     /// so for example CUBECL_WGPU_DEFAULT_DEVICE=IntegratedGpu(1) or CUBECL_WGPU_DEFAULT_DEVICE=Cpu
+    #[default]
     DefaultDevice,
 
     /// Deprecated, use [`DefaultDevice`](WgpuDevice::DefaultDevice).
@@ -47,12 +48,6 @@ pub enum WgpuDevice {
     ///
     /// This can be initialized with [`init_device`](crate::runtime::init_device).
     Existing(u32),
-}
-
-impl Default for WgpuDevice {
-    fn default() -> Self {
-        Self::DefaultDevice
-    }
 }
 
 impl Device for WgpuDevice {

@@ -1,8 +1,8 @@
 //! Module that defines an allocation based on the [alloc crate](alloc).
 
-use crate::bytes::{Allocation, AllocationController, AllocationError};
+use crate::bytes::{Allocation, AllocationError, BytesBacking};
 use alloc::alloc::Layout;
-use core::ptr::NonNull;
+use core::{mem::MaybeUninit, ptr::NonNull};
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
 /// the bytes are always over-aligned when deserializing to MAX_ALIGN.
@@ -16,39 +16,59 @@ pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 ///  - If `layout.size() == 0`, `ptr` is aligned to `layout.align()` and `len` is 0.
 ///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts` see [buffer alloc]
 ///    for more details.
-pub struct DefaultAllocationController;
+pub struct DefaultAllocationController<'a> {
+    allocation: Allocation<'a>,
+}
 
-impl AllocationController for DefaultAllocationController {
-    fn dealloc(&mut self, allocation: &Allocation) {
-        let layout =
-            unsafe { Layout::from_size_align_unchecked(allocation.size, allocation.align) };
-        buffer_dealloc(layout, allocation.ptr);
+impl<'a> DefaultAllocationController<'a> {
+    pub(crate) fn new(allocation: Allocation<'a>) -> Self {
+        Self { allocation }
+    }
+}
+
+impl BytesBacking for DefaultAllocationController<'_> {
+    fn dealloc(&mut self) {
+        let layout = unsafe {
+            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
+        };
+        buffer_dealloc(layout, self.allocation.ptr);
     }
 
-    fn grow(
-        &mut self,
-        allocation: &Allocation,
-        size: usize,
-        align: usize,
-    ) -> Result<Allocation, AllocationError> {
+    fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
         let Ok(new_layout) = Layout::from_size_align(size, align) else {
             return Err(AllocationError::OutOfMemory);
         };
 
         // Check done before.
-        let old_layout =
-            unsafe { Layout::from_size_align_unchecked(allocation.size, allocation.align) };
-        let (layout, ptr) = buffer_grow(old_layout, allocation.ptr, new_layout);
+        let old_layout = unsafe {
+            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
+        };
+        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr, new_layout);
 
-        Ok(Allocation {
+        self.allocation = Allocation {
             ptr,
             size: layout.size(),
             align: layout.align(),
-        })
+            _lifetime: core::marker::PhantomData,
+        };
+
+        Ok(())
     }
 
     fn can_be_detached(&self) -> bool {
         true
+    }
+
+    fn alloc_align(&self) -> usize {
+        self.allocation.align
+    }
+
+    fn memory(&self) -> &[MaybeUninit<u8>] {
+        self.allocation.memory()
+    }
+
+    fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+        self.allocation.memory_mut()
     }
 }
 
