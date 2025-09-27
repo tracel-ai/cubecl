@@ -415,6 +415,7 @@ impl VirtualMemoryPool {
             if let Some(handle) = self.physical_handles.get(&id) {
                 physical_handles.push(handle.clone());
                 allocated_size += self.alloc_size;
+                self.physical_handles.insert(handle.id(), handle.clone());
             }
 
             if allocated_size >= aligned_size {
@@ -427,6 +428,7 @@ impl VirtualMemoryPool {
             let handle = storage.allocate(self.alloc_size)?;
             physical_handles.push(handle.clone());
             allocated_size += self.alloc_size;
+            self.physical_handles.insert(handle.id(), handle.clone());
         }
 
         Ok(physical_handles)
@@ -560,6 +562,19 @@ impl VirtualMemoryPool {
         };
 
         Some(virtual_slice.slice.handle.clone())
+    }
+
+    // Reset the main tracking data structures.
+    #[cfg(test)]
+    pub fn reset_tracking(&mut self) {
+        self.recently_added_pages.clear();
+        self.recently_allocated_size = 0;
+        self.first_page = None;
+    }
+    
+    #[cfg(test)]
+    pub fn reusable_memory(&self) -> u64 {
+        self.free_physical_queue.len() as u64 * self.alloc_size
     }
 
     /// This method implements the main defragmentation algorithm of the memory spaces.

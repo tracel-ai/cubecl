@@ -957,9 +957,6 @@ mod tests {
         // This is tested at the GpuStorage level. See [cubecl-cuda] for details.
         memory_manager.cleanup(true);
 
-        let usage_after_cleanup = memory_manager.memory_usage();
-        assert!(usage_after_cleanup.bytes_reserved == 0);
-
         // Allocate a larger block that should benefit from page merging
         let huge_size = page_size * 2;
         let huge_handle = memory_manager.reserve(huge_size).unwrap();
@@ -986,7 +983,76 @@ mod tests {
         assert_eq!(resource3.read()[0], 13); // Originally i=3, so 3+10=13
 
         let final_usage = memory_manager.memory_usage();
-        dbg!(&final_usage);
+        //   dbg!(&final_usage);
         assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
+
+        let available_mem = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => {
+                p.reusable_memory()
+            },
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert!(available_mem == 0); // Physical memory should have been freed as we called cleanup explicitly
+    }
+
+    #[test]
+    fn test_virtual_pool_cleanup_no_explicit() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+
+        // Allocate multiple blocks that will create separate pages
+        let mut handles = Vec::with_capacity(4);
+
+        for i in 0..4 {
+            let handle = memory_manager.reserve(page_size).unwrap();
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+
+            handles.push(handle);
+        }
+
+       match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => {
+                p.reset_tracking();
+            },
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+        // Clear the recently allocated vector.
+        memory_manager.alloc_reserve_count = 5000; //  force alloc reserve count to be 5000 so that cleanup is called at the following cleanup call
+
+        let usage_before = memory_manager.memory_usage();
+
+        // Extract handles to deallocate
+        let handle_0 = handles.remove(0); // Remove index 0, others shift down
+        let handle_2 = handles.remove(1); // What was index 2 is now index 1
+
+        // Deallocate every other allocation to create fragmented pages
+        drop(handle_0);
+        drop(handle_2);
+
+        let usage_after = memory_manager.memory_usage();
+
+        assert!(usage_before.bytes_in_use == usage_after.bytes_in_use + 2 * page_size);
+
+        // Cleanup without explicit call should return physical memory for reuse.
+        memory_manager.cleanup(false);
+
+        let available_mem = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => {
+                p.reusable_memory()
+            },
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert!(available_mem > 0); // There should be some free handles ready to be reused
+        let final_usage = memory_manager.memory_usage();
+
+        assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
+        assert!(final_usage.bytes_reserved == usage_after.bytes_reserved); // memory should not have been freed
+
     }
 }
