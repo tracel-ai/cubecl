@@ -47,7 +47,6 @@ enum DataTransferMsg {
     },
     SrcNormal {
         id: DataTransferId,
-        fence: Fence,
         bytes: DynFut<Bytes>,
         shape: Vec<usize>,
         strides: Vec<usize>,
@@ -77,7 +76,6 @@ impl DataServiceClient {
     pub fn register_src_normal(
         &self,
         id: DataTransferId,
-        fence: Fence,
         bytes: DynFut<Bytes>,
         shape: Vec<usize>,
         strides: Vec<usize>,
@@ -86,7 +84,6 @@ impl DataServiceClient {
         self.sender
             .send(DataTransferMsg::SrcNormal {
                 id,
-                fence,
                 bytes,
                 shape,
                 strides,
@@ -152,12 +149,11 @@ impl DataTransferRuntime {
                 }
                 DataTransferMsg::SrcNormal {
                     id,
-                    fence,
                     bytes,
                     shape,
                     strides,
                     elem_size,
-                } => self.register_src_normal(id, fence, bytes, shape, strides, elem_size),
+                } => self.register_src_normal(id, bytes, shape, strides, elem_size),
             }
         }
     }
@@ -165,7 +161,6 @@ impl DataTransferRuntime {
     fn register_src_normal(
         &mut self,
         id: DataTransferId,
-        fence: Fence,
         bytes: DynFut<Bytes>,
         shape: Vec<usize>,
         strides: Vec<usize>,
@@ -174,7 +169,6 @@ impl DataTransferRuntime {
         let transfer = self.transfers.remove(&id);
         let info = DataTransferInfoSrc::Normal {
             bytes,
-            fence,
             shape,
             strides,
             elem_size,
@@ -255,7 +249,6 @@ enum DataTransferInfoSrc {
     },
     Normal {
         bytes: DynFut<Bytes>,
-        fence: Fence,
         shape: Vec<usize>,
         strides: Vec<usize>,
         elem_size: usize,
@@ -279,27 +272,20 @@ impl DataTransferInfo {
             } => Self::execute_peer(fence, data_transfer_item, info_dest),
             DataTransferInfoSrc::Normal {
                 bytes,
-                fence,
                 shape,
                 strides,
                 elem_size,
-            } => Self::execute_normal(bytes, fence, shape, strides, elem_size, info_dest),
+            } => Self::execute_normal(bytes, shape, strides, elem_size, info_dest),
         }
     }
 
     fn execute_normal(
         bytes: DynFut<Bytes>,
-        fence: Fence,
         shape: Vec<usize>,
         strides: Vec<usize>,
         elem_size: usize,
         info_dest: DataTransferInfoDest,
     ) -> Result<(), IoError> {
-        fence.wait_async(info_dest.item.stream);
-
-        // Unblock as soon as possible.
-        info_dest.callback.send(()).unwrap();
-
         let bytes = future::block_on(bytes);
         let data: &[u8] = bytes.as_ref();
 
@@ -315,6 +301,9 @@ impl DataTransferInfo {
                 info_dest.item.stream,
             );
         }
+
+        // Unblock as soon as possible.
+        info_dest.callback.send(()).unwrap();
 
         Ok(())
     }
