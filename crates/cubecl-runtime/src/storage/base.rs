@@ -1,4 +1,4 @@
-use super::virtual_storage::VirtualStorage;
+use super::VirtualStorage;
 use core::fmt::Debug;
 
 use crate::{

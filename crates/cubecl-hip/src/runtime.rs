@@ -115,6 +115,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         alignment: mem_alignment as u64,
         data_transfer_async: false,
         virtual_memory_supported: false,
+        min_granularity: 0,
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);

@@ -24,8 +24,10 @@ unsafe impl Send for BytesResource {}
 /// This struct is a pointer to a memory chunk or slice.
 #[derive(Debug, Clone)]
 pub struct BytesResource {
-    ptr: *mut u8,
-    utilization: StorageUtilization,
+    /// Address at which this resource is referring to in the heap.
+    pub ptr: *mut u8,
+    /// The utilization of this resource
+    pub utilization: StorageUtilization,
 }
 
 /// This struct refers to a specific (contiguous) layout of bytes.

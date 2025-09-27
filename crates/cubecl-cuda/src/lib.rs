@@ -92,9 +92,4 @@ mod tests {
     cubecl_random::testgen_random!();
     cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
-
-    /*  cubecl_runtime::testgen_virtual_memory_pool!([
-    small: { min_alloc: 1, max_alloc: 10 * 1024 * 1024, alignment: 2 * 1024 * 1024},
-    large: { min_alloc: 5 * 1024 * 1024, max_alloc: 20 * 1024 * 1024, alignment: 2 * 1024 * 1024 }
-    ]);*/
 }

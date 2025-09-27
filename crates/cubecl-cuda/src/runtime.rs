@@ -1,3 +1,4 @@
+use crate::compute::storage::gpu::get_minimum_granularity;
 use crate::{
     WmmaCompiler,
     compute::{CudaServer, context::CudaContext, valid_strides},
@@ -26,6 +27,9 @@ use cubecl_runtime::{
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
+use cudarc::driver::sys::CUdevice_attribute_enum;
+use cudarc::driver::sys::CUresult;
+use cudarc::driver::sys::cuDeviceGetAttribute;
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
 use std::mem::MaybeUninit;
 
@@ -45,6 +49,22 @@ type Channel = MutexComputeChannel<Server>;
 static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
 
 pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;
+
+// Utility to check if target device supports virtual memory
+pub fn is_virtual_memory_supported(device_ptr: i32) -> bool {
+    let mut value: i32 = 0; // Atributo definido en la CUDA Driver API
+    let attr = CUdevice_attribute_enum::CU_DEVICE_ATTRIBUTE_VIRTUAL_MEMORY_MANAGEMENT_SUPPORTED;
+
+    unsafe {
+        let result = cuDeviceGetAttribute(&mut value as *mut i32, attr, device_ptr);
+
+        if result != CUresult::CUDA_SUCCESS {
+            return false;
+        }
+    }
+
+    value != 0
+}
 
 fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     device: &CudaDevice,
@@ -93,12 +113,22 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         cuDeviceTotalMem_v2(bytes.as_mut_ptr(), device_ptr);
         bytes.assume_init() as u64
     };
+
+    let virtual_memory_supported = is_virtual_memory_supported(device_ptr);
+    let min_granularity = if virtual_memory_supported {
+        get_minimum_granularity(device_ptr) as u64
+    } else {
+        0
+    };
+
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
         // TODO: We should have a fallback when peer access isn't supported.
         data_transfer_async: true,
-        virtual_memory_supported: false,
+        // Appended properties to MemoryDeviceProperties.
+        virtual_memory_supported,
+        min_granularity,
     };
 
     let mut comp_opts = CompilationOptions::default();

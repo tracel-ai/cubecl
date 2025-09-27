@@ -31,10 +31,8 @@ pub enum PoolType {
     },
     /// Use a pool designed specifically to work with virtual memory
     VirtualMemory {
-        /// The maximum allocation size
-        max_alloc_size: u64,
-        /// The alignment of allocations (also minimum allocation size)
-        alignment: u64,
+        /// The physical allocation size
+        alloc_size: u64,
     },
 }
 
@@ -95,6 +93,8 @@ pub struct MemoryDeviceProperties {
     pub data_transfer_async: bool,
     /// Determines whether virtual memory is supported on the target device.
     pub virtual_memory_supported: bool,
+    /// Minimum granularity of the target device (Decouple from alignment)
+    pub min_granularity: u64,
 }
 
 /// Properties of the device related to the accelerator hardware.

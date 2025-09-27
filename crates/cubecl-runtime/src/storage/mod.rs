@@ -1,8 +1,8 @@
 mod base;
-mod virtual_storage;
+mod virtual_memory;
 
 pub use base::*;
-pub use virtual_storage::*;
+pub use virtual_memory::*;
 
 #[cfg(feature = "storage-bytes")]
 mod bytes_cpu;

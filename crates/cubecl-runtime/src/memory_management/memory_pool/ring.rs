@@ -170,12 +170,14 @@ impl RingBuffer {
     }
 
     /// Check if a page exists in the ring buffer
-    pub fn contains_page(&self, storage_id: &StorageId) -> bool {
+    #[cfg(test)]
+    fn contains_page(&self, storage_id: &StorageId) -> bool {
         self.chunk_positions.contains_key(storage_id)
     }
 
     /// Get the current number of pages in the ring buffer
-    pub fn page_count(&self) -> usize {
+    #[cfg(test)]
+    fn page_count(&self) -> usize {
         self.queue.len()
     }
 }
@@ -363,9 +365,9 @@ mod tests {
         let mut ring = RingBuffer::new(1);
 
         // Create three chunks with different slice configurations
-        let (storage_id_1, slice_ids_1, mut slices, chunk_1) = new_chunk(&[100, 200]);
-        let (storage_id_2, slice_ids_2, slices_2, chunk_2) = new_chunk(&[150, 250]);
-        let (storage_id_3, slice_ids_3, slices_3, chunk_3) = new_chunk(&[300]);
+        let (storage_id_1, _slice_ids_1, mut slices, chunk_1) = new_chunk(&[100, 200]);
+        let (storage_id_2, _slice_ids_2, slices_2, chunk_2) = new_chunk(&[150, 250]);
+        let (storage_id_3, _slice_ids_3, slices_3, chunk_3) = new_chunk(&[300]);
 
         // Add all pages to ring buffer
         ring.push_page(storage_id_1);

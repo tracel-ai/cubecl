@@ -175,12 +175,13 @@ impl ComputeStorage for GpuStorage {
 }
 
 /// A Gpu Physical Memory block of a specific size.
+#[allow(dead_code)]
 struct GpuMemoryBlock {
     handle: CUmemGenericAllocationHandle,
     size: u64,
     mapped: bool,
 }
-
+#[allow(dead_code)]
 impl GpuMemoryBlock {
     /// Getter for internal handle (pointer to physical device memory)
     fn handle(&self) -> CUmemGenericAllocationHandle {
@@ -208,11 +209,12 @@ impl GpuMemoryBlock {
 }
 
 /// A Gpu virtual address space of a specific size
+#[allow(dead_code)]
 struct GpuVirtualAddressSpace {
     start_address: CUdeviceptr,
     size: u64,
 }
-
+#[allow(dead_code)]
 impl GpuVirtualAddressSpace {
     /// Getter for the start of this space
     fn ptr(&self) -> CUdeviceptr {
@@ -235,6 +237,7 @@ impl GpuVirtualAddressSpace {
 
 /// Memory allocation mode.
 #[derive(Default)]
+#[allow(dead_code)]
 pub enum GpuAllocationMode {
     /// Standard allocation mode disables virtual memory support
     #[default]
@@ -245,6 +248,7 @@ pub enum GpuAllocationMode {
 
 /// A CUDA buffer storage with support for virtual memory.
 /// Maybe you could consider refactoring by merging this struct with the GpuStorage struct, so that a single GpuStorage is preserved. This storage type implements both the [`VirtualStorage`]and the [`ComputeStorage`] trait, which allows it to manage both types of allocations depending on the [`mode`].
+#[allow(dead_code)]
 pub struct GpuVirtualStorage {
     /// Id of the device where the virtual memory is going to be allocated with this storage.
     device_id: i32,
@@ -266,6 +270,7 @@ pub struct GpuVirtualStorage {
     alloc_mode: GpuAllocationMode,
 }
 
+#[allow(dead_code)]
 impl GpuVirtualStorage {
     pub fn new(
         device_id: i32,
@@ -669,8 +674,9 @@ impl Drop for GpuVirtualStorage {
     }
 }
 unsafe impl Send for GpuVirtualStorage {}
+impl cubecl_runtime::storage::VirtualStorage for GpuStorage {}
 
-pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
+pub fn get_minimum_granularity(device: CUdevice) -> usize {
     unsafe {
         let mut granularity = 0;
         let mut prop: CUmemAllocationProp = std::mem::zeroed();
@@ -685,13 +691,11 @@ pub fn get_minimum_granularity(device: CUdevice) -> Option<usize> {
         );
 
         match result {
-            CUresult::CUDA_SUCCESS => Some(granularity),
-            _ => None,
+            CUresult::CUDA_SUCCESS => granularity,
+            _ => 0,
         }
     }
 }
-
-impl cubecl_runtime::storage::VirtualStorage for GpuStorage {}
 
 #[cfg(test)]
 mod virtual_mem_tests {

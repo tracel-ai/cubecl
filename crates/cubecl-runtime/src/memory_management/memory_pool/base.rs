@@ -13,7 +13,7 @@ use hashbrown::HashMap;
 /// in order to be able to use the [`RingBuffer`] in the [`VirtualMemoryPool`].
 pub(crate) trait MemoryFragment {
     /// Any ID built with macro [`memory_id_type!`] can be used in this trait.
-    type Key: std::cmp::Eq + std::hash::Hash + Sized + Clone + Copy + PartialEq + std::fmt::Debug;
+    type Key: core::cmp::Eq + core::hash::Hash + Sized + Clone + Copy + PartialEq + core::fmt::Debug;
 
     /// Whether this memory fragment is free currently free.
     fn is_free(&self) -> bool;
@@ -43,7 +43,7 @@ pub(crate) trait MemoryFragment {
 pub(crate) trait MemoryChunk {
     /// Any ID built with macro [`memory_id_type!`] can be used in this trait.
     type Fragment: MemoryFragment<Key = Self::Key>;
-    type Key: std::cmp::Eq + std::hash::Hash + Sized + Clone + Copy + PartialEq + std::fmt::Debug;
+    type Key: core::cmp::Eq + core::hash::Hash + Sized + Clone + Copy + PartialEq + core::fmt::Debug;
 
     /// merge slice at first_slice_address with the next slice (if there is one and if it's free)
     /// return a boolean representing if a merge happened

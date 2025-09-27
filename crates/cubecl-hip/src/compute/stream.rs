@@ -48,6 +48,7 @@ impl EventStreamBackend for HipStreamBackend {
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
                 data_transfer_async: false,
                 virtual_memory_supported: false,
+                min_granularity: 0,
             },
             self.mem_config.clone(),
         );

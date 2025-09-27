@@ -227,39 +227,41 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     .collect()
             }
             MemoryConfiguration::VirtualMemory => {
-                if properties.virtual_memory_supported {
+                if properties.virtual_memory_supported && storage.is_virtual_mem_enabled() {
                     // Collect the minimum granularity of the target device.
-                    let minimum_granularity = properties.alignment;
+                    let minimum_granularity = properties.min_granularity;
                     // I am following `PyTorch approach here. PyTorch maintains two virtual memory pools.
                     // One of them makes allocations aligned to 10 * min_granularity (huge pages), mainly useful with LLMs and very large models that allocate huge tensors.
-                    //
+
+                    let big_alloc_size = 10 * minimum_granularity; // Around 20MiB
+                    let small_alloc_size = minimum_granularity; // Around 2MiB
+
                     // The other makes finer grained allocations aligned to gpu page size. It is better to set the second one's max_alloc_size equal to the granularity, as it will make memory reuse easier by enforcing all physical allocations to be the same size.
                     let small_dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                        * (1.0 + minimum_granularity as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        * (1.0 + small_alloc_size as f64 / (DEALLOC_SCALE_MB as f64)).round())
                         as u64;
+
                     let big_dealloc_period = (BASE_DEALLOC_PERIOD as f64
-                        * (1.0 + (minimum_granularity * 5) as f64 / (DEALLOC_SCALE_MB as f64))
-                            .round()) as u64;
+                        * (1.0 + big_alloc_size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        as u64;
                     vec![
+                        // Smaller pool, fixed size physical allocations,
+                        // Always allocates memory of about 2MiB.
+                        MemoryPoolOptions {
+                            pool_type: PoolType::VirtualMemory {
+                                alloc_size: small_alloc_size,
+                            },
+                            dealloc_period: Some(small_dealloc_period),
+                        },
                         // Bigger pool.
                         // Max alloc size is 10 * min_granularity (about 20MiB)
                         // Alignment is half that value, so the pool will allocate physical blocks of sizes ranging from 10MiB to 20MiB.
                         MemoryPoolOptions {
                             pool_type: PoolType::VirtualMemory {
-                                max_alloc_size: 10 * minimum_granularity,
-                                alignment: 5 * minimum_granularity,
+                                alloc_size: big_alloc_size,
                             },
                             // The dealloc period depends on the expected size of the allocations.
                             dealloc_period: Some(big_dealloc_period),
-                        },
-                        // Smaller pool, fixed size physical allocations,
-                        // Always allocates memory of about 2MiB.
-                        MemoryPoolOptions {
-                            pool_type: PoolType::VirtualMemory {
-                                max_alloc_size: minimum_granularity,
-                                alignment: minimum_granularity,
-                            },
-                            dealloc_period: Some(small_dealloc_period),
                         },
                     ]
                 // In case virtual memory is not set to be supported return an empty vector, which in practice will fallback to use the static pool.
@@ -292,14 +294,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                         options.dealloc_period.unwrap_or(u64::MAX),
                     ))
                 }
-                PoolType::VirtualMemory {
-                    max_alloc_size,
-                    alignment,
-                } => DynamicPool::Virtual(VirtualMemoryPool::new(
-                    max_alloc_size,
-                    alignment,
-                    options.dealloc_period.unwrap_or(u64::MAX),
-                )),
+                PoolType::VirtualMemory { alloc_size } => {
+                    DynamicPool::Virtual(VirtualMemoryPool::new(
+                        alloc_size,
+                        properties.min_granularity,
+                        options.dealloc_period.unwrap_or(u64::MAX),
+                    ))
+                }
             })
             .collect();
 
@@ -432,13 +433,39 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use crate::storage::BytesAllocationMode;
+    use crate::{
+        memory_management::MemoryManagement,
+        storage::{BytesStorage, BytesVirtualStorage},
+    };
 
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
         max_page_size: 128 * 1024 * 1024,
         alignment: 32,
         data_transfer_async: false,
+        virtual_memory_supported: false,
+        min_granularity: 0,
     };
+
+    const VIRTUAL_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
+        max_page_size: 64,
+        alignment: 64,
+        data_transfer_async: false,
+        virtual_memory_supported: true,
+        min_granularity: 64,
+    };
+
+    fn create_virtual_memory_manager() -> MemoryManagement<BytesVirtualStorage> {
+        let storage = BytesVirtualStorage::new(
+            VIRTUAL_MEM_PROPS.alignment as usize,
+            BytesAllocationMode::Virtual,
+        );
+        MemoryManagement::from_configuration(
+            storage,
+            &VIRTUAL_MEM_PROPS,
+            MemoryConfiguration::VirtualMemory,
+        )
+    }
 
     // Test pools with slices.
     #[test]
@@ -582,6 +609,8 @@ mod tests {
                 max_page_size: page_size,
                 alignment: 50,
                 data_transfer_async: false,
+                virtual_memory_supported: true,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -621,6 +650,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 10,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -646,6 +677,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -676,6 +709,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -708,6 +743,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             }),
             MemoryConfiguration::ExclusivePages,
         );
@@ -802,6 +839,8 @@ mod tests {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 50,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -838,6 +877,8 @@ mod tests {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 10,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -859,6 +900,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::ExclusivePages,
         );
@@ -877,5 +920,73 @@ mod tests {
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+    }
+
+    #[test]
+    fn test_virtual_pool() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+
+        // Allocate multiple blocks that will create separate pages
+        let mut handles = Vec::with_capacity(4);
+        for i in 0..4 {
+            let handle = memory_manager.reserve(page_size).unwrap();
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+            handles.push(handle);
+        }
+
+        let usage_before = memory_manager.memory_usage();
+
+        // Extract handles to deallocate
+        let handle_0 = handles.remove(0); // Remove index 0, others shift down
+        let handle_2 = handles.remove(1); // What was index 2 is now index 1
+
+        // Deallocate every other allocation to create fragmented pages
+        drop(handle_0);
+        drop(handle_2);
+
+        let usage_after = memory_manager.memory_usage();
+        assert!(usage_before.bytes_in_use == usage_after.bytes_in_use + 2 * page_size);
+
+        // Force cleanup
+        // Problem is that bytes storage uses heap allocations, and therefore page addresses are not aligned, which does not allow for the compaction of the pages linked list into a single page.
+        // This is tested at the GpuStorage level. See [cubecl-cuda] for details.
+        memory_manager.cleanup(true);
+
+        let usage_after_cleanup = memory_manager.memory_usage();
+        assert!(usage_after_cleanup.bytes_reserved == 0);
+
+        // Allocate a larger block that should benefit from page merging
+        let huge_size = page_size * 2;
+        let huge_handle = memory_manager.reserve(huge_size).unwrap();
+
+        let huge_resource = memory_manager
+            .get_resource(huge_handle.binding(), None, None)
+            .unwrap();
+        huge_resource.write()[0] = 200;
+        huge_resource.write()[huge_size as usize - 1] = 201;
+
+        assert_eq!(huge_resource.read()[0], 200);
+        assert_eq!(huge_resource.read()[huge_size as usize - 1], 201);
+
+        // Verify remaining original allocations are intact
+        // Note: handles[0] is now what was originally handles[1]
+        // and handles[1] is now what was originally handles[3]
+        let resource1 = memory_manager
+            .get_resource(handles[0].clone().binding(), None, None)
+            .unwrap();
+        let resource3 = memory_manager
+            .get_resource(handles[1].clone().binding(), None, None)
+            .unwrap();
+        assert_eq!(resource1.read()[0], 11); // Originally i=1, so 1+10=11
+        assert_eq!(resource3.read()[0], 13); // Originally i=3, so 3+10=13
+
+        let final_usage = memory_manager.memory_usage();
+        dbg!(&final_usage);
+        assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
     }
 }
