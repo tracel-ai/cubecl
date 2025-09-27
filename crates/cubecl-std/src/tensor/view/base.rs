@@ -298,8 +298,10 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
 
     pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
         let shape = self.inner.read().__expand_shape_method(scope);
-        let origin = C::__expand_origin(scope, shape.clone());
-        let end = C::__expand_add(scope, origin.clone(), shape);
+        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        // Inclusive end so clamping works correctly
+        let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let end = C::__expand_sub(scope, shape, one);
         self.inner
             .read()
             .__expand_to_linear_slice_method(scope, origin, end)
@@ -413,10 +415,13 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         scope: &mut Scope,
     ) -> SliceExpand<E, ReadWrite> {
         let shape = self.inner.read().__expand_shape_method(scope);
-        let origin = C::__expand_origin(scope, shape.clone());
+        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        // Inclusive end so clamping works correctly
+        let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let end = C::__expand_sub(scope, shape, one);
         self.inner
             .write()
-            .__expand_to_linear_slice_mut_method(scope, origin, shape)
+            .__expand_to_linear_slice_mut_method(scope, origin, end)
     }
 
     pub(super) fn __expand_to_linear_slice_mut_inner_method(

@@ -43,10 +43,6 @@ impl Layout for TiledLayout {
         (view_tile_row + unit_row, view_tile_col + unit_col)
     }
 
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        self.to_source_pos(shape)
-    }
-
     fn shape(&self) -> Self::Coordinates {
         let tile_size_row = comptime![self.config.elements_in_tile_row];
         let tile_size_col = comptime![self.config.elements_in_tile_col];
