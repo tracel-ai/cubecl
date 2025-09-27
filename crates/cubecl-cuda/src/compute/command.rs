@@ -401,12 +401,13 @@ impl<'a> Command<'a> {
             let shape = src.shape.to_vec();
             let strides = src.strides.to_vec();
             let elem_size = src.elem_size;
+            let stream = src.binding.stream;
             let data = self.read_async(vec![src]);
 
             let fut = Box::pin(async move { data.await.unwrap().remove(0) });
 
-            let current = self.streams.current();
-            let fence = Fence::new(current.sys);
+            let stream = self.streams.get(&stream);
+            let fence = Fence::new(stream.sys);
 
             client.register_src_normal(id, fence, fut, shape, strides, elem_size);
         }
