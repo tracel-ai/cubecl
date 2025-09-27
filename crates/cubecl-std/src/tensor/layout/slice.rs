@@ -55,10 +55,6 @@ impl<C: Coordinates> Layout for SliceLayout<C> {
         }
     }
 
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        shape
-    }
-
     #[allow(unused)]
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
         intrinsic!(|scope| {

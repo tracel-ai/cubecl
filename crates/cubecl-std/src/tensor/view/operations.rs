@@ -195,10 +195,14 @@ macro_rules! impl_operations_1d {
                 &self,
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
-                size: ExpandElementTyped<u32>,
+                end: ExpandElementTyped<u32>,
             ) -> SliceExpand<T, ReadOnly> {
-                let end = add::expand(scope, pos.clone(), size);
-                <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, pos, end)
+                // Convert to exclusive end
+                let end = add::expand(scope, end, 1u32.into());
+                // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+                // negative length.
+                let start = Min::__expand_min(scope, pos, end.clone());
+                <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
@@ -243,11 +247,15 @@ macro_rules! impl_operations_1d {
                 &self,
                 scope: &mut Scope,
                 pos: ExpandElementTyped<u32>,
-                size: ExpandElementTyped<u32>,
+                end: ExpandElementTyped<u32>,
             ) -> SliceExpand<T, ReadWrite> {
-                let end = add::expand(scope, pos.clone(), size);
+                // Convert to exclusive end
+                let end = add::expand(scope, end, 1u32.into());
+                // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+                // negative length.
+                let start = Min::__expand_min(scope, pos, end.clone());
                 <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(
-                    self, scope, pos, end,
+                    self, scope, start, end,
                 )
             }
         }
@@ -309,10 +317,14 @@ mod slice {
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
-            size: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
         ) -> SliceExpand<T, ReadOnly> {
-            let end = add::expand(scope, pos.clone(), size);
-            <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, pos, end)
+            // Convert to exclusive end
+            let end = add::expand(scope, end, 1u32.into());
+            // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+            // negative length.
+            let start = Min::__expand_min(scope, pos, end.clone());
+            <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
@@ -357,10 +369,14 @@ mod slice {
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
-            size: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
         ) -> SliceExpand<T, ReadWrite> {
-            let end = add::expand(scope, pos.clone(), size);
-            <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(self, scope, pos, end)
+            // Convert to exclusive end
+            let end = add::expand(scope, end, 1u32.into());
+            // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+            // negative length.
+            let start = Min::__expand_min(scope, pos, end.clone());
+            <Self as SliceMutOperatorExpand<T>>::__expand_slice_mut_method(self, scope, start, end)
         }
     }
 }
@@ -416,10 +432,14 @@ mod virtual_tensor {
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
-            size: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
         ) -> SliceExpand<Line<T>, ReadOnly> {
-            let end = add::expand(scope, pos.clone(), size);
-            <Self as SliceOperatorExpand<Line<T>>>::__expand_slice_method(self, scope, pos, end)
+            // Convert to exclusive end
+            let end = add::expand(scope, end, 1u32.into());
+            // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+            // negative length.
+            let start = Min::__expand_min(scope, pos, end.clone());
+            <Self as SliceOperatorExpand<Line<T>>>::__expand_slice_method(self, scope, start, end)
         }
 
         fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {
@@ -464,11 +484,15 @@ mod virtual_tensor {
             &self,
             scope: &mut Scope,
             pos: ExpandElementTyped<u32>,
-            size: ExpandElementTyped<u32>,
+            end: ExpandElementTyped<u32>,
         ) -> SliceExpand<Line<T>, ReadWrite> {
-            let end = add::expand(scope, pos.clone(), size);
+            // Convert to exclusive end
+            let end = add::expand(scope, end, 1u32.into());
+            // Handling for shapes that are 0 in at least one dim, ensures the slice is not
+            // negative length.
+            let start = Min::__expand_min(scope, pos, end.clone());
             <Self as SliceMutOperatorExpand<Line<T>>>::__expand_slice_mut_method(
-                self, scope, pos, end,
+                self, scope, start, end,
             )
         }
     }
@@ -633,17 +657,17 @@ macro_rules! impl_virtual_read {
                 &self,
                 scope: &mut Scope,
                 pos: <C>::ExpandType,
-                size: <C>::ExpandType,
+                end: <C>::ExpandType,
             ) -> SliceExpand<T, ReadOnly> {
                 let pos = self
                     .layout
                     .clone()
                     .__expand_to_source_pos_method(scope, pos);
-                let size = self
+                let end = self
                     .layout
                     .clone()
-                    .__expand_to_source_shape_method(scope, size);
-                self.view.__expand_to_linear_slice_method(scope, pos, size)
+                    .__expand_to_source_pos_method(scope, end);
+                self.view.__expand_to_linear_slice_method(scope, pos, end)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
@@ -708,18 +732,18 @@ where
         &self,
         scope: &mut Scope,
         pos: <C>::ExpandType,
-        size: <C>::ExpandType,
+        end: <C>::ExpandType,
     ) -> SliceExpand<T, ReadWrite> {
         let pos = self
             .layout
             .clone()
             .__expand_to_source_pos_method(scope, pos);
-        let size = self
+        let end = self
             .layout
             .clone()
-            .__expand_to_source_shape_method(scope, size);
+            .__expand_to_source_pos_method(scope, end);
         self.view
-            .__expand_to_linear_slice_mut_method(scope, pos, size)
+            .__expand_to_linear_slice_mut_method(scope, pos, end)
     }
 }
 

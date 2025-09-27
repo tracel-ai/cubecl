@@ -40,12 +40,6 @@ impl<C: Coordinates, S: Coordinates> VirtualLayout<C, S> {
         intrinsic!(|scope| { self.state.__expand_shape_method(scope) })
     }
 
-    /// Virtual version of [Layout::to_source_shape]
-    #[allow(unused)]
-    pub fn to_source_shape(&self, shape: C) -> S {
-        intrinsic!(|scope| { self.state.__expand_to_source_shape_method(scope, shape) })
-    }
-
     /// Virtual version of [Layout::is_in_bounds]
     #[allow(unused)]
     pub fn is_in_bounds(&self, pos: C) -> bool {
@@ -109,11 +103,6 @@ pub trait VirtualLayoutOperationsExpand<C: CubeType, S: CubeType>: private::Seal
         pos: <C as CubeType>::ExpandType,
     ) -> <(S, bool) as CubeType>::ExpandType;
     fn __expand_shape_method(&self, scope: &mut Scope) -> <C as CubeType>::ExpandType;
-    fn __expand_to_source_shape_method(
-        &self,
-        scope: &mut Scope,
-        shape: <C as CubeType>::ExpandType,
-    ) -> <S as CubeType>::ExpandType;
     fn __expand_is_in_bounds_method(
         &self,
         scope: &mut Scope,
@@ -141,14 +130,6 @@ impl<L: LayoutExpand> VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoo
 
     fn __expand_shape_method(&self, scope: &mut Scope) -> <L::Coordinates as CubeType>::ExpandType {
         <L as LayoutExpand>::__expand_shape_method(self.clone(), scope)
-    }
-
-    fn __expand_to_source_shape_method(
-        &self,
-        scope: &mut Scope,
-        shape: <L::Coordinates as CubeType>::ExpandType,
-    ) -> <L::SourceCoordinates as CubeType>::ExpandType {
-        <L as LayoutExpand>::__expand_to_source_shape_method(self.clone(), scope, shape)
     }
 
     fn __expand_is_in_bounds_method(

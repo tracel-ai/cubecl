@@ -71,8 +71,8 @@ impl Coordinates for NhwcCoords {
         NhwcTuple::is_in_bounds(&pos.clone().into_tuple(), &bounds.clone().into_tuple())
     }
 
-    fn origin(this: &Self) -> Self {
-        let tuple = NhwcTuple::origin(&this.clone().into_tuple());
+    fn from_int(this: &Self, #[comptime] value: i64) -> Self {
+        let tuple = NhwcTuple::from_int(&this.clone().into_tuple(), value);
         NhwcCoords::from_tuple(tuple)
     }
 }
@@ -189,17 +189,6 @@ impl Layout for NhwcLayout {
             spatial: cast_seq(self.shapes_spatial.clone()),
             channel: self.shape_channel,
         }
-    }
-
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        let spatial_dims = self.shapes_spatial.len();
-        let mut size = shape.batch * shape.channel;
-
-        for i in 0..spatial_dims {
-            size *= *shape.spatial.index(i) as u32;
-        }
-
-        size / comptime![self.line_size]
     }
 }
 
