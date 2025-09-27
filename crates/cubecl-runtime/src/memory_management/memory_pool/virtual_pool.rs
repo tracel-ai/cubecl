@@ -571,7 +571,7 @@ impl VirtualMemoryPool {
         self.recently_allocated_size = 0;
         self.first_page = None;
     }
-    
+
     #[cfg(test)]
     pub fn reusable_memory(&self) -> u64 {
         self.free_physical_queue.len() as u64 * self.alloc_size

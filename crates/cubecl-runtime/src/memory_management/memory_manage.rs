@@ -987,9 +987,7 @@ mod tests {
         assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
 
         let available_mem = match &mut memory_manager.pools[0] {
-            DynamicPool::Virtual(p) => {
-                p.reusable_memory()
-            },
+            DynamicPool::Virtual(p) => p.reusable_memory(),
             _ => panic!("Should be using Virtual Memory Pool"),
         };
 
@@ -1015,10 +1013,10 @@ mod tests {
             handles.push(handle);
         }
 
-       match &mut memory_manager.pools[0] {
+        match &mut memory_manager.pools[0] {
             DynamicPool::Virtual(p) => {
                 p.reset_tracking();
-            },
+            }
             _ => panic!("Should be using Virtual Memory Pool"),
         };
         // Clear the recently allocated vector.
@@ -1042,9 +1040,7 @@ mod tests {
         memory_manager.cleanup(false);
 
         let available_mem = match &mut memory_manager.pools[0] {
-            DynamicPool::Virtual(p) => {
-                p.reusable_memory()
-            },
+            DynamicPool::Virtual(p) => p.reusable_memory(),
             _ => panic!("Should be using Virtual Memory Pool"),
         };
 
@@ -1053,6 +1049,5 @@ mod tests {
 
         assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
         assert!(final_usage.bytes_reserved == usage_after.bytes_reserved); // memory should not have been freed
-
     }
 }
