@@ -301,6 +301,7 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         let origin = C::__expand_from_int(scope, shape.clone(), 0);
         // Inclusive end so clamping works correctly
         let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone());
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .read()
@@ -418,6 +419,7 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         let origin = C::__expand_from_int(scope, shape.clone(), 0);
         // Inclusive end so clamping works correctly
         let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone());
         let end = C::__expand_sub(scope, shape, one);
         self.inner
             .write()
