@@ -24,7 +24,7 @@ msl = ["cubecl-cpp/metal"]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash"]
 
-spirv-dump = ["sanitize-filename"]
+spirv-dump = []
 
 attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]
@@ -88,7 +88,7 @@ cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-featur
 ] }
 derive_more = { workspace = true }
 half = { workspace = true }
-sanitize-filename = { workspace = true, optional = true }
+sanitize-filename = { workspace = true }
 tracy-client = { workspace = true, optional = true }
 
 # SPIR-V
