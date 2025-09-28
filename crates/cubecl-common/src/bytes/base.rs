@@ -162,22 +162,6 @@ impl Bytes {
         };
         let length = data.len();
         // If so, try to convert the allocation to a vec
-        let mut vec = match self.try_into_vec_inner::<E>() {
-            Ok(vec) => vec,
-            Err(alloc) => {
-                return Err(alloc);
-            }
-        };
-        // SAFETY: We computed this length from the bytemuck-ed slice into this allocation
-        unsafe {
-            vec.set_len(length);
-        };
-        Ok(vec)
-    }
-
-    fn try_into_vec_inner<E: bytemuck::CheckedBitPattern + bytemuck::NoUninit>(
-        mut self,
-    ) -> Result<Vec<E>, Self> {
         let byte_capacity = self.controller.memory().len();
 
         let Some(capacity) = byte_capacity.checked_div(size_of::<E>()) else {
@@ -201,7 +185,9 @@ impl Bytes {
         // - 0 <= capacity
         // - no bytes are claimed to be initialized
         // - the layout represents a valid allocation, hence has allocation size less than isize::MAX
-        Ok(unsafe { Vec::from_raw_parts(ptr.as_ptr().cast(), 0, capacity) })
+        // - We computed the length from the bytemuck-ed slice into this allocation
+        let vec = unsafe { Vec::from_raw_parts(ptr.as_ptr().cast(), length, capacity) };
+        Ok(vec)
     }
 
     /// Get the alignment of the wrapped allocation.
