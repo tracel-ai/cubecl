@@ -341,7 +341,6 @@ impl GpuVirtualStorage {
     }
 
     /// Sets the access permissions for the target device on an allocated and mapped virtual address space.
-    /// In practice, permissions can be set for other devices than self, allowing to share virtual address spaces accross device (aka RDMA), however this is not yet implemented.
     fn set_access_permissions(
         &self,
         virtual_addr: CUdeviceptr,
@@ -432,7 +431,7 @@ impl VirtualStorage for GpuVirtualStorage {
         let addr = if let Some(prev) = start_addr
             && let Some(space) = self.virtual_memory.get(&prev)
         {
-            space.ptr()
+            space.ptr() + space.size()
         } else {
             0 // Zero will tell CUDA  to autotune
         };
@@ -561,7 +560,7 @@ impl VirtualStorage for GpuVirtualStorage {
     }
 
     /// Unmaps a mapped virtual memory portion from a physical handle.
-    /// Both the address space and the handle should be valid. However, it does not check whether this two structures are actually mapped. Therefore, it is the responsability of the memory pool to keep track of actual mappings from physical handles to virtual address spaces.
+    /// Both the address space and the handle should be valid. However, it does not check whether this two structures are actually mapped. Therefore, it is the responsibility of the memory pool to keep track of actual mappings from physical handles to virtual address spaces.
     fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle) {
         // Offset should be aligned at this level, however there is no issue in enforcing it by explicit alignment.
         let aligned_offset = offset.next_multiple_of(self.mem_alignment as u64);
@@ -673,6 +672,7 @@ impl Drop for GpuVirtualStorage {
         }
     }
 }
+
 unsafe impl Send for GpuVirtualStorage {}
 impl cubecl_runtime::storage::VirtualStorage for GpuStorage {}
 
@@ -697,280 +697,154 @@ pub fn get_minimum_granularity(device: CUdevice) -> usize {
     }
 }
 
+/// TODO: MIGRATE THIS TO A SEPARATED MACRO that is generic over Storage
+///
+/// Creates a new GpuVirtualStorage for testing
 #[cfg(test)]
-mod virtual_mem_tests {
+fn setup_cuda_storage() -> GpuVirtualStorage {
+    cudarc::driver::result::init().unwrap();
+    let device = cudarc::driver::result::device::get(0).unwrap();
+
+    // Context must be initialized before creating a stream.
+    let _ctx = unsafe {
+        let ctx = cudarc::driver::result::primary_ctx::retain(device).unwrap();
+        cudarc::driver::result::ctx::set_current(ctx).unwrap();
+        ctx
+    };
+
+    let stream = cudarc::driver::result::stream::create(
+        cudarc::driver::result::stream::StreamKind::NonBlocking,
+    )
+    .expect("Can create a new stream.");
+    let granularity = get_minimum_granularity(device);
+    GpuVirtualStorage::new(device, stream, granularity, GpuAllocationMode::Virtual)
+}
+
+#[cfg(test)]
+mod virtual_storage_tests {
     use super::*;
-    use cubecl_runtime::storage::{ComputeStorage, VirtualStorage};
-    use cudarc::driver::{result, sys::*};
-
-    fn setup_cuda_context() -> (CUdevice, CUcontext) {
-        result::init().unwrap();
-        let device = result::device::get(0).unwrap();
-        let ctx = unsafe {
-            let ctx = result::primary_ctx::retain(device).unwrap();
-            result::ctx::set_current(ctx).unwrap();
-            ctx
-        };
-        (device, ctx)
-    }
+    use cubecl_runtime::storage::VirtualStorage;
 
     #[test]
+    /// Validates a simple physical memory allocation pattern.
     fn test_physical_memory_allocation() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
+        let mut storage = setup_cuda_storage();
+        let granularity = storage.granularity();
+        let size = granularity as u64 * 4; // 4 times the minimum granularity
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let size = granularity as u64 * 4; // 4 times the minimum granularity
+        let handle_result = storage.allocate(size);
+        assert!(handle_result.is_ok());
 
-            let handle_result = storage.allocate(size);
-            assert!(handle_result.is_ok());
+        let handle = handle_result.unwrap();
+        assert_eq!(handle.size(), size);
+        assert!(!handle.is_mapped());
 
-            let handle = handle_result.unwrap();
-            assert_eq!(handle.size(), size);
+        // Verify the physical memory block was stored
+        assert!(storage.physical_memory.contains_key(&handle.id()));
 
-            assert!(!handle.is_mapped());
-
-            // Verify the physical memory block was stored
-            assert!(storage.physical_memory.contains_key(&handle.id()));
-
-            // Clean up
-            storage.release(handle.id());
-            assert!(!storage.physical_memory.contains_key(&handle.id()));
-        }
+        // Clean up
+        storage.release(handle.id());
+        assert!(!storage.physical_memory.contains_key(&handle.id()));
     }
 
     #[test]
+    /// Validates a simple virtual address space reservation
     fn test_virtual_address_space_reservation() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
+        let mut storage = setup_cuda_storage();
+        let granularity = storage.granularity();
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let size = granularity as u64 * 8;
+        // Will reserve an address space of 8 times the granularity.
+        let size = granularity as u64 * 8;
+        let handle_result = storage.reserve(size, None);
+        assert!(handle_result.is_ok());
 
-            let handle_result = storage.reserve(size, None);
-            assert!(handle_result.is_ok());
+        let handle = handle_result.unwrap();
+        assert_eq!(handle.size(), size);
+        assert_eq!(handle.offset(), 0);
 
-            let handle = handle_result.unwrap();
-            assert_eq!(handle.size(), size);
-            assert_eq!(handle.offset(), 0);
+        // Verify the virtual address space was stored
+        assert!(storage.virtual_memory.contains_key(&handle.id));
 
-            // Verify the virtual address space was stored
-            assert!(storage.virtual_memory.contains_key(&handle.id));
+        let virtual_space = storage.virtual_memory.get(&handle.id).unwrap();
+        assert!(virtual_space.ptr() != 0); // Should have a valid pointer
+        assert_eq!(virtual_space.size(), size);
 
-            let virtual_space = storage.virtual_memory.get(&handle.id).unwrap();
-            assert!(virtual_space.ptr() != 0); // Should have a valid pointer
-            assert_eq!(virtual_space.size(), size);
-
-            // Clean up
-            storage.free(handle.id);
-            assert!(!storage.virtual_memory.contains_key(&handle.id));
-        }
+        // Clean up
+        storage.free(handle.id);
+        assert!(!storage.virtual_memory.contains_key(&handle.id));
     }
 
     #[test]
+    /// Validates a simple virtual address space mapping
     fn test_memory_mapping() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
+        let mut storage = setup_cuda_storage();
+        let granularity = storage.granularity();
+        let size = granularity as u64 * 2;
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let size = granularity as u64 * 2;
+        // Allocate physical memory
+        let mut physical_handle = storage.allocate(size).unwrap();
+        assert!(!physical_handle.is_mapped());
 
-            // Allocate physical memory
-            let mut physical_handle = storage.allocate(size).unwrap();
-            assert!(!physical_handle.is_mapped());
+        // Reserve virtual address space
+        let virtual_handle = storage.reserve(size, None).unwrap();
 
-            // Reserve virtual address space
-            let virtual_handle = storage.reserve(size, None).unwrap();
+        // Map physical to virtual
+        let map_result = storage.map(virtual_handle.id, 0, &mut physical_handle);
+        assert!(map_result.is_ok());
 
-            // Map physical to virtual
-            let map_result = storage.map(virtual_handle.id, 0, &mut physical_handle);
-            assert!(map_result.is_ok());
+        let mapped_handle = map_result.unwrap();
+        assert_eq!(mapped_handle.size(), size);
+        assert_eq!(mapped_handle.id, virtual_handle.id);
+        assert!(physical_handle.is_mapped());
 
-            let mapped_handle = map_result.unwrap();
-            assert_eq!(mapped_handle.size(), size);
-            assert_eq!(mapped_handle.id, virtual_handle.id);
-            assert!(physical_handle.is_mapped());
+        // Unmap
+        storage.unmap(virtual_handle.id, 0, &mut physical_handle);
+        assert!(!physical_handle.is_mapped());
 
-            // Unmap
-            storage.unmap(virtual_handle.id, 0, &mut physical_handle);
-            assert!(!physical_handle.is_mapped());
-
-            // Clean up
-            storage.free(virtual_handle.id);
-            storage.release(physical_handle.id());
-        }
+        // Clean up
+        storage.free(virtual_handle.id);
+        storage.release(physical_handle.id());
     }
 
     #[test]
-    fn test_compute_storage_alloc_dealloc() {
-        // Simple test for the compute storage workflow.
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
+    // Demonstrates that we can reserve contiguous address spaces thanks to VMM capabilities.
+    fn test_contiguous_address_space_reservations() {
+        let mut storage = setup_cuda_storage();
+        let granularity = storage.granularity();
+        let size = granularity as u64;
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let size = granularity as u64 * 3;
+        // Reserve two consecutive virtual address spaces
+        let handle1 = storage.reserve(size, None).unwrap();
+        let handle2 = storage.reserve(size, Some(handle1.id)).unwrap();
 
-            // Test alloc (should allocate physical, reserve virtual, and map them)
-            let handle_result = storage.alloc(size);
-            assert!(handle_result.is_ok());
+        // Test alignment checking (might not be aligned due to CUDA's behavior)
+        let are_aligned = storage.are_aligned(&handle1.id, &handle2.id);
+        // Note sure if this will always pass (as cuda docs state this is not guaranteed to be always aligned).
+        // You can disable it if you desire to.
+        // However i have added it to demonstrate that on most cases the hint stuff works (at least is working on my machine).
+        // This should allow me to implement an intelligent memory pool that defragments the memory space periodically.
+        assert!(are_aligned);
 
-            let handle = handle_result.unwrap();
-            assert_eq!(handle.size(), size);
-            assert_eq!(handle.offset(), 0);
-
-            // Verify both virtual and physical memory exist
-            assert!(storage.virtual_memory.contains_key(&handle.id));
-
-            // Test get resource
-            let resource = storage.get(&handle);
-            assert_eq!(resource.size, size);
-            assert!(resource.ptr != 0);
-
-            // Test dealloc
-            storage.dealloc(handle.id);
-            assert!(!storage.virtual_memory.contains_key(&handle.id));
-        }
+        // Clean up
+        storage.free(handle1.id);
+        storage.free(handle2.id);
     }
 
     #[test]
-    fn test_alignment_checking() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
+    // Demonstrates that [`reserve`] does not fail even though you allocate more than available memory
+    fn test_virtual_memory_overcommitting() {
+        let mut storage = setup_cuda_storage();
+        let granularity = storage.granularity();
+        let size = granularity as u64 * 1000000; // 1000000 * 2 MiB
 
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let size = granularity as u64;
+        let result = storage.reserve(size, None);
+        assert!(result.is_ok());
 
-            // Reserve two consecutive virtual address spaces
-            let handle1 = storage.reserve(size, None).unwrap();
-            let handle2 = storage.reserve(size, Some(handle1.id)).unwrap();
+        let handle = result.unwrap();
 
-            // Test alignment checking (might not be aligned due to CUDA's behavior)
-            let are_aligned = storage.are_aligned(&handle1.id, &handle2.id);
-            // Note sure if this will always pass (as cuda docs state this is not guaranteed to be always aligned).
-            // You can disable it if you desire to.
-            // However i have added it to demonstrate that on most cases the hint stuff works (at least is working on my machine).
-            // This should allow me to implement an intelligent memory pool that defragments the memory space periodically.
-            assert!(are_aligned);
-
-            // Clean up
-            storage.free(handle1.id);
-            storage.free(handle2.id);
-        }
-    }
-
-    #[test]
-    fn test_multiple_allocations() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
-
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let mut handles = Vec::new();
-
-            // Allocate multiple blocks
-            for i in 1..=5 {
-                let size = granularity as u64 * i;
-                let handle = storage.alloc(size).unwrap();
-                assert_eq!(handle.size(), size);
-                handles.push(handle);
-            }
-
-            // Verify all allocations are tracked
-            assert_eq!(storage.virtual_memory.len(), 5);
-
-            // Get resources for all handles
-            for handle in &handles {
-                let resource = storage.get(handle);
-                assert_eq!(resource.size, handle.size());
-                assert!(resource.ptr != 0);
-            }
-
-            // Clean up all allocations
-            for handle in handles {
-                storage.dealloc(handle.id);
-            }
-
-            assert!(storage.virtual_memory.is_empty());
-        }
-    }
-
-    #[test]
-    fn test_large_allocation() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
-
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-            let large_size = granularity as u64 * 1024; // 1024 times granularity
-
-            let handle_result = storage.alloc(large_size);
-
-            match handle_result {
-                Ok(handle) => {
-                    assert_eq!(handle.size(), large_size);
-                    let resource = storage.get(&handle);
-                    assert_eq!(resource.size, large_size);
-                    storage.dealloc(handle.id);
-                }
-                Err(IoError::BufferTooBig(_)) => {
-                    // This is acceptable - the system might not have enough memory
-                    println!("Large allocation failed due to insufficient memory");
-                }
-                Err(other) => panic!("Unexpected error: {:?}", other),
-            }
-        }
-    }
-
-    #[test]
-    fn test_error_handling() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
-
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-
-            // Test mapping with invalid virtual space
-            let mut physical_handle = storage.allocate(granularity as u64).unwrap();
-            let invalid_storage_id = StorageId::new(); // Not reserved
-
-            // This should panic or fail gracefully - let's catch the panic
-            let map_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                storage.map(invalid_storage_id, 0, &mut physical_handle)
-            }));
-
-            assert!(map_result.is_err()); // Should panic due to "Storage handle not found"
-
-            // Clean up
-            storage.release(physical_handle.id());
-        }
-    }
-
-    #[test]
-    fn test_granularity_alignment() {
-        let (_device, _ctx) = setup_cuda_context();
-        let device_id = 0;
-
-        if let Some(granularity) = get_minimum_granularity(_device) {
-            let mut storage = GpuVirtualStorage::new(device_id, granularity);
-
-            // Test allocation with size not aligned to granularity
-            let unaligned_size = granularity as u64 + 1;
-            let handle = storage.alloc(unaligned_size).unwrap();
-
-            // The actual allocated size should be aligned up
-            let expected_aligned_size = unaligned_size.next_multiple_of(granularity as u64);
-
-            // Note: The handle size might be the requested size, but the actual allocation
-            // should be aligned internally
-
-            assert!(handle.size() <= expected_aligned_size);
-
-            storage.dealloc(handle.id);
-        }
+        // Storage should have stored the handle.
+        let space = storage.virtual_memory.get(&handle.id).unwrap();
+        assert!(space.ptr() != 0); // Pointer should be valid.
+        assert!(space.size() == size); // size should match.
     }
 }

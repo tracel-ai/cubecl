@@ -70,7 +70,6 @@ pub mod install {
 #[allow(unexpected_cfgs)]
 mod tests {
     pub type TestRuntime = crate::CudaRuntime;
-    pub type TestStorage = GpuVirtualStorage;
 
     pub use half::{bf16, f16};
 

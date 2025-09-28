@@ -63,7 +63,7 @@ pub trait VirtualStorage {
         false
     }
 
-    /// Allocate physical memory of hthe requested size
+    /// Allocate physical memory of the requested size
     fn allocate(&mut self, _size: u64) -> Result<PhysicalStorageHandle, IoError> {
         Err(IoError::Unknown(
             "Virtual memory is not supported!".to_string(),

@@ -8,6 +8,7 @@ use crate::storage::{
 };
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
+
 /// Physical memory block for BytesVirtualStorage
 struct BytesMemoryBlock {
     ptr: *mut u8,
@@ -17,6 +18,7 @@ struct BytesMemoryBlock {
 }
 
 impl BytesMemoryBlock {
+    /// Creates a new physical memory block in the heap of the specified size and with the specified Layout
     fn new(ptr: *mut u8, layout: Layout, size: u64) -> Self {
         Self {
             ptr,
@@ -26,55 +28,104 @@ impl BytesMemoryBlock {
         }
     }
 
+    /// Returns the pointer to this block in the heap.
     fn ptr(&self) -> *mut u8 {
         self.ptr
     }
 
+    /// Returns the size of the block
     fn size(&self) -> u64 {
         self.size
     }
 
+    /// Sets the block to mapped state
     fn set_mapped(&mut self, mapped: bool) {
         self.mapped = mapped;
     }
 
+    /// Checks whether the block is mapped
     fn is_mapped(&self) -> bool {
         self.mapped
     }
 }
 
+/// Entry in the PageTable to address translation (Virtual to physical.)
+#[derive(Debug, Clone, Copy)]
+struct PageTableEntry {
+    physical_id: PhysicalStorageId,
+    physical_offset: u64,
+    size: u64,
+}
+
 /// Virtual address space for BytesVirtualStorage
 struct BytesVirtualAddressSpace {
-    ptr: *mut u8,
-    layout: Layout,
+    base_addr: u64, // Base virtual address (it is simulated)
     size: u64,
-    mappings: HashMap<u64, PhysicalStorageId>, // offset -> physical block id
+    // The page table maps virtual addresses to physical memory.
+    page_table: HashMap<u64, PageTableEntry>,
 }
 
 impl BytesVirtualAddressSpace {
-    fn new(ptr: *mut u8, layout: Layout, size: u64) -> Self {
+    /// Constructor for this Virtual Address Space
+    fn new(base_addr: u64, size: u64) -> Self {
         Self {
-            ptr,
-            layout,
+            base_addr,
             size,
-            mappings: HashMap::new(),
+            page_table: HashMap::new(),
         }
     }
 
-    fn ptr(&self) -> *mut u8 {
-        self.ptr
+    /// Getter for the base address
+    fn base_addr(&self) -> u64 {
+        self.base_addr
     }
 
+    /// Getter for the size.
     fn size(&self) -> u64 {
         self.size
     }
 
-    fn add_mapping(&mut self, offset: u64, physical_id: PhysicalStorageId) {
-        self.mappings.insert(offset, physical_id);
+    /// Add a mapping at a specific offset
+    fn add_mapping(
+        &mut self,
+        virtual_offset: u64,
+        physical_id: PhysicalStorageId,
+        physical_offset: u64,
+        size: u64,
+    ) {
+        let entry = PageTableEntry {
+            physical_id,
+            physical_offset,
+            size,
+        };
+        self.page_table.insert(virtual_offset, entry);
     }
 
-    fn remove_mapping(&mut self, offset: u64) -> Option<PhysicalStorageId> {
-        self.mappings.remove(&offset)
+    /// Remove a mapping from a specific offset.
+    fn remove_mapping(&mut self, virtual_offset: u64) -> Option<PageTableEntry> {
+        self.page_table.remove(&virtual_offset)
+    }
+
+    /// Translate virtual address to physical pointer
+    fn translate(
+        &self,
+        virtual_offset: u64,
+        physical_memory: &HashMap<PhysicalStorageId, BytesMemoryBlock>,
+    ) -> Option<*mut u8> {
+        // Lookup for this address in the page table.
+        for (&page_offset, entry) in &self.page_table {
+            if virtual_offset >= page_offset
+                && virtual_offset < (page_offset + entry.size)
+                && let Some(physical_block) = physical_memory.get(&entry.physical_id)
+            {
+                let offset_in_page = virtual_offset - page_offset;
+                let physical_offset = entry.physical_offset + offset_in_page;
+                unsafe {
+                    return Some(physical_block.ptr().add(physical_offset as usize));
+                }
+            }
+        }
+        None
     }
 }
 
@@ -101,6 +152,8 @@ pub struct BytesVirtualStorage {
     memory: HashMap<StorageId, AllocatedBytes>,
     /// Allocation mode
     alloc_mode: BytesAllocationMode,
+    /// Counter for generating unique virtual base addresses
+    next_virtual_addr: u64,
 }
 
 /// Standard allocated bytes (for ComputeStorage mode)
@@ -120,7 +173,15 @@ impl BytesVirtualStorage {
             physical_memory: HashMap::new(),
             memory: HashMap::new(),
             alloc_mode,
+            next_virtual_addr: 0x1000_0000, // Start at a simulated base address
         }
+    }
+
+    /// Generate a unique virtual base address
+    fn allocate_virtual_address(&mut self, size: u64) -> u64 {
+        let addr = self.next_virtual_addr;
+        self.next_virtual_addr += size.next_multiple_of(4096); // Hard coded value.
+        addr
     }
 
     /// Allocate a physical memory block
@@ -147,44 +208,27 @@ impl BytesVirtualStorage {
         }
     }
 
-    /// Simulate mapping by copying data from physical block to virtual address space
-    fn simulate_map(
-        &mut self,
-        virtual_addr: *mut u8,
-        offset: u64,
-        physical_ptr: *mut u8,
-        size: u64,
-    ) {
-        unsafe {
-            let dest = virtual_addr.add(offset as usize);
-            core::ptr::copy_nonoverlapping(physical_ptr, dest, size as usize);
-        }
-    }
-
-    /// Simulate unmapping by copying data back from virtual address space to physical block
-    fn simulate_unmap(
-        &mut self,
-        virtual_addr: *mut u8,
-        offset: u64,
-        physical_ptr: *mut u8,
-        size: u64,
-    ) {
-        unsafe {
-            let src = virtual_addr.add(offset as usize);
-            core::ptr::copy_nonoverlapping(src, physical_ptr, size as usize);
-        }
+    /// Translate virtual address to physical pointer for a given virtual storage
+    fn translate_address(&self, storage_id: StorageId, virtual_offset: u64) -> Option<*mut u8> {
+        self.virtual_memory
+            .get(&storage_id)?
+            .translate(virtual_offset, &self.physical_memory)
     }
 }
 
+/// Virtual storage implementation.
 impl VirtualStorage for BytesVirtualStorage {
+    /// Get the current allocation granularity
     fn granularity(&self) -> usize {
         self.mem_alignment
     }
 
+    /// Check whether virtual memory is enabled.
     fn is_virtual_mem_enabled(&self) -> bool {
         matches!(self.alloc_mode, BytesAllocationMode::Virtual)
     }
 
+    /// Allocate physical memory
     fn allocate(&mut self, size: u64) -> Result<PhysicalStorageHandle, IoError> {
         if !self.is_virtual_mem_enabled() {
             return Err(IoError::Unknown("Virtual memory is disabled!".to_string()));
@@ -200,24 +244,22 @@ impl VirtualStorage for BytesVirtualStorage {
         Ok(phys)
     }
 
+    /// Checks whether to virtual addresses are aligned.
     fn are_aligned(&self, lhs: &StorageId, rhs: &StorageId) -> bool {
         if let (Some(a), Some(b)) = (self.virtual_memory.get(lhs), self.virtual_memory.get(rhs)) {
             // Check if the first address space ends where the second begins
-            let a_end = a.ptr() as u64 + a.size();
-
-            let b_start = b.ptr() as u64;
-
+            let a_end = a.base_addr() + a.size();
+            let b_start = b.base_addr();
             return a_end == b_start;
         }
         false
     }
 
-    // Note: Since we're using heap allocation, alignment is not guaranteed
-    // but we can still test the function works
+    /// Reserves a simulated virtual address space
     fn reserve(
         &mut self,
         size: u64,
-        _start_addr: Option<StorageId>,
+        start_addr: Option<StorageId>,
     ) -> Result<StorageHandle, IoError> {
         if !self.is_virtual_mem_enabled() {
             return Err(IoError::Unknown("Virtual memory is disabled!".to_string()));
@@ -225,36 +267,43 @@ impl VirtualStorage for BytesVirtualStorage {
 
         let aligned_size = size.next_multiple_of(self.mem_alignment as u64);
 
-        unsafe {
-            let layout = Layout::array::<u8>(aligned_size as usize)
-                .map_err(|_| IoError::BufferTooBig(aligned_size as usize))?;
+        // Here I am trying to do something similar to what I guess the CUDA driver does when called with reserve.
+        // Check if the requested address is available. If not, just allocate at a new one.
+        let base_addr = self.allocate_virtual_address(aligned_size);
 
-            let ptr = alloc(layout);
-            if ptr.is_null() {
-                return Err(IoError::BufferTooBig(aligned_size as usize));
+        let provided_addr = if let Some(start) = start_addr {
+            if let Some(space) = self.virtual_memory.get(&start) {
+                space.base_addr + space.size()
+            } else {
+                0
             }
+        } else {
+            0
+        };
 
-            // Initialize virtual address space to zero
-            core::ptr::write_bytes(ptr, 0, aligned_size as usize);
+        if provided_addr != base_addr {
+            eprintln!(
+                "Start address provided is not available. Will allocate at: {}",
+                base_addr
+            );
+        };
 
-            let id = StorageId::new();
-            let addr_space = BytesVirtualAddressSpace::new(ptr, layout, aligned_size);
+        let id = StorageId::new();
+        let addr_space = BytesVirtualAddressSpace::new(base_addr, aligned_size);
 
-            self.virtual_memory.insert(id, addr_space);
+        self.virtual_memory.insert(id, addr_space);
 
-            let handle = StorageHandle::new(id, StorageUtilization { size, offset: 0 });
-            Ok(handle)
-        }
+        let handle = StorageHandle::new(id, StorageUtilization { size, offset: 0 });
+        Ok(handle)
     }
 
+    /// Removes a virtual address space from the table.
     fn free(&mut self, id: StorageId) {
-        if let Some(addr_space) = self.virtual_memory.remove(&id) {
-            unsafe {
-                dealloc(addr_space.ptr, addr_space.layout);
-            }
-        }
+        // Remove from page table.
+        self.virtual_memory.remove(&id);
     }
 
+    /// Releases physical memory back to the heap.
     fn release(&mut self, id: PhysicalStorageId) {
         if let Some(block) = self.physical_memory.remove(&id) {
             assert!(!block.is_mapped(), "Cannot release a mapped handle!");
@@ -264,6 +313,7 @@ impl VirtualStorage for BytesVirtualStorage {
         }
     }
 
+    /// Simulates a mapping between a virtual address space and a physical block by inserting an entry in the page table.
     fn map(
         &mut self,
         id: StorageId,
@@ -276,36 +326,35 @@ impl VirtualStorage for BytesVirtualStorage {
 
         let aligned_offset = offset.next_multiple_of(self.mem_alignment as u64);
 
-        // Get pointers and sizes first to avoid borrowing conflicts
-        let (virtual_ptr, virtual_size) = {
-            let space = self.virtual_memory.get(&id).ok_or(IoError::InvalidHandle)?;
-            (space.ptr(), space.size())
-        };
-
-        let (physical_ptr, ph_size) = {
+        // Verify the physical block exists.
+        let ph_size = {
             let ph = self
                 .physical_memory
                 .get(&physical.id())
                 .ok_or(IoError::InvalidHandle)?;
-            (ph.ptr(), ph.size())
+            ph.size()
+        };
+
+        // Verify that the address space exists and has enough size
+        let virtual_size = {
+            let space = self.virtual_memory.get(&id).ok_or(IoError::InvalidHandle)?;
+            space.size()
         };
 
         if (aligned_offset + ph_size) > virtual_size {
             return Err(IoError::InvalidHandle);
         }
 
-        // Simulate mapping by copying data
-        self.simulate_map(virtual_ptr, aligned_offset, physical_ptr, ph_size);
-
-        // Track the mapping
+        // Add the entry to the page table
         let space = self
             .virtual_memory
             .get_mut(&id)
             .ok_or(IoError::InvalidHandle)?;
-        space.add_mapping(aligned_offset, physical.id());
 
+        space.add_mapping(aligned_offset, physical.id(), 0, ph_size);
+
+        // Mark as mapped
         physical.set_mapped(true);
-
         let ph_mut = self
             .physical_memory
             .get_mut(&physical.id())
@@ -322,33 +371,16 @@ impl VirtualStorage for BytesVirtualStorage {
         Ok(handle)
     }
 
+    /// Removes an entry from the page table, simulating how OS performs unmap.
     fn unmap(&mut self, id: StorageId, offset: u64, physical: &mut PhysicalStorageHandle) {
         let aligned_offset = offset.next_multiple_of(self.mem_alignment as u64);
 
-        // Get pointers and size first to avoid borrowing conflicts
-        let (virtual_ptr, physical_ptr, aligned_size) = {
-            let ph = match self.physical_memory.get(&physical.id()) {
-                Some(ph) => ph,
-                None => return,
-            };
-            let aligned_size = ph.size();
-
-            let mapping = match self.virtual_memory.get(&id) {
-                Some(mapping) => mapping,
-                None => return,
-            };
-
-            (mapping.ptr(), ph.ptr(), aligned_size)
-        };
-
-        // Simulate unmapping by copying data back
-        self.simulate_unmap(virtual_ptr, aligned_offset, physical_ptr, aligned_size);
-
-        // Remove mapping tracking and update states
+        // Remove an entry from the page table.
         if let Some(mapping) = self.virtual_memory.get_mut(&id) {
             mapping.remove_mapping(aligned_offset);
         }
 
+        // Update states.
         if let Some(ph) = self.physical_memory.get_mut(&physical.id()) {
             physical.set_mapped(false);
             ph.set_mapped(false);
@@ -356,13 +388,16 @@ impl VirtualStorage for BytesVirtualStorage {
     }
 }
 
+/// Compute storage implementation for BytesVirtualStorage mostly resembles BytesCpu behaviour.
 impl ComputeStorage for BytesVirtualStorage {
     type Resource = BytesResource;
 
+    /// Gets the mmeory alignment requirement
     fn alignment(&self) -> usize {
         self.mem_alignment
     }
 
+    /// Gets a handle from regular or virtual memory, depending on storage mode.
     fn get(&mut self, handle: &StorageHandle) -> Self::Resource {
         let ptr = match self.alloc_mode {
             BytesAllocationMode::Standard => {
@@ -371,11 +406,11 @@ impl ComputeStorage for BytesVirtualStorage {
                     .expect("Storage handle not found")
                     .ptr
             }
-            BytesAllocationMode::Virtual => self
-                .virtual_memory
-                .get(&handle.id)
-                .expect("Storage handle not found")
-                .ptr(),
+            BytesAllocationMode::Virtual => {
+                // On virtual mode we need to perform address translation.
+                self.translate_address(handle.id, handle.utilization.offset)
+                    .expect("Virtual address translation failed")
+            }
         };
 
         BytesResource {
@@ -385,57 +420,27 @@ impl ComputeStorage for BytesVirtualStorage {
     }
 
     fn alloc(&mut self, size: u64) -> Result<StorageHandle, IoError> {
-        match self.alloc_mode {
-            BytesAllocationMode::Standard => {
-                let id = StorageId::new();
-                let handle = StorageHandle::new(id, StorageUtilization { offset: 0, size });
+        let id = StorageId::new();
+        let handle = StorageHandle::new(id, StorageUtilization { offset: 0, size });
 
-                unsafe {
-                    let layout = Layout::array::<u8>(size as usize)
-                        .map_err(|_| IoError::BufferTooBig(size as usize))?;
-                    let ptr = alloc(layout);
-                    if ptr.is_null() {
-                        return Err(IoError::BufferTooBig(size as usize));
-                    }
-                    let memory = AllocatedBytes { ptr, layout };
-                    self.memory.insert(id, memory);
-                }
-
-                Ok(handle)
+        unsafe {
+            let layout = Layout::array::<u8>(size as usize)
+                .map_err(|_| IoError::BufferTooBig(size as usize))?;
+            let ptr = alloc(layout);
+            if ptr.is_null() {
+                return Err(IoError::BufferTooBig(size as usize));
             }
-            BytesAllocationMode::Virtual => {
-                // For virtual mode, allocate physical + reserve virtual + map
-                let aligned_size = size.next_multiple_of(self.mem_alignment as u64);
-
-                // Allocate physical memory
-                let mut physical_handle = self.allocate(aligned_size)?;
-
-                // Reserve virtual address space
-                let virtual_handle = self.reserve(aligned_size, None)?;
-
-                // Map physical to virtual
-                let mapped_handle = self.map(virtual_handle.id, 0, &mut physical_handle)?;
-
-                Ok(StorageHandle::new(
-                    mapped_handle.id,
-                    StorageUtilization { offset: 0, size },
-                ))
-            }
+            let memory = AllocatedBytes { ptr, layout };
+            self.memory.insert(id, memory);
         }
+
+        Ok(handle)
     }
 
     fn dealloc(&mut self, id: StorageId) {
-        match self.alloc_mode {
-            BytesAllocationMode::Standard => {
-                if let Some(memory) = self.memory.remove(&id) {
-                    unsafe {
-                        dealloc(memory.ptr, memory.layout);
-                    }
-                }
-            }
-            BytesAllocationMode::Virtual => {
-                // For virtual mode, we need to clean up the virtual address space
-                self.free(id);
+        if let Some(memory) = self.memory.remove(&id) {
+            unsafe {
+                dealloc(memory.ptr, memory.layout);
             }
         }
     }
@@ -455,12 +460,8 @@ impl Drop for BytesVirtualStorage {
     fn drop(&mut self) {
         self.flush();
 
-        // Clean up all virtual address spaces
-        for (_, addr_space) in self.virtual_memory.drain() {
-            unsafe {
-                dealloc(addr_space.ptr, addr_space.layout);
-            }
-        }
+        // Clean up all virtual address spaces (no hay memoria física que liberar)
+        self.virtual_memory.clear();
 
         // Clean up all physical memory blocks
         for (_, block) in self.physical_memory.drain() {
@@ -486,6 +487,10 @@ impl core::fmt::Debug for BytesVirtualStorage {
             .field("virtual_memory_count", &self.virtual_memory.len())
             .field("physical_memory_count", &self.physical_memory.len())
             .field("memory_count", &self.memory.len())
+            .field(
+                "next_virtual_addr",
+                &format!("0x{:x}", self.next_virtual_addr),
+            )
             .finish()
     }
 }

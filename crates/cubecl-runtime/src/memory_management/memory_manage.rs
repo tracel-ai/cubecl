@@ -923,7 +923,9 @@ mod tests {
     }
 
     #[test]
-    fn test_virtual_pool() {
+    // Validates that we can safely perform allocations on the virtual pool,
+    // And that data integrity is respected.
+    fn test_virtual_pool_alloc() {
         // Tests the overall functionality of the virtual memory pool.
         let mut memory_manager = create_virtual_memory_manager();
         let page_size = 64 * 2; // Small size to go to smaller pool
@@ -939,62 +941,81 @@ mod tests {
             handles.push(handle);
         }
 
-        let usage_before = memory_manager.memory_usage();
-
-        // Extract handles to deallocate
-        let handle_0 = handles.remove(0); // Remove index 0, others shift down
-        let handle_2 = handles.remove(1); // What was index 2 is now index 1
-
-        // Deallocate every other allocation to create fragmented pages
-        drop(handle_0);
-        drop(handle_2);
-
-        let usage_after = memory_manager.memory_usage();
-        assert!(usage_before.bytes_in_use == usage_after.bytes_in_use + 2 * page_size);
-
-        // Force cleanup
-        // Problem is that bytes storage uses heap allocations, and therefore page addresses are not aligned, which does not allow for the compaction of the pages linked list into a single page.
-        // This is tested at the GpuStorage level. See [cubecl-cuda] for details.
-        memory_manager.cleanup(true);
-
-        // Allocate a larger block that should benefit from page merging
-        let huge_size = page_size * 2;
-        let huge_handle = memory_manager.reserve(huge_size).unwrap();
-
-        let huge_resource = memory_manager
-            .get_resource(huge_handle.binding(), None, None)
-            .unwrap();
-        huge_resource.write()[0] = 200;
-        huge_resource.write()[huge_size as usize - 1] = 201;
-
-        assert_eq!(huge_resource.read()[0], 200);
-        assert_eq!(huge_resource.read()[huge_size as usize - 1], 201);
-
-        // Verify remaining original allocations are intact
-        // Note: handles[0] is now what was originally handles[1]
-        // and handles[1] is now what was originally handles[3]
-        let resource1 = memory_manager
-            .get_resource(handles[0].clone().binding(), None, None)
-            .unwrap();
-        let resource3 = memory_manager
-            .get_resource(handles[1].clone().binding(), None, None)
-            .unwrap();
-        assert_eq!(resource1.read()[0], 11); // Originally i=1, so 1+10=11
-        assert_eq!(resource3.read()[0], 13); // Originally i=3, so 3+10=13
-
-        let final_usage = memory_manager.memory_usage();
-        //   dbg!(&final_usage);
-        assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
-
-        let available_mem = match &mut memory_manager.pools[0] {
-            DynamicPool::Virtual(p) => p.reusable_memory(),
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
             _ => panic!("Should be using Virtual Memory Pool"),
         };
 
-        assert!(available_mem == 0); // Physical memory should have been freed as we called cleanup explicitly
+        assert!(num_pages == 4); // Four pages should have been allocated.
+        assert!(num_slices == 4); // Four slices should have been allocated.
+
+        // Validate data integrity
+        for (i, handle) in handles.iter().enumerate() {
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            assert_eq!(resource.read()[0], (i + 10) as u8);
+        }
     }
 
     #[test]
+    /// Validates that defragmentation happens after explicitly calling cleanup
+    fn test_virtual_pool_cleanup() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+        {
+            // Allocate multiple blocks that will create separate pages
+            let mut handles = Vec::with_capacity(4);
+            for i in 0..4 {
+                let handle = memory_manager.reserve(page_size).unwrap();
+                let resource = memory_manager
+                    .get_resource(handle.clone().binding(), None, None)
+                    .unwrap();
+                resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+                handles.push(handle);
+            }
+
+            let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+                DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+                _ => panic!("Should be using Virtual Memory Pool"),
+            };
+
+            assert!(num_pages == 4); // Four pages should have been allocated.
+            assert!(num_slices == 4); // Four slices should have been allocated.
+
+            // Validate data integrity
+            for (i, handle) in handles.iter().enumerate() {
+                let resource = memory_manager
+                    .get_resource(handle.clone().binding(), None, None)
+                    .unwrap();
+                assert_eq!(resource.read()[0], (i + 10) as u8);
+            }
+        }
+
+        memory_manager.cleanup(true);
+
+        let usage = memory_manager.memory_usage();
+
+        // Bytes in use should be zero as memory has been deallocated.
+        assert_eq!(usage.bytes_in_use, 0);
+        // Bytes reserved should be zero, as we have called it explicitly and therefore no free physical memory should be kept.
+        assert_eq!(usage.bytes_reserved, 0);
+
+        // Check if merging has worked.
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert_eq!(num_pages, 1); // Pages should have been merged in a single one.
+        assert_eq!(num_slices, 1); // Slices should have been merged after defragmentation
+    }
+
+    #[test]
+    // This pattern is more complex to better test defragmentation
+    // Allocate foiur handles, deallocate two of them, defragment.
+    // The final page count and slice count should be three as two of the pages are currently allocated and cannot be merged.
     fn test_virtual_pool_cleanup_no_explicit() {
         // Tests the overall functionality of the virtual memory pool.
         let mut memory_manager = create_virtual_memory_manager();
@@ -1013,14 +1034,15 @@ mod tests {
             handles.push(handle);
         }
 
-        match &mut memory_manager.pools[0] {
+        let dealloc_period = match &mut memory_manager.pools[0] {
             DynamicPool::Virtual(p) => {
                 p.reset_tracking();
+                p.dealloc_period
             }
             _ => panic!("Should be using Virtual Memory Pool"),
         };
         // Clear the recently allocated vector.
-        memory_manager.alloc_reserve_count = 5000; //  force alloc reserve count to be 5000 so that cleanup is called at the following cleanup call
+        memory_manager.alloc_reserve_count = dealloc_period; //  force alloc reserve count to be dealloc period so that defragment is called at the following cleanup call
 
         let usage_before = memory_manager.memory_usage();
 
@@ -1049,5 +1071,14 @@ mod tests {
 
         assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
         assert!(final_usage.bytes_reserved == usage_after.bytes_reserved); // memory should not have been freed
+
+        // Check if merging has worked.
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert_eq!(num_pages, 3); // Pages should have been merged in three, as we had four and have freed two, which should have merged in one
+        assert_eq!(num_slices, 3); // Slices should have been merged after defragmentation.
     }
 }

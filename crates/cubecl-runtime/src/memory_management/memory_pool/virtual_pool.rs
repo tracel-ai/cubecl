@@ -11,13 +11,13 @@
 ///
 /// Note that when a user requests for memory, we give him (or her), an slice handle, which includes a pointer (storage id) to the main page where this handle belongs to and an offset within the handle.
 ///
-/// It is the responsability of the memory system to guarantee that the handle is valid.
+/// It is the responsibility of the memory system to guarantee that the handle is valid.
 ///Therefore, before each allocation, we ensure all the physical handles backing the slice are mapped.
 ///
 /// At allocation time, there will be only one physical handle backing the slice.
 /// This phyical handle will be the same size as the slice size.
 /// If the slice is merged with other slices in the same page, their physical handles will be combined.
-/// When a slice reused, it is sometimes splitted in two. At this point it must be either unmapped (physical_handles is `None`) or cut up at some point in the physical handles vector moving part of the handles to the new slice, while maintining the order.
+/// When a slice reused, it is sometimes split in two. At this point it must be either unmapped (physical_handles is `None`) or cut up at some point in the physical handles vector moving part of the handles to the new slice, while maintining the order.
 ///
 /// Therefore, this memory pool will work better if the physical handles are of a small, predictable size.
 /// Both the parameter [`max_alloc_size`] and [`àlignment`] are left to be chosen by the user, but in practice this pools works best when the difference between them is small.
@@ -344,20 +344,20 @@ pub(crate) struct VirtualMemoryPool {
     /// Virtual memory pages
     pub(crate) pages: HashMap<StorageId, VirtualMemoryPage>,
     /// All virtual slices in the pool
-    virtual_slices: HashMap<SliceId, VirtualSlice>,
+    pub(crate) virtual_slices: HashMap<SliceId, VirtualSlice>,
     /// Queue  for efficient popping of free physical handles
-    free_physical_queue: VecDeque<PhysicalStorageId>,
+    pub(crate) free_physical_queue: VecDeque<PhysicalStorageId>,
     /// Free physical handles that can be reused
-    physical_handles: HashMap<PhysicalStorageId, PhysicalStorageHandle>,
+    pub(crate) physical_handles: HashMap<PhysicalStorageId, PhysicalStorageHandle>,
     /// Ring buffer for page management
-    ring: RingBuffer,
+    pub(crate) ring: RingBuffer,
     /// Recently added pages
     /// Not sure about the purpose of this. Just saw it on the SlicedPool and thought it would be a good idea to keep track of recently added pages, then upon each defragmentation, we can avoid unmapping slices that belong to this set.
-    recently_added_pages: HashSet<StorageId>,
+    pub(crate) recently_added_pages: HashSet<StorageId>,
     /// Recently allocated size
-    recently_allocated_size: u64,
+    pub(crate) recently_allocated_size: u64,
     /// Physical allocation size
-    alloc_size: u64,
+    pub(crate) alloc_size: u64,
     /// This flags allow to have a fully contiguous virtual address space. The allocation workflow is the following:
     /// |------------------|    |------------------|            |------------------|
     /// |  page 1          | -> |  page 2          | [.....] -> |  page n          |
@@ -366,11 +366,11 @@ pub(crate) struct VirtualMemoryPool {
     /// Pages are memory ranges that are contiguous by definition, and slices inside pages can be merged and split on demand, without the need of any API calls.
     /// To merge a range of pages into a single one we will need an API call to the driver, although if pages are actually contiguous it is not necessary.
     /// Keep track of last allocated page for better alignment:
-    last_allocated_page: Option<StorageId>,
+    pub(crate) last_allocated_page: Option<StorageId>,
     /// Keep track of the first page that was allocated after last defragmentation
-    first_page: Option<StorageId>,
+    pub(crate) first_page: Option<StorageId>,
     // Dealloc or defragmentation period
-    dealloc_period: u64,
+    pub(crate) dealloc_period: u64,
 }
 
 impl VirtualMemoryPool {
@@ -475,21 +475,33 @@ impl VirtualMemoryPool {
         Slice::new(storage, handle, padding)
     }
 
-    /// Completely compact a page by merging adjacent free slices
-    fn compact_page(&mut self, page_id: &StorageId) {
+    /// Completely compact a page by merging adjacent free slices.
+    /// Explanation of the page compaction algorithm.
+    /// The merged signal indicates whether the last merge attempt succeeded.
+    /// The outer loop tries to merge two slices of the page at each iteration.
+    /// It will stop once one merge fails (no slices to merge) or if the length of the page has shrunk to one (completely compact).
+    /// At each merge attempt, the slices layout inside the page might have changed.
+    /// Therefore we need to restart the inner loop.
+    fn compact_page(&mut self, page_id: &StorageId) -> bool {
+        let mut merged = true;
         if let Some(page) = self.pages.get_mut(page_id) {
-            let page_addresses: Vec<u64> = page.slices.keys().cloned().collect();
+            while page.slices.len() > 1 && merged {
+                merged = false;
+                let page_addresses: Vec<u64> = page.slices.keys().cloned().collect();
 
-            for address in page_addresses.iter() {
-                let slice_id = page.find_slice(*address).unwrap();
-                if let Some(slice) = self.virtual_slices.get(&slice_id)
-                    && slice.is_free()
-                    && page.merge_with_next_slice(*address, &mut self.virtual_slices)
-                {
-                    break;
+                for address in page_addresses.iter() {
+                    let slice_id = page.find_slice(*address).unwrap();
+                    if let Some(slice) = self.virtual_slices.get(&slice_id)
+                        && slice.is_free()
+                        && page.merge_with_next_slice(*address, &mut self.virtual_slices)
+                    {
+                        merged = true;
+                        break;
+                    }
                 }
             }
         }
+        merged
     }
 
     /// Attempt to reserve an slice of an specific size
@@ -614,6 +626,7 @@ impl VirtualMemoryPool {
         }
 
         // First merge all pages
+        // This is an optimization. Not sure if will work with all backends, but when available it is worth trying
         if let Some(first) = self.first_page {
             let mut current = first;
 
@@ -664,16 +677,6 @@ impl VirtualMemoryPool {
             }
         }
 
-        // At this point, pages have been merged into a single one big chunk.
-        // Therefore we can now try to compact them, merging all contiguous free slices.
-        // In the sliced pool, you could only compact at a single page level, therefore the maximum compactability you could achieve if of size [`page_size`].
-        // As free slices have been unmapped previously, merging them should be safe.
-        // Anyway, in the [`try_reserve_with_storage`] function we are preventing any possible case.
-        let ids: Vec<StorageId> = self.pages.keys().cloned().collect();
-        for id in ids {
-            self.compact_page(&id);
-        }
-
         // Finally, we should be able to deallocate pages that have become full free and are not 'pinned'
         // By pinned I meant they are not tracked as a recent allocation.
         //
@@ -690,11 +693,58 @@ impl VirtualMemoryPool {
             .cloned()
             .collect();
 
+        // As the pages linked list will only work if the driver supports contiguous allocations, we follow this approach to ensure merging.
+        // 1. Remove completely free pages and collect their slices.
+        let mut orphaned_slices: Vec<SliceId> = Vec::new();
+        let mut total_size = 0;
         for page_id in free_pages.iter() {
-            if self.pages.remove(page_id).is_some() {
+            if let Some(page) = self.pages.remove(page_id) {
                 storage.free(*page_id);
                 self.ring.remove_page(page_id);
+                let keys: Vec<SliceId> = page.slices.values().cloned().collect();
+                orphaned_slices.extend(keys);
+                total_size += page.size;
             }
+        }
+
+        //dbg!(&orphaned_slices);
+
+        // 2. Create a new page.
+        if let Ok(new_page) =
+            self.create_virtual_page(storage, total_size, self.last_allocated_page)
+        {
+            self.last_allocated_page = Some(new_page);
+
+            let mut offset = 0;
+            // Insert all orphaned slices into this page, at the carefully computed offsets.
+            for slice_id in orphaned_slices.into_iter() {
+                if let Some(page) = self.pages.get_mut(&new_page) {
+                    page.insert_slice(offset, slice_id);
+                }
+
+                // Update the internal storage id
+                if let Some(slice_mut) = self.virtual_slices.get_mut(&slice_id) {
+                    slice_mut.slice.storage.id = new_page;
+                    slice_mut.slice.storage.utilization.offset = offset;
+                    offset += slice_mut.slice.storage.utilization.size;
+                }
+            }
+        } else {
+            // Page creation failed, therefore we have to remove orphaned slices.
+            // There is no problem on that, though, as slices are just a software representation of a fragment of memory.
+            for slice_id in orphaned_slices {
+                self.virtual_slices.remove(&slice_id);
+            }
+        }
+
+        // At this point, pages have been merged into a single one big chunk.
+        // Therefore we can now try to compact them, merging all contiguous free slices.
+        // In the sliced pool, you could only compact at a single page level, therefore the maximum compactability you could achieve if of size [`page_size`].
+        // As free slices have been unmapped previously, merging them should be safe.
+        // Anyway, in the [`try_reserve_with_storage`] function we are preventing any possible case.
+        let ids: Vec<StorageId> = self.pages.keys().cloned().collect();
+        for id in ids {
+            self.compact_page(&id);
         }
     }
 }
