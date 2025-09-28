@@ -18,7 +18,7 @@
 
 use std::borrow::Cow;
 
-use cubecl_core::ir::{self as core, CubeFnSource, SourceLoc, Variable};
+use cubecl_core::ir::{self as core, CubeFnSource, Id, SourceLoc, Variable};
 use hashbrown::HashMap;
 use rspirv::spirv::{DebugInfoFlags, FunctionControl, Word};
 use rspirv::sr::{
@@ -339,6 +339,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn debug_var_name(&mut self, id: Word, var: Variable) {
         if self.debug_symbols {
             let name = self.name_of_var(var);
+            self.debug_name(id, name);
+        }
+    }
+
+    pub fn debug_shared(&mut self, id: Word, index: Id) {
+        if self.debug_symbols {
+            let name = format!("shared({index})");
             self.debug_name(id, name);
         }
     }

@@ -66,6 +66,10 @@ impl SpirvTarget for GLCompute {
         b.capability(Capability::VulkanMemoryModelDeviceScope);
         b.capability(Capability::GroupNonUniform);
 
+        if b.compilation_options.supports_explicit_smem {
+            b.extension("SPV_KHR_workgroup_memory_explicit_layout");
+        }
+
         let caps: Vec<_> = b.capabilities.iter().copied().collect();
         for cap in caps.iter() {
             b.capability(*cap);

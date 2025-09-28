@@ -27,7 +27,7 @@ pub struct LookupTables {
     pub cube_size: Word,
 
     pub const_arrays: Vec<Array>,
-    pub shared_memories: HashMap<Id, Array>,
+    pub shared_memories: HashMap<Id, SharedMemory>,
     pub local_arrays: HashMap<Id, Array>,
     pub matrices: HashMap<Id, Matrix>,
 
@@ -78,6 +78,21 @@ pub struct Array {
     pub len: u32,
     pub var: ir::Variable,
     pub alignment: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SharedMemory {
+    pub id: Word,
+    pub item: Item,
+    pub len: u32,
+    pub align: u32,
+    pub offset: u32,
+}
+
+impl SharedMemory {
+    pub fn end(&self) -> u32 {
+        self.offset + self.len * self.item.size()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,6 +169,20 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
         let cube_dims = [kernel.cube_dim.x, kernel.cube_dim.y, kernel.cube_dim.z];
         self.state.cube_dims = cube_dims.iter().map(|dim| self.const_u32(*dim)).collect();
         self.state.cube_size = self.const_u32(cube_dims.iter().product());
+
+        let shared_liveness = self.shared_liveness.clone();
+        let shared_memories = shared_liveness.allocations.values().map(|alloc| {
+            let smem_id = self.id();
+            let smem = SharedMemory {
+                id: smem_id,
+                item: self.compile_type(alloc.smem.ty),
+                len: alloc.smem.length,
+                align: alloc.smem.align,
+                offset: alloc.offset,
+            };
+            (alloc.smem.id, smem)
+        });
+        self.state.shared_memories = shared_memories.collect();
     }
 
     fn dedup_const(&mut self, inst: &dr::Instruction) -> Option<Word> {

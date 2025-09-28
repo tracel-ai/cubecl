@@ -135,6 +135,7 @@ pub mod shared {
     /// Shared liveness works the other way around from normal liveness, since shared memory lives
     /// forever by default. So any use (read or write) inserts it as live, while only `free` changes
     /// the state to dead.
+    #[derive(Default, Clone)]
     pub struct SharedLiveness {
         live_vars: HashMap<NodeIndex, HashSet<Id>>,
         pub shared_memories: HashMap<Id, SharedMemory>,
