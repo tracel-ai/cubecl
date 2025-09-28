@@ -1,20 +1,17 @@
-use cubecl_common::bytes::{Allocation, BytesBacking};
+use cubecl_common::bytes::{Allocation, AllocationController};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use std::{alloc::Layout, marker::PhantomData, ptr::NonNull};
+use std::{alloc::Layout, ptr::NonNull};
 
 pub struct CpuAllocController<'a> {
-    binding: Option<Binding>,
     allocation: Allocation<'a>,
+    // Needed to keep the binding alive.
+    _binding: Option<Binding>,
 }
 
-impl BytesBacking for CpuAllocController<'_> {
-    fn dealloc(&mut self) {
-        self.binding = None;
-    }
-
+impl AllocationController for CpuAllocController<'_> {
     fn alloc_align(&self) -> usize {
-        self.allocation.align
+        self.allocation.align()
     }
 
     fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
@@ -41,19 +38,16 @@ impl CpuAllocController<'_> {
 
         let write = resource.write();
         let layout = Layout::for_value(write);
-        let size = layout.size();
-        let align = layout.align();
-        let ptr = resource.write().as_mut_ptr();
+        let ptr =
+            NonNull::new(resource.write().as_mut_ptr()).expect("Resource pointers cannot be null");
 
-        let allocation = Allocation {
-            ptr: NonNull::new(ptr).unwrap(),
-            size,
-            align,
-            _lifetime: PhantomData,
-        };
+        // SAFETY:
+        // - The ptr is valid and points to a memory region allocated by the system.
+        // - The size and alignment are correct for the layout.
+        let allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
 
         Ok(Self {
-            binding: Some(binding),
+            _binding: Some(binding),
             allocation,
         })
     }

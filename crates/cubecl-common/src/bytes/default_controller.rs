@@ -1,14 +1,14 @@
 //! Module that defines an allocation based on the [alloc crate](alloc).
 
-use crate::bytes::{Allocation, AllocationError, BytesBacking};
+use crate::bytes::{AllocationController, AllocationError, allocation::Allocation};
 use alloc::alloc::Layout;
-use core::{mem::MaybeUninit, ptr::NonNull};
+use core::{mem::MaybeUninit, num::NonZero, ptr::NonNull};
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
 /// the bytes are always over-aligned when deserializing to MAX_ALIGN.
 pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 
-/// Default allocation controller using the [alloc crate](alloc).
+/// Allocation controller using the core rust [alloc crate](alloc).
 ///
 /// SAFETY:
 ///  - If `layout.size() > 0`, `ptr` points to a valid allocation from the global allocator
@@ -16,24 +16,31 @@ pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
 ///  - If `layout.size() == 0`, `ptr` is aligned to `layout.align()` and `len` is 0.
 ///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts` see [buffer alloc]
 ///    for more details.
-pub struct DefaultAllocationController<'a> {
+pub(crate) struct CoreAllocationController<'a> {
     allocation: Allocation<'a>,
 }
 
-impl<'a> DefaultAllocationController<'a> {
-    pub(crate) fn new(allocation: Allocation<'a>) -> Self {
+impl<'a> CoreAllocationController<'a> {
+    // SAFETY:
+    // - Allocation must be allocated with the rust core allocator.
+    pub(crate) unsafe fn new(allocation: Allocation<'a>) -> Self {
         Self { allocation }
     }
 }
 
-impl BytesBacking for DefaultAllocationController<'_> {
-    fn dealloc(&mut self) {
+impl Drop for CoreAllocationController<'_> {
+    fn drop(&mut self) {
         let layout = unsafe {
-            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
+            Layout::from_size_align_unchecked(
+                self.allocation.memory().len(),
+                self.allocation.align(),
+            )
         };
-        buffer_dealloc(layout, self.allocation.ptr);
+        buffer_dealloc(layout, self.allocation.ptr());
     }
+}
 
+impl AllocationController for CoreAllocationController<'_> {
     fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
         let Ok(new_layout) = Layout::from_size_align(size, align) else {
             return Err(AllocationError::OutOfMemory);
@@ -41,26 +48,28 @@ impl BytesBacking for DefaultAllocationController<'_> {
 
         // Check done before.
         let old_layout = unsafe {
-            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
+            Layout::from_size_align_unchecked(
+                self.allocation.memory().len(),
+                self.allocation.align(),
+            )
         };
-        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr, new_layout);
+        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr(), new_layout);
 
-        self.allocation = Allocation {
-            ptr,
-            size: layout.size(),
-            align: layout.align(),
-            _lifetime: core::marker::PhantomData,
-        };
+        // SAFETY:
+        // - The ptr is valid for 'a lifetime as we own the binding for 'a.
+        // - We allocated with the size and align of the layout.
+        self.allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
 
         Ok(())
     }
 
+    // SAFETY: Per type invariants, we only take in memory allocated with the rust core allocator.
     fn can_be_detached(&self) -> bool {
         true
     }
 
     fn alloc_align(&self) -> usize {
-        self.allocation.align
+        self.allocation.align()
     }
 
     fn memory(&self) -> &[MaybeUninit<u8>] {
@@ -81,34 +90,33 @@ pub(crate) fn buffer_alloc(layout: Layout) -> NonNull<u8> {
     // must be non-zero. So in case we need a pointer for an empty vec, use a correctly aligned, dangling one.
     if layout.size() == 0 {
         // we would use NonNull:dangling() but we don't have a concrete type for the requested alignment
-        let ptr = core::ptr::null_mut::<u8>().wrapping_add(layout.align());
         // SAFETY: layout.align() is never 0
-        unsafe { NonNull::new_unchecked(ptr) }
+        NonNull::without_provenance(unsafe { NonZero::new_unchecked(layout.align()) })
     } else {
         // SAFETY: layout has non-zero size.
         let ptr = unsafe { alloc::alloc::alloc(layout) };
-        NonNull::new(ptr).unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
+        NonNull::new(ptr.cast()).unwrap_or_else(|| alloc::alloc::handle_alloc_error(layout))
     }
 }
 
 // Deallocate a buffer of a Vec
-fn buffer_dealloc(layout: Layout, buffer: NonNull<u8>) {
+fn buffer_dealloc(layout: Layout, buffer: NonNull<MaybeUninit<u8>>) {
     if layout.size() != 0 {
         // SAFETY: buffer comes from a Vec or from [`buffer_alloc`/`buffer_grow`].
         // The layout is the same as per type-invariants
         unsafe {
-            alloc::alloc::dealloc(buffer.as_ptr(), layout);
+            alloc::alloc::dealloc(buffer.as_ptr().cast(), layout);
         }
     } else {
         // An empty Vec does not allocate, hence nothing to dealloc
-        expect_dangling(layout.align(), buffer);
+        expect_dangling(layout.align(), buffer.cast());
     }
 }
 
 // Grow the buffer while keeping alignment
 fn buffer_grow(
     old_layout: Layout,
-    buffer: NonNull<u8>,
+    buffer: NonNull<MaybeUninit<u8>>,
     min_layout: Layout,
 ) -> (Layout, NonNull<u8>) {
     let new_align = min_layout.align().max(old_layout.align()); // Don't let data become less aligned
@@ -131,7 +139,8 @@ fn buffer_grow(
         // - old_layout is the same as with which the pointer was allocated
         // - new_size is not 0, since it is larger than old_layout.size() which is non-zero
         // - size constitutes a valid layout
-        let ptr = unsafe { alloc::alloc::realloc(buffer.as_ptr(), old_layout, new_layout.size()) };
+        let ptr =
+            unsafe { alloc::alloc::realloc(buffer.as_ptr().cast(), old_layout, new_layout.size()) };
         (new_layout, ptr)
     };
     if new_align == old_layout.align() {
@@ -180,7 +189,7 @@ fn buffer_grow(
             }
             // Speculating hasn't succeeded, but access now has to go through the reallocated buffer
             alignment_assumption::report_violation();
-            old_buffer = buffer;
+            old_buffer = buffer.cast();
             old_layout = realloc_layout;
         } else {
             // If realloc fails, the later alloc will likely too, but don't report this yet
@@ -191,13 +200,17 @@ fn buffer_grow(
     let new_buffer = buffer_alloc(new_layout);
     // SAFETY: two different memory allocations, and old buffer's size is smaller than new_size
     unsafe {
-        core::ptr::copy_nonoverlapping(old_buffer.as_ptr(), new_buffer.as_ptr(), old_layout.size());
+        core::ptr::copy_nonoverlapping(
+            old_buffer.as_ptr(),
+            new_buffer.as_ptr().cast(),
+            old_layout.size(),
+        );
     }
     buffer_dealloc(old_layout, old_buffer);
     (new_layout, new_buffer)
 }
 
-fn expect_dangling(align: usize, buffer: NonNull<u8>) {
+fn expect_dangling(align: usize, buffer: NonNull<MaybeUninit<u8>>) {
     debug_assert!(
         buffer.as_ptr().wrapping_sub(align).is_null(),
         "expected a nullptr for size 0"

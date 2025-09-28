@@ -1,37 +1,36 @@
 use core::mem::MaybeUninit;
 use core::pin::Pin;
-use cubecl_common::bytes::BytesBacking;
+use cubecl_common::bytes::AllocationController;
 use cubecl_runtime::memory_management::SliceBinding;
-use wgpu::BufferViewMut;
+use wgpu::{BufferSlice, BufferViewMut};
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.
 pub struct WgpuAllocController<'a> {
-    // IMPORTANT: Field order matters for drop order!
-    // The view must be dropped before the buffer since it borrows from it.
     view: Option<BufferViewMut<'a>>,
     buffer: Pin<Box<wgpu::Buffer>>,
     _binding: SliceBinding,
 }
 
-impl BytesBacking for WgpuAllocController<'_> {
-    fn dealloc(&mut self) {
+impl Drop for WgpuAllocController<'_> {
+    fn drop(&mut self) {
         // Drop the view first, then unmap the buffer.
         // This ensures proper cleanup order since the view borrows from the buffer.
         drop(self.view.take());
-
         // We unmap the buffer and release the binding so that the same buffer can be used again.
         self.buffer.unmap();
-
-        // The buffer will now return to the memory pool as the binding is dropped.
     }
+}
 
+impl AllocationController for WgpuAllocController<'_> {
     fn alloc_align(&self) -> usize {
         wgpu::COPY_BUFFER_ALIGNMENT as usize
     }
 
     fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         let bytes: &mut [u8] = self.view.as_mut().unwrap();
-        // SAFETY: MaybeUninit<u8> has the same layout as u8
+        // SAFETY:
+        // - MaybeUninit<u8> has the same layout as u8
+        // - We don't expose the original slice anywhere as u8 so writing unit values is safe.
         unsafe {
             std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut MaybeUninit<u8>, bytes.len())
         }
@@ -39,7 +38,8 @@ impl BytesBacking for WgpuAllocController<'_> {
 
     fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
         let bytes: &[u8] = self.view.as_ref().unwrap();
-        // SAFETY: MaybeUninit<u8> has the same layout as u8
+        // SAFETY:
+        // - MaybeUninit<u8> has the same layout as u8
         unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const MaybeUninit<u8>, bytes.len()) }
     }
 }
@@ -58,19 +58,17 @@ impl<'a> WgpuAllocController<'a> {
     pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
         let buf = Pin::new(Box::new(buffer));
 
-        // SAFETY: We're extending the lifetime to match the controller's lifetime, which is safe because:
-        // 1. The view is always dropped before the buffer (via ManuallyDrop in dealloc)
-        // 2. The buffer stays alive as long as the controller exists
-        // 3. The buffer is pinned and will never move after creating the view
-        // 4. BufferSlice holds &wgpu::Buffer, so the buffer address must remain stable
-        let view = unsafe {
-            std::mem::transmute::<BufferViewMut<'_>, BufferViewMut<'a>>(
-                buf.slice(..).get_mapped_range_mut(),
-            )
-        };
+        // SAFETY: We're extending the lifetime to match the controller's lifetime. Internally the BufferViewMut holds
+        // a reference to the buffer.
+        //
+        // - The view is always dropped before the buffer
+        // - The buffer stays alive as long as the controller exists
+        // - The buffer is pinned and will never move after creating the view
+        let slice =
+            unsafe { std::mem::transmute::<BufferSlice<'_>, BufferSlice<'a>>(buf.slice(..)) };
 
         Self {
-            view: Some(view),
+            view: Some(slice.get_mapped_range_mut()),
             buffer: buf,
             _binding: binding,
         }

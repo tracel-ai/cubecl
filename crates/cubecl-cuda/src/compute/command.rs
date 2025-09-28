@@ -140,7 +140,8 @@ impl<'a> Command<'a> {
             .ok()?;
 
         let controller = PinnedMemoryManagedAllocController::init(binding, resource);
-        Some(unsafe { Bytes::from_raw_parts(size, Box::new(controller)) })
+        // SAFETY: The binding has initialized memory for at least `size` bytes.
+        Some(unsafe { Bytes::from_controller(controller, size) })
     }
 
     /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.

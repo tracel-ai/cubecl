@@ -69,7 +69,9 @@ impl CpuServer {
                 let len = desc.binding.size() as usize;
                 let controller =
                     CpuAllocController::init(desc.binding, &mut ctx.memory_management)?;
-                result.push(unsafe { Bytes::from_raw_parts(len, Box::new(controller)) });
+                // SAFETY:
+                // - The binding has initialized memory for at least `len` bytes.
+                result.push(unsafe { Bytes::from_controller(controller, len) });
             }
             Ok(result)
         }

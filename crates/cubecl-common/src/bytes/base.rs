@@ -1,10 +1,10 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
-use crate::bytes::default_controller::{self, DefaultAllocationController};
+use crate::bytes::allocation::Allocation;
+use crate::bytes::default_controller::{self, CoreAllocationController};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::{Layout, LayoutError};
-use core::marker::PhantomData;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
@@ -19,89 +19,28 @@ use core::ptr::NonNull;
 /// The first `len` bytes of the allocation are guaranteed to be initialized. Accessing bytes beyond `len` is undefined behavior unless explicitly initialized.
 pub struct Bytes {
     /// The buffer used to store data.
-    controller: Box<dyn BytesBacking>,
+    controller: Box<dyn AllocationController>,
     /// The length of data actually used and initialized in the current buffer.
     len: usize,
-}
-
-/// Represents a single contiguous memory allocation.
-///
-/// The allocation can be manipulated using the [AllocationController],
-/// though some operations, such as [grow](AllocationController::grow), may not be supported by all
-/// implementations.
-///
-/// # Safety
-///
-/// Manipulating this data structure is highly unsafe and is intended for
-/// [AllocationController] implementations rather than [Bytes] users.
-/// Prefer using the safe [Bytes] API if you want to access data.
-pub struct Allocation<'a> {
-    /// Points to the beginning of the allocation. Must be valid for the lifetime of the allocation.
-    pub ptr: NonNull<u8>,
-    /// The number of bytes allocated
-    pub size: usize,
-    /// The memory alignment of the allocation
-    pub align: usize,
-    /// The lifetime this allocation is valid for.
-    pub _lifetime: PhantomData<&'a ()>,
-}
-
-impl<'a> Allocation<'a> {
-    /// Creates a new Allocation with a shorter lifetime from an existing one.
-    ///
-    /// The new lifetime is guaranteed to be shorter than the original lifetime.
-    pub fn with_lifetime<'b>(&'b self) -> Allocation<'b>
-    where
-        'b: 'a,
-    {
-        Allocation {
-            ptr: self.ptr,
-            size: self.size,
-            align: self.align,
-            _lifetime: PhantomData,
-        }
-    }
-
-    /// Read only view of the underlying memory of this allocation. Not all bytes are initialized.
-    pub fn memory(&self) -> &[MaybeUninit<u8>] {
-        // SAFETY: See type invariants
-        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr().cast(), self.size) }
-    }
-
-    /// Read and mutate the underlying memory of this allocation. Not all bytes are initialized.
-    pub fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        // SAFETY: See type invariants
-        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr().cast(), self.size) }
-    }
 }
 
 /// Defines how an [Allocation] can be controlled.
 ///
 /// This trait enables type erasure of the allocator after an [Allocation] is created, while still
 /// providing methods to modify or manage an existing [Allocation].
-pub trait BytesBacking {
+pub trait AllocationController {
     /// The alignment this allocation was created with.
     fn alloc_align(&self) -> usize;
 
     /// Returns a mutable view of the memory of the whole allocation
+    ///
+    /// SAFETY: Must only write initialized data to the memory.
     fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>];
 
     /// Returns a view of the memory of the whole allocation
     fn memory(&self) -> &[MaybeUninit<u8>];
 
-    /// Deallocates the provided [Allocation].
-    ///
-    /// # Safety
-    ///
-    /// The provided [Allocation] must not be reused after deallocation.
-    fn dealloc(&mut self);
-
     /// Extends the provided [Allocation] to a new size with specified alignment.
-    ///
-    /// # Safety
-    ///
-    /// If the extension is successful, the provided [Allocation] must not be reused. The returned
-    /// [Allocation] should be used instead.
     ///
     /// # Errors
     ///
@@ -153,8 +92,14 @@ impl Bytes {
     ///
     /// This function is highly unsafe, the provided length must be the actual number of bytes initialized in the
     /// AllocationController
-    pub unsafe fn from_raw_parts(len: usize, controller: Box<dyn BytesBacking>) -> Self {
-        Self { controller, len }
+    pub unsafe fn from_controller(
+        controller: impl AllocationController + 'static,
+        len: usize,
+    ) -> Self {
+        Self {
+            controller: Box::new(controller),
+            len,
+        }
     }
 
     /// Create a sequence of [Bytes] from the memory representation of an unknown type of elements.
@@ -193,16 +138,19 @@ impl Bytes {
         //  we have taken ownership of the data!
         unsafe { elems.set_len(0) };
         let data = elems.spare_capacity_mut();
+
         // We now have one contiguous slice of data to pass to Layout::for_value.
         let layout = Layout::for_value(data);
-        // SAFETY: data is the allocation of a vec, hence can not be null. We use unchecked to avoid a panic-path.
-        let ptr = unsafe { NonNull::new_unchecked(elems.as_mut_ptr().cast()) };
-        let controller = DefaultAllocationController::new(Allocation {
-            ptr,
-            size: layout.size(),
-            align: layout.align(),
-            _lifetime: PhantomData,
-        });
+        let ptr = NonNull::new(elems.as_mut_ptr() as *mut u8).unwrap();
+
+        // SAFETY:
+        // - The pointer is valid as long as the controller is alive and not dealloced.
+        // - The allocation was done with the size and layout of the data.
+        let alloc = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
+
+        // SAFETY:
+        // - The data was allocated with the core allocator.
+        let controller = unsafe { CoreAllocationController::new(alloc) };
 
         Self {
             controller: Box::new(controller),
@@ -305,17 +253,21 @@ impl Bytes {
     fn try_from_data(align: usize, data: &[u8]) -> Result<Self, LayoutError> {
         let layout = Layout::from_size_align(data.len(), align)?;
         let ptr = default_controller::buffer_alloc(layout);
-        let mut controller = DefaultAllocationController::new(Allocation {
-            ptr,
-            size: layout.size(),
-            align: layout.align(),
-            _lifetime: PhantomData,
-        });
-        // SAFETY: reinterpreting the slice as a MaybeUninit<u8>.
+
+        // SAFETY:
+        // - The pointer is valid until the controller is deallocated.
+        // - The pointer was allocated with the given layout.
+        let mut allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
+
         // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code
-        controller.memory_mut().copy_from_slice(unsafe {
+        // SAFETY: reinterpreting the slice as a MaybeUninit<u8>, and only read from it.
+        allocation.memory_mut().copy_from_slice(unsafe {
             core::slice::from_raw_parts(data.as_ptr().cast(), data.len())
         });
+
+        // SAFETY: The allocation was allocated with the core allocator.
+        let controller = unsafe { CoreAllocationController::new(allocation) };
+
         Ok(Self {
             controller: Box::new(controller),
             len: data.len(),
@@ -351,12 +303,15 @@ impl Bytes {
 
                 let layout = Layout::from_size_align(new_cap, align).unwrap();
                 let ptr = default_controller::buffer_alloc(layout);
-                let mut controller = DefaultAllocationController::new(Allocation {
-                    ptr,
-                    size: layout.size(),
-                    align: layout.align(),
-                    _lifetime: PhantomData,
-                });
+
+                // SAFETY:
+                // - The pointer is valid for the lifetime of the controller.
+                // - The allocation was done with the correct layout.
+                let allocation =
+                    unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
+
+                // SAFETY: The allocation was allocated with the core allocator.
+                let mut controller = unsafe { CoreAllocationController::new(allocation) };
                 controller.memory_mut()[0..old_len].copy_from_slice(self.controller.memory());
 
                 *self = Self {
@@ -373,8 +328,7 @@ impl Deref for Bytes {
 
     fn deref(&self) -> &Self::Target {
         let memory = &self.controller.memory()[0..self.len];
-        // By construction, bytes up to len are initialized.
-        // SAFETY: The first `len` bytes are guaranteed to be initialized by the type invariants
+        // SAFETY: By construction, bytes up to len are initialized.
         unsafe { core::slice::from_raw_parts(memory.as_ptr().cast(), memory.len()) }
     }
 }
@@ -383,8 +337,7 @@ impl DerefMut for Bytes {
     fn deref_mut(&mut self) -> &mut Self::Target {
         let len = self.len;
         let memory = &mut self.controller.memory_mut()[0..len];
-        // By construction, bytes up to len are initialized.
-        // SAFETY: The first `len` bytes are guaranteed to be initialized by the type invariants
+        // SAFETY: By construction, bytes up to len are initialized.
         unsafe { core::slice::from_raw_parts_mut(memory.as_mut_ptr().cast(), memory.len()) }
     }
 }
@@ -483,12 +436,6 @@ impl PartialEq for Bytes {
 }
 
 impl Eq for Bytes {}
-
-impl Drop for Bytes {
-    fn drop(&mut self) {
-        self.controller.dealloc();
-    }
-}
 
 #[cfg(test)]
 mod tests {
