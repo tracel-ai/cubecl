@@ -468,6 +468,7 @@ impl WgslCompiler {
                 panic!("Barrier isn't supported on wgpu.")
             }
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
+            cube::Operation::Free(_) => {}
         }
     }
 

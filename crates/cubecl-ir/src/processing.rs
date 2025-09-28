@@ -408,6 +408,9 @@ impl ScopeProcessing {
                 Operation::Tma(_) => {
                     // Nothing to do
                 }
+                Operation::Free(_) => {
+                    // Nothing to do
+                }
             });
         self
     }

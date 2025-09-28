@@ -94,6 +94,10 @@ where
             rhs_reader.advance_view();
         }
 
+        sync_cube();
+        lhs_reader.free_stage();
+        rhs_reader.free_stage();
+
         SMM::write_results::<Self::Config>(
             acc,
             &mut out_writer,

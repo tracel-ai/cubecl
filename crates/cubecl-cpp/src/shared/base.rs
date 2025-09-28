@@ -12,6 +12,7 @@ use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
+use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
@@ -102,7 +103,6 @@ pub struct CppCompiler<D: Dialect> {
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     pipelines: Vec<PipelineOps<D>>,
-    shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
 }
@@ -140,10 +140,10 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, mut value: KernelDefinition) -> ComputeKernel<D> {
+    fn compile_ir(mut self, value: KernelDefinition) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
-        let instructions = self.compile_scope(&mut value.body);
+        let instructions = self.compile_scope(&mut value.body.clone());
         let buffers = value
             .buffers
             .into_iter()
@@ -182,9 +182,23 @@ impl<D: Dialect> CppCompiler<D> {
             cluster_dim: value.options.cluster_dim,
         };
 
+        let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
+        let shared_allocs = opt.analysis::<SharedLiveness>();
+        let shared_memories = shared_allocs
+            .allocations
+            .values()
+            .map(|alloc| SharedMemory {
+                index: alloc.smem.id,
+                item: self.compile_type(alloc.smem.ty),
+                length: alloc.smem.length,
+                align: alloc.smem.align,
+                offset: alloc.offset,
+            })
+            .collect();
+
         let body = Body {
             instructions,
-            shared_memories: self.shared_memories,
+            shared_memories,
             pipelines: self.pipelines,
             barriers: self.barriers,
             const_arrays: self.const_arrays,
@@ -581,6 +595,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
+            gpu::Operation::Free(_) => {}
         }
     }
 
@@ -1262,21 +1277,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            gpu::VariableKind::SharedMemory {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => {
+            gpu::VariableKind::SharedMemory { id, length, .. } => {
                 let item = self.compile_type(item);
-                if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories.push(SharedMemory::new(
-                        id,
-                        item,
-                        length * unroll_factor,
-                        alignment,
-                    ));
-                }
                 Variable::SharedMemory(id, item, length)
             }
             gpu::VariableKind::ConstantArray {

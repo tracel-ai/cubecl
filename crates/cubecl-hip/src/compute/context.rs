@@ -32,12 +32,14 @@ pub struct HipCompiledKernel {
     _module: cubecl_hip_sys::hipModule_t,
     func: cubecl_hip_sys::hipFunction_t,
     cube_dim: CubeDim,
+    shared_mem_bytes: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone)]
 pub struct CompilationCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
+    shared_mem_bytes: usize,
     binary: Vec<i8>,
 }
 
@@ -83,6 +85,7 @@ impl HipContext {
                         y: entry.cube_dim.1,
                         z: entry.cube_dim.2,
                     },
+                    entry.shared_mem_bytes,
                 );
                 return;
             }
@@ -190,6 +193,8 @@ impl HipContext {
             );
         }
 
+        let repr = jitc_kernel.repr.unwrap();
+
         if let Some(cache) = self.compilation_cache.as_mut() {
             cache
                 .insert(
@@ -201,6 +206,7 @@ impl HipContext {
                             jitc_kernel.cube_dim.y,
                             jitc_kernel.cube_dim.z,
                         ),
+                        shared_mem_bytes: repr.shared_memory_size(),
                         binary: code.clone(),
                     },
                 )
@@ -212,6 +218,7 @@ impl HipContext {
             kernel_id.clone(),
             jitc_kernel.entrypoint_name,
             jitc_kernel.cube_dim,
+            repr.shared_memory_size(),
         );
     }
 
@@ -221,6 +228,7 @@ impl HipContext {
         kernel_id: KernelId,
         entrypoint_name: String,
         cube_dim: CubeDim,
+        shared_mem_bytes: usize,
     ) {
         let func_name = CString::new(entrypoint_name.clone()).unwrap();
 
@@ -246,6 +254,7 @@ impl HipContext {
                 _module: module,
                 func,
                 cube_dim,
+                shared_mem_bytes,
             },
         );
     }
@@ -275,10 +284,9 @@ impl HipContext {
                 cube_dim.x,
                 cube_dim.y,
                 cube_dim.z,
-                // Shared memory is specified statically in the kernel, and no dynamic shared
-                // memory is supported yet in the kernel, which would be that value for the
-                // current kernel launch.
-                0,
+                // Shared memory is collected into a single buffer, with each shared memory being
+                // an offset pointer
+                kernel.shared_mem_bytes as u32,
                 stream.sys,
                 bindings.as_mut_ptr(),
                 std::ptr::null_mut(),

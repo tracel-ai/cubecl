@@ -16,7 +16,7 @@ use crate::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
         DialectInstructions, DialectProcessors, DialectTypes, DialectWarpReduceCompiler,
         DialectWmmaCompiler, Elem, FP4Kind, FP6Kind, FP8Kind, Flags, Instruction, Item, ManualMma,
-        SharedMemory, Variable, WarpInstruction, unary,
+        Variable, WarpInstruction, unary,
     },
 };
 
@@ -287,22 +287,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for CudaDialect<M> {
     fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
-
-    fn compile_shared_memory_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        shared: &SharedMemory<Self>,
-    ) -> std::fmt::Result {
-        let item = shared.item;
-        let index = shared.index;
-        let offset = shared.offset;
-        let size = shared.size;
-        let size_bytes = size * shared.item.size() as u32;
-        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
-        writeln!(
-            f,
-            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
-        )
-    }
 }
 
 // Kernel argument bindings
@@ -352,7 +336,7 @@ extern \"C\" __global__ void __launch_bounds__({})",
             let max_align = body
                 .shared_memories
                 .iter()
-                .map(|smem| smem.align.unwrap_or(smem.item.size() as u32))
+                .map(|smem| smem.align)
                 .max()
                 .unwrap();
             // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged

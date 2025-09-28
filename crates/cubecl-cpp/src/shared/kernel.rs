@@ -22,9 +22,15 @@ pub struct Binding<D: Dialect> {
 pub struct SharedMemory<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
-    pub size: u32,
-    pub align: Option<u32>,
+    pub length: u32,
+    pub align: u32,
     pub offset: u32,
+}
+
+impl<D: Dialect> SharedMemory<D> {
+    pub fn size(&self) -> u32 {
+        self.length * self.item.size() as u32
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -49,11 +55,11 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32, align: Option<u32>) -> Self {
+    pub fn new(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
         Self {
             index,
             item,
-            size,
+            length: size,
             align,
             offset: 0, // initialized later
         }
@@ -77,22 +83,9 @@ pub struct ComputeKernel<D: Dialect> {
 
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
-        // Account for alignment padding between shared memory buffers
-        // Sorted to minimize that padding
-        let mut shared_memories = self.body.shared_memories.clone();
-        shared_memories.sort_by_key(|smem| smem.align.unwrap_or(smem.item.size() as u32));
-        shared_memories.reverse();
-
-        let mut current = 0usize;
-
-        for var in self.body.shared_memories.iter() {
-            let align = var.align.unwrap_or(var.item.size() as u32);
-            let size_bytes = var.size as usize * var.item.size();
-            let offset = current.next_multiple_of(align as usize);
-            current = offset + size_bytes;
-        }
-
-        current
+        let smems = self.body.shared_memories.iter();
+        let ends = smems.map(|it| it.offset + it.size());
+        ends.max().unwrap_or_default() as usize
     }
 }
 

@@ -5,7 +5,13 @@ use petgraph::visit::EdgeRef;
 
 use crate::{
     BasicBlock, ControlFlow,
-    analyses::{liveness::Liveness, uniformity::Uniformity},
+    analyses::{
+        liveness::{
+            Liveness,
+            shared::{SharedLiveness, SmemAllocation},
+        },
+        uniformity::Uniformity,
+    },
     gvn::{BlockSets, Constant, Expression, GlobalValues, Instruction, Local, Value, ValueTable},
 };
 
@@ -24,6 +30,10 @@ impl Display for Optimizer {
             .analysis_cache
             .try_get::<Liveness>()
             .unwrap_or_else(|| Rc::new(Liveness::empty(self)));
+        let shared_liveness = self
+            .analysis_cache
+            .try_get::<SharedLiveness>()
+            .unwrap_or_else(|| Rc::new(SharedLiveness::empty(self)));
         let uniformity = self
             .analysis_cache
             .try_get::<Uniformity>()
@@ -33,6 +43,13 @@ impl Display for Optimizer {
             writeln!(f, "# Value Table:")?;
             writeln!(f, "{}", global_nums.borrow().values)?;
         }
+
+        let smems = shared_liveness
+            .allocations
+            .values()
+            .map(|it| format!("    {it}"));
+        let smems = smems.collect::<Vec<_>>().join(",\n");
+        writeln!(f, "Shared memories: [\n{smems}\n]\n")?;
 
         for node in self.program.node_indices() {
             let id = node.index();
@@ -59,6 +76,14 @@ impl Display for Optimizer {
             let live_vars = live_vars.map(|it| format!("local({it})"));
             let live_vars = live_vars.collect::<Vec<_>>();
             writeln!(f, "    Live variables: [{}]\n", live_vars.join(", "))?;
+            let live_shared = shared_liveness.at_block(node).iter();
+            let live_shared = live_shared.map(|it| format!("shared({it})"));
+            let live_shared = live_shared.collect::<Vec<_>>();
+            writeln!(
+                f,
+                "    Live shared memories: [{}]\n",
+                live_shared.join(", ")
+            )?;
 
             for phi in bb.phi_nodes.borrow().iter() {
                 write!(f, "    {} = phi ", phi.out)?;
@@ -393,5 +418,15 @@ impl Display for BasicBlock {
             }
         }
         Ok(())
+    }
+}
+
+impl Display for SmemAllocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "shared(id: {}, offset: {}, length: {}, align: {}, ty: {})",
+            self.smem.id, self.offset, self.smem.length, self.smem.align, self.smem.ty
+        )
     }
 }
