@@ -111,4 +111,12 @@ impl<Resource: Send> BindingResource<Resource> {
     pub fn resource(&self) -> &Resource {
         &self.resource
     }
+
+    /// access the underlying resource. Note: The resource might be bigger
+    /// than just the original allocation for the binding. Only the part
+    /// for the original binding is guaranteed to remain, other parts
+    /// of the resource *will* be re-used.
+    pub fn resource_mut(&mut self) -> &mut Resource {
+        &mut self.resource
+    }
 }

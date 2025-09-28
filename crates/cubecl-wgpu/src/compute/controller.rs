@@ -26,11 +26,11 @@ impl AllocationController for WgpuAllocController<'_> {
         wgpu::COPY_BUFFER_ALIGNMENT as usize
     }
 
-    fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
+    unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
         let bytes: &mut [u8] = self.view.as_mut().unwrap();
         // SAFETY:
         // - MaybeUninit<u8> has the same layout as u8
-        // - We don't expose the original slice anywhere as u8 so writing unit values is safe.
+        // - Caller promises not to write uninitialized values.
         unsafe {
             std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut MaybeUninit<u8>, bytes.len())
         }

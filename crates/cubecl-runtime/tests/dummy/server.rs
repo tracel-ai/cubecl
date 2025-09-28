@@ -56,7 +56,7 @@ impl KernelTask {
         }
     }
 
-    pub fn compute(&self, resources: &mut [&BytesResource]) {
+    pub fn compute(&self, resources: &mut [&mut BytesResource]) {
         self.kernel.compute(resources);
     }
 }
@@ -129,8 +129,8 @@ impl ComputeServer for DummyServer {
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
-            let resource = self.get_resource(descriptor.binding, stream_id);
-            let bytes = resource.resource().write();
+            let mut resource = self.get_resource(descriptor.binding, stream_id);
+            let bytes = resource.resource_mut().write();
             bytes[..data.len()].copy_from_slice(data);
         }
         Ok(())
@@ -178,7 +178,7 @@ impl ComputeServer for DummyServer {
                 .map(|h| self.get_resource(h.binding(), stream_id)),
         );
 
-        let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
+        let mut resources: Vec<_> = resources.iter_mut().map(|x| x.resource_mut()).collect();
 
         kernel.compute(&mut resources);
     }

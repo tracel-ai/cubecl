@@ -67,8 +67,10 @@ impl CpuServer {
             let mut result = Vec::with_capacity(descriptors.len());
             for desc in descriptors {
                 let len = desc.binding.size() as usize;
-                let controller =
-                    CpuAllocController::init(desc.binding, &mut ctx.memory_management)?;
+                let controller = Box::new(CpuAllocController::init(
+                    desc.binding,
+                    &mut ctx.memory_management,
+                )?);
                 // SAFETY:
                 // - The binding has initialized memory for at least `len` bytes.
                 result.push(unsafe { Bytes::from_controller(controller, len) });
@@ -227,12 +229,11 @@ impl ComputeServer for CpuServer {
 
 impl CpuServer {
     fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
-        let resource = self
+        let mut resource = self
             .ctx
             .memory_management
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .unwrap();
-
         resource.write().copy_from_slice(data);
     }
 }

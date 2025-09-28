@@ -1,29 +1,51 @@
-use cubecl_common::bytes::{Allocation, AllocationController};
+use cubecl_common::bytes::AllocationController;
 use cubecl_core::server::{Binding, IoError};
-use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
-use std::{alloc::Layout, ptr::NonNull};
+use cubecl_runtime::{
+    memory_management::MemoryManagement,
+    storage::{BytesResource, BytesStorage},
+};
 
-pub struct CpuAllocController<'a> {
-    allocation: Allocation<'a>,
+pub struct CpuAllocController {
+    resource: BytesResource,
     // Needed to keep the binding alive.
     _binding: Option<Binding>,
 }
 
-impl AllocationController for CpuAllocController<'_> {
+impl AllocationController for CpuAllocController {
     fn alloc_align(&self) -> usize {
-        self.allocation.align()
+        align_of::<u8>()
     }
 
-    fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
-        self.allocation.memory_mut()
+    unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {
+        let slice = self.resource.write();
+
+        // SAFETY:
+        // - MaybeUninit has the same layout as u8.
+        // - Caller upholds only writing initialized memory.
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                slice.as_mut_ptr() as *mut std::mem::MaybeUninit<u8>,
+                slice.len(),
+            )
+        }
     }
 
     fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
-        self.allocation.memory()
+        // SAFETY: Upheld by the caller.
+        let slice = self.resource.read();
+
+        // SAFETY:
+        // - MaybeUninit has the same layout as u8.
+        unsafe {
+            std::slice::from_raw_parts(
+                slice.as_ptr() as *const std::mem::MaybeUninit<u8>,
+                slice.len(),
+            )
+        }
     }
 }
 
-impl CpuAllocController<'_> {
+impl CpuAllocController {
     pub fn init(
         binding: Binding,
         memory_management: &mut MemoryManagement<BytesStorage>,
@@ -36,19 +58,9 @@ impl CpuAllocController<'_> {
             )
             .ok_or(IoError::InvalidHandle)?;
 
-        let write = resource.write();
-        let layout = Layout::for_value(write);
-        let ptr =
-            NonNull::new(resource.write().as_mut_ptr()).expect("Resource pointers cannot be null");
-
-        // SAFETY:
-        // - The ptr is valid and points to a memory region allocated by the system.
-        // - The size and alignment are correct for the layout.
-        let allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
-
         Ok(Self {
             _binding: Some(binding),
-            allocation,
+            resource,
         })
     }
 }

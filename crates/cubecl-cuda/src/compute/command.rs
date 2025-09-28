@@ -139,7 +139,7 @@ impl<'a> Command<'a> {
             .ok_or(IoError::InvalidHandle)
             .ok()?;
 
-        let controller = PinnedMemoryManagedAllocController::init(binding, resource);
+        let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
         // SAFETY: The binding has initialized memory for at least `size` bytes.
         Some(unsafe { Bytes::from_controller(controller, size) })
     }

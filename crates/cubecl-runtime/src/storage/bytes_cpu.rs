@@ -43,8 +43,14 @@ impl BytesResource {
         }
     }
 
+    /// Get the ptr this resource points to.
+    pub fn mut_ptr(&mut self) -> *mut u8 {
+        let (ptr, _) = self.get_exact_location_and_length();
+        ptr
+    }
+
     /// Returns the resource as a mutable slice of bytes.
-    pub fn write<'a>(&self) -> &'a mut [u8] {
+    pub fn write<'a>(&mut self) -> &'a mut [u8] {
         let (ptr, len) = self.get_exact_location_and_length();
 
         unsafe { core::slice::from_raw_parts_mut(ptr, len) }
