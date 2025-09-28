@@ -47,6 +47,8 @@ pub struct LookupTables {
     // For break, continue
     pub loops: VecDeque<Loop>,
 
+    // Explicitly decorated types, to avoid double decorating
+    pub decorated_types: HashSet<Word>,
     pub debug_types: HashSet<Word>,
 }
 

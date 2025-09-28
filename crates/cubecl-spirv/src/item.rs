@@ -39,7 +39,8 @@ impl Item {
             }
             Item::Struct(vec) => {
                 let items: Vec<_> = vec.iter().map(|item| item.id(b)).collect();
-                b.type_struct(items)
+                let id = b.id(); // Avoid deduplicating this struct, because of decorations
+                b.type_struct_id(Some(id), items)
             }
             Item::Pointer(storage_class, item) => {
                 let item = item.id(b);

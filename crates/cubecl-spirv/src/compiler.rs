@@ -421,13 +421,19 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
 
             let arr_ty = Item::Array(Box::new(memory.item), memory.len);
             let arr_id = arr_ty.id(self);
-            self.decorate(
-                arr_id,
-                Decoration::ArrayStride,
-                [Operand::LiteralBit32(item_size)],
-            );
+
+            if !self.state.decorated_types.contains(&arr_id) {
+                self.decorate(
+                    arr_id,
+                    Decoration::ArrayStride,
+                    [Operand::LiteralBit32(item_size)],
+                );
+                self.state.decorated_types.insert(arr_id);
+            }
+
             let block_ty = Item::Struct(vec![arr_ty]);
             let block_id = block_ty.id(self);
+
             self.decorate(block_id, Decoration::Block, []);
             self.member_decorate(
                 block_id,
