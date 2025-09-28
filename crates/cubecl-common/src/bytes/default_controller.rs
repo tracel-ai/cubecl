@@ -2,6 +2,7 @@
 
 use crate::bytes::{AllocationController, AllocationError};
 use alloc::alloc::Layout;
+use bytemuck::Contiguous;
 use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, num::NonZero, ptr::NonNull};
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
@@ -35,9 +36,27 @@ impl<'a> Allocation<'a> {
     /// - The allocation must have the alignment specified by `align`
     /// - The allocation must be at least `size` bytes long
     pub unsafe fn new_init(ptr: NonNull<u8>, size: usize, align: usize) -> Self {
+        debug_assert!(
+            align <= MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+        debug_assert!(
+            ptr.as_ptr().align_offset(align.into_integer()) == 0,
+            "pointer is not properly aligned"
+        );
+
         Self {
             ptr,
             size,
+            align,
+            _lifetime: PhantomData,
+        }
+    }
+
+    fn dangling(align: usize) -> Allocation<'a> {
+        Self {
+            ptr: NonNull::without_provenance(unsafe { NonZero::new_unchecked(align) }),
+            size: 0,
             align,
             _lifetime: PhantomData,
         }
@@ -58,23 +77,36 @@ pub(crate) struct CoreAllocationController<'a> {
 
 impl<'a> CoreAllocationController<'a> {
     pub(crate) fn alloc_with_data(data: &[u8], align: usize) -> Result<Self, LayoutError> {
-        let mut controller = Self::alloc_with_capacity(data.len(), align)?;
+        debug_assert!(
+            align <= MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+
+        // Round up capacity to next multiple of alignment
+        let capacity = data.len().next_multiple_of(align.into_integer());
+        let mut controller = Self::alloc_with_capacity(capacity, align)?;
         // See also #![feature(maybe_uninit_write_slice)], which would replace this with safe code
         // SAFETY: reinterpreting the slice as a MaybeUninit<u8>, and only reading from it.
         unsafe {
-            controller
-                .memory_mut()
-                .copy_from_slice(core::slice::from_raw_parts(
-                    data.as_ptr().cast(),
-                    data.len(),
-                ));
+            controller.memory_mut()[..data.len()].copy_from_slice(core::slice::from_raw_parts(
+                data.as_ptr().cast(),
+                data.len(),
+            ));
         }
         Ok(controller)
     }
 
     pub(crate) fn alloc_with_capacity(capacity: usize, align: usize) -> Result<Self, LayoutError> {
-        assert!(capacity.is_multiple_of(align));
-        let layout = Layout::from_size_align(capacity, align)?;
+        debug_assert!(
+            align <= MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+        debug_assert!(
+            capacity.is_multiple_of(align.into_integer()),
+            "capacity must be a multiple of alignment"
+        );
+
+        let layout = Layout::from_size_align(capacity, align.into_integer())?;
         let ptr = buffer_alloc(layout);
 
         // SAFETY:
@@ -115,17 +147,17 @@ impl<'a> CoreAllocationController<'a> {
     }
 }
 
-impl Drop for CoreAllocationController<'_> {
-    fn drop(&mut self) {
-        let layout = unsafe {
-            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
-        };
-        buffer_dealloc(layout, self.allocation.ptr.cast());
-    }
-}
-
 impl AllocationController for CoreAllocationController<'_> {
     fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
+        debug_assert!(
+            align <= MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+        debug_assert!(
+            size > self.allocation.size,
+            "new size must be larger than current size"
+        );
+
         let Ok(new_layout) = Layout::from_size_align(size, align) else {
             return Err(AllocationError::OutOfMemory);
         };
@@ -134,7 +166,7 @@ impl AllocationController for CoreAllocationController<'_> {
         let old_layout = unsafe {
             Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
         };
-        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr.cast(), new_layout);
+        let (layout, ptr) = buffer_grow(old_layout, self.allocation.ptr, new_layout);
 
         // SAFETY:
         // - The ptr is valid for 'a lifetime as we own the binding for 'a.
@@ -145,8 +177,10 @@ impl AllocationController for CoreAllocationController<'_> {
     }
 
     // SAFETY: Per type invariants, we only take in memory allocated with the rust core allocator.
-    fn can_be_detached(&self) -> bool {
-        true
+    fn try_detach(&mut self) -> Option<NonNull<u8>> {
+        let ptr = self.allocation.ptr;
+        self.allocation = Allocation::dangling(self.allocation.align);
+        Some(ptr)
     }
 
     fn alloc_align(&self) -> usize {
@@ -175,8 +209,17 @@ impl AllocationController for CoreAllocationController<'_> {
     }
 }
 
+impl Drop for CoreAllocationController<'_> {
+    fn drop(&mut self) {
+        let layout = unsafe {
+            Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
+        };
+        buffer_dealloc(layout, self.allocation.ptr.cast());
+    }
+}
+
 // Allocate a pointer that can be passed to Vec::from_raw_parts
-pub(crate) fn buffer_alloc(layout: Layout) -> NonNull<u8> {
+fn buffer_alloc(layout: Layout) -> NonNull<u8> {
     // [buffer alloc]: The current docs of Vec::from_raw_parts(ptr, ...) say:
     //   > ptr must have been allocated using the global allocator
     // Yet, an empty Vec is guaranteed to not allocate (it is even illegal! to allocate with a zero-sized layout)
@@ -313,4 +356,118 @@ fn expect_dangling(align: usize, buffer: NonNull<u8>) {
 #[cold]
 pub fn alloc_overflow() -> ! {
     panic!("Overflow, too many elements")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bytes::AllocationController;
+
+    #[test]
+    fn test_core_allocation_controller_alloc_with_capacity() {
+        let controller = CoreAllocationController::alloc_with_capacity(64, 8).unwrap();
+        assert_eq!(controller.alloc_align(), 8);
+        assert_eq!(controller.memory().len(), 64);
+    }
+
+    #[test]
+    fn test_core_allocation_controller_alloc_with_data() {
+        let data = b"hello world test"; // 16 bytes to be multiple of 8
+        let controller = CoreAllocationController::alloc_with_data(data, 8).unwrap();
+        assert_eq!(controller.alloc_align(), 8);
+        assert!(controller.memory().len() >= data.len());
+        assert_eq!(controller.memory().len() % 8, 0); // Should be multiple of alignment
+
+        // Verify data was copied correctly
+        let memory = controller.memory();
+        let memory_slice =
+            unsafe { core::slice::from_raw_parts(memory.as_ptr() as *const u8, data.len()) };
+        assert_eq!(memory_slice, data);
+    }
+
+    #[test]
+    fn test_core_allocation_controller_from_elems() {
+        let elems = vec![1u32, 2, 3, 4];
+        let expected_bytes = elems.len() * core::mem::size_of::<u32>();
+
+        let controller = CoreAllocationController::from_elems(elems);
+        assert_eq!(controller.alloc_align(), core::mem::align_of::<u32>());
+        assert_eq!(controller.memory().len(), expected_bytes);
+    }
+
+    #[test]
+    fn test_core_allocation_controller_grow() {
+        let mut controller = CoreAllocationController::alloc_with_capacity(32, 8).unwrap();
+        let old_memory_len = controller.memory().len();
+
+        controller.grow(64, 8).unwrap();
+
+        assert_eq!(controller.alloc_align(), 8);
+        assert!(controller.memory().len() >= 64);
+        assert!(controller.memory().len() > old_memory_len);
+    }
+
+    #[test]
+    fn test_core_allocation_controller_grow_with_higher_alignment() {
+        let mut controller = CoreAllocationController::alloc_with_capacity(32, 8).unwrap();
+        controller.grow(64, 16).unwrap();
+        assert!(controller.alloc_align() == 16);
+        assert!(controller.memory().len() == 64);
+    }
+
+    #[test]
+    fn test_buffer_alloc_zero_size() {
+        let layout = Layout::from_size_align(0, 8).unwrap();
+        let ptr = buffer_alloc(layout);
+        assert_eq!(ptr.as_ptr().align_offset(8), 0);
+        buffer_dealloc(layout, ptr);
+    }
+
+    #[test]
+    fn test_buffer_grow_from_zero() {
+        let old_layout = Layout::from_size_align(0, 8).unwrap();
+        let buffer = buffer_alloc(old_layout);
+        let min_layout = Layout::from_size_align(64, 8).unwrap();
+        let (new_layout, new_buffer) = buffer_grow(old_layout, buffer, min_layout);
+        assert!(new_layout.size() >= 64);
+        assert_eq!(new_layout.align(), 8);
+        buffer_dealloc(new_layout, new_buffer);
+    }
+
+    #[test]
+    fn test_memory_access() {
+        let data = b"test data"; // 9 bytes, will be rounded up to 16 for 8-byte alignment
+        let controller = CoreAllocationController::alloc_with_data(data, 8).unwrap();
+
+        let memory = controller.memory();
+        assert!(memory.len() >= data.len());
+        assert_eq!(memory.len() % 8, 0); // Should be multiple of alignment
+        let memory_slice =
+            unsafe { core::slice::from_raw_parts(memory.as_ptr() as *const u8, data.len()) };
+        assert_eq!(memory_slice, data);
+    }
+
+    #[test]
+    fn test_memory_mut_access() {
+        let mut controller = CoreAllocationController::alloc_with_capacity(16, 8).unwrap();
+        unsafe {
+            let memory = controller.memory_mut();
+            assert_eq!(memory.len(), 16);
+            // Write some test data
+            memory[0].write(42);
+            memory[1].write(84);
+        }
+        // Verify the data was written
+        let memory = controller.memory();
+        unsafe {
+            assert_eq!(memory[0].assume_init(), 42);
+            assert_eq!(memory[1].assume_init(), 84);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "capacity must be a multiple of alignment")]
+    fn test_debug_assert_capacity_alignment_mismatch() {
+        let _ = CoreAllocationController::alloc_with_capacity(33, 8);
+    }
 }

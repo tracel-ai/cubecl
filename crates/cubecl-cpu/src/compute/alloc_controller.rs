@@ -31,7 +31,6 @@ impl AllocationController for CpuAllocController {
     }
 
     fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
-        // SAFETY: Upheld by the caller.
         let slice = self.resource.read();
 
         // SAFETY:

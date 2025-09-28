@@ -6,6 +6,7 @@ use alloc::vec::Vec;
 use core::alloc::LayoutError;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
+use core::ptr::NonNull;
 
 /// A buffer similar to `Box<[u8]>` that supports custom memory alignment and allows trailing uninitialized bytes.
 ///
@@ -62,8 +63,8 @@ pub trait AllocationController {
     /// requiring a new allocation.
     ///
     /// Implementing this incorrectly is unsafe and may lead to undefined behavior.
-    fn can_be_detached(&self) -> bool {
-        false
+    fn try_detach(&mut self) -> Option<NonNull<u8>> {
+        None
     }
 }
 
@@ -94,6 +95,10 @@ impl Bytes {
     /// This function is highly unsafe, the provided length must be the actual number of bytes initialized in the
     /// AllocationController
     pub unsafe fn from_controller(controller: Box<dyn AllocationController>, len: usize) -> Self {
+        debug_assert!(
+            len <= controller.memory().len(),
+            "len must not exceed controller memory size"
+        );
         Self { controller, len }
     }
 
@@ -173,11 +178,8 @@ impl Bytes {
     fn try_into_vec_inner<E: bytemuck::CheckedBitPattern + bytemuck::NoUninit>(
         mut self,
     ) -> Result<Vec<E>, Self> {
-        if !self.controller.can_be_detached() {
-            return Err(self);
-        }
-
         let byte_capacity = self.controller.memory().len();
+
         let Some(capacity) = byte_capacity.checked_div(size_of::<E>()) else {
             return Err(self);
         };
@@ -188,10 +190,9 @@ impl Bytes {
             return Err(self);
         }
 
-        // Okay, let's commit
-        // SAFETY: Vec manages writing only initialized memory to this ptr.
-        let ptr = unsafe { self.controller.memory_mut().as_mut_ptr() };
-        core::mem::forget(self);
+        let Some(ptr) = self.controller.try_detach() else {
+            return Err(self);
+        };
 
         // SAFETY:
         // - ptr was allocated by the global allocator as per type-invariant
@@ -200,7 +201,7 @@ impl Bytes {
         // - 0 <= capacity
         // - no bytes are claimed to be initialized
         // - the layout represents a valid allocation, hence has allocation size less than isize::MAX
-        Ok(unsafe { Vec::from_raw_parts(ptr.cast(), 0, capacity) })
+        Ok(unsafe { Vec::from_raw_parts(ptr.as_ptr().cast(), 0, capacity) })
     }
 
     /// Get the alignment of the wrapped allocation.
@@ -213,11 +214,22 @@ impl Bytes {
     /// This is used internally to preserve the alignment of the memory layout when matching elements
     /// are extended. Prefer [`Self::extend_from_byte_slice`] otherwise.
     pub fn extend_from_byte_slice_aligned(&mut self, bytes: &[u8], align: usize) {
+        debug_assert!(align.is_power_of_two(), "alignment must be a power of two");
+        debug_assert!(
+            align <= default_controller::MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+
         let additional = bytes.len();
         self.reserve(additional, align);
 
         let len = self.len();
         let new_cap = len.wrapping_add(additional); // Can not overflow, as we've just successfully reserved sufficient space for it
+        debug_assert!(
+            new_cap <= self.capacity(),
+            "new capacity must not exceed allocated capacity"
+        );
+
         unsafe {
             // SAFETY: Will only write initialized memory to this ptr.
             let uninit_spare = &mut self.controller.memory_mut()[len..new_cap];
@@ -252,6 +264,11 @@ impl Bytes {
     }
 
     fn reserve(&mut self, additional: usize, align: usize) {
+        debug_assert!(
+            align <= default_controller::MAX_ALIGN,
+            "alignment exceeds maximum supported alignment"
+        );
+
         let needs_to_grow = additional > self.capacity().wrapping_sub(self.len());
         if !needs_to_grow {
             return;

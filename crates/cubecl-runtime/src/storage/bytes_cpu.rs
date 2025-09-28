@@ -53,6 +53,11 @@ impl BytesResource {
     pub fn write<'a>(&mut self) -> &'a mut [u8] {
         let (ptr, len) = self.get_exact_location_and_length();
 
+        // TODO: This is not safe if there are multiple resources which have a pointer.
+        // SAFETY:
+        // - ptr is constructed to not be null and aligned.
+        // - Total size of the allocation is at least `len`.
+        // - The total len is <= isize::MAX.
         unsafe { core::slice::from_raw_parts_mut(ptr, len) }
     }
 
@@ -60,6 +65,12 @@ impl BytesResource {
     pub fn read<'a>(&self) -> &'a [u8] {
         let (ptr, len) = self.get_exact_location_and_length();
 
+        // TODO: This is not safe if there are multiple resources which have a pointer.
+        //
+        // SAFETY:
+        // - ptr is constructed to not be null and aligned.
+        // - Total size of the allocation is at least `len`.
+        // - The total len is <= isize::MAX.
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
