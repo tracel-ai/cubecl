@@ -3,7 +3,7 @@
 use crate::bytes::{AllocationController, AllocationError};
 use alloc::alloc::Layout;
 use bytemuck::Contiguous;
-use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, num::NonZero, ptr::NonNull};
+use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
 /// the bytes are always over-aligned when deserializing to MAX_ALIGN.
@@ -54,8 +54,9 @@ impl<'a> Allocation<'a> {
     }
 
     fn dangling(align: usize) -> Allocation<'a> {
+        let ptr = core::ptr::null_mut::<u8>().wrapping_add(align);
         Self {
-            ptr: NonNull::without_provenance(unsafe { NonZero::new_unchecked(align) }),
+            ptr: NonNull::new(ptr).unwrap(),
             size: 0,
             align,
             _lifetime: PhantomData,
@@ -227,8 +228,8 @@ fn buffer_alloc(layout: Layout) -> NonNull<u8> {
     // must be non-zero. So in case we need a pointer for an empty vec, use a correctly aligned, dangling one.
     if layout.size() == 0 {
         // we would use NonNull:dangling() but we don't have a concrete type for the requested alignment
-        // SAFETY: layout.align() is never 0
-        NonNull::without_provenance(unsafe { NonZero::new_unchecked(layout.align()) })
+        let ptr = core::ptr::null_mut::<u8>().wrapping_add(layout.align());
+        NonNull::new(ptr).unwrap()
     } else {
         // SAFETY: layout has non-zero size.
         let ptr = unsafe { alloc::alloc::alloc(layout) };
