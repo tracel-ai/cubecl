@@ -56,7 +56,8 @@ impl<'a> WgpuAllocController<'a> {
     ///
     /// The controller.
     pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
-        let buf = Pin::new(Box::new(buffer));
+        let buf = Box::pin(buffer);
+        let slice = buf.slice(..);
 
         // SAFETY: We're extending the lifetime to match the controller's lifetime. Internally the BufferViewMut holds
         // a reference to the buffer.
@@ -64,8 +65,7 @@ impl<'a> WgpuAllocController<'a> {
         // - The view is always dropped before the buffer
         // - The buffer stays alive as long as the controller exists
         // - The buffer is pinned and will never move after creating the view
-        let slice =
-            unsafe { std::mem::transmute::<BufferSlice<'_>, BufferSlice<'a>>(buf.slice(..)) };
+        let slice = unsafe { std::mem::transmute::<BufferSlice<'_>, BufferSlice<'a>>(slice) };
 
         Self {
             view: Some(slice.get_mapped_range_mut()),
