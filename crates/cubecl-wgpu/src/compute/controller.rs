@@ -1,23 +1,25 @@
-use core::mem::ManuallyDrop;
 use core::mem::MaybeUninit;
+use core::pin::Pin;
 use cubecl_common::bytes::BytesBacking;
 use cubecl_runtime::memory_management::SliceBinding;
+use wgpu::BufferViewMut;
 
 /// Controller for managing wgpu staging buffers managed by a memory pool.
 pub struct WgpuAllocController<'a> {
-    buffer: wgpu::Buffer,
-    // Nb: View references &slice.
-    view: &'a mut [MaybeUninit<u8>],
-    // Needed to keep the binding alive.
+    // IMPORTANT: Field order matters for drop order!
+    // The view must be dropped before the buffer since it borrows from it.
+    view: Option<BufferViewMut<'a>>,
+    buffer: Pin<Box<wgpu::Buffer>>,
     _binding: SliceBinding,
 }
 
 impl BytesBacking for WgpuAllocController<'_> {
     fn dealloc(&mut self) {
-        let _ref = self.buffer.slice(..).get_mapped_range_mut();
+        // Drop the view first, then unmap the buffer.
+        // This ensures proper cleanup order since the view borrows from the buffer.
+        drop(self.view.take());
 
         // We unmap the buffer and release the binding so that the same buffer can be used again.
-        // Nb: This also resets the map context, so we don't need to drop the BufferViewMut at all.
         self.buffer.unmap();
 
         // The buffer will now return to the memory pool as the binding is dropped.
@@ -28,11 +30,17 @@ impl BytesBacking for WgpuAllocController<'_> {
     }
 
     fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {
-        &mut *self.view
+        let bytes: &mut [u8] = self.view.as_mut().unwrap();
+        // SAFETY: MaybeUninit<u8> has the same layout as u8
+        unsafe {
+            std::slice::from_raw_parts_mut(bytes.as_mut_ptr() as *mut MaybeUninit<u8>, bytes.len())
+        }
     }
 
     fn memory(&self) -> &[std::mem::MaybeUninit<u8>] {
-        &*self.view
+        let bytes: &[u8] = self.view.as_ref().unwrap();
+        // SAFETY: MaybeUninit<u8> has the same layout as u8
+        unsafe { std::slice::from_raw_parts(bytes.as_ptr() as *const MaybeUninit<u8>, bytes.len()) }
     }
 }
 
@@ -43,30 +51,27 @@ impl<'a> WgpuAllocController<'a> {
     ///
     /// * `binding` - The memory binding for the managed buffer.
     /// * `buffer` - The wgpu buffer.
-    /// * `size` - The size of the buffer in used for the copy.
     ///
     /// # Returns
     ///
-    /// The controller and the corresponding `Allocation`.
+    /// The controller.
     pub fn init(binding: SliceBinding, buffer: wgpu::Buffer) -> Self {
-        let buf = buffer.clone();
-        // acquire the view. We intentionally do _not_ drop the BufferViewMut.
-        // Instead, when we unmap the buffer, it's all cleaned up properly.
-        let range = ManuallyDrop::new(buffer.slice(..).get_mapped_range_mut());
+        let buf = Pin::new(Box::new(buffer));
 
-        // SAFETY: This is only safe because we know exactly what BufferViewMut does.
-        // range.as_ptr() reads the inner mapped ptr, which is valid for the lifetime of the buffer.
-        // As we keep the buffer alive, this pointer is valid.
-        //
-        // SAFETY: We are converting a &mut [u8] to &mut [MaybeUninit<u8>].
-        // This is safe because any u8 is a valid MaybeUninit<u8>.
-        let u8_slice = unsafe {
-            std::slice::from_raw_parts_mut(range.as_ptr() as *mut MaybeUninit<u8>, range.len())
+        // SAFETY: We're extending the lifetime to match the controller's lifetime, which is safe because:
+        // 1. The view is always dropped before the buffer (via ManuallyDrop in dealloc)
+        // 2. The buffer stays alive as long as the controller exists
+        // 3. The buffer is pinned and will never move after creating the view
+        // 4. BufferSlice holds &wgpu::Buffer, so the buffer address must remain stable
+        let view = unsafe {
+            std::mem::transmute::<BufferViewMut<'_>, BufferViewMut<'a>>(
+                buf.slice(..).get_mapped_range_mut(),
+            )
         };
 
         Self {
+            view: Some(view),
             buffer: buf,
-            view: u8_slice,
             _binding: binding,
         }
     }
