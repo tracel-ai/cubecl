@@ -24,6 +24,15 @@ impl<V> SharedState<V> {
     }
 }
 
+impl<K, V> Default for SharedStateMap<K, V>
+where
+    K: core::hash::Hash + core::cmp::PartialEq + core::cmp::Eq,
+{
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K, V> SharedStateMap<K, V>
 where
     K: core::hash::Hash + core::cmp::PartialEq + core::cmp::Eq,
