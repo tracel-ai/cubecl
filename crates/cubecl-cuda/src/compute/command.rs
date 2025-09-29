@@ -20,8 +20,18 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::ResolvedStreams,
 };
-use cudarc::driver::sys::{CUDA_MEMCPY2D_st, CUmemorytype, CUtensorMap, cuMemcpy2DAsync_v2};
+use cudarc::driver::sys::{
+    CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
+};
 use std::{ffi::c_void, ops::DerefMut, sync::Arc};
+
+const DEVICE_TO_DEVICE: DeviceTransferStrategy = DeviceTransferStrategy::Serialized;
+
+#[allow(unused)]
+enum DeviceTransferStrategy {
+    Peer,
+    Serialized,
+}
 
 #[derive(new)]
 /// The `Command` struct encapsulates a CUDA context and a set of resolved CUDA streams, providing an
@@ -272,47 +282,14 @@ impl<'a> Command<'a> {
             return Err(IoError::UnsupportedStrides);
         }
 
-        let rank = shape.len();
         let resource = self.resource(binding)?;
         let stream = match stream_id {
             Some(id) => self.streams.get(&id),
             None => self.streams.current(),
         };
 
-        if rank <= 1 {
-            unsafe {
-                cudarc::driver::result::memcpy_dtoh_async(
-                    bytes.deref_mut(),
-                    resource.ptr,
-                    stream.sys,
-                )
-                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
-            }
-            return Ok(());
-        }
-
-        let dim_x = shape[rank - 1];
-        let width_bytes = dim_x * elem_size;
-        let dim_y: usize = shape.iter().rev().skip(1).product();
-        let pitch = strides[rank - 2] * elem_size;
-        let slice = bytes.deref_mut();
-
-        let cpy = CUDA_MEMCPY2D_st {
-            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-            srcDevice: resource.ptr,
-            srcPitch: pitch,
-            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-            dstHost: slice.as_mut_ptr() as *mut c_void,
-            dstPitch: width_bytes,
-            WidthInBytes: width_bytes,
-            Height: dim_y,
-            ..Default::default()
-        };
-
         unsafe {
-            cuMemcpy2DAsync_v2(&cpy, stream.sys)
-                .result()
-                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+            write_to_cpu(shape, strides, elem_size, bytes, resource.ptr, stream.sys)?;
         }
 
         Ok(())
@@ -336,44 +313,14 @@ impl<'a> Command<'a> {
             strides,
             elem_size,
         } = descriptor;
-        let rank = shape.len();
-
         if !valid_strides(shape, strides) {
             return Err(IoError::UnsupportedStrides);
         }
 
         let resource = self.resource(binding)?;
-
         let current = self.streams.current();
 
-        if rank > 1 {
-            let dim_x = shape[rank - 1];
-            let width_bytes = dim_x * elem_size;
-            let dim_y: usize = shape.iter().rev().skip(1).product();
-            let pitch = strides[rank - 2] * elem_size;
-
-            let cpy = CUDA_MEMCPY2D_st {
-                srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
-                srcHost: data.as_ptr() as *const c_void,
-                srcPitch: width_bytes,
-                dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
-                dstDevice: resource.ptr,
-                dstPitch: pitch,
-                WidthInBytes: width_bytes,
-                Height: dim_y,
-                ..Default::default()
-            };
-
-            unsafe {
-                cuMemcpy2DAsync_v2(&cpy, current.sys).result().unwrap();
-            }
-        } else {
-            unsafe {
-                cudarc::driver::result::memcpy_htod_async(resource.ptr, data, current.sys).unwrap();
-            }
-        };
-
-        Ok(())
+        unsafe { write_to_gpu(shape, strides, elem_size, data, resource.ptr, current.sys) }
     }
 
     /// Allocates a new GPU memory buffer and immediately copies contiguous host data into it.
@@ -404,8 +351,7 @@ impl<'a> Command<'a> {
     /// * `id` - The unique identifier for the data transfer.
     /// * `src` - The descriptor for the source GPU memory.
     pub fn data_transfer_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let src_resource = self.resource(src.binding).unwrap();
-
+        let src_resource = self.resource(src.binding.clone()).unwrap();
         let client = DataTransferRuntime::client();
         let current = self.streams.current();
 
@@ -414,9 +360,17 @@ impl<'a> Command<'a> {
             context: self.ctx.context,
             resource: src_resource,
         };
-        let fence = Fence::new(current.sys);
 
-        client.register_src(id, handle, fence);
+        match DEVICE_TO_DEVICE {
+            DeviceTransferStrategy::Peer => {
+                let fence = Fence::new(current.sys);
+
+                client.register_src_peer(id, handle, fence);
+            }
+            DeviceTransferStrategy::Serialized => {
+                client.register_src_serialized(id, handle, src.binding);
+            }
+        }
     }
 
     /// Registers a destination for an asynchronous data transfer operation.
@@ -430,13 +384,30 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
         let client = DataTransferRuntime::client();
 
-        let call = DataTransferItem {
+        let item = DataTransferItem {
             context: self.ctx.context,
             stream: current.sys,
             resource: dst_resource,
         };
 
-        client.register_dest(id, call);
+        match DEVICE_TO_DEVICE {
+            DeviceTransferStrategy::Peer => {
+                client.register_dest_peer(id, item);
+            }
+            DeviceTransferStrategy::Serialized => {
+                let num_bytes = dest.shape.iter().product::<usize>() * dest.elem_size;
+                let bytes = self.reserve_cpu(num_bytes, true, None);
+
+                client.register_dest_serialized(
+                    id,
+                    item,
+                    bytes,
+                    dest.shape.to_vec(),
+                    dest.strides.to_vec(),
+                    dest.elem_size,
+                );
+            }
+        }
     }
 
     /// Synchronizes the current stream, ensuring all pending operations are complete.
@@ -502,4 +473,91 @@ impl<'a> Command<'a> {
             }
         };
     }
+}
+
+pub(crate) unsafe fn write_to_gpu(
+    shape: &[usize],
+    strides: &[usize],
+    elem_size: usize,
+    data: &[u8],
+    dst_ptr: u64,
+    stream: *mut CUstream_st,
+) -> Result<(), IoError> {
+    let rank = shape.len();
+    if rank > 1 {
+        let dim_x = shape[rank - 1];
+        let width_bytes = dim_x * elem_size;
+        let dim_y: usize = shape.iter().rev().skip(1).product();
+        let pitch = strides[rank - 2] * elem_size;
+
+        let cpy = CUDA_MEMCPY2D_st {
+            srcMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+            srcHost: data.as_ptr() as *const c_void,
+            srcPitch: width_bytes,
+            dstMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+            dstDevice: dst_ptr,
+            dstPitch: pitch,
+            WidthInBytes: width_bytes,
+            Height: dim_y,
+            ..Default::default()
+        };
+
+        unsafe {
+            cuMemcpy2DAsync_v2(&cpy, stream)
+                .result()
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+        }
+    } else {
+        unsafe {
+            cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream)
+                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+        }
+    };
+
+    Ok(())
+}
+
+pub(crate) unsafe fn write_to_cpu(
+    shape: &[usize],
+    strides: &[usize],
+    elem_size: usize,
+    bytes: &mut Bytes,
+    resource_ptr: u64,
+    stream: *mut CUstream_st,
+) -> Result<(), IoError> {
+    let rank = shape.len();
+
+    if rank <= 1 {
+        unsafe {
+            cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource_ptr, stream)
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+        }
+        return Ok(());
+    }
+
+    let dim_x = shape[rank - 1];
+    let width_bytes = dim_x * elem_size;
+    let dim_y: usize = shape.iter().rev().skip(1).product();
+    let pitch = strides[rank - 2] * elem_size;
+    let slice = bytes.deref_mut();
+
+    let cpy = CUDA_MEMCPY2D_st {
+        srcMemoryType: CUmemorytype::CU_MEMORYTYPE_DEVICE,
+        srcDevice: resource_ptr,
+        srcPitch: pitch,
+        dstMemoryType: CUmemorytype::CU_MEMORYTYPE_HOST,
+        dstHost: slice.as_mut_ptr() as *mut c_void,
+        dstPitch: width_bytes,
+        WidthInBytes: width_bytes,
+        Height: dim_y,
+        ..Default::default()
+    };
+
+    unsafe {
+        cuMemcpy2DAsync_v2(&cpy, stream)
+            .result()
+            .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+    }
+
+    Ok(())
 }
