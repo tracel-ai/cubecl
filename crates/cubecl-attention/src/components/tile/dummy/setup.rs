@@ -8,7 +8,7 @@ use crate::components::{
     AttentionSetupError, InvalidConfigError,
     tile::{
         TileAttentionFamily,
-        dummy::{DummyTileAttention, AttentionMatmulFamily},
+        dummy::{AttentionMatmulFamily, DummyTileAttention},
     },
 };
 
