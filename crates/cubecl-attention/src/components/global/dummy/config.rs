@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, AttentionIdent, global::GlobalAttentionConfig,
+    AttentionIdent, AttentionSetupError, AttentionTilingScheme, global::GlobalAttentionConfig,
     stage::StageAttentionConfig,
 };
 

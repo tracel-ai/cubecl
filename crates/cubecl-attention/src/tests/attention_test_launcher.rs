@@ -1,6 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::server::Allocation;
-use cubecl_core::{server, CubeElement};
+use cubecl_core::{CubeElement, server};
 
 use crate::components::args::TensorInputsLaunch;
 use crate::components::batch::BatchAttentionConfig;

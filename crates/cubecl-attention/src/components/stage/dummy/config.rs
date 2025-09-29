@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, AttentionIdent, stage::StageAttentionConfig,
+    AttentionIdent, AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
     tile::dummy::FlashMatmulConfig,
 };
 

@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use cubecl_core::{LineSizeError, Runtime, ir::StorageType, tensor_line_size_parallel};
 
-use crate::components::{AttentionSetupError, AttentionIdent};
+use crate::components::{AttentionIdent, AttentionSetupError};
 
 #[derive(Debug)]
 /// Line size used for each tensor in global memory accesses.
@@ -48,7 +48,12 @@ impl AvailableLineSizes {
     }
 
     /// Filter available line sizes considering tensor shapes and strides for ident
-    pub fn filter_with_tensor(self, ident: AttentionIdent, strides: &[usize], shape: &[usize]) -> Self {
+    pub fn filter_with_tensor(
+        self,
+        ident: AttentionIdent,
+        strides: &[usize],
+        shape: &[usize],
+    ) -> Self {
         let rank = strides.len();
 
         let iter = match ident {
