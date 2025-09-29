@@ -2,6 +2,7 @@
 
 use crate::bytes::{AllocationController, AllocationError};
 use alloc::alloc::Layout;
+use alloc::vec::Vec;
 use bytemuck::Contiguous;
 use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
