@@ -9,6 +9,7 @@ use core::{
     fmt::Display,
     hash::Hash,
 };
+use cubecl_common::map::SharedStateMap;
 use hashbrown::HashMap;
 
 #[cfg(not(feature = "std"))]
@@ -17,7 +18,7 @@ use alloc::string::ToString;
 /// A local tuner allows to create a tuner for a specific key that can be different from the server
 /// key.
 pub struct LocalTuner<AK: AutotuneKey, ID> {
-    state: spin::Mutex<Option<HashMap<ID, Tuner<AK>>>>,
+    state: SharedStateMap<ID, Tuner<AK>>,
     name: &'static str,
     sets: spin::RwLock<Option<HashMap<TypeId, Arc<dyn Any + Send + Sync>>>>,
 }
@@ -45,7 +46,7 @@ where
     /// Create a new local tuner.
     pub const fn new(name: &'static str) -> Self {
         Self {
-            state: spin::Mutex::new(None),
+            state: SharedStateMap::new(),
             name,
             sets: spin::RwLock::new(None),
         }
@@ -94,8 +95,7 @@ where
 
     /// Clear the autotune state.
     pub fn clear(&self) {
-        let mut state = self.state.lock();
-        *state = None;
+        self.state.clear()
     }
 
     #[cfg(feature = "autotune-checks")]
@@ -131,20 +131,16 @@ where
 
         // If this is cached and ready, use the operation.
         let autotune_job = {
-            let mut state = self.state.lock();
-            let map = state.get_or_insert_with(Default::default);
+            let tuner_state = self.state.get_or_init(id, move |id| {
+                let name = self.name.replace("::", "-");
+                Tuner::new(&name, &id.to_string())
+            });
+            let tuner = tuner_state.read();
 
-            let tuner = match map.get_mut(id) {
-                Some(val) => val,
-                None => map.entry(id.clone()).or_insert_with(move || {
-                    let name = self.name.replace("::", "-");
-                    Tuner::new(&name, &id.to_string())
-                }),
-            };
-
-            match tuner.fastest(&key) {
+            let mut tuner = match tuner.fastest(&key) {
                 TuneCacheResult::Hit { fastest_index } => {
-                    core::mem::drop(state);
+                    core::mem::drop(tuner);
+                    core::mem::drop(tuner_state);
 
                     #[cfg(feature = "autotune-checks")]
                     self.checks(&operations, &inputs);
@@ -156,7 +152,8 @@ where
                     return result;
                 }
                 TuneCacheResult::Pending => {
-                    core::mem::drop(state);
+                    core::mem::drop(tuner);
+                    core::mem::drop(tuner_state);
 
                     let op = operations.fastest(0);
                     let result = op
@@ -166,13 +163,17 @@ where
                 }
                 #[cfg(std_io)]
                 TuneCacheResult::Unchecked => {
+                    core::mem::drop(tuner);
+                    let mut tuner = tuner_state.write();
+
                     // If the cache checksum hasn't been checked, do so now, and retry.
                     let checksum = operations.compute_checksum();
                     tuner.validate_checksum(&key, &checksum);
 
                     // Check if with validation we can use its result
                     if let TuneCacheResult::Hit { fastest_index } = tuner.fastest(&key) {
-                        core::mem::drop(state);
+                        core::mem::drop(tuner);
+                        core::mem::drop(tuner_state);
 
                         let op = operations.fastest(fastest_index);
                         let result = op
@@ -180,12 +181,20 @@ where
                             .expect("Should run when selected by autotune.");
                         return result;
                     }
+
+                    tuner
                 }
 
                 #[cfg(not(std_io))]
-                TuneCacheResult::Unchecked => (),
-                TuneCacheResult::Miss => (),
-            }
+                TuneCacheResult::Unchecked => {
+                    core::mem::drop(tuner);
+                    tuner_state.write()
+                }
+                TuneCacheResult::Miss => {
+                    core::mem::drop(tuner);
+                    tuner_state.write()
+                }
+            };
 
             if tuner.autotuning.contains(&key) {
                 Box::new(move || {})
@@ -198,9 +207,8 @@ where
         autotune_job();
 
         let index_to_run = {
-            let mut state = self.state.lock();
-            let map = state.as_mut().unwrap();
-            let tuner = map.get_mut(id).unwrap();
+            let tuner_state = self.state.get(id).unwrap();
+            let mut tuner = tuner_state.write();
 
             tuner.handle_results();
 
