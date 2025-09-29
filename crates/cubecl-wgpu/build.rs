@@ -8,6 +8,13 @@ fn main() {
         apple_silicon: { all(target_os = "macos", target_arch = "aarch64") },
     }
 
+    // Automatically enable spirv-dump if an output path is set
+    println!("cargo:rerun-if-env-changed=CUBECL_DEBUG_SPIRV");
+    println!("cargo:rerun-if-env-changed=CARGO_FEATURE_STD");
+    if env::var("CUBECL_DEBUG_SPIRV").is_ok() && env::var("CARGO_FEATURE_STD").is_ok() {
+        println!("cargo:rustc-cfg=feature=\"spirv-dump\"");
+    }
+
     // Check if we are on macOS
     // Errors out on MacOS when the "spirv" feature is enabled and the Vulkan SDK is not installed.
     // To install Vulkan SDK visit https://vulkan.lunarg.com/sdk/home#mac
