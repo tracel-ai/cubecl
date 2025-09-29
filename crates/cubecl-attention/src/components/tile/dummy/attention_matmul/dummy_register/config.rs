@@ -5,12 +5,12 @@ use std::hash::Hash;
 use crate::components::attention_types::*;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
-    tile::dummy::FlashMatmulConfig,
+    tile::dummy::AttentionMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyRegisterFlashMatmulConfig {
+pub struct DummyRegisterAttentionMatmulConfig {
     plane_dim: u32,
     attention_tile_size: AttentionTileSize,
     num_planes: u32,
@@ -89,7 +89,7 @@ impl TileConfig for ValueConfig {
     }
 }
 
-impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
+impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -138,7 +138,7 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
     }
 }
 
-impl DummyRegisterFlashMatmulConfig {
+impl DummyRegisterAttentionMatmulConfig {
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,

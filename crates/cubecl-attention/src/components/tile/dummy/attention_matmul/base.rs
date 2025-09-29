@@ -13,7 +13,7 @@ use std::hash::Hash;
 
 #[cube]
 pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
-    type Config: FlashMatmulConfig;
+    type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
     type Softmax: CubeType;
@@ -79,7 +79,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
 }
 
 /// Configuration for the Tile Attention level
-pub trait FlashMatmulConfig:
+pub trait AttentionMatmulConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
@@ -98,12 +98,12 @@ pub trait FlashMatmulConfig:
     fn check_bounds(&self) -> bool;
 }
 
-pub trait FlashMatmulFamily: Send + Sync + 'static {
+pub trait AttentionMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
     type Matmul<AP: AttentionPrecision>: AttentionMatmul<AP, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
-    type Config: FlashMatmulConfig;
+    type Config: AttentionMatmulConfig;
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;

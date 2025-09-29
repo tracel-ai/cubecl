@@ -11,7 +11,7 @@ use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::dummy::FlashMatmulConfig;
+use crate::components::tile::dummy::AttentionMatmulConfig;
 
 #[derive(CubeType)]
 pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {

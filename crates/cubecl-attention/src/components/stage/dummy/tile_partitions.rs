@@ -14,7 +14,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::T
 pub struct Accumulators<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > {
     sequence: Sequence<TA::AccumulatorTile>,
     #[cube(comptime)]
@@ -25,7 +25,7 @@ pub struct Accumulators<
 impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > Accumulators<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> Accumulators<AP, TA, S> {
@@ -68,7 +68,7 @@ impl<
 pub struct Queries<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > {
     sequence: Sequence<TA::QueryTile>,
     #[cube(comptime)]
@@ -79,7 +79,7 @@ pub struct Queries<
 impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > Queries<AP, TA, S>
 {
     pub fn new(query_loader: QueryReader<AP>, #[comptime] config: S) -> Queries<AP, TA, S> {
@@ -136,7 +136,7 @@ impl<
 pub enum KeyValues<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > {
     Reuse(KeyValueSequence<AP, TA, S>),
     Separate(KeyValueSequence<AP, TA, S>, KeyValueSequence<AP, TA, S>),
@@ -146,7 +146,7 @@ pub enum KeyValues<
 pub struct KeyValueSequence<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > {
     sequence: Sequence<TA::KeyValueTile>,
     #[cube(comptime)]
@@ -157,7 +157,7 @@ pub struct KeyValueSequence<
 impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > KeyValues<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> KeyValues<AP, TA, S> {
@@ -258,7 +258,7 @@ impl<
 pub struct SoftmaxPartition<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > {
     sequence: Sequence<TA::SoftmaxTile>,
     #[cube(comptime)]
@@ -269,7 +269,7 @@ pub struct SoftmaxPartition<
 impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
-    S: StageAttentionConfig<FlashMatmulConfig = TA::Config>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
 > SoftmaxPartition<AP, TA, S>
 {
     pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, TA, S> {

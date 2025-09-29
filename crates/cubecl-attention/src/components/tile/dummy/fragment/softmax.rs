@@ -10,7 +10,7 @@ use crate::components::{
     AttentionIdent, TileMask,
     tile::{
         RunningState, SoftmaxTile, SoftmaxTileExpand,
-        dummy::{AttentionMatmul, FlashMatmulConfig},
+        dummy::{AttentionMatmul, AttentionMatmulConfig},
     },
 };
 

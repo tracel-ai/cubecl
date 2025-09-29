@@ -6,16 +6,16 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::dummy::dummy_register::DummyRegisterFlashMatmulConfig;
-use crate::components::tile::dummy::{AttentionMatmul, FlashMatmulConfig as _};
+use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
+use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 
-/// Dummy FlashMatmul implementation using simple arrays
+/// Dummy AttentionMatmul implementation using simple arrays
 /// Only lane 0 performs computations, other lanes idle
-pub struct DummyRegisterFlashMatmul;
+pub struct DummyRegisterAttentionMatmul;
 
 #[cube]
-impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterFlashMatmul {
-    type Config = DummyRegisterFlashMatmulConfig;
+impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmul {
+    type Config = DummyRegisterAttentionMatmulConfig;
 
     type Query = Array<QT<AP>>;
     type KeyValue = Array<KVT<AP>>;

@@ -10,7 +10,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
-    tile::{RowWise, RunningState, dummy::FlashMatmulConfig},
+    tile::{RowWise, RunningState, dummy::AttentionMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use crate::components::{TileMask, tile::SoftmaxTile};
@@ -23,7 +23,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: TileAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this Attention family.
-    type Config: FlashMatmulConfig;
+    type Config: AttentionMatmulConfig;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -48,7 +48,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
-    type Config: FlashMatmulConfig;
+    type Config: AttentionMatmulConfig;
 
     type QueryTile: CubeType;
     type KeyValueTile: CubeType;

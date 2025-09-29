@@ -3,16 +3,16 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
-use crate::components::tile::dummy::accelerated::AcceleratedFlashMatmulConfig;
-use crate::components::tile::dummy::{AttentionMatmul, FlashMatmulConfig as _};
+use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
+use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::{AttentionIdent, AttentionPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
-pub struct AcceleratedFlashMatmul;
+pub struct AcceleratedAttentionMatmul;
 
 #[cube]
-impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedFlashMatmul {
-    type Config = AcceleratedFlashMatmulConfig;
+impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul {
+    type Config = AcceleratedAttentionMatmulConfig;
     type Query = cmma::Matrix<QT<AP>>;
     type KeyValue = cmma::Matrix<KVT<AP>>;
     type Softmax = cmma::Matrix<SM<AP>>;

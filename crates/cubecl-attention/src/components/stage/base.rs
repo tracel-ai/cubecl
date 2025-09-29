@@ -13,7 +13,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     global::GlobalAttentionConfig,
-    tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
+    tile::{AttentionTilingLayout, dummy::AttentionMatmulConfig},
 };
 use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
 
@@ -111,12 +111,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FlashMatmulConfig: FlashMatmulConfig;
+    type AttentionMatmulConfig: AttentionMatmulConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
-    fn tile_config(&self) -> Self::FlashMatmulConfig;
+    fn tile_config(&self) -> Self::AttentionMatmulConfig;
     fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
     fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
 

@@ -5,15 +5,15 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, InvalidConfigError,
     tile::dummy::{
-        FlashMatmulFamily,
-        dummy_register::{DummyRegisterFlashMatmul, DummyRegisterFlashMatmulConfig},
+        AttentionMatmulFamily,
+        dummy_register::{DummyRegisterAttentionMatmul, DummyRegisterAttentionMatmulConfig},
     },
 };
 
-impl FlashMatmulFamily for DummyRegisterFlashMatmul {
-    type Matmul<F: AttentionPrecision> = DummyRegisterFlashMatmul;
+impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {
+    type Matmul<F: AttentionPrecision> = DummyRegisterAttentionMatmul;
 
-    type Config = DummyRegisterFlashMatmulConfig;
+    type Config = DummyRegisterAttentionMatmulConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -29,7 +29,7 @@ impl FlashMatmulFamily for DummyRegisterFlashMatmul {
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        DummyRegisterFlashMatmulConfig::new::<AP>(
+        DummyRegisterAttentionMatmulConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             1,
