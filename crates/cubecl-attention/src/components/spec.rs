@@ -118,7 +118,7 @@ impl AttentionPrecision for f16 {
     #[cfg(not(target_os = "macos"))]
     type Softmax = f32;
     #[cfg(not(target_os = "macos"))]
-    type Softmax = f32;
+    type Accumulator = f32;
     type Mask = u8;
     type Out = f16;
 }
@@ -135,7 +135,7 @@ impl AttentionPrecision for flex32 {
     #[cfg(not(target_os = "macos"))]
     type Softmax = f32;
     #[cfg(not(target_os = "macos"))]
-    type Softmax = f32;
+    type Accumulator = f32;
     type Mask = u8;
     type Out = f32;
 }
@@ -152,7 +152,7 @@ impl AttentionPrecision for bf16 {
     #[cfg(not(target_os = "macos"))]
     type Softmax = f32;
     #[cfg(not(target_os = "macos"))]
-    type Softmax = f32;
+    type Accumulator = f32;
     type Mask = u8;
     type Out = bf16;
 }
