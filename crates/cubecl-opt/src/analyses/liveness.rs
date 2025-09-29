@@ -181,7 +181,7 @@ pub mod shared {
             }
         }
 
-        fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
+        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
             &self.live_vars[&block]
         }
 
