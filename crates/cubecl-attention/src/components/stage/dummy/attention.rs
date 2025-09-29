@@ -11,7 +11,6 @@ use crate::components::StageMask;
 use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::SoftmaxPartition;
-use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
@@ -37,7 +36,7 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type State = StageState<AP>;
+    type State = Sequence<TA::State>;
     type QueryPartition = Queries<AP, TA, Self::Config>;
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
@@ -101,7 +100,7 @@ impl<
                     comptime![hd += 1];
                 }
 
-                let state_q = state.get_at_mut(q);
+                let state_q = state.index_mut(q);
 
                 let accumulator_scale = TA::softmax(
                     softmax_tile,
@@ -179,7 +178,7 @@ impl<
             for _ in 0..p.val_dim {
                 TA::rescale(
                     Self::AccumulatorPartition::get_at_mut(acc, q, vd, config),
-                    state.get_at(q),
+                    state.index(q),
                     config.tile_config(),
                 );
 
@@ -191,7 +190,15 @@ impl<
     }
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State {
-        StageState::<AP>::init::<Self::Config>(config)
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        #[unroll]
+        for _ in 0..comptime!(p.seq_q) {
+            sequence.push(TA::init_state(config.tile_config()));
+        }
+
+        sequence
     }
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(

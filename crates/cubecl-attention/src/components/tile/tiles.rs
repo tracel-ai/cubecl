@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;
+use crate::components::tile::RowFormat;
 use crate::components::tile::{RowWise, RunningState};
 
 #[cube]
@@ -23,7 +24,9 @@ pub trait KeyValueTile<E: Float>: CubeType {
 
 #[cube]
 pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
-    fn init_state() -> RunningState<SM<AP>>;
+    type RowFormat: RowFormat;
+
+    fn init_state() -> RunningState<SM<AP>, Self::RowFormat>;
 
     fn zero(&mut self);
 
@@ -35,7 +38,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
     /// and returns the factor needed to scale the accumulator
     fn to_prob(
         &mut self,
-        state: &mut RunningState<SM<AP>>,
+        state: &mut RunningState<SM<AP>, Self::RowFormat>,
         max: &RowWise<SM<AP>>,
     ) -> RowWise<ACC<AP>>;
 }

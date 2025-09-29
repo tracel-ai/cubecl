@@ -7,6 +7,7 @@ use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
+use crate::components::tile::RowFmt;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
@@ -33,9 +34,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     type SoftmaxTile = DummySoftmax<AP, AM>;
     type AccumulatorTile = DummyAccumulator<AP, AM>;
 
+    type State = RunningState<SM<AP>, RowFmt<Self::SoftmaxTile, AP>>;
+
     fn rescale(
         acc: &mut Self::AccumulatorTile,
-        prev_state: &RunningState<SM<AP>>,
+        prev_state: &Self::State,
         #[comptime] _config: Self::Config,
     ) {
         acc.scale(&prev_state.l.cast::<ACC<AP>>(), ScaleMode::Divide);
@@ -71,6 +74,10 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
 
     fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile {
         Self::SoftmaxTile::new(config)
+    }
+
+    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
+        Self::State::init()
     }
 
     fn fill_key<E: Numeric>(
@@ -110,7 +117,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &mut RunningState<SM<AP>>,
+        state: &mut Self::State,
         #[comptime] dk: u32,
     ) -> RowWise<ACC<AP>> {
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));

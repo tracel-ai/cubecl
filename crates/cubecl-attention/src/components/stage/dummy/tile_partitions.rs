@@ -4,10 +4,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::AttentionIdent;
-use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
-use crate::components::tile::RunningState;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 
 #[derive(CubeType)]
@@ -305,35 +302,5 @@ impl<
     ) -> &mut TA::SoftmaxTile {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
         self.sequence.index_mut(index)
-    }
-}
-
-#[derive(CubeType)]
-pub struct StageState<AP: AttentionPrecision> {
-    sequence: Sequence<RunningState<SM<AP>>>,
-}
-
-#[cube]
-impl<AP: AttentionPrecision> StageState<AP> {
-    pub fn init<S: StageAttentionConfig>(#[comptime] config: S) -> StageState<AP> {
-        let p = config.tiling_scheme().partition_size;
-        let mut sequence = Sequence::new();
-
-        #[unroll]
-        for _ in 0..comptime!(p.seq_q) {
-            sequence.push(RunningState::<SM<AP>>::init(
-                config.num_rows_per_unit(AttentionIdent::Softmax),
-            ));
-        }
-
-        StageState::<AP> { sequence }
-    }
-
-    pub fn get_at(&self, #[comptime] q: u32) -> &RunningState<SM<AP>> {
-        self.sequence.index(q)
-    }
-
-    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut RunningState<SM<AP>> {
-        self.sequence.index_mut(q)
     }
 }

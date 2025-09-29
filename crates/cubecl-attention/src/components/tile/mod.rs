@@ -1,9 +1,9 @@
 pub mod dummy;
 
 mod base;
-mod rowwise;
+mod row;
 mod tiles;
 
 pub use base::*;
-pub use rowwise::*;
+pub use row::*;
 pub use tiles::*;

@@ -1,17 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
+use cubecl_matmul::components::MatrixLayout;
 
-use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::RowFormat;
 use crate::components::tile::RowWise;
+use crate::components::AttentionPrecision;
 use crate::components::{
-    AttentionIdent, TileMask,
     tile::{
-        RunningState, SoftmaxTile, SoftmaxTileExpand,
         dummy::{AttentionMatmul, AttentionMatmulConfig},
+        RunningState, SoftmaxTile, SoftmaxTileExpand,
     },
+    AttentionIdent, TileMask,
 };
 
 #[derive(CubeType)]
@@ -72,10 +73,25 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
     }
 }
 
+// Each thread works in exactly one row
+#[derive(CubeType)]
+pub struct SingleRowFormat {}
+
+#[cube]
+impl RowFormat for SingleRowFormat {
+    type RowElement<E: Float> = RowWise<E>;
+
+    fn new_filled<E: Float>(value: E) -> Self::RowElement<E> {
+        RowWise::<E>::new_filled(1u32, value)
+    }
+}
+
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
-    fn init_state() -> RunningState<SM<AP>> {
-        RunningState::init(1u32)
+    type RowFormat = SingleRowFormat;
+
+    fn init_state() -> RunningState<SM<AP>, Self::RowFormat> {
+        RunningState::<SM<AP>, Self::RowFormat>::init()
     }
 
     fn zero(&mut self) {
@@ -133,7 +149,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
     fn to_prob(
         &mut self,
-        state: &mut RunningState<SM<AP>>,
+        state: &mut RunningState<SM<AP>, Self::RowFormat>,
         new_m: &RowWise<SM<AP>>,
     ) -> RowWise<ACC<AP>> {
         let new_m_val = new_m.index(0u32);
