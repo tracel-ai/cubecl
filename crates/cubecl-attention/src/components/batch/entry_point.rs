@@ -28,6 +28,7 @@ pub(crate) fn attention<
     ACC: Float,
     MSK: Numeric,
     OG: Float,
+    OS: Float,
     BMMF: BatchAttentionFamily,
 >(
     inputs: &Input<Args, QG, KG, VG>,
@@ -47,7 +48,7 @@ pub(crate) fn attention<
     let value = VirtualTensor::<VG>::new::<TensorValue<QG, KG, VG, OG, Args>>(&value);
     let out = VirtualTensor::<OG, ReadWrite>::new::<TensorOutput<QG, KG, VG, OG, Args>>(&mut out);
 
-    BMMF::Attention::<(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG)>::execute(
+    BMMF::Attention::<(QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)>::execute(
         query,
         key,
         value,

@@ -27,7 +27,7 @@ impl<
     AP: AttentionPrecision,
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
-    SO: Stage<OG<AP>, ReadWrite, TileKind = Strided>,
+    SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
     TA: TileAttention<AP>,
 > StageAttention<AP> for DummyStageAttention<AP, SK, SV, SO, TA>
 {

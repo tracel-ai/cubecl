@@ -69,6 +69,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
                 ACC<AS>,
                 MSK<AS>,
                 OG<AS>,
+                OS<AS>,
                 Self,
                 R,
             >(

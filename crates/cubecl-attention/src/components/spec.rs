@@ -30,20 +30,20 @@ pub trait QueryPrecision: Send + Sync + Copy + 'static {
     type Tile: Float;
 }
 
-pub trait KeyValuePrecision: Send + Sync + Copy + 'static {
+pub trait StagedMatrixPrecision: Send + Sync + Copy + 'static {
     type Global: Float;
     type Stage: Float;
 }
 
 pub trait AttentionPrecision: Send + Sync + Copy + 'static {
     type Query: QueryPrecision;
-    type Key: KeyValuePrecision;
-    type Value: KeyValuePrecision;
+    type Key: StagedMatrixPrecision;
+    type Value: StagedMatrixPrecision;
     type KVTile: Float;
     type Softmax: Float;
     type Accumulator: Float;
     type Mask: Numeric;
-    type Out: Float;
+    type Out: StagedMatrixPrecision;
 }
 
 impl QueryPrecision for f16 {
@@ -76,32 +76,32 @@ impl<G: Float, T: Float> QueryPrecision for (G, T) {
     type Tile = T;
 }
 
-impl KeyValuePrecision for f16 {
+impl StagedMatrixPrecision for f16 {
     type Global = f16;
     type Stage = f16;
 }
 
-impl KeyValuePrecision for bf16 {
+impl StagedMatrixPrecision for bf16 {
     type Global = bf16;
     type Stage = bf16;
 }
 
-impl KeyValuePrecision for flex32 {
+impl StagedMatrixPrecision for flex32 {
     type Global = f32;
     type Stage = f16;
 }
 
-impl KeyValuePrecision for f32 {
+impl StagedMatrixPrecision for f32 {
     type Global = f32;
     type Stage = f32;
 }
 
-impl KeyValuePrecision for f64 {
+impl StagedMatrixPrecision for f64 {
     type Global = f64;
     type Stage = f32;
 }
 
-impl<G: Float, S: Float> KeyValuePrecision for (G, S) {
+impl<G: Float, S: Float> StagedMatrixPrecision for (G, S) {
     type Global = G;
     type Stage = S;
 }
@@ -191,7 +191,8 @@ impl<
     ACC: Float,
     MSK: Numeric,
     OG: Float,
-> AttentionPrecision for (QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG)
+    OS: Float,
+> AttentionPrecision for (QG, QT, KG, KS, VG, VS, KVT, SM, ACC, MSK, OG, OS)
 {
     type Query = (QG, QT);
     type Key = (KG, KS);
@@ -200,7 +201,7 @@ impl<
     type Softmax = SM;
     type Accumulator = ACC;
     type Mask = MSK;
-    type Out = OG;
+    type Out = (OG, OS);
 }
 
 /// Input argument
@@ -216,29 +217,30 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
 pub mod attention_types {
-    use crate::components::{AttentionPrecision, AttentionSpec, KeyValuePrecision, QueryPrecision};
+    use crate::components::{
+        AttentionPrecision, AttentionSpec, QueryPrecision, StagedMatrixPrecision,
+    };
 
     pub type QG<AS> =
         <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Query as QueryPrecision>::Global;
     pub type QT<AS> =
         <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Query as QueryPrecision>::Tile;
     pub type KG<AS> =
-    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as KeyValuePrecision>::Global;
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as StagedMatrixPrecision>::Global;
     pub type KS<AS> =
-        <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as KeyValuePrecision>::Stage;
+        <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Key as StagedMatrixPrecision>::Stage;
     pub type VG<AS> =
-    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as KeyValuePrecision>::Global;
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as StagedMatrixPrecision>::Global;
     pub type VS<AS> =
-    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as KeyValuePrecision>::Stage;
+    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Value as StagedMatrixPrecision>::Stage;
 
     pub type KVT<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::KVTile;
     pub type SM<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Softmax;
     pub type ACC<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Accumulator;
     pub type MSK<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Mask;
-    pub type OG<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Out;
 
-    // TODO
-    pub type OS<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Out;
+    pub type OG<AS> =    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Global;
+    pub type OS<AS> =    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Stage;
 }
 
 pub type Args<MS> = <MS as AttentionSpec>::Args;
