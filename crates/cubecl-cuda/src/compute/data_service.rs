@@ -2,7 +2,6 @@ use crate::compute::command::{write_to_cpu, write_to_gpu};
 use crate::compute::{storage::gpu::GpuResource, sync::Fence};
 use cubecl_common::bytes::Bytes;
 use cubecl_common::stub::Mutex;
-use cubecl_core::future::{self, DynFut};
 use cubecl_core::server::{Binding, IoError};
 use cubecl_runtime::data_service::DataTransferId;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
@@ -15,6 +14,7 @@ use std::{
 
 static SERVICE: Mutex<Option<DataServiceClient>> = Mutex::new(None);
 
+/// Manages asynchronous CUDA data transfers between devices.
 pub(crate) struct DataTransferRuntime {
     recv: Receiver<DataTransferMsg>,
     transfers: HashMap<DataTransferId, DataTransferInfo>,
@@ -35,37 +35,31 @@ pub struct DataServiceClient {
     sender: SyncSender<DataTransferMsg>,
 }
 
-/// The message of a transaction.
+/// Message type for data transfer operations.
+///
+/// Supports two transfer strategies:
+/// - `Peer`: Direct peer-to-peer device-to-device transfer.
+/// - `Serialized`: Transfers data through CPU pinned memory.
 enum DataTransferMsg {
     SrcPeer {
-        /// The unique identifier of the transaction.
         id: DataTransferId,
-        /// The item to send.
         item: DataTransferItem,
-        /// The fence to wait before executing the data transfer.
         fence: Fence,
     },
-    SrcAsync {
-        /// The unique identifier of the transaction.
+    SrcSerialized {
         id: DataTransferId,
-        /// The item to send.
         item: DataTransferItem,
-        /// Just to keep the original memory alive.
+        /// Binding representing the original data.
+        ///
+        /// This needs to stay alive long enough so the read is executed on the src stream.
         binding: Binding,
-    },
-    SrcNormal {
-        id: DataTransferId,
-        bytes: DynFut<Bytes>,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
-        elem_size: usize,
     },
     DestPeer {
         id: DataTransferId,
         item: DataTransferItem,
         callback: SyncSender<()>,
     },
-    DestAsync {
+    DestSerialized {
         id: DataTransferId,
         item: DataTransferItem,
         bytes: Bytes,
@@ -74,68 +68,58 @@ enum DataTransferMsg {
         elem_size: usize,
         callback: SyncSender<()>,
     },
-    DestNormal {
-        id: DataTransferId,
-        item: DataTransferItem,
-        callback: SyncSender<()>,
-    },
 }
 
 impl DataServiceClient {
-    /// Register the source for the current data transfer.
+    /// Registers the source for a peer-to-peer data transfer.
     ///
     /// # Arguments
     ///
-    /// * `id` - The unique identifier for the current data transfer.
+    /// * `id` - Unique identifier for the data transfer.
     /// * `item` - Source data to transfer.
-    /// * `fence` - The fence to wait before executing the data transfer on the destination stream.
+    /// * `fence` - Fence to synchronize before executing the transfer on the destination stream.
     ///
     /// # Panics
     ///
-    /// If the data service channel is closed.
+    /// Panics if the data service channel is closed.
     pub fn register_src_peer(&self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
         self.sender
             .send(DataTransferMsg::SrcPeer { id, item, fence })
             .unwrap();
     }
 
-    pub fn register_src_async(&self, id: DataTransferId, item: DataTransferItem, binding: Binding) {
-        self.sender
-            .send(DataTransferMsg::SrcAsync { id, item, binding })
-            .unwrap();
-
-        // recv.recv().expect("Data transfer to succeed");
-    }
-    pub fn register_src_normal(
-        &self,
-        id: DataTransferId,
-        bytes: DynFut<Bytes>,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
-        elem_size: usize,
-    ) {
-        self.sender
-            .send(DataTransferMsg::SrcNormal {
-                id,
-                bytes,
-                shape,
-                strides,
-                elem_size,
-            })
-            .unwrap();
-    }
-
-    /// Register the destination for the current data transfer.
+    /// Registers the source for a serialized data transfer.
     ///
     /// # Arguments
     ///
-    /// * `id` - The unique identifier for the current data transfer.
-    /// * `item` - Destination to receive data.
+    /// * `id` - Unique identifier for the data transfer.
+    /// * `item` - Source data to transfer.
+    /// * `binding` - Binding representing the original data, which must remain valid until the read operation completes.
     ///
     /// # Panics
     ///
-    /// * If the data service channel is closed.
-    /// * If the transfer fails.
+    /// Panics if the data service channel is closed.
+    pub fn register_src_serialized(
+        &self,
+        id: DataTransferId,
+        item: DataTransferItem,
+        binding: Binding,
+    ) {
+        self.sender
+            .send(DataTransferMsg::SrcSerialized { id, item, binding })
+            .unwrap();
+    }
+
+    /// Registers the destination for a peer-to-peer data transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for the data transfer.
+    /// * `item` - Destination to receive the data.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the data service channel is closed or if the transfer fails.
     pub fn register_dest_peer(&self, id: DataTransferId, item: DataTransferItem) {
         let (callback, recv) = std::sync::mpsc::sync_channel(1);
         self.sender
@@ -143,14 +127,22 @@ impl DataServiceClient {
             .unwrap();
         recv.recv().expect("Data transfer to succeed");
     }
-    pub fn register_dest_normal(&self, id: DataTransferId, item: DataTransferItem) {
-        let (callback, recv) = std::sync::mpsc::sync_channel(1);
-        self.sender
-            .send(DataTransferMsg::DestNormal { id, item, callback })
-            .unwrap();
-        recv.recv().expect("Data transfer to succeed");
-    }
-    pub fn register_dest_async(
+
+    /// Registers the destination for a serialized data transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for the data transfer.
+    /// * `item` - Destination to receive the data.
+    /// * `bytes` - Buffer containing the serialized data.
+    /// * `shape` - Shape of the data tensor.
+    /// * `strides` - Strides of the data tensor.
+    /// * `elem_size` - Size of each element in bytes.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the data service channel is closed or if the transfer fails.
+    pub fn register_dest_serialized(
         &self,
         id: DataTransferId,
         item: DataTransferItem,
@@ -161,7 +153,7 @@ impl DataServiceClient {
     ) {
         let (callback, recv) = std::sync::mpsc::sync_channel(1);
         self.sender
-            .send(DataTransferMsg::DestAsync {
+            .send(DataTransferMsg::DestSerialized {
                 id,
                 item,
                 bytes,
@@ -205,22 +197,15 @@ impl DataTransferRuntime {
         while let Ok(msg) = self.recv.recv() {
             match msg {
                 DataTransferMsg::SrcPeer { id, item, fence } => {
-                    self.register_src_peer(id, item, fence);
+                    self.register_src(id, DataTransferInfoSrc::Peer { item, fence });
                 }
-                DataTransferMsg::SrcAsync { id, item, binding } => {
-                    self.register_src_async(id, item, binding);
+                DataTransferMsg::SrcSerialized { id, item, binding } => {
+                    self.register_src(id, DataTransferInfoSrc::Serialized { item, binding });
                 }
-                DataTransferMsg::SrcNormal {
-                    id,
-                    bytes,
-                    shape,
-                    strides,
-                    elem_size,
-                } => self.register_src_normal(id, bytes, shape, strides, elem_size),
                 DataTransferMsg::DestPeer { id, item, callback } => {
-                    self.recv(id, DataTransferInfoDest::Peer { item, callback })
+                    self.register_dest(id, DataTransferInfoDest::Peer { item, callback })
                 }
-                DataTransferMsg::DestAsync {
+                DataTransferMsg::DestSerialized {
                     id,
                     item,
                     bytes,
@@ -228,9 +213,9 @@ impl DataTransferRuntime {
                     strides,
                     elem_size,
                     callback,
-                } => self.recv(
+                } => self.register_dest(
                     id,
-                    DataTransferInfoDest::Async {
+                    DataTransferInfoDest::Serialized {
                         item,
                         bytes,
                         shape,
@@ -239,68 +224,12 @@ impl DataTransferRuntime {
                         callback,
                     },
                 ),
-                DataTransferMsg::DestNormal { id, item, callback } => {
-                    self.recv(id, DataTransferInfoDest::Normal { item, callback })
-                }
             }
         }
     }
 
-    fn register_src_normal(
-        &mut self,
-        id: DataTransferId,
-        bytes: DynFut<Bytes>,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
-        elem_size: usize,
-    ) {
+    fn register_src(&mut self, id: DataTransferId, info: DataTransferInfoSrc) {
         let transfer = self.transfers.remove(&id);
-        let info = DataTransferInfoSrc::Normal {
-            bytes,
-            shape,
-            strides,
-            elem_size,
-        };
-
-        match transfer {
-            Some(mut transfer) => {
-                assert!(transfer.info_src.is_none(), "Can't send twice");
-
-                transfer.info_src = Some(info);
-                transfer.execute().unwrap();
-            }
-            None => {
-                let transfer = DataTransferInfo {
-                    info_src: Some(info),
-                    ..Default::default()
-                };
-                self.transfers.insert(id, transfer);
-            }
-        }
-    }
-    fn register_src_async(&mut self, id: DataTransferId, item: DataTransferItem, binding: Binding) {
-        let transfer = self.transfers.remove(&id);
-        let info = DataTransferInfoSrc::Async { item, binding };
-
-        match transfer {
-            Some(mut transfer) => {
-                assert!(transfer.info_src.is_none(), "Can't send twice");
-
-                transfer.info_src = Some(info);
-                transfer.execute().unwrap();
-            }
-            None => {
-                let transfer = DataTransferInfo {
-                    info_src: Some(info),
-                    ..Default::default()
-                };
-                self.transfers.insert(id, transfer);
-            }
-        }
-    }
-    fn register_src_peer(&mut self, id: DataTransferId, item: DataTransferItem, fence: Fence) {
-        let transfer = self.transfers.remove(&id);
-        let info = DataTransferInfoSrc::Peer { fence, item };
 
         match transfer {
             Some(mut transfer) => {
@@ -319,7 +248,7 @@ impl DataTransferRuntime {
         }
     }
 
-    fn recv(&mut self, id: DataTransferId, info: DataTransferInfoDest) {
+    fn register_dest(&mut self, id: DataTransferId, info: DataTransferInfoDest) {
         let transfer = self.transfers.remove(&id);
 
         match transfer {
@@ -347,19 +276,13 @@ struct DataTransferInfo {
 }
 
 enum DataTransferInfoSrc {
-    Async {
+    Serialized {
         item: DataTransferItem,
         binding: Binding,
     },
     Peer {
         item: DataTransferItem,
         fence: Fence,
-    },
-    Normal {
-        bytes: DynFut<Bytes>,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
-        elem_size: usize,
     },
 }
 
@@ -368,16 +291,12 @@ enum DataTransferInfoDest {
         item: DataTransferItem,
         callback: SyncSender<()>,
     },
-    Async {
+    Serialized {
         item: DataTransferItem,
         bytes: Bytes,
         shape: Vec<usize>,
         strides: Vec<usize>,
         elem_size: usize,
-        callback: SyncSender<()>,
-    },
-    Normal {
-        item: DataTransferItem,
         callback: SyncSender<()>,
     },
 }
@@ -396,11 +315,11 @@ impl DataTransferInfo {
                 DataTransferInfoDest::Peer { item, callback },
             ) => Self::execute_peer(fence, data_transfer_item, item, callback),
             (
-                DataTransferInfoSrc::Async {
+                DataTransferInfoSrc::Serialized {
                     item: item_src,
                     binding,
                 },
-                DataTransferInfoDest::Async {
+                DataTransferInfoDest::Serialized {
                     item: item_dest,
                     callback: callback_dest,
                     shape,
@@ -408,7 +327,7 @@ impl DataTransferInfo {
                     elem_size,
                     bytes,
                 },
-            ) => Self::execute_async(
+            ) => Self::execute_serialized(
                 item_src,
                 item_dest,
                 bytes,
@@ -418,47 +337,8 @@ impl DataTransferInfo {
                 binding,
                 callback_dest,
             ),
-            (
-                DataTransferInfoSrc::Normal {
-                    bytes,
-                    shape,
-                    strides,
-                    elem_size,
-                },
-                DataTransferInfoDest::Normal { item, callback },
-            ) => Self::execute_normal(bytes, shape, strides, elem_size, item, callback),
-            _ => unreachable!(),
+            _ => panic!("Invalid transfer combination"),
         }
-    }
-
-    fn execute_normal(
-        bytes: DynFut<Bytes>,
-        shape: Vec<usize>,
-        strides: Vec<usize>,
-        elem_size: usize,
-        item: DataTransferItem,
-        callback: SyncSender<()>,
-    ) -> Result<(), IoError> {
-        let bytes = future::block_on(bytes);
-        let data: &[u8] = bytes.as_ref();
-
-        unsafe {
-            cudarc::driver::result::ctx::set_current(item.context).unwrap();
-
-            write_to_gpu(
-                &shape,
-                &strides,
-                elem_size,
-                data,
-                item.resource.ptr,
-                item.stream,
-            );
-        }
-
-        // Unblock as soon as possible.
-        callback.send(()).unwrap();
-
-        Ok(())
     }
 
     fn execute_peer(
@@ -505,7 +385,7 @@ impl DataTransferInfo {
         Ok(())
     }
 
-    fn execute_async(
+    fn execute_serialized(
         item_src: DataTransferItem,
         item_dest: DataTransferItem,
         mut bytes: Bytes,
@@ -526,6 +406,10 @@ impl DataTransferInfo {
                 item_src.resource.ptr,
                 item_src.stream,
             )?;
+            // We can release the src binding, since the read is registered on the src stream.
+            //
+            // Meaning the binding could be used again on the src stream for subsequent operations.
+            core::mem::drop(binding);
 
             let fence = Fence::new(item_src.stream);
 
@@ -540,10 +424,9 @@ impl DataTransferInfo {
                 &bytes,
                 item_dest.resource.ptr,
                 item_dest.stream,
-            );
+            )?;
         };
 
-        core::mem::drop(binding);
         callback_dest.send(()).unwrap();
 
         Ok(())
