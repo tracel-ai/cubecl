@@ -15,9 +15,9 @@ pub trait Coordinates: CubeType + Clone {
     fn max(this: Self, other: Self) -> Self;
     /// Check whether `pos` is fully contained within `bounds`.
     fn is_in_bounds(pos: &Self, bounds: &Self) -> bool;
-    /// The origin (zero) coordinates. `this` may be used as a reference coordinate for dynamically
-    /// sized layouts.
-    fn origin(this: &Self) -> Self;
+    /// Create a new coordinates object where all values are `value`.
+    /// `this` may be used as a reference coordinate for dynamically sized layouts.
+    fn from_int(this: &Self, #[comptime] value: i64) -> Self;
 }
 
 // Aliases for convenience and semantic clarity
@@ -57,58 +57,45 @@ macro_rules! impl_coordinates_tuple {
                 let ($($o),*) = other;
                 true $(&& $T::is_in_bounds($t, $o))*
             }
-            fn origin(this: &Self) -> Self {
+            fn from_int(this: &Self, #[comptime] value: i64) -> Self {
                 let ($($t),*) = this;
-                ($($T::origin($t)),*)
+                ($($T::from_int($t, value)),*)
             }
         }
     };
 }
 
-#[cube]
-impl Coordinates for u32 {
-    fn add(this: Self, other: Self) -> Self {
-        this + other
-    }
-    fn sub(this: Self, other: Self) -> Self {
-        this - other
-    }
-    fn min(this: Self, other: Self) -> Self {
-        Min::min(this, other)
-    }
-    fn max(this: Self, other: Self) -> Self {
-        Max::max(this, other)
-    }
-    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
-        pos < bounds
-    }
-    fn origin(_this: &Self) -> Self {
-        0u32.runtime()
-    }
-}
-
-#[cube]
-impl Coordinates for i32 {
-    fn add(this: Self, other: Self) -> Self {
-        this + other
-    }
-    fn sub(this: Self, other: Self) -> Self {
-        this - other
-    }
-    fn min(this: Self, other: Self) -> Self {
-        Min::min(this, other)
-    }
-    fn max(this: Self, other: Self) -> Self {
-        Max::max(this, other)
-    }
-    fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
-        pos < bounds
-    }
-    fn origin(_this: &Self) -> Self {
-        0i32.runtime()
+// Can't blanket implement because of trait rules
+macro_rules! impl_coordinates_primitive {
+    ($ty: ty) => {
+        #[cube]
+        impl Coordinates for $ty {
+            fn add(this: Self, other: Self) -> Self {
+                this + other
+            }
+            fn sub(this: Self, other: Self) -> Self {
+                this - other
+            }
+            fn min(this: Self, other: Self) -> Self {
+                Min::min(this, other)
+            }
+            fn max(this: Self, other: Self) -> Self {
+                Max::max(this, other)
+            }
+            fn is_in_bounds(pos: &Self, bounds: &Self) -> bool {
+                pos < bounds
+            }
+            fn from_int(_this: &Self, #[comptime] value: i64) -> Self {
+                <$ty as Numeric>::from_int(value)
+            }
+        }
+    };
+    ($($ty: ty),*) => {
+        $(impl_coordinates_primitive!($ty);)*
     }
 }
 
+impl_coordinates_primitive!(u8, u16, u32, u64, i8, i16, i32, i64);
 all_tuples!(impl_coordinates_tuple, 2, 12, T, t, o);
 
 #[cube]
@@ -173,13 +160,13 @@ impl<T: Coordinates + Copy> Coordinates for Sequence<T> {
         out
     }
 
-    fn origin(this: &Self) -> Self {
+    fn from_int(this: &Self, #[comptime] value: i64) -> Self {
         let rank = comptime![this.len()];
         let mut origin = Sequence::new();
 
         #[unroll]
         for i in 0..rank {
-            origin.push(T::origin(this.index(i)))
+            origin.push(T::from_int(this.index(i), value));
         }
 
         origin

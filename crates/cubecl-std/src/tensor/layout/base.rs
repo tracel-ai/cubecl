@@ -28,10 +28,5 @@ pub trait Layout {
     /// The shape of the conceptual tensor represented by this layout. Not necessarily the extent
     /// of the underlying storage, but only this view of it.
     fn shape(&self) -> Self::Coordinates;
-    /// Transform an n-dimensional shape to a shape in the source coordinate space.
-    /// Unlike `to_source_pos`, this should not apply any offsets, only multiplicative transformations.
-    /// It is recommended to use absolute positions here, and handle the translation into lines
-    /// at the lowest level (global memory layout).
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates;
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool;
 }

@@ -58,11 +58,6 @@ impl Layout for AttentionGlobalLayout {
         (self.rows, self.columns)
     }
 
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        let size = shape.0 * shape.1;
-        size / comptime![self.config.global_line_size]
-    }
-
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (row, col) = pos;
 
