@@ -19,6 +19,8 @@ pub struct ExtendedFeatures<'a> {
     pub bfloat16: Option<PhysicalDeviceShaderBfloat16FeaturesKHR<'a>>,
     pub float8: Option<PhysicalDeviceShaderFloat8FeaturesEXT<'a>>,
 
+    pub wg_explicit_layout: Option<PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR<'a>>,
+
     pub extensions: Vec<&'static CStr>,
 }
 
@@ -67,6 +69,13 @@ impl<'a> ExtendedFeatures<'a> {
             self.extensions.push(EXT_SHADER_FLOAT8_NAME);
             self.float8 = Some(PhysicalDeviceShaderFloat8FeaturesEXT::default());
         }
+
+        if phys_caps.supports_extension(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME) {
+            self.extensions
+                .push(KHR_WORKGROUP_MEMORY_EXPLICIT_LAYOUT_NAME);
+            self.wg_explicit_layout =
+                Some(PhysicalDeviceWorkgroupMemoryExplicitLayoutFeaturesKHR::default());
+        }
     }
 
     pub fn add_to_device_create(&'a mut self, info: DeviceCreateInfo<'a>) -> DeviceCreateInfo<'a> {
@@ -93,6 +102,7 @@ impl<'a> ExtendedFeatures<'a> {
         info = push_opt(info, &mut self.float_controls2);
         info = push_opt(info, &mut self.bfloat16);
         info = push_opt(info, &mut self.float8);
+        info = push_opt(info, &mut self.wg_explicit_layout);
 
         info
     }
@@ -121,6 +131,7 @@ impl<'a> ExtendedFeatures<'a> {
         features = push_opt(features, &mut self.float_controls2);
         features = push_opt(features, &mut self.bfloat16);
         features = push_opt(features, &mut self.float8);
+        features = push_opt(features, &mut self.wg_explicit_layout);
 
         unsafe {
             // convert to ash version, they represent the same type so this is safe
@@ -157,6 +168,9 @@ impl<'a> ExtendedFeatures<'a> {
         }
         if let Some(float8) = &mut self.float8 {
             float8.p_next = null_mut();
+        }
+        if let Some(wg_explicit_layout) = &mut self.wg_explicit_layout {
+            wg_explicit_layout.p_next = null_mut();
         }
     }
 }

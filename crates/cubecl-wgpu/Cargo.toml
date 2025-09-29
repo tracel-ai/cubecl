@@ -29,7 +29,7 @@ msl = ["cubecl-cpp/metal"]
 profile-tracy = ["tracy-client"]
 spirv = ["cubecl-spirv", "ash", "tracel-ash"]
 
-spirv-dump = []
+spirv-dump = ["std"]
 
 attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]

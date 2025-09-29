@@ -213,6 +213,15 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
             }
         }
     }
+
+    /// Frees the shared memory for reuse, if possible on the target runtime.
+    ///
+    /// # Safety
+    /// *Must* be used in uniform control flow
+    /// *Must not* have any dangling references to this shared memory
+    pub unsafe fn free(self) {
+        unsafe { self.smem.free() };
+    }
 }
 
 #[cube]

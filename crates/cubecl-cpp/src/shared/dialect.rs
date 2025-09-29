@@ -102,7 +102,18 @@ pub trait DialectTypes<D: Dialect> {
     fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
-    ) -> std::fmt::Result;
+    ) -> std::fmt::Result {
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        let size = shared.length;
+        let size_bytes = size * shared.item.size() as u32;
+        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
+        )
+    }
     fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         Ok(())
     }
