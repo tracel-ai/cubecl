@@ -107,7 +107,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
                 cmma::MatrixIdent::B,
                 // m not relevant because it's a B
                 size.seq_q,
-                // n and k match key, but we are guaranteed that value takes the same space (albeit not the same shape)
+                // n and k match key, and we assume value takes the same space
                 size.seq_kv,
                 size.head_dim,
                 cmma::MatrixLayout::RowMajor,
@@ -131,7 +131,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
                 cmma::MatrixIdent::Accumulator,
                 size.seq_q,
                 size.seq_kv,
-                size.head_dim, // k, because we take accumulator point of view
+                size.head_dim, // k, because we take score matmul acc point of view
                 cmma::MatrixLayout::RowMajor,
             )
         }
@@ -175,9 +175,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     fn tmp_fill_accumulator(
         tile: &StridedTile<ACC<AP>>,
         acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Out));
+        let (slice, stride) = tile.as_unlined(1u32);
         cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
     }
     fn tmp_fill_prob(

@@ -20,75 +20,6 @@ pub struct DummyRegisterAttentionMatmulConfig {
     check_bounds: bool,
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ScoreConfig {
-    plane_dim: u32,
-    tile_size: TileSize,
-    query_stage_line_size: u32,
-    key_value_stage_line_size: u32,
-}
-
-impl TileConfig for ScoreConfig {
-    fn plane_dim(&self) -> u32 {
-        self.plane_dim
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => self.query_stage_line_size,
-            StageIdent::Rhs => self.key_value_stage_line_size,
-            StageIdent::Acc => todo!(),
-            StageIdent::Out => todo!(),
-        }
-    }
-
-    fn global_line_size(&self, _ident: StageIdent) -> u32 {
-        panic!()
-    }
-
-    fn tile_size(&self) -> &TileSize {
-        &self.tile_size
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ValueConfig {
-    plane_dim: u32,
-    tile_size: TileSize,
-    key_value_stage_line_size: u32,
-}
-
-impl TileConfig for ValueConfig {
-    fn plane_dim(&self) -> u32 {
-        self.plane_dim
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => todo!(),
-            StageIdent::Rhs => self.key_value_stage_line_size,
-            StageIdent::Acc => todo!(),
-            StageIdent::Out => todo!(),
-        }
-    }
-
-    fn global_line_size(&self, _ident: StageIdent) -> u32 {
-        panic!()
-    }
-
-    fn tile_size(&self) -> &TileSize {
-        &self.tile_size
-    }
-}
-
 impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
@@ -117,6 +48,10 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
         self.cast_query
     }
 
+    fn check_bounds(&self) -> bool {
+        self.check_bounds
+    }
+
     fn num_units_per_row(&self, ident: AttentionIdent) -> u32 {
         self.plane_dim / self.attention_tile_size.num_rows(ident)
     }
@@ -131,10 +66,6 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
         self.attention_tile_size
             .num_rows(ident)
             .div_ceil(self.plane_dim)
-    }
-
-    fn check_bounds(&self) -> bool {
-        self.check_bounds
     }
 }
 

@@ -4,11 +4,11 @@ use crate::{
     components::{
         AttentionProblem, AttentionSelection, AttentionTilingScheme, batch::HypercubeSelection,
     },
-    kernels::dummy::DummyAlgorithm,
+    kernels::Algorithm,
     tests::attention_test_launcher::test_attention_algorithm,
 };
 
-pub fn attention_test_launch<R: Runtime>(
+pub fn attention_test_launch<A: Algorithm, R: Runtime>(
     client: ComputeClient<R::Server, R::Channel>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
@@ -21,7 +21,7 @@ pub fn attention_test_launch<R: Runtime>(
         reuse_key_value,
     };
 
-    test_attention_algorithm::<DummyAlgorithm, (f32, f32), R>(client, problem, selection);
+    test_attention_algorithm::<A, (f32, f32), R>(client, problem, selection);
 }
 
 #[macro_export]
@@ -34,6 +34,7 @@ macro_rules! testgen_attention {
                 AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
                 AttentionTilingScheme,
             };
+            use cubecl_attention::kernels::dummy::{DummyAcceleratedAlgorithm, DummyRegisterAlgorithm};
 
             #[test]
             fn attention_8_8_8_8() {
@@ -65,7 +66,46 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                )
+            }
+
+            #[cfg(target_os = "macos")]
+            #[test]
+            fn attention_8_8_8_8_accelerated() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
+                };
+                let stage_size = AttentionStageSize { seq_q: 1 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<DummyAcceleratedAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -103,7 +143,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -141,7 +181,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -179,7 +219,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -217,7 +257,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -255,7 +295,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -293,7 +333,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -331,7 +371,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -369,7 +409,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -407,12 +447,90 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
                     false,
                 );
+            }
+
+            #[cfg(target_os = "macos")]
+            #[test]
+            fn attention_partition2_global2_accelerated() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 2,
+                    seq_kv: 2,
+                    head_dim: 2,
+                    val_dim: 2,
+                };
+                let stage_size = AttentionStageSize { seq_q: 1 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize * 2,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<DummyAcceleratedAlgorithm, TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                )
+            }
+
+            #[cfg(target_os = "macos")]
+            #[test]
+            fn attention_partition_q2_stage2_accelerated() {
+                let client = TestRuntime::client(&Default::default());
+                let tile_size = AttentionTileSize {
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
+                };
+                let partition_size = AttentionPartitionSize {
+                    seq_q: 2,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
+                };
+                let stage_size = AttentionStageSize { seq_q: 2 };
+                let tiling_scheme = AttentionTilingScheme {
+                    tile_size,
+                    partition_size,
+                    stage_size,
+                };
+                let problem = AttentionProblem {
+                    batch: 1,
+                    num_heads: 1,
+                    seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+                    seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+                    head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+                    val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                    masked: false,
+                };
+                $crate::tests::macros::attention_test_launch::<DummyAcceleratedAlgorithm, TestRuntime>(
+                    client,
+                    tiling_scheme,
+                    problem,
+                    false,
+                )
             }
 
             #[test]
@@ -446,7 +564,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -485,7 +603,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -523,7 +641,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -561,7 +679,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -599,7 +717,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -637,7 +755,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -675,7 +793,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -713,7 +831,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -751,7 +869,7 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
@@ -789,13 +907,51 @@ macro_rules! testgen_attention {
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
                     masked: false,
                 };
-                $crate::tests::macros::attention_test_launch::<TestRuntime>(
+                $crate::tests::macros::attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,
                     tiling_scheme,
                     problem,
                     true,
                 );
             }
+
+            // #[test]
+            // fn attention_double_row_wise() {
+            //     let client = TestRuntime::client(&Default::default());
+            //     let tile_size = AttentionTileSize {
+            //         seq_q: 16,
+            //         seq_kv: 16,
+            //         head_dim: 16,
+            //         val_dim: 16,
+            //     };
+            //     let partition_size = AttentionPartitionSize {
+            //         seq_q: 2,
+            //         seq_kv: 2,
+            //         head_dim: 2,
+            //         val_dim: 2,
+            //     };
+            //     let stage_size = AttentionStageSize { seq_q: 2 };
+            //     let tiling_scheme = AttentionTilingScheme {
+            //         tile_size,
+            //         partition_size,
+            //         stage_size,
+            //     };
+            //     let problem = AttentionProblem {
+            //         batch: 1,
+            //         num_heads: 1,
+            //         seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
+            //         seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
+            //         head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
+            //         val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+            //         masked: false,
+            //     };
+            //     $crate::tests::macros::attention_test_launch::<DummyDoubleRegisterAlgorithm, TestRuntime>(
+            //         client,
+            //         tiling_scheme,
+            //         problem,
+            //         true,
+            //     );
+            // }
         }
     };
 }
