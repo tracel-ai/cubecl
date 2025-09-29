@@ -5,7 +5,7 @@ use crate::components::global::read::{AsyncLoadingJob, LoadingValidation};
 use crate::components::global::{CopyMechanism, GlobalConfig};
 use crate::components::stage::TilingLayout;
 use crate::components::stage::{self, StridedStage};
-use crate::components::{InputPrecision, MatmulIdent};
+use crate::components::{MatmulIdent, MatrixPrecision};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::barrier::BarrierLevel;
 use cubecl_core::prelude::*;
@@ -21,10 +21,10 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: MatrixPrecision>: AsyncLoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<IP>;
@@ -39,7 +39,7 @@ pub trait AsyncFullLoadingStrategy: 'static + Send + Sync + Clone + LoadingValid
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct AsyncFullStageGlobalReader<
-    IP: InputPrecision,
+    IP: MatrixPrecision,
     CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,
@@ -56,7 +56,7 @@ pub struct AsyncFullStageGlobalReader<
 
 #[cube]
 impl<
-    IP: InputPrecision,
+    IP: MatrixPrecision,
     CM: CopyMechanism,
     S: stage::StageConfig,
     L: AsyncFullLoadingStrategy,

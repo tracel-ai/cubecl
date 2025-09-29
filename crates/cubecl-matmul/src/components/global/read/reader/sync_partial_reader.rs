@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use super::StageBuffer;
 use super::TaskCounter;
-use crate::components::InputPrecision;
 use crate::components::MatmulIdent;
+use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -29,10 +29,10 @@ pub trait SyncPartialLoadingStrategy:
     type TilingLayout: TilingLayout;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: InputPrecision>: LoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -45,7 +45,7 @@ pub trait SyncPartialLoadingStrategy:
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
 pub struct SyncPartialStageGlobalReader<
-    IP: InputPrecision,
+    IP: MatrixPrecision,
     G: GlobalConfig,
     L: SyncPartialLoadingStrategy,
 > {
@@ -59,7 +59,7 @@ pub struct SyncPartialStageGlobalReader<
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
+impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     SyncPartialStageGlobalReader<IP, G, L>
 {
     /// Create a new SyncPartialStageGlobalReader
@@ -138,7 +138,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 }
 
 #[cube]
-impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
+impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
     for SyncPartialStageGlobalReader<IP, G, L>
 {
     type JobIterator = SyncPartialJobIterator<IP, L>;
@@ -230,7 +230,7 @@ impl<IP: InputPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExec
 
 #[derive(CubeType)]
 /// Accomplish the entire job of filling the stage
-pub struct SyncPartialJobIterator<IP: InputPrecision, L: SyncPartialLoadingStrategy> {
+pub struct SyncPartialJobIterator<IP: MatrixPrecision, L: SyncPartialLoadingStrategy> {
     job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
@@ -238,7 +238,7 @@ pub struct SyncPartialJobIterator<IP: InputPrecision, L: SyncPartialLoadingStrat
 }
 
 #[cube]
-impl<IP: InputPrecision, L: SyncPartialLoadingStrategy> JobIterator
+impl<IP: MatrixPrecision, L: SyncPartialLoadingStrategy> JobIterator
     for SyncPartialJobIterator<IP, L>
 {
     fn current(this: &Self) -> comptime_type!(u32) {

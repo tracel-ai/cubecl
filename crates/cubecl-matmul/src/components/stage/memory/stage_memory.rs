@@ -5,7 +5,7 @@ use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
-use crate::components::{stage::Stage, tile::reader::Strided};
+use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords2d;
@@ -23,7 +23,7 @@ impl StageFamily for StridedStageFamily {
 /// abstracting its layout
 pub struct StridedStage<ES: Numeric, T: TilingLayout> {
     /// Underlying shared memory
-    smem: SharedMemory<Line<ES>>,
+    pub smem: SharedMemory<Line<ES>>,
     buffer_index: u32,
 
     #[cube(comptime)]
@@ -98,6 +98,16 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
     /// Get the tile at position (row, col)
     pub fn get_tile(&self, tile: Coords2d) -> StridedTile<ES> {
         T::get_tile::<ES>(self, tile, self.buffer_index, self.ident, self.config)
+    }
+
+    /// Get the tile at position (row, col)
+    pub fn get_tile_mut(&self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        let tile = self.get_tile(tile);
+        StridedTile::<ES, ReadWrite> {
+            slice: tile.slice.as_mut_unchecked(),
+            stride: tile.stride,
+            layout: tile.layout,
+        }
     }
 
     /// Return the whole stage as a slice, for reading
@@ -215,10 +225,19 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> Stage<ES> for StridedStage<ES, T> {
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadOnly> for StridedStage<ES, T> {
     type TileKind = Strided;
 
-    fn read_tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
         this.get_tile(tile)
+    }
+}
+
+#[cube]
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadWrite> for StridedStage<ES, T> {
+    type TileKind = Strided;
+
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        this.get_tile_mut(tile)
     }
 }

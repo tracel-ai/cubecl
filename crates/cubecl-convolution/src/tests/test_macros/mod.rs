@@ -9,7 +9,7 @@ macro_rules! testgen_conv2d_accelerated {
         mod conv2d_accelerated {
             use super::*;
             use cubecl_std::CubeOption;
-            use cubecl_matmul::components::tile::reader::Strided;
+            use cubecl_matmul::components::tile::io::Strided;
             type TMM = cubecl_matmul::components::tile::accelerated::AcceleratedMatmul<CubeOption<Strided>>;
 
             ::paste::paste! {

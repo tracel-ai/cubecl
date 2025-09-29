@@ -1,5 +1,5 @@
 use crate::components::{
-    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
     global::{
         CopyMechanism, GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -26,9 +26,9 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
 #[cube]
 impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<IP: InputPrecision> = AsyncPartialMaximizeSliceLengthJob;
+    type Job<IP: MatrixPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -108,7 +108,7 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
+impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     for AsyncPartialMaximizeSliceLengthJob
 {
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(

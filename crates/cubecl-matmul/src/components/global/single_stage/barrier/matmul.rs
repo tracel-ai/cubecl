@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatmulPrecision;
 use crate::components::RhsG;
 use crate::components::RhsS;
 use crate::components::global::GlobalConfig;
@@ -16,6 +15,7 @@ use crate::components::{
     MatmulIdent,
     stage::{FilledStage, StridedStage},
 };
+use crate::components::{MatmulPrecision, global::GlobalWriter};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -29,25 +29,29 @@ pub struct SimpleBarrierMatmul<
     SMM: StageMatmul<MP>,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 > {
     _ms: PhantomData<MP>,
     _stage_matmul: PhantomData<SMM>,
     _lhs_loading: PhantomData<LL>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL> GlobalMatmul<MP> for SimpleBarrierMatmul<MP, SMM, LL, RL>
+impl<MP: MatmulPrecision, SMM, LL, RL, GW> GlobalMatmul<MP>
+    for SimpleBarrierMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: StageMatmul<
             MP,
             LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
-            WriteCoords = Coords2d,
+            OutStage = GW::Stage,
         >,
     LL: AsyncFullLoadingStrategy,
     RL: AsyncFullLoadingStrategy,
+    GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleBarrierConfig<SMM::Config>;
     type LhsGlobalReader =
@@ -55,7 +59,7 @@ where
     type RhsGlobalReader =
         AsyncFullStageGlobalReader<MP::Rhs, Barrier, SMM::Config, RL, Self::Config>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
-    type GlobalWriter = SMM::GlobalWriter;
+    type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
 
     fn execute(
@@ -117,8 +121,11 @@ where
             rhs_reader.advance_view();
         }
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -186,7 +193,8 @@ where
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
         let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        SMM::init_writer(out.view_mut(layout).slice_mut_unchecked(offset, size), conf)
+        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
+        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

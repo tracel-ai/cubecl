@@ -25,14 +25,14 @@ impl<MP: MatmulPrecision> MatmulSpec for MP {
 /// Matrix multiplication precisions.
 pub trait MatmulPrecision: Send + Sync + Copy + 'static {
     /// Element type of lhs input tensor of the kernel.
-    type Lhs: InputPrecision;
+    type Lhs: MatrixPrecision;
     /// Element type of rhs input tensor of the kernel.
-    type Rhs: InputPrecision;
+    type Rhs: MatrixPrecision;
     /// Element type of acc input tensor of the kernel.
-    type Acc: InputPrecision;
+    type Acc: MatrixPrecision;
 }
 
-pub trait InputPrecision: Send + Sync + Copy + 'static {
+pub trait MatrixPrecision: Send + Sync + Copy + 'static {
     /// Element type of input tensor in global memory
     type Global: Numeric;
     /// Element type once stored in shared memory
@@ -41,7 +41,7 @@ pub trait InputPrecision: Send + Sync + Copy + 'static {
     type Register: Numeric;
 }
 
-impl<EG: Numeric, ES: Numeric> InputPrecision for (EG, ES) {
+impl<EG: Numeric, ES: Numeric> MatrixPrecision for (EG, ES) {
     type Global = EG;
     type Stage = ES;
     type Register = ES;
@@ -152,23 +152,23 @@ pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a
 pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
 
 pub type LhsG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Global;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Global;
 pub type LhsS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Stage;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Stage;
 pub type LhsR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as InputPrecision>::Register;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Register;
 pub type RhsG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Global;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Global;
 pub type RhsS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Stage;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Stage;
 pub type RhsR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as InputPrecision>::Register;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Register;
 pub type AccG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as InputPrecision>::Global;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Global;
 pub type AccS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as InputPrecision>::Stage;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Stage;
 pub type AccR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as InputPrecision>::Register;
+    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Register;
 
 pub type Args<MS> = <MS as MatmulSpec>::Args;
 
@@ -187,15 +187,15 @@ pub struct MatmulElems {
 impl MatmulElems {
     pub fn new<MP: MatmulPrecision>() -> Self {
         Self {
-            lhs_global: <MP::Lhs as InputPrecision>::Global::as_type_native_unchecked(),
-            rhs_global: <MP::Rhs as InputPrecision>::Global::as_type_native_unchecked(),
-            acc_global: <MP::Acc as InputPrecision>::Global::as_type_native_unchecked(),
-            lhs_stage: <MP::Lhs as InputPrecision>::Stage::as_type_native_unchecked(),
-            rhs_stage: <MP::Rhs as InputPrecision>::Stage::as_type_native_unchecked(),
-            acc_stage: <MP::Acc as InputPrecision>::Stage::as_type_native_unchecked(),
-            lhs_register: <MP::Lhs as InputPrecision>::Register::as_type_native_unchecked(),
-            rhs_register: <MP::Rhs as InputPrecision>::Register::as_type_native_unchecked(),
-            acc_register: <MP::Acc as InputPrecision>::Register::as_type_native_unchecked(),
+            lhs_global: <MP::Lhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            rhs_global: <MP::Rhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            acc_global: <MP::Acc as MatrixPrecision>::Global::as_type_native_unchecked(),
+            lhs_stage: <MP::Lhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
+            rhs_stage: <MP::Rhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
+            acc_stage: <MP::Acc as MatrixPrecision>::Stage::as_type_native_unchecked(),
+            lhs_register: <MP::Lhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            rhs_register: <MP::Rhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),
         }
     }
 }

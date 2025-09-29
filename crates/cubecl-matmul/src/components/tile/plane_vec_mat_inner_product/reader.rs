@@ -9,8 +9,8 @@ use crate::components::{
     MatrixLayout,
     tile::{
         StridedTile,
+        io::{Filled, Strided, Tile, TileKind},
         plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
-        reader::{Filled, StageReader, Strided, TileKind},
     },
 };
 
@@ -20,10 +20,12 @@ pub struct VectorStageReader {}
 
 /// Generic matrix reader over any tile type
 #[cube]
-pub(super) trait MatrixFragmentReader: StageReader {
+pub(super) trait MatrixFragmentReader {
+    type TileKind: TileKind;
+
     /// Fill a fragment with data, with the implementation depending on the tile kind.
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: <Self::TileKind as TileKind>::Tile<V>,
+        tile: &Tile<Self::TileKind, V>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     );
@@ -39,7 +41,7 @@ pub struct MatrixStageReader<Kind: TileKind> {
 #[cube]
 impl VectorStageReader {
     pub fn load_fragment<E: Numeric, V: Numeric>(
-        tile: StridedTile<V>,
+        tile: &StridedTile<V>,
         frag: &mut LineContainer<E>,
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
@@ -48,14 +50,12 @@ impl VectorStageReader {
     }
 }
 
-impl StageReader for VectorStageReader {
-    type TileKind = Strided;
-}
-
 #[cube]
 impl MatrixFragmentReader for MatrixStageReader<Strided> {
+    type TileKind = Strided;
+
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: StridedTile<V>,
+        tile: &StridedTile<V>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     ) {
@@ -76,8 +76,10 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
 
 #[cube]
 impl MatrixFragmentReader for MatrixStageReader<Filled> {
+    type TileKind = Filled;
+
     fn load_fragment<E: Numeric, V: Numeric>(
-        value: V,
+        value: &V,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     ) {
@@ -87,7 +89,7 @@ impl MatrixFragmentReader for MatrixStageReader<Filled> {
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..config.n() {
             let line_container = frag.index_mut(n);
-            line_container.line = Line::cast_from(value);
+            line_container.line = Line::cast_from(*value);
 
             comptime![n += 1];
         }
@@ -99,20 +101,18 @@ impl<Inner: TileKind> MatrixFragmentReader for MatrixStageReader<CubeOption<Inne
 where
     MatrixStageReader<Inner>: MatrixFragmentReader<TileKind = Inner>,
 {
+    type TileKind = CubeOption<Inner>;
+
     fn load_fragment<E: Numeric, V: Numeric>(
-        tile: CubeOption<Inner::Tile<V>>,
+        tile: &CubeOption<Inner::Tile<V>>,
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] config: PlaneVecMatInnerProductConfig,
     ) {
         match tile {
             CubeOption::Some(tile) => MatrixStageReader::<Inner>::load_fragment(tile, frag, config),
             CubeOption::None => {
-                MatrixStageReader::<Filled>::load_fragment::<E, V>(V::from_int(0), frag, config)
+                MatrixStageReader::<Filled>::load_fragment::<E, V>(&V::from_int(0), frag, config)
             }
         }
     }
-}
-
-impl<Kind: TileKind> StageReader for MatrixStageReader<Kind> {
-    type TileKind = Kind;
 }
