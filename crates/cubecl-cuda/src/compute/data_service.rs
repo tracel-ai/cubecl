@@ -8,7 +8,6 @@ use cubecl_runtime::data_service::DataTransferId;
 use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
 use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
 use cudarc::driver::sys::{self};
-use std::sync::mpsc::sync_channel;
 use std::{
     collections::HashMap,
     sync::mpsc::{Receiver, SyncSender},
@@ -53,7 +52,6 @@ enum DataTransferMsg {
         item: DataTransferItem,
         /// Just to keep the original memory alive.
         binding: Binding,
-        callback: SyncSender<()>,
     },
     SrcNormal {
         id: DataTransferId,
@@ -102,14 +100,8 @@ impl DataServiceClient {
     }
 
     pub fn register_src_async(&self, id: DataTransferId, item: DataTransferItem, binding: Binding) {
-        let (callback, recv) = sync_channel(1);
         self.sender
-            .send(DataTransferMsg::SrcAsync {
-                id,
-                item,
-                binding,
-                callback,
-            })
+            .send(DataTransferMsg::SrcAsync { id, item, binding })
             .unwrap();
 
         // recv.recv().expect("Data transfer to succeed");
@@ -215,13 +207,8 @@ impl DataTransferRuntime {
                 DataTransferMsg::SrcPeer { id, item, fence } => {
                     self.register_src_peer(id, item, fence);
                 }
-                DataTransferMsg::SrcAsync {
-                    id,
-                    item,
-                    binding,
-                    callback,
-                } => {
-                    self.register_src_async(id, item, binding, callback);
+                DataTransferMsg::SrcAsync { id, item, binding } => {
+                    self.register_src_async(id, item, binding);
                 }
                 DataTransferMsg::SrcNormal {
                     id,
@@ -291,19 +278,9 @@ impl DataTransferRuntime {
             }
         }
     }
-    fn register_src_async(
-        &mut self,
-        id: DataTransferId,
-        item: DataTransferItem,
-        binding: Binding,
-        callback: SyncSender<()>,
-    ) {
+    fn register_src_async(&mut self, id: DataTransferId, item: DataTransferItem, binding: Binding) {
         let transfer = self.transfers.remove(&id);
-        let info = DataTransferInfoSrc::Async {
-            item,
-            binding,
-            callback,
-        };
+        let info = DataTransferInfoSrc::Async { item, binding };
 
         match transfer {
             Some(mut transfer) => {
@@ -373,7 +350,6 @@ enum DataTransferInfoSrc {
     Async {
         item: DataTransferItem,
         binding: Binding,
-        callback: SyncSender<()>,
     },
     Peer {
         item: DataTransferItem,
@@ -423,7 +399,6 @@ impl DataTransferInfo {
                 DataTransferInfoSrc::Async {
                     item: item_src,
                     binding,
-                    callback: callback_src,
                 },
                 DataTransferInfoDest::Async {
                     item: item_dest,
@@ -441,7 +416,6 @@ impl DataTransferInfo {
                 strides,
                 elem_size,
                 binding,
-                callback_src,
                 callback_dest,
             ),
             (
@@ -539,7 +513,6 @@ impl DataTransferInfo {
         strides: Vec<usize>,
         elem_size: usize,
         binding: Binding,
-        callback_src: SyncSender<()>,
         callback_dest: SyncSender<()>,
     ) -> Result<(), IoError> {
         unsafe {
@@ -571,7 +544,6 @@ impl DataTransferInfo {
         };
 
         core::mem::drop(binding);
-        callback_src.send(()).unwrap();
         callback_dest.send(()).unwrap();
 
         Ok(())

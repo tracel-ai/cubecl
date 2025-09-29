@@ -433,8 +433,8 @@ impl<'a> Command<'a> {
                 let shape = dest.shape.to_vec();
                 let strides = dest.strides.to_vec();
                 let elem_size = dest.elem_size;
-                let size = shape.iter().product();
-                let bytes = self.reserve_cpu(size, true, None);
+                let num_bytes = shape.iter().product::<usize>() * elem_size;
+                let bytes = self.reserve_cpu(num_bytes, true, None);
                 client.register_dest_async(id, item, bytes, shape, strides, elem_size);
             }
             Device2DeviceStrategy::Normal => {
