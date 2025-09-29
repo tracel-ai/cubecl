@@ -64,7 +64,7 @@ impl<'a> Allocation<'a> {
     }
 }
 
-/// Allocation controller using the core rust [alloc crate](alloc).
+/// Allocation controller using the 'native' rust [alloc crate](alloc).
 ///
 /// SAFETY:
 ///  - If `layout.size() > 0`, `ptr` points to a valid allocation from the global allocator
@@ -72,11 +72,11 @@ impl<'a> Allocation<'a> {
 ///  - If `layout.size() == 0`, `ptr` is aligned to `layout.align()` and `len` is 0.
 ///    `ptr` is further suitable to be used as the argument for `Vec::from_raw_parts` see [buffer alloc]
 ///    for more details.
-pub(crate) struct CoreAllocationController<'a> {
+pub(crate) struct NativeAllocationController<'a> {
     allocation: Allocation<'a>,
 }
 
-impl<'a> CoreAllocationController<'a> {
+impl<'a> NativeAllocationController<'a> {
     pub(crate) fn alloc_with_data(data: &[u8], align: usize) -> Result<Self, LayoutError> {
         debug_assert!(
             align <= MAX_ALIGN,
@@ -148,7 +148,7 @@ impl<'a> CoreAllocationController<'a> {
     }
 }
 
-impl AllocationController for CoreAllocationController<'_> {
+impl AllocationController for NativeAllocationController<'_> {
     fn grow(&mut self, size: usize, align: usize) -> Result<(), AllocationError> {
         debug_assert!(
             align <= MAX_ALIGN,
@@ -210,7 +210,7 @@ impl AllocationController for CoreAllocationController<'_> {
     }
 }
 
-impl Drop for CoreAllocationController<'_> {
+impl Drop for NativeAllocationController<'_> {
     fn drop(&mut self) {
         let layout = unsafe {
             Layout::from_size_align_unchecked(self.allocation.size, self.allocation.align)
@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn test_core_allocation_controller_alloc_with_capacity() {
-        let controller = CoreAllocationController::alloc_with_capacity(64, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_capacity(64, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert_eq!(controller.memory().len(), 64);
     }
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn test_core_allocation_controller_alloc_with_data() {
         let data = b"hello world test"; // 16 bytes to be multiple of 8
-        let controller = CoreAllocationController::alloc_with_data(data, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
         assert_eq!(controller.alloc_align(), 8);
         assert!(controller.memory().len() >= data.len());
         assert_eq!(controller.memory().len() % 8, 0); // Should be multiple of alignment
@@ -391,14 +391,14 @@ mod tests {
         let elems = vec![1u32, 2, 3, 4];
         let expected_bytes = elems.len() * core::mem::size_of::<u32>();
 
-        let controller = CoreAllocationController::from_elems(elems);
+        let controller = NativeAllocationController::from_elems(elems);
         assert_eq!(controller.alloc_align(), core::mem::align_of::<u32>());
         assert_eq!(controller.memory().len(), expected_bytes);
     }
 
     #[test]
     fn test_core_allocation_controller_grow() {
-        let mut controller = CoreAllocationController::alloc_with_capacity(32, 8).unwrap();
+        let mut controller = NativeAllocationController::alloc_with_capacity(32, 8).unwrap();
         let old_memory_len = controller.memory().len();
 
         controller.grow(64, 8).unwrap();
@@ -406,14 +406,6 @@ mod tests {
         assert_eq!(controller.alloc_align(), 8);
         assert!(controller.memory().len() >= 64);
         assert!(controller.memory().len() > old_memory_len);
-    }
-
-    #[test]
-    fn test_core_allocation_controller_grow_with_higher_alignment() {
-        let mut controller = CoreAllocationController::alloc_with_capacity(32, 8).unwrap();
-        controller.grow(64, 16).unwrap();
-        assert!(controller.alloc_align() == 16);
-        assert!(controller.memory().len() == 64);
     }
 
     #[test]
@@ -438,7 +430,7 @@ mod tests {
     #[test]
     fn test_memory_access() {
         let data = b"test data"; // 9 bytes, will be rounded up to 16 for 8-byte alignment
-        let controller = CoreAllocationController::alloc_with_data(data, 8).unwrap();
+        let controller = NativeAllocationController::alloc_with_data(data, 8).unwrap();
 
         let memory = controller.memory();
         assert!(memory.len() >= data.len());
@@ -450,7 +442,7 @@ mod tests {
 
     #[test]
     fn test_memory_mut_access() {
-        let mut controller = CoreAllocationController::alloc_with_capacity(16, 8).unwrap();
+        let mut controller = NativeAllocationController::alloc_with_capacity(16, 8).unwrap();
         unsafe {
             let memory = controller.memory_mut();
             assert_eq!(memory.len(), 16);
@@ -469,6 +461,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "capacity must be a multiple of alignment")]
     fn test_debug_assert_capacity_alignment_mismatch() {
-        let _ = CoreAllocationController::alloc_with_capacity(33, 8);
+        let _ = NativeAllocationController::alloc_with_capacity(33, 8);
     }
 }

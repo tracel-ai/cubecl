@@ -8,7 +8,7 @@ use cubecl_runtime::{
 pub struct CpuAllocController {
     resource: BytesResource,
     // Needed to keep the binding alive.
-    _binding: Option<Binding>,
+    _binding: Binding,
 }
 
 impl AllocationController for CpuAllocController {
@@ -58,7 +58,7 @@ impl CpuAllocController {
             .ok_or(IoError::InvalidHandle)?;
 
         Ok(Self {
-            _binding: Some(binding),
+            _binding: binding,
             resource,
         })
     }

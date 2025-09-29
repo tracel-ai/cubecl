@@ -1,6 +1,6 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
-use crate::bytes::default_controller::{self, CoreAllocationController};
+use crate::bytes::default_controller::{self, NativeAllocationController};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::LayoutError;
@@ -132,7 +132,7 @@ impl Bytes {
 
         // Note: going through a Box as in Vec::into_boxed_slice would re-allocate on excess capacity. Avoid that.
         let byte_len = elems.len() * core::mem::size_of::<E>();
-        let controller = CoreAllocationController::from_elems(elems);
+        let controller = NativeAllocationController::from_elems(elems);
 
         Self {
             controller: Box::new(controller),
@@ -146,7 +146,7 @@ impl Bytes {
     }
 
     /// Get the total capacity, in bytes, of the wrapped allocation.
-    fn capacity(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.controller.memory().len()
     }
 
@@ -231,7 +231,7 @@ impl Bytes {
 
     /// Copy an existing slice of data into Bytes that are aligned to `align`
     fn try_from_data(align: usize, data: &[u8]) -> Result<Self, LayoutError> {
-        let controller = CoreAllocationController::alloc_with_data(data, align)?;
+        let controller = NativeAllocationController::alloc_with_data(data, align)?;
 
         Ok(Self {
             controller: Box::new(controller),
@@ -270,7 +270,7 @@ impl Bytes {
             Ok(()) => {}
             Err(_err) => {
                 let new_controller: Box<dyn AllocationController> = Box::new(
-                    CoreAllocationController::alloc_with_capacity(new_cap, align).unwrap(),
+                    NativeAllocationController::alloc_with_capacity(new_cap, align).unwrap(),
                 );
                 let mut new_bytes = Self {
                     controller: new_controller,
