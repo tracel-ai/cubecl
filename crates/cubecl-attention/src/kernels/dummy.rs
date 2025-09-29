@@ -6,7 +6,7 @@ use crate::{
         batch::dummy::DummyBatchAttentionFamily,
         global::dummy::DummyGlobalAttentionFamily,
         stage::dummy::DummyStageAttentionFamily,
-        tile::dummy::{DummyTileAttentionFamily, dummy_register::DummyRegisterFlashMatmul},
+        tile::dummy::{DummyTileAttentionFamily, dummy_register::DummyRegisterAttentionMatmul},
     },
     kernels::Algorithm,
 };
@@ -14,10 +14,14 @@ use crate::{
 pub struct DummyAlgorithm {}
 
 impl Algorithm for DummyAlgorithm {
-    // type TileAttention = DummyTileAttentionFamily<AcceleratedFlashMatmul>;
-    type TileAttention = DummyTileAttentionFamily<DummyRegisterFlashMatmul>;
-    type StageAttention =
-        DummyStageAttentionFamily<Self::TileAttention, StridedStageFamily, PartitionedStageFamily>;
+    // type TileAttention = DummyTileAttentionFamily<AcceleratedAttentionMatmul>;
+    type TileAttention = DummyTileAttentionFamily<DummyRegisterAttentionMatmul>;
+    type StageAttention = DummyStageAttentionFamily<
+        Self::TileAttention,
+        StridedStageFamily,
+        StridedStageFamily,
+        PartitionedStageFamily,
+    >;
     type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
     type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
 

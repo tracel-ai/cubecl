@@ -134,10 +134,6 @@ impl Layout for LinearLayout {
         self.inner().shape()
     }
 
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        self.inner().to_source_shape(shape)
-    }
-
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         self.inner().is_in_bounds(pos)
     }

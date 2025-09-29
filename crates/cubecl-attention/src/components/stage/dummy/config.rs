@@ -1,12 +1,12 @@
 use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
-    tile::dummy::FlashMatmulConfig,
+    AttentionIdent, AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
+    tile::dummy::AttentionMatmulConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<FC: FlashMatmulConfig> {
+pub struct DummyStageConfig<FC: AttentionMatmulConfig> {
     tile_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
@@ -15,8 +15,8 @@ pub struct DummyStageConfig<FC: FlashMatmulConfig> {
     num_planes: u32,
 }
 
-impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
-    type FlashMatmulConfig = FC;
+impl<FC: AttentionMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
+    type AttentionMatmulConfig = FC;
 
     fn plane_dim(&self) -> u32 {
         32
@@ -26,7 +26,7 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
         self.num_planes
     }
 
-    fn tile_config(&self) -> Self::FlashMatmulConfig {
+    fn tile_config(&self) -> Self::AttentionMatmulConfig {
         self.tile_config
     }
 
@@ -45,9 +45,13 @@ impl<FC: FlashMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     fn reuse_key_value(&self) -> bool {
         self.reuse_key_value
     }
+
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32 {
+        self.tile_config.num_rows_per_unit(ident)
+    }
 }
 
-impl<FC: FlashMatmulConfig> DummyStageConfig<FC> {
+impl<FC: AttentionMatmulConfig> DummyStageConfig<FC> {
     pub fn new(
         tile_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig,

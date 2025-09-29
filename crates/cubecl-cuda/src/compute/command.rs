@@ -139,9 +139,9 @@ impl<'a> Command<'a> {
             .ok_or(IoError::InvalidHandle)
             .ok()?;
 
-        let (controller, alloc) = PinnedMemoryManagedAllocController::init(binding, resource);
-
-        Some(unsafe { Bytes::from_raw_parts(alloc, size, Box::new(controller)) })
+        let controller = Box::new(PinnedMemoryManagedAllocController::init(binding, resource));
+        // SAFETY: The binding has initialized memory for at least `size` bytes.
+        Some(unsafe { Bytes::from_controller(controller, size) })
     }
 
     /// Asynchronously reads data from GPU memory to host memory based on the provided copy descriptors.

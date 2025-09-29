@@ -56,7 +56,7 @@ impl KernelTask {
         }
     }
 
-    pub fn compute(&self, resources: &mut [&BytesResource]) {
+    pub fn compute(&self, resources: &mut [&mut BytesResource]) {
         self.kernel.compute(resources);
     }
 }
@@ -126,12 +126,16 @@ impl ComputeServer for DummyServer {
     fn write(
         &mut self,
         descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
-        stream_id: StreamId,
+        _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
-            let resource = self.get_resource(descriptor.binding, stream_id);
-            let bytes = resource.resource().write();
-            bytes[..data.len()].copy_from_slice(data);
+            let handle = self
+                .memory_management
+                .get(descriptor.binding.clone().memory)
+                .unwrap();
+
+            let mut bytes = self.memory_management.storage().get(&handle);
+            bytes.write()[..data.len()].copy_from_slice(data);
         }
         Ok(())
     }
@@ -160,12 +164,16 @@ impl ComputeServer for DummyServer {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
-            .map(|b| self.get_resource(b, stream_id))
+            .map(|b| self.memory_management.get(b.memory).unwrap())
             .collect();
         let metadata = self
             .create_with_data(bytemuck::cast_slice(&bindings.metadata.data), stream_id)
             .unwrap();
-        resources.push(self.get_resource(metadata.binding(), stream_id));
+        resources.push(
+            self.memory_management
+                .get(metadata.binding().memory)
+                .unwrap(),
+        );
 
         let scalars = bindings
             .scalars
@@ -175,12 +183,14 @@ impl ComputeServer for DummyServer {
         resources.extend(
             scalars
                 .into_iter()
-                .map(|h| self.get_resource(h.binding(), stream_id)),
+                .map(|h| self.memory_management.get(h.binding().memory).unwrap()),
         );
-
-        let mut resources: Vec<_> = resources.iter().map(|x| x.resource()).collect();
-
-        kernel.compute(&mut resources);
+        let mut resources: Vec<_> = resources
+            .iter_mut()
+            .map(|x| self.memory_management.storage().get(x))
+            .collect();
+        let mut resources: Vec<_> = resources.iter_mut().collect();
+        kernel.compute(resources.as_mut_slice());
     }
 
     fn flush(&mut self, _stream_id: StreamId) {

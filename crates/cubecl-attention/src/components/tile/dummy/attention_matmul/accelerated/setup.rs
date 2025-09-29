@@ -3,15 +3,15 @@ use cubecl_matmul::components::ComputeResources;
 use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
     tile::dummy::{
-        FlashMatmulFamily, FlashPrecision,
-        accelerated::{AcceleratedFlashMatmul, AcceleratedFlashMatmulConfig},
+        AttentionMatmulFamily,
+        accelerated::{AcceleratedAttentionMatmul, AcceleratedAttentionMatmulConfig},
     },
 };
 
-impl FlashMatmulFamily for AcceleratedFlashMatmul {
-    type Matmul<F: FlashPrecision> = AcceleratedFlashMatmul;
+impl AttentionMatmulFamily for AcceleratedAttentionMatmul {
+    type Matmul<AP: AttentionPrecision> = AcceleratedAttentionMatmul;
 
-    type Config = AcceleratedFlashMatmulConfig;
+    type Config = AcceleratedAttentionMatmulConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -27,7 +27,7 @@ impl FlashMatmulFamily for AcceleratedFlashMatmul {
         selection: &crate::components::AttentionSelection,
         line_sizes: &crate::components::AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        AcceleratedFlashMatmulConfig::new::<AP>(
+        AcceleratedAttentionMatmulConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             1,

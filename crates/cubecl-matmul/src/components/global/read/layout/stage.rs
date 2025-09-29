@@ -33,10 +33,6 @@ impl Layout for FullStageLayout {
         }
     }
 
-    fn to_source_shape(&self, shape: Self::Coordinates) -> Self::SourceCoordinates {
-        self.to_source_pos(shape)
-    }
-
     fn shape(&self) -> Self::Coordinates {
         let stage_shape_row = comptime![self.config.elements_in_stage_row];
         let stage_shape_y = comptime![self.config.elements_in_stage_col];

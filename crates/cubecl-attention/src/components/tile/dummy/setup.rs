@@ -8,17 +8,16 @@ use crate::components::{
     AttentionSetupError, InvalidConfigError,
     tile::{
         TileAttentionFamily,
-        dummy::{DummyTileAttention, FlashMatmulFamily},
+        dummy::{AttentionMatmulFamily, DummyTileAttention},
     },
 };
 
-pub struct DummyTileAttentionFamily<FM: FlashMatmulFamily> {
+pub struct DummyTileAttentionFamily<FM: AttentionMatmulFamily> {
     _phantom: PhantomData<FM>,
 }
 
-impl<FM: FlashMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM> {
-    type Attention<AP: AttentionPrecision> =
-        DummyTileAttention<AP::FlashPrecision, FM::Matmul<AP::FlashPrecision>>;
+impl<FM: AttentionMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM> {
+    type Attention<AP: AttentionPrecision> = DummyTileAttention<AP, FM::Matmul<AP>>;
 
     type Config = FM::Config;
 

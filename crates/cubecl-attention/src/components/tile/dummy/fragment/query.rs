@@ -2,21 +2,22 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::tile::dummy::{FlashMatmul, FlashPrecision};
+use crate::components::AttentionPrecision;
+use crate::components::tile::dummy::AttentionMatmul;
 
 #[derive(CubeType)]
-pub struct QueryFragment<FP: FlashPrecision, FM: FlashMatmul<FP>> {
-    pub fragment: FM::Query,
+pub struct QueryFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    pub fragment: AM::Query,
 }
 
 #[cube]
-impl<FP: FlashPrecision, FM: FlashMatmul<FP>> QueryFragment<FP, FM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryFragment<AP, AM> {
     pub fn new<E: Numeric>(
         tile: &StridedTile<E>,
-        #[comptime] config: FM::Config,
-    ) -> QueryFragment<FP, FM> {
-        QueryFragment::<FP, FM> {
-            fragment: FM::allocate_fill_query(tile, config),
+        #[comptime] config: AM::Config,
+    ) -> QueryFragment<AP, AM> {
+        QueryFragment::<AP, AM> {
+            fragment: AM::allocate_fill_query(tile, config),
         }
     }
 }

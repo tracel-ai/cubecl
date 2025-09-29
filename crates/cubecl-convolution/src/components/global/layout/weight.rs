@@ -119,16 +119,6 @@ impl Layout for WeightLayout {
         (self.shape_k, self.shape_n)
     }
 
-    #[allow(unreachable_code)]
-    fn to_source_shape(&self, _shape: Self::Coordinates) -> Self::SourceCoordinates {
-        panic!("weight layout cannot trivially transform an (m, k) shape to NHWC");
-        NhwcCoords {
-            batch: 0,
-            spatial: Sequence::new(),
-            channel: 0,
-        }
-    }
-
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (k, n) = pos;
         let check_k = comptime![self.config.check_row_bounds];
