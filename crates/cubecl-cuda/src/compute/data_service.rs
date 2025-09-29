@@ -497,8 +497,8 @@ impl DataTransferInfo {
     }
 
     fn execute_async(
-        src_data: DataTransferItem,
-        item: DataTransferItem,
+        item_src: DataTransferItem,
+        item_dest: DataTransferItem,
         mut bytes: Bytes,
         shape: Vec<usize>,
         strides: Vec<usize>,
@@ -507,28 +507,30 @@ impl DataTransferInfo {
         callback: SyncSender<()>,
     ) -> Result<(), IoError> {
         unsafe {
-            cudarc::driver::result::ctx::set_current(item.context).unwrap();
+            cudarc::driver::result::ctx::set_current(item_src.context).unwrap();
 
             write_to_cpu(
                 &shape,
                 &strides,
                 elem_size,
                 &mut bytes,
-                src_data.resource.ptr,
-                src_data.stream,
+                item_src.resource.ptr,
+                item_src.stream,
             )?;
 
-            let fence = Fence::new(src_data.stream);
+            let fence = Fence::new(item_src.stream);
 
-            fence.wait_async(item.stream);
+            cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
+
+            fence.wait_async(item_dest.stream);
 
             write_to_gpu(
                 &shape,
                 &strides,
                 elem_size,
                 &bytes,
-                item.resource.ptr,
-                item.stream,
+                item_dest.resource.ptr,
+                item_dest.stream,
             );
         };
 
