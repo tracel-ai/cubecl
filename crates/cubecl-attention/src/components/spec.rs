@@ -236,6 +236,9 @@ pub mod attention_types {
     pub type ACC<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Accumulator;
     pub type MSK<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Mask;
     pub type OG<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Out;
+
+    // TODO
+    pub type OS<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Out;
 }
 
 pub type Args<MS> = <MS as AttentionSpec>::Args;

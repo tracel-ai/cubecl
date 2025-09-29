@@ -3,10 +3,12 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    global::{read::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
+    global::{
+        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
+        single_stage::tma::SimpleTmaConfig,
+    },
     stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::tensor::layout::Coords2d;
 
 use crate::{
     components::{
@@ -31,12 +33,12 @@ where
             LhsStage = StridedStageFamily,
             RhsStage = StridedStageFamily,
             AccStage = Option<StridedStageFamily>,
-            WriteCoords = Coords2d,
+            OutStage = PartitionedStageFamily,
         >,
 {
     type Convolution<MP: MatmulPrecision> = SimpleTmaConvolution<
         MP,
-        SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout>,
+        SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout, WriteTiling>,
     >;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 

@@ -100,8 +100,6 @@ impl AttentionStageMemoryConfig {
             elements_in_tile_col: self.matmul_tiling_scheme.elements_in_tile_col(ident),
             tiles_in_stage_row: self.matmul_tiling_scheme.tiles_in_stage_row(ident),
             tiles_in_stage_col: self.matmul_tiling_scheme.tiles_in_stage_col(ident),
-            elements_in_stage_row: self.matmul_tiling_scheme.elements_in_stage_row(ident),
-            elements_in_stage_col: self.matmul_tiling_scheme.elements_in_stage_col(ident),
             stage_line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
             num_stages: 1,

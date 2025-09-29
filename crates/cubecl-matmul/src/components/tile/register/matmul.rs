@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::StageIdent;
 use crate::components::tile::{TileConfig, TileMatmul, register::reader::RegisterFragmentReader};
 use crate::components::tile::{
-    reader::Strided,
+    io::Strided,
     register::{
         config::{ProductType, RegisterConfig},
         reader::RegisterStageReader,
     },
 };
-use crate::components::tile::{reader::TileKind, tile_data::StridedTile};
+use crate::components::tile::{io::TileKind, tile_data::StridedTile};
+use crate::components::{StageIdent, tile::register::writer::RegisterStageWriter};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -21,21 +21,23 @@ pub struct RegisterMatmul<Acc: TileKind> {
 /// Doesn't impact performance much, but may increase kernel size too much when true (often ~6X).
 ///
 /// TODO: make it configurable
-static UNROLL: bool = false;
+pub(super) const UNROLL: bool = false;
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, Acc: TileKind> TileMatmul<L, R, A> for RegisterMatmul<Acc>
+impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
+    for RegisterMatmul<AccTile>
 where
-    RegisterStageReader<Acc>: RegisterFragmentReader<TileKind = Acc>,
+    RegisterStageReader<AccTile>: RegisterFragmentReader<TileKind = AccTile>,
 {
     type Config = RegisterConfig;
     type LhsFragment = Array<L>;
     type RhsFragment = Array<R>;
     type AccFragment = Array<A>;
 
-    type LhsStageReader = RegisterStageReader<Strided>;
-    type RhsStageReader = RegisterStageReader<Strided>;
-    type AccStageReader = RegisterStageReader<Acc>;
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = AccTile;
+    type OutTile = Strided;
 
     fn execute(
         lhs: &Self::LhsFragment,
@@ -62,44 +64,35 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::LhsStageReader::load_fragment(tile, lhs, StageIdent::Lhs, config)
+        RegisterStageReader::<Strided>::load_fragment(tile, lhs, StageIdent::Lhs, config)
     }
 
     fn load_rhs<E: Numeric>(
-        tile: StridedTile<E>,
+        tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::RhsStageReader::load_fragment(tile, rhs, StageIdent::Rhs, config)
+        RegisterStageReader::<Strided>::load_fragment(tile, rhs, StageIdent::Rhs, config)
     }
 
     fn load_acc<E: Numeric>(
-        tile: Acc::Tile<E>,
+        tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        Self::AccStageReader::load_fragment(tile, acc, StageIdent::Acc, config);
+        RegisterStageReader::<AccTile>::load_fragment(tile, acc, StageIdent::Acc, config);
     }
 
     fn write_results<E: Numeric>(
+        tile: &mut StridedTile<E, ReadWrite>,
         acc: &Self::AccFragment,
-        slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        let out_line_size = config.stage_line_size(StageIdent::Acc);
-        #[unroll(UNROLL)]
-        for i in 0..comptime!(config.tile_size().mn() / out_line_size) {
-            let mut line = Line::empty(out_line_size);
-            #[unroll(UNROLL)]
-            for j in 0..comptime!(out_line_size) {
-                line[j] = acc[i * out_line_size + j];
-            }
-            slice[i] = Line::cast_from(line);
-        }
+        RegisterStageWriter::store_fragment(tile, acc, config)
     }
 }
 

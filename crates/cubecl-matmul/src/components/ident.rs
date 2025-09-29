@@ -30,6 +30,7 @@ pub enum StageIdent {
     Lhs,
     Rhs,
     Acc,
+    Out,
 }
 
 impl From<MatmulIdent> for StageIdent {

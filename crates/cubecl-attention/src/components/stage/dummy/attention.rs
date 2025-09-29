@@ -1,48 +1,47 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::{GlobalWriter, PlaneWriter, memory::GlobalMemoryConfig},
+    global::{WriteEvent, WriteEventListener},
     stage::Stage,
-    tile::reader::Strided,
+    tile::io::Strided,
 };
-use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords2d;
 use std::marker::PhantomData;
 
 use crate::components::StageMask;
 use crate::components::attention_types::*;
-use crate::components::stage::dummy::{
-    Accumulators, DummyStageConfig, KeyValues, Queries, SoftmaxPartition,
-};
+use crate::components::global::dummy::QueryReader;
+use crate::components::stage::dummy::SoftmaxPartition;
+use crate::components::stage::dummy::StageState;
+use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
-use crate::components::{AttentionIdent, global::dummy::QueryReader};
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
-use crate::components::{stage::dummy::StageState, tile::RowWise};
 
-pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, TA: TileAttention<AP>> {
-    _phantom: PhantomData<(AP, SK, SV, TA)>,
+pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
+    _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
 }
 
 #[cube]
 impl<
     AP: AttentionPrecision,
-    SK: Stage<KS<AP>, TileKind = Strided>,
-    SV: Stage<VS<AP>, TileKind = Strided>,
+    SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
+    SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
+    SO: Stage<OG<AP>, ReadWrite, TileKind = Strided>,
     TA: TileAttention<AP>,
-> StageAttention<AP> for DummyStageAttention<AP, SK, SV, TA>
+> StageAttention<AP> for DummyStageAttention<AP, SK, SV, SO, TA>
 {
     type Config = DummyStageConfig<TA::Config>;
 
     type KeyStage = SK;
     type ValueStage = SV;
+    type OutStage = SO;
 
     type State = StageState<AP>;
     type QueryPartition = Queries<AP, TA, Self::Config>;
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
     type AccumulatorPartition = Accumulators<AP, TA, Self::Config>;
-    type Writer = PlaneWriter<OG<AP>>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -69,11 +68,10 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_smem_slice =
-                    <SK as Stage<KS<AP>>>::read_tile(key_reader, (hd, kv).runtime());
+                let key_tile = SK::tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
-                    &key_smem_slice,
+                    &key_tile,
                     key_value_partition.get_key_at_mut(hd, kv, config),
                     config.tile_config(),
                 );
@@ -122,11 +120,10 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_smem_slice =
-                    <SV as Stage<VS<AP>>>::read_tile(value_reader, (kv, vd).runtime());
+                let value_tile = SV::tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
-                    &value_smem_slice,
+                    &value_tile,
                     key_value_partition.get_value_at_mut(kv, vd, config),
                     config.tile_config(),
                 );
@@ -197,34 +194,16 @@ impl<
         StageState::<AP>::init::<Self::Config>(config)
     }
 
-    fn init_writer(
-        tensor: View<Line<OG<AP>>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-    ) -> Self::Writer {
-        PlaneWriter::new(tensor, config)
-    }
-
-    fn write<G: GlobalAttentionConfig>(
+    fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
         acc: &Self::AccumulatorPartition,
-        writer: &mut Self::Writer,
+        stage: &mut Self::OutStage,
+        writer: &mut W,
         #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
     ) {
         let p = stage_config.tiling_scheme().partition_size;
-
-        let out_smem_num_elements = stage_config.tiling_scheme().elements_in_partition_seq_q()
-            * stage_config.tiling_scheme().elements_in_partition_val_dim();
-
-        let mut out_smem = SharedMemory::<OG<AP>>::new_lined(
-            comptime!(out_smem_num_elements * stage_config.num_planes()),
-            1u32,
-        );
-
-        let start = UNIT_POS_Y * out_smem_num_elements;
-        let end = start + out_smem_num_elements;
-        let mut smem_slice = out_smem.slice_mut(start, end);
-
         let mut q = comptime!(0u32);
+
+        W::on_event(writer, WriteEvent::new_Begin());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
@@ -234,25 +213,24 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
+                let tile_pos = (q + UNIT_POS_Y * p.seq_q, kv.runtime());
+                let mut tile = Self::OutStage::tile(stage, tile_pos);
+
                 TA::write_results(
+                    &mut tile,
                     Self::AccumulatorPartition::get_at(acc, q, kv, stage_config),
-                    &mut smem_slice,
                     stage_config.tile_config(),
                 );
 
-                Self::Writer::write(
-                    writer,
-                    smem_slice.to_slice(),
-                    (q + UNIT_POS_Y * p.seq_q, kv.runtime()),
-                    stage_config.plane_dim(),
-                    global_config.global_memory_config(AttentionIdent::Out),
-                );
+                W::on_event(writer, WriteEvent::new_TileStored(tile_pos));
 
                 comptime![kv += 1];
             }
 
             comptime![q += 1];
         }
+
+        W::on_event(writer, WriteEvent::new_Finish());
     }
 
     fn init_partitions(

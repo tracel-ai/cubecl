@@ -3,8 +3,8 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StridedStage, StridedTilingLayout};
-use crate::components::{InputPrecision, TilingScheme};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{MatrixPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -48,9 +48,9 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
 #[cube]
 impl SyncFullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<IP: InputPrecision> = SyncFullStridedJob;
+    type Job<IP: MatrixPrecision> = SyncFullStridedJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
@@ -89,7 +89,7 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

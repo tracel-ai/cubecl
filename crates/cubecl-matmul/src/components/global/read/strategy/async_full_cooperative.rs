@@ -1,5 +1,5 @@
 use crate::components::{
-    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
     global::{
         CopyMechanism, GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -28,9 +28,9 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
 #[cube]
 impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<IP: InputPrecision> = AsyncFullCooperativeJob;
+    type Job<IP: MatrixPrecision> = AsyncFullCooperativeJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCooperativeJob {
@@ -58,7 +58,7 @@ pub struct AsyncFullCooperativeJob {
 }
 
 #[cube]
-impl<IP: InputPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
+impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,

@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
-    InputPrecision, MatmulIdent, StageIdent, stage::StageMemoryConfig,
+    MatmulIdent, MatrixPrecision, StageIdent, stage::StageMemoryConfig,
 };
 use cubecl_std::FastDivmod;
 
@@ -16,10 +16,10 @@ use cubecl_matmul::components::{
 use crate::kernels::layered::selector::RuntimeArgs;
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightStage<IP> = StridedStage<<IP as InputPrecision>::Stage, TmaWeightTiling>;
+pub type TmaWeightStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
-pub struct TmaWeightGlobalReader<IP: InputPrecision, S: StageConfig> {
+pub struct TmaWeightGlobalReader<IP: MatrixPrecision, S: StageConfig> {
     pub tensor_view: MappedTensorReader<IP::Global>,
     pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
     padded_channels: FastDivmod,
@@ -28,7 +28,7 @@ pub struct TmaWeightGlobalReader<IP: InputPrecision, S: StageConfig> {
 }
 
 #[cube]
-impl<IP: InputPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
+impl<IP: MatrixPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
     pub fn new(
         tensor: TensorMap<IP::Global>,
         x: u32,

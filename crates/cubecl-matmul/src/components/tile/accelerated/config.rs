@@ -32,6 +32,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
+            StageIdent::Out => MatrixLayout::RowMajor,
         }
     }
 
@@ -40,6 +41,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -48,6 +50,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 

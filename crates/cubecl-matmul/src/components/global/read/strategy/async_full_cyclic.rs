@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InputPrecision, InvalidConfigError, MatmulIdent, MatrixLayout,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
     global::{
         CopyMechanism, GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
@@ -41,9 +41,9 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 #[cube]
 impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: InputPrecision> = AsyncFullCyclicJob;
+    type Job<IP: MatrixPrecision> = AsyncFullCyclicJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> AsyncFullCyclicJob {
@@ -108,7 +108,7 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
     for AsyncFullCyclicJob
 {
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(

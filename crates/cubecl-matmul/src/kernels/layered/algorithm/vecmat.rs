@@ -9,6 +9,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
+            PlaneWriterFamily,
             multi_stage::double_buffering::DoubleBufferingMatmulFamily,
             read::{
                 sync_full_cyclic::SyncFullCyclicLoading,
@@ -20,7 +21,7 @@ use crate::{
             ColMajorTilingOrder, FilledStageFamily, PartitionBuffering, PlaneMatmulFamily,
             RowMajorTilingOrder, StridedStageFamily,
         },
-        tile::{plane_vec_mat_inner_product::PlaneVecMatInnerProduct, reader::Filled},
+        tile::{io::Filled, plane_vec_mat_inner_product::PlaneVecMatInnerProduct},
     },
     kernels::layered::Algorithm,
 };
@@ -40,6 +41,7 @@ impl Algorithm for SimpleVecMatAlgorithm {
         Self::StageMatmul,
         SyncFullCyclicLoading<RowMajorTilingOrder>,
         SyncFullCyclicLoading<ColMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -76,6 +78,7 @@ impl Algorithm for DoubleVecMatAlgorithm {
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<ColMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

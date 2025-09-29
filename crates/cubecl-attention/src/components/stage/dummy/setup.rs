@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
-use cubecl_core::client::ComputeClient;
+use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
-    GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::reader::Strided,
+    GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
 };
 
 use crate::components::{
@@ -16,22 +16,33 @@ use crate::components::{
     tile::{AttentionTilingLayout, TileAttentionFamily},
 };
 
-pub struct DummyStageAttentionFamily<TA: TileAttentionFamily, RF: StageFamily> {
-    _phantom: PhantomData<(TA, RF)>,
+pub struct DummyStageAttentionFamily<
+    TA: TileAttentionFamily,
+    SK: StageFamily,
+    SV: StageFamily,
+    SO: StageFamily<ReadWrite>,
+> {
+    _phantom: PhantomData<(TA, SK, SV, SO)>,
 }
 
-impl<TA: TileAttentionFamily, RF: StageFamily<TileKind = Strided>> StageAttentionFamily
-    for DummyStageAttentionFamily<TA, RF>
+impl<
+    TA: TileAttentionFamily,
+    SK: StageFamily<TileKind = Strided>,
+    SV: StageFamily<TileKind = Strided>,
+    SO: StageFamily<ReadWrite, TileKind = Strided>,
+> StageAttentionFamily for DummyStageAttentionFamily<TA, SK, SV, SO>
 {
     type Attention<AP: AttentionPrecision> = DummyStageAttention<
         AP,
-        RF::Stage<KS<AP>, AttentionTilingLayout>,
-        RF::Stage<VS<AP>, AttentionTilingLayout>,
+        SK::Stage<KS<AP>, AttentionTilingLayout>,
+        SV::Stage<VS<AP>, AttentionTilingLayout>,
+        SO::Stage<OS<AP>, AttentionTilingLayout>,
         TA::Attention<AP>,
     >;
 
-    type KeyStage = RF;
-    type ValueStage = RF;
+    type KeyStage = SK;
+    type ValueStage = SV;
+    type OutStage = SO;
 
     type Config = DummyStageConfig<TA::Config>;
 

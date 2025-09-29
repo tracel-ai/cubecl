@@ -1,12 +1,13 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::StridedStage;
+use cubecl_matmul::components::{global::PartitionedStage, stage::StridedStage};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use std::marker::PhantomData;
 
 use crate::components::GlobalMask;
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
+use crate::components::global::dummy::writer::DummyWriter;
 use crate::components::global::{
     AttentionGlobalLayout,
     dummy::{DummyKeyReader, DummyValueReader},
@@ -29,6 +30,7 @@ impl<
             AP,
             KeyStage = StridedStage<KS<AP>, AttentionTilingLayout>,
             ValueStage = StridedStage<VS<AP>, AttentionTilingLayout>,
+            OutStage = PartitionedStage<OS<AP>>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
@@ -36,7 +38,7 @@ impl<
     type KeyReader = DummyKeyReader<AP, Self::Config>;
     type ValueReader = DummyValueReader<AP, Self::Config>;
 
-    type Writer = SA::Writer;
+    type Writer = DummyWriter<(OG<AP>, OS<AP>)>;
 
     type Config = DummyGlobalConfig<SA::Config>;
 
@@ -86,7 +88,14 @@ impl<
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
 
-        SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
+        let mut out_stage = writer.stage();
+
+        SA::write::<Self::Writer, Self::Config>(
+            &accumulator,
+            &mut out_stage,
+            &mut writer,
+            config.stage_config(),
+        )
     }
 
     fn init_query_reader(
@@ -134,7 +143,12 @@ impl<
         let conf = config.global_memory_config(AttentionIdent::Out);
         let layout = AttentionGlobalLayout::new(&out, 0, conf);
         let out = out.view_mut(layout);
-        SA::init_writer(out.slice_mut_unchecked((q_offset, 0), out.shape()), conf)
+
+        Self::Writer::new::<SA::Config>(
+            out.slice_mut_unchecked((q_offset, 0), out.shape()),
+            conf,
+            config.stage_config(),
+        )
     }
 }
 

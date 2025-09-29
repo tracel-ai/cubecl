@@ -1,4 +1,3 @@
-use crate::components::global::GlobalConfig;
 use crate::components::global::LoadingSides;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
@@ -6,6 +5,7 @@ use crate::components::global::SpecializerKind;
 use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::read::StageBuffer;
+use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::stage::PartitionScheduler;
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
@@ -141,7 +141,8 @@ pub fn execute_current_and_read_next<
 /// If there is specialization, will add a runtime if to determine the role of the plane
 pub fn execute_last_and_write_results<
     MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
+    GW: GlobalWriter<MP::Acc>,
+    SMM: stage::StageMatmul<MP, OutStage = GW::Stage>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -149,11 +150,13 @@ pub fn execute_last_and_write_results<
     lhs_tile: &mut SMM::LhsTile,
     rhs_tile: &mut SMM::RhsTile,
     acc: &mut SMM::Accumulators,
-    out_writer: &mut SMM::GlobalWriter,
+    out_writer: &mut GW,
     specializer: &Specializer,
     partition_scheduler: &PartitionScheduler,
     #[comptime] config: G,
 ) {
+    let mut out_stage = GW::stage(out_writer);
+
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
             main_flow_loading_side: _,
@@ -172,8 +175,9 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<G>(
+                SMM::write_results::<GW, G>(
                     acc,
+                    &mut out_stage,
                     out_writer,
                     partition_scheduler,
                     config.stage_config(),
@@ -192,8 +196,9 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<G>(
+            SMM::write_results::<GW, G>(
                 acc,
+                &mut out_stage,
                 out_writer,
                 partition_scheduler,
                 config.stage_config(),

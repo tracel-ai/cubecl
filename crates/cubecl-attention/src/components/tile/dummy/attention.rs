@@ -41,11 +41,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     }
 
     fn write_results(
+        tile: &mut StridedTile<OS<AP>, ReadWrite>,
         acc: &Self::AccumulatorTile,
-        slice: &mut SliceMut<Line<OG<AP>>>,
         #[comptime] tile_config: Self::Config,
     ) {
-        AM::write_results(&acc.fragment, slice, tile_config)
+        AM::write_results(&acc.fragment, &mut tile.slice, tile_config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile {

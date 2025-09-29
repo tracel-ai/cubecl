@@ -42,6 +42,7 @@ impl TileConfig for ScoreConfig {
             StageIdent::Lhs => self.query_stage_line_size,
             StageIdent::Rhs => self.key_value_stage_line_size,
             StageIdent::Acc => todo!(),
+            StageIdent::Out => todo!(),
         }
     }
 
@@ -75,6 +76,7 @@ impl TileConfig for ValueConfig {
             StageIdent::Lhs => todo!(),
             StageIdent::Rhs => self.key_value_stage_line_size,
             StageIdent::Acc => todo!(),
+            StageIdent::Out => todo!(),
         }
     }
 
