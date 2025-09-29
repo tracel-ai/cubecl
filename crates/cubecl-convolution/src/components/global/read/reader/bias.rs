@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use cubecl_matmul::components::{
-    InputPrecision, MatmulIdent, StageIdent,
+    MatmulIdent, MatrixPrecision, StageIdent,
     global::GlobalConfig,
     stage::{StageMemoryConfig, StridedStage},
 };
@@ -15,7 +15,7 @@ use crate::components::stage::reader::BiasTilingLayout;
 
 /// Special reader to broadcast the 1D bias to the 2D accumulator matrix
 #[derive(CubeType)]
-pub enum BiasGlobalReader<IP: InputPrecision> {
+pub enum BiasGlobalReader<IP: MatrixPrecision> {
     Some {
         view: View<Line<IP::Global>, Coords1d>,
         stage: StridedStage<IP::Stage, BiasTilingLayout>,
@@ -27,7 +27,7 @@ pub enum BiasGlobalReader<IP: InputPrecision> {
 pub type BiasStage<E> = CubeOption<StridedStage<E, BiasTilingLayout>>;
 
 #[cube]
-impl<IP: InputPrecision> BiasGlobalReader<IP> {
+impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
     /// Reads all bias tiles into the stage. Unlike normal readers, bias only reads a 1D vector along
     /// the `n` dimension.
     pub fn load_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
@@ -61,7 +61,7 @@ impl<IP: InputPrecision> BiasGlobalReader<IP> {
 }
 
 #[cube]
-impl<IP: InputPrecision> BiasGlobalReader<IP> {
+impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
     /// Create a new bias reader from the bias tensor and a global offset `n_offset`.
     pub fn new(
         tensor: CubeOption<VirtualTensor<IP::Global>>,
@@ -89,7 +89,7 @@ fn init_stage<ES: Numeric>(
     let line_size = config.stage_line_size;
 
     let smem = SharedMemory::new_lined(
-        comptime!(config.elements_in_stage_col / line_size),
+        comptime!(config.elements_in_stage_col() / line_size),
         line_size,
     );
 

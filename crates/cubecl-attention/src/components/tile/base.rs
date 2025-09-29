@@ -60,8 +60,8 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     );
 
     fn write_results(
+        tile: &mut StridedTile<AP::EO, ReadWrite>,
         acc: &Self::Accumulator,
-        slice: &mut SliceMut<Line<AP::EO>>,
         #[comptime] tile_config: Self::Config,
     );
 

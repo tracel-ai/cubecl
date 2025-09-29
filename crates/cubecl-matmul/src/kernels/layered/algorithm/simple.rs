@@ -11,6 +11,7 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
+            PlaneWriterFamily,
             read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
@@ -20,7 +21,7 @@ use crate::{
         },
         tile::{
             TileMatmulFamily,
-            reader::{Filled, Strided},
+            io::{Filled, Strided},
         },
     },
     kernels::layered::{
@@ -48,7 +49,8 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled>,
+    TMM:
+        TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
@@ -60,7 +62,7 @@ where
         StridedStageFamily,
         FilledStageFamily,
     >;
-    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL, PlaneWriterFamily>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 

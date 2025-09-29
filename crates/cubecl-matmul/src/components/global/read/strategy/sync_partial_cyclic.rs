@@ -5,7 +5,7 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
-use crate::components::{InputPrecision, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -65,9 +65,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 #[cube]
 impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
-    type Job<IP: InputPrecision> = SyncPartialCyclicJob;
+    type Job<IP: MatrixPrecision> = SyncPartialCyclicJob;
 
-    fn new_job<IP: InputPrecision, G: GlobalConfig>(
+    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -130,7 +130,7 @@ pub struct SyncPartialCyclicJob {
 }
 
 #[cube]
-impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
     for SyncPartialCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -158,7 +158,7 @@ impl<IP: InputPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<IP: InputPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<IP::Global>,

@@ -1,13 +1,13 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
+use crate::components::stage::StageConfig;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
 use crate::components::tile::TileMatmul;
 use crate::components::{AccS, stage::StageEvent};
-use crate::components::{InputPrecision, stage::Stage};
 use crate::components::{LhsS, MatmulPrecision, RhsS};
-use crate::components::{stage::StageConfig, tile::reader::StageKind};
+use crate::components::{MatrixPrecision, stage::Stage};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -16,38 +16,39 @@ use cubecl_core as cubecl;
 pub struct PartitionMatmul<
     MP: MatmulPrecision,
     TMM: TileMatmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TMM::LhsStageReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TMM::RhsStageReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TMM::AccStageReader>>,
+    StageLhs: Stage<LhsS<MP>, ReadOnly, TileKind = TMM::LhsTile>,
+    StageRhs: Stage<RhsS<MP>, ReadOnly, TileKind = TMM::RhsTile>,
+    StageAcc: Stage<AccS<MP>, ReadOnly, TileKind = TMM::AccTile>,
     S: StageConfig,
 > {
-    _phantom: PhantomData<(MP, TMM, RL, RR, RA, S)>,
+    _phantom: PhantomData<(MP, TMM, StageLhs, StageRhs, StageAcc, S)>,
 }
 
 #[cube]
-impl<MP, TM, RL, RR, RA, S> PartitionMatmul<MP, TM, RL, RR, RA, S>
+impl<MP, TM, StageLhs, StageRhs, StageAcc, S>
+    PartitionMatmul<MP, TM, StageLhs, StageRhs, StageAcc, S>
 where
     MP: MatmulPrecision,
     TM: TileMatmul<
-            <MP::Lhs as InputPrecision>::Register,
-            <MP::Rhs as InputPrecision>::Register,
-            <MP::Acc as InputPrecision>::Register,
+            <MP::Lhs as MatrixPrecision>::Register,
+            <MP::Rhs as MatrixPrecision>::Register,
+            <MP::Acc as MatrixPrecision>::Register,
         >,
-    RL: Stage<LhsS<MP>, TileKind = StageKind<TM::LhsStageReader>>,
-    RR: Stage<RhsS<MP>, TileKind = StageKind<TM::RhsStageReader>>,
-    RA: Stage<AccS<MP>, TileKind = StageKind<TM::AccStageReader>>,
+    StageLhs: Stage<LhsS<MP>, ReadOnly, TileKind = TM::LhsTile>,
+    StageRhs: Stage<RhsS<MP>, ReadOnly, TileKind = TM::RhsTile>,
+    StageAcc: Stage<AccS<MP>, ReadOnly, TileKind = TM::AccTile>,
     S: StageConfig<TileConfig = TM::Config>,
 {
     #[allow(clippy::too_many_arguments)]
     /// Execute all Tile Matmuls inside the partition
     /// Can be with single or double buffering
     pub fn execute_with_listener<SEL: StageEventListener<S>>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragments: &mut RhsTile<TM::RhsFragment>,
         acc: &mut Accumulators<MP, TM, S>,
@@ -57,8 +58,8 @@ where
     ) {
         match rhs_fragments {
             RhsTile::Single(rhs_fragment) => Self::execute_single_buffer::<SEL>(
-                lhs_reader,
-                rhs_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_fragment,
                 rhs_fragment,
                 acc,
@@ -67,8 +68,8 @@ where
                 partition_iterator,
             ),
             RhsTile::Double(rhs_fragments) => Self::execute_double_buffer::<SEL>(
-                lhs_reader,
-                rhs_reader,
+                lhs_stage,
+                rhs_stage,
                 lhs_fragment,
                 rhs_fragments,
                 acc,
@@ -116,9 +117,13 @@ where
         Accumulators::<MP, TM, S>::new(config)
     }
 
-    /// Fill accumulators through an AccumulatorReader
-    pub fn load_accumulator(reader: &RA, acc: &mut Accumulators<MP, TM, S>, #[comptime] config: S) {
-        acc.load::<RA>(reader, config);
+    /// Fill accumulators through a stage
+    pub fn load_accumulator(
+        stage: &StageAcc,
+        acc: &mut Accumulators<MP, TM, S>,
+        #[comptime] config: S,
+    ) {
+        acc.load::<StageAcc>(stage, config);
     }
 
     /// Execute partition matmul with a single buffer for rhs.
@@ -126,8 +131,8 @@ where
     /// This function can call functions at various events through the listener.
     #[allow(clippy::too_many_arguments)]
     fn execute_single_buffer<SEL: StageEventListener<S>>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragment: &mut TM::RhsFragment,
         acc: &mut Accumulators<MP, TM, S>,
@@ -160,9 +165,9 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = RL::read_tile(lhs_reader, (m_load_iter, k_load_iter));
+                let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
                 TM::load_lhs(
-                    tile_lhs,
+                    &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
                 );
@@ -186,8 +191,8 @@ where
             for _ in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
-                let rhs_tile_next = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
-                TM::load_rhs(rhs_tile_next, rhs_fragment, config.tile_config());
+                let rhs_tile_next = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
+                TM::load_rhs(&rhs_tile_next, rhs_fragment, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime![StageEvent::RhsLoaded {
@@ -241,8 +246,8 @@ where
     ///
     /// This function can call functions at various events through the listener.
     fn execute_double_buffer<SEL: StageEventListener<S>>(
-        lhs_reader: &RL,
-        rhs_reader: &RR,
+        lhs_stage: &StageLhs,
+        rhs_stage: &StageRhs,
         lhs_fragment: &mut Sequence<TM::LhsFragment>,
         rhs_fragments: &mut (TM::RhsFragment, TM::RhsFragment),
         acc: &mut Accumulators<MP, TM, S>,
@@ -276,9 +281,9 @@ where
             for _ in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
-                let tile_lhs = RL::read_tile(lhs_reader, (m_load_iter, k_load_iter));
+                let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
                 TM::load_lhs(
-                    tile_lhs,
+                    &tile_lhs,
                     lhs_fragment.index_mut(m_iter),
                     config.tile_config(),
                 );
@@ -298,8 +303,8 @@ where
             let mut n_iter = comptime![0u32];
             let n_load_iter = partition_scheduler.map_n(n_iter);
 
-            let rhs_tile_first = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
-            TM::load_rhs(rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
+            let rhs_tile_first = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
+            TM::load_rhs(&rhs_tile_first, &mut rhs_fragments.0, config.tile_config());
             SEL::on_event(
                 &mut listener,
                 comptime!(StageEvent::RhsLoaded {
@@ -320,8 +325,8 @@ where
                 };
 
                 let n_load_iter = partition_scheduler.map_n(comptime![n_iter + 1]);
-                let rhs_tile_next = RR::read_tile(rhs_reader, (k_load_iter, n_load_iter));
-                TM::load_rhs(rhs_tile_next, next, config.tile_config());
+                let rhs_tile_next = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
+                TM::load_rhs(&rhs_tile_next, next, config.tile_config());
                 SEL::on_event(
                     &mut listener,
                     comptime!(StageEvent::RhsLoaded {
