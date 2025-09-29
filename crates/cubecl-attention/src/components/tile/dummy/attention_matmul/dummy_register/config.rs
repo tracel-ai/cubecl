@@ -1,4 +1,3 @@
-use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileConfig};
 use std::fmt::Debug;
 use std::hash::Hash;
 
