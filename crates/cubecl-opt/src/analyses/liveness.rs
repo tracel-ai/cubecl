@@ -105,6 +105,7 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
     BlockSets { generated, kill }
 }
 
+/// Shared memory liveness analysis and allocation
 pub mod shared {
     use cubecl_ir::{Operation, Type, Variable, VariableKind};
 
@@ -112,6 +113,8 @@ pub mod shared {
 
     use super::*;
 
+    /// A shared memory instance, all the information contained in the `VariableKind`, but with
+    /// a non-optional `align`.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct SharedMemory {
         pub id: Id,
@@ -121,24 +124,36 @@ pub mod shared {
     }
 
     impl SharedMemory {
+        /// The byte size of this shared memory
         pub fn size(&self) -> u32 {
             self.length * self.ty.size() as u32
         }
     }
 
+    /// A specific allocation of shared memory at some `offset`
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct SmemAllocation {
+        /// The shared memory being allocated
         pub smem: SharedMemory,
+        /// The offset in the shared memory buffer
         pub offset: u32,
     }
 
     /// Shared liveness works the other way around from normal liveness, since shared memory lives
     /// forever by default. So any use (read or write) inserts it as live, while only `free` changes
     /// the state to dead.
+    ///
+    /// It also handles allocation of slices to each shared memory object, using the analyzed
+    /// liveness. `allocations` contains a specific slice allocation for each shared memory, while
+    /// ensuring no shared memories that exist at the same time can overlap.
     #[derive(Default, Clone)]
     pub struct SharedLiveness {
         live_vars: HashMap<NodeIndex, HashSet<Id>>,
+        /// Map of all shared memories by their ID. Populated during the first pass with all
+        /// accessed shared memories.
         pub shared_memories: HashMap<Id, SharedMemory>,
+        /// Map of allocations for each shared memory by its ID. Populated after the analysis, and
+        /// should contain all memories from `shared_memories`.
         pub allocations: HashMap<Id, SmemAllocation>,
     }
 
@@ -166,16 +181,16 @@ pub mod shared {
             }
         }
 
-        pub fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
+        fn at_block(&self, block: NodeIndex) -> &HashSet<Id> {
             &self.live_vars[&block]
         }
 
-        pub fn is_live(&self, node: NodeIndex, var: Id) -> bool {
+        fn is_live(&self, node: NodeIndex, var: Id) -> bool {
             self.at_block(node).contains(&var)
         }
 
         /// Do a conservative block level liveness analysis
-        pub fn analyze_liveness(&mut self, opt: &mut Optimizer) {
+        fn analyze_liveness(&mut self, opt: &mut Optimizer) {
             let mut state = State {
                 worklist: VecDeque::from(opt.analysis::<PostOrder>().reverse()),
                 block_sets: HashMap::new(),
@@ -187,7 +202,7 @@ pub mod shared {
 
         /// Extend divergent liveness to the preceding uniform block. Shared memory is always
         /// uniformly declared, so it must be allocated before the branch.
-        pub fn uniformize_liveness(&mut self, opt: &mut Optimizer) {
+        fn uniformize_liveness(&mut self, opt: &mut Optimizer) {
             let mut state = State {
                 worklist: VecDeque::from(opt.analysis::<PostOrder>().forward()),
                 block_sets: HashMap::new(),
@@ -197,7 +212,9 @@ pub mod shared {
             }
         }
 
-        pub fn allocate_slices(&mut self, opt: &mut Optimizer) {
+        /// Allocate slices while ensuring no concurrent shared memory slices overlap.
+        /// See also [`allocate_slice`]
+        fn allocate_slices(&mut self, opt: &mut Optimizer) {
             for block in opt.node_ids() {
                 for live_smem in self.at_block(block).clone() {
                     if !self.allocations.contains_key(&live_smem) {
@@ -210,6 +227,14 @@ pub mod shared {
             }
         }
 
+        /// Finds a valid offset for a specific slice, taking into account ranges that are already
+        /// in use.
+        ///
+        /// Essentially the same as the global memory pool, looking for a free slice first, then
+        /// extending the pool if there isn't one. Note that this linear algorithm isn't optimal
+        /// for offline allocations where we know all allocations beforehand, but should be good
+        /// enough for our current purposes. It may produce larger-than-required allocations in
+        /// some cases. Optimal allocation would require a far more complex algorithm.
         fn allocate_slice(&mut self, block: NodeIndex, size: u32, align: u32) -> u32 {
             let live_slices = self.live_slices(block);
             if live_slices.is_empty() {
@@ -229,6 +254,7 @@ pub mod shared {
             (last_slice.offset + last_slice.smem.size()).next_multiple_of(align)
         }
 
+        /// List of allocations that are currently live
         fn live_slices(&mut self, block: NodeIndex) -> Vec<SmemAllocation> {
             let mut live_slices = self
                 .allocations
@@ -283,13 +309,15 @@ pub mod shared {
             block_sets.or_insert_with(|| self.calculate_block_sets(opt, block))
         }
 
+        /// Any use makes a shared memory live (`generated`), while `free` kills it (`kill`).
+        /// Also collects all shared memories into a map.
         fn calculate_block_sets(&mut self, opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
             let mut generated = HashSet::new();
             let mut kill = HashSet::new();
 
             let ops = opt.program[block].ops.clone();
 
-            for op in ops.borrow_mut().values_mut().rev() {
+            for op in ops.borrow_mut().values_mut() {
                 opt.visit_out(&mut op.out, |_, var| {
                     if let Some(smem) = shared_memory(var) {
                         generated.insert(smem.id);
