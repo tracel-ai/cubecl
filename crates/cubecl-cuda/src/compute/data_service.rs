@@ -385,6 +385,7 @@ impl DataTransferInfo {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_serialized(
         item_src: DataTransferItem,
         item_dest: DataTransferItem,
