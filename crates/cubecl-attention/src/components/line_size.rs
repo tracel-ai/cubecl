@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use cubecl_core::{LineSizeError, Runtime, ir::StorageType, tensor_line_size_parallel};
 
-use crate::components::{AttentionSetupError, FlashIdent};
+use crate::components::{AttentionIdent, AttentionSetupError};
 
 #[derive(Debug)]
 /// Line size used for each tensor in global memory accesses.
@@ -48,16 +48,21 @@ impl AvailableLineSizes {
     }
 
     /// Filter available line sizes considering tensor shapes and strides for ident
-    pub fn filter_with_tensor(self, ident: FlashIdent, strides: &[usize], shape: &[usize]) -> Self {
+    pub fn filter_with_tensor(
+        self,
+        ident: AttentionIdent,
+        strides: &[usize],
+        shape: &[usize],
+    ) -> Self {
         let rank = strides.len();
 
         let iter = match ident {
-            FlashIdent::Query => self.query.iter().copied(),
-            FlashIdent::Key => self.key.iter().copied(),
-            FlashIdent::Value => self.value.iter().copied(),
-            FlashIdent::Mask => self.mask.iter().copied(),
-            FlashIdent::Out => self.out.iter().copied(),
-            FlashIdent::ScoreProb => unreachable!("Not a materizalied tensor"),
+            AttentionIdent::Query => self.query.iter().copied(),
+            AttentionIdent::Key => self.key.iter().copied(),
+            AttentionIdent::Value => self.value.iter().copied(),
+            AttentionIdent::Mask => self.mask.iter().copied(),
+            AttentionIdent::Out => self.out.iter().copied(),
+            AttentionIdent::Softmax => unreachable!("Not a materizalied tensor"),
         };
 
         let target = tensor_line_size_parallel(iter, shape, strides, rank - 1);
@@ -66,27 +71,27 @@ impl AvailableLineSizes {
     }
 
     /// Filter available line sizes for ident
-    pub fn filter<F>(mut self, mut pred: F, ident: FlashIdent) -> Self
+    pub fn filter<F>(mut self, mut pred: F, ident: AttentionIdent) -> Self
     where
         F: FnMut(&u8) -> bool,
     {
         match ident {
-            FlashIdent::Query => {
+            AttentionIdent::Query => {
                 self.query = self.query.into_iter().filter(&mut pred).collect();
             }
-            FlashIdent::Key => {
+            AttentionIdent::Key => {
                 self.key = self.key.into_iter().filter(&mut pred).collect();
             }
-            FlashIdent::Value => {
+            AttentionIdent::Value => {
                 self.value = self.value.into_iter().filter(&mut pred).collect();
             }
-            FlashIdent::Mask => {
+            AttentionIdent::Mask => {
                 self.mask = self.mask.into_iter().filter(&mut pred).collect();
             }
-            FlashIdent::Out => {
+            AttentionIdent::Out => {
                 self.out = self.out.into_iter().filter(&mut pred).collect();
             }
-            FlashIdent::ScoreProb => unreachable!("Not a materizalied tensor"),
+            AttentionIdent::Softmax => unreachable!("Not a materizalied tensor"),
         }
         self
     }

@@ -6,13 +6,14 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::StageMask;
-use crate::components::stage::dummy::{AttentionStageMemoryConfig, StageState};
+use crate::components::attention_types::*;
+use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::{AttentionIdent, StageMask};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     global::GlobalAttentionConfig,
-    tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
+    tile::{AttentionTilingLayout, dummy::AttentionMatmulConfig},
 };
 use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
 
@@ -22,9 +23,9 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyStage = <Self::KeyStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
-            ValueStage = <Self::ValueStage as StageFamily>::Stage<AP::ES, AttentionTilingLayout>,
-            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<AP::EO, WriteTiling>,
+            KeyStage = <Self::KeyStage as StageFamily>::Stage<KS<AP>, AttentionTilingLayout>,
+            ValueStage = <Self::ValueStage as StageFamily>::Stage<VS<AP>, AttentionTilingLayout>,
+            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<OS<AP>, WriteTiling>,
         >;
 
     /// The configuration type associated with this Attention family.
@@ -63,57 +64,64 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     type State: CubeType;
 
-    type Query: CubeType;
-    type KeyValue: CubeType;
-    type Score: CubeType;
-    type Accumulator: CubeType;
+    type QueryPartition: CubeType;
+    type KeyValuePartition: CubeType;
+    type SoftmaxPartition: CubeType;
+    type AccumulatorPartition: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> StageState<AP>;
+    fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
     fn execute(
         key_reader: &Self::KeyStage,
         value_reader: &Self::ValueStage,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score: &mut Self::Score,
+        query: &Self::QueryPartition,
+        key_value: &mut Self::KeyValuePartition,
+        score: &mut Self::SoftmaxPartition,
         mask: StageMask,
-        accumulator: &mut Self::Accumulator,
-        prev_state: &mut StageState<AP>,
+        accumulator: &mut Self::AccumulatorPartition,
+        prev_state: &mut Self::State,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
-        acc: &mut Self::Accumulator,
-        state: StageState<AP>,
+        acc: &mut Self::AccumulatorPartition,
+        state: Self::State,
         #[comptime] config: Self::Config,
     );
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
+        acc: &Self::AccumulatorPartition,
         stage: &mut Self::OutStage,
         writer: &mut W,
         #[comptime] tile_config: Self::Config,
     );
 
-    fn init_fragments(
+    fn init_partitions(
         query_loader: QueryReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
+    ) -> (
+        Self::QueryPartition,
+        Self::KeyValuePartition,
+        Self::SoftmaxPartition,
+        Self::AccumulatorPartition,
+    );
 }
 
 /// Configuration for the Tile Attention level
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FlashMatmulConfig: FlashMatmulConfig;
+    type AttentionMatmulConfig: AttentionMatmulConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
-    fn tile_config(&self) -> Self::FlashMatmulConfig;
+    fn tile_config(&self) -> Self::AttentionMatmulConfig;
     fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
     fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;
+
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 }

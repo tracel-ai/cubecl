@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
 };
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, FlashIdent, global::GlobalAttentionConfig,
+    AttentionIdent, AttentionSetupError, AttentionTilingScheme, global::GlobalAttentionConfig,
     stage::StageAttentionConfig,
 };
 
@@ -41,7 +41,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
         self.stage_config.plane_dim()
     }
 
-    fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig {
+    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig {
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         let elements_in_tile_row = tiling_scheme.tile_size.num_rows(ident);

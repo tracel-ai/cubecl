@@ -3,37 +3,31 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::attention_types::*;
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionTileSize, AvailableLineSizes, FlashIdent, InvalidConfigError,
+    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
 };
 use std::fmt::Debug;
 use std::hash::Hash;
 
-pub trait FlashPrecision: Send + Sync + Copy + 'static {
-    type Q: Float;
-    type KV: Float;
-    type SP: Float;
-    type A: Float;
-}
-
 #[cube]
-pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
-    type Config: FlashMatmulConfig;
+pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
+    type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type ScoreProb: CubeType;
+    type Softmax: CubeType;
     type Accumulator: CubeType;
 
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::ScoreProb,
+        out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     );
 
     fn value_matmul(
-        lhs: &Self::ScoreProb,
+        lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -54,8 +48,8 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_score_prob(#[comptime] config: Self::Config) -> Self::ScoreProb;
-    fn zero_score_prob(score_prob: &mut Self::ScoreProb, #[comptime] config: Self::Config);
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
@@ -68,47 +62,48 @@ pub trait FlashMatmul<FP: FlashPrecision>: Send + Sync + 'static {
 
     // These methods should be deletable when we have proper control over fragments
     fn tmp_fill_accumulator(
-        tile: &StridedTile<FP::A>,
+        tile: &StridedTile<ACC<AP>>,
         acc: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     );
     fn tmp_fill_prob(
-        tile: &StridedTile<FP::SP>,
-        prob: &mut Self::ScoreProb,
+        tile: &StridedTile<SM<AP>>,
+        prob: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     );
-    fn tmp_write_score_prob(
-        score_prob: &Self::ScoreProb,
-        slice: &mut SliceMut<Line<FP::SP>>,
+    fn tmp_write_softmax(
+        softmax: &Self::Softmax,
+        slice: &mut SliceMut<Line<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 }
 
 /// Configuration for the Tile Attention level
-pub trait FlashMatmulConfig:
+pub trait AttentionMatmulConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
 
     // TODO try to remove this
     fn num_planes(&self) -> u32;
-    fn stage_line_size(&self, ident: FlashIdent) -> u32;
+    fn stage_line_size(&self, ident: AttentionIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
 
-    fn num_units_per_row(&self, ident: FlashIdent) -> u32;
-    fn num_cols_per_unit(&self, ident: FlashIdent) -> u32;
+    fn num_units_per_row(&self, ident: AttentionIdent) -> u32;
+    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32;
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 
     fn check_bounds(&self) -> bool;
 }
 
-pub trait FlashMatmulFamily: Send + Sync + 'static {
+pub trait AttentionMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<F: FlashPrecision>: FlashMatmul<F, Config = Self::Config>;
+    type Matmul<AP: AttentionPrecision>: AttentionMatmul<AP, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
-    type Config: FlashMatmulConfig;
+    type Config: AttentionMatmulConfig;
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;

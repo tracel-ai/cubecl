@@ -3,14 +3,16 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::{
-    AttentionPrecision, AttentionSetupError, AttentionTileSize, FlashIdent,
-    tile::dummy::{FlashMatmulConfig, FlashPrecision},
+    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize, attention_types::*,
+    tile::dummy::AttentionMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyRegisterFlashMatmulConfig {
+pub struct AcceleratedAttentionMatmulConfig {
     plane_dim: u32,
+    score_config: ScoreConfig,
+    value_config: ValueConfig,
     attention_tile_size: AttentionTileSize,
     num_planes: u32,
     query_stage_line_size: u32,
@@ -88,7 +90,7 @@ impl TileConfig for ValueConfig {
     }
 }
 
-impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
+impl AttentionMatmulConfig for AcceleratedAttentionMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -97,14 +99,14 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         self.num_planes
     }
 
-    fn stage_line_size(&self, ident: FlashIdent) -> u32 {
+    fn stage_line_size(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            FlashIdent::Query => self.query_stage_line_size,
-            FlashIdent::Key => self.key_value_stage_line_size,
-            FlashIdent::ScoreProb => unreachable!("Not a materialized stage"),
-            FlashIdent::Value => self.key_value_stage_line_size,
-            FlashIdent::Mask => todo!(),
-            FlashIdent::Out => 1,
+            AttentionIdent::Query => self.query_stage_line_size,
+            AttentionIdent::Key => self.key_value_stage_line_size,
+            AttentionIdent::Softmax => unreachable!("Not a materialized stage"),
+            AttentionIdent::Value => self.key_value_stage_line_size,
+            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Out => 1,
         }
     }
 
@@ -116,11 +118,13 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
         self.cast_query
     }
 
-    fn num_units_per_row(&self, ident: FlashIdent) -> u32 {
+    fn num_units_per_row(&self, ident: AttentionIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
         self.plane_dim / self.attention_tile_size.num_rows(ident)
     }
 
-    fn num_cols_per_unit(&self, ident: FlashIdent) -> u32 {
+    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
         self.attention_tile_size
             .num_cols(ident)
             .div_ceil(self.num_units_per_row(ident))
@@ -129,9 +133,14 @@ impl FlashMatmulConfig for DummyRegisterFlashMatmulConfig {
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
+
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32 {
+        // TODO depends on layout, this assumes they are all in the same row
+        self.attention_tile_size.num_rows(ident) / self.plane_dim
+    }
 }
 
-impl DummyRegisterFlashMatmulConfig {
+impl AcceleratedAttentionMatmulConfig {
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
@@ -140,25 +149,34 @@ impl DummyRegisterFlashMatmulConfig {
         key_value_stage_line_size: u32,
         check_bounds: bool,
     ) -> Result<Self, AttentionSetupError> {
+        let score_config = ScoreConfig {
+            plane_dim,
+            tile_size: attention_tile_size.to_score_matmul_tile_size(),
+            query_stage_line_size,
+            key_value_stage_line_size,
+        };
+        let value_config = ValueConfig {
+            plane_dim,
+            tile_size: attention_tile_size.to_value_matmul_tile_size(),
+            key_value_stage_line_size,
+        };
+
         Self {
             plane_dim,
+            score_config,
+            value_config,
             attention_tile_size,
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: AP::EI::as_type_native_unchecked()
-                == <AP::FlashPrecision as FlashPrecision>::Q::as_type_native_unchecked(),
+            cast_query: QG::<AP>::as_type_native_unchecked()
+                == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
         }
         .validate()
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
-        if self.attention_tile_size.head_dim < self.attention_tile_size.val_dim {
-            return Err(AttentionSetupError::InvalidConfig(Box::new(
-                "Can't have tile head_dim < tile val dim (not sure why)",
-            )));
-        }
         Ok(self)
     }
 }
