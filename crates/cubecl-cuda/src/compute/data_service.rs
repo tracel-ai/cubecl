@@ -112,7 +112,7 @@ impl DataServiceClient {
             })
             .unwrap();
 
-        recv.recv().expect("Data transfer to succeed");
+        // recv.recv().expect("Data transfer to succeed");
     }
     pub fn register_src_normal(
         &self,
