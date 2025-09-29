@@ -11,6 +11,7 @@ use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
+use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,

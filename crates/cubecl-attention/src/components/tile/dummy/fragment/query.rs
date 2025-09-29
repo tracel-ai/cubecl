@@ -3,6 +3,8 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
+use crate::components::attention_types::QT;
+use crate::components::tile::QueryTile;
 use crate::components::tile::dummy::AttentionMatmul;
 
 #[derive(CubeType)]
@@ -21,3 +23,5 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryFragment<AP, AM> {
         }
     }
 }
+
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryTile<QT<AP>> for QueryFragment<AP, AM> {}
