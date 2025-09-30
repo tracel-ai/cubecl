@@ -2,6 +2,7 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
+    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -336,6 +337,8 @@ where
     }
 
     /// Transfer data from one client to another
+    ///
+    /// Make sure the source description can be read in a contiguous manner.
     pub fn to_client_tensor(
         &self,
         src_descriptor: CopyDescriptor<'_>,
@@ -612,15 +615,23 @@ where
             .unwrap()
             .remove(0);
 
+        let id = DataTransferId::new();
+        let stream = src_descriptor.binding.stream;
+
+        self.channel.data_transfer_send(id, src_descriptor, stream);
+
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(
             alloc_descriptor.shape,
             &alloc.strides,
             alloc_descriptor.elem_size,
         );
+        let stream = desc.binding.stream;
+
+        self.channel.data_transfer_recv(id, desc, stream);
 
         // Send with source server
-        Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
+        // Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
 
         alloc
     }
