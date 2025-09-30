@@ -6,7 +6,7 @@ use crate::components::{
     spec::attention_types::*,
 };
 
-/// Attention spec definiting each element types used in the computation as well as
+/// Attention spec defining each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait AttentionSpec: Send + Sync + Clone + 'static {
     type Precision: AttentionPrecision;
