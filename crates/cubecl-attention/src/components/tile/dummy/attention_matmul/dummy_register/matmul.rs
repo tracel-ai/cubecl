@@ -93,8 +93,15 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
         row_start + c
     }
 
-    fn get_at_coor(&self, row: u32, col: u32) -> E {
-        self.array[row + self.size.1 + col]
+    fn get_at_coor(&self, row: u32, col: u32, mask: E) -> E {
+        let oob = row > self.size.0 || col > self.size.1;
+
+        // TODO branchless
+        if !oob {
+            self.array.read(row + self.size.1 + col)
+        } else {
+            mask
+        }
     }
 }
 

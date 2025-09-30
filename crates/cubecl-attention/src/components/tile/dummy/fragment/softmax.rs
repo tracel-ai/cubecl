@@ -118,19 +118,6 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
     fn row_max(&self, placeholder: &mut RowWise<SM<AP>>, base: &RowWise<SM<AP>>) {
         row_max::<SM<AP>, AM::Softmax>(placeholder, base, &self.fragment)
-        // let slice = self.tmp_smem.slice(self.tmp_smem_start, self.tmp_smem_end);
-
-        // let row_offset = self.row * self.num_cols;
-        // let mut row_max = base.index(0u32);
-
-        // for i in 0..self.num_cols {
-        //     let ts = slice[row_offset + i];
-        //     if ts > row_max {
-        //         row_max = ts;
-        //     }
-        // }
-
-        // RowWise::<SM<AP>>::single(row_max)
     }
 
     fn to_prob(

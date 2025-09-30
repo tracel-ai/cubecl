@@ -22,5 +22,5 @@ pub trait PlaneLayout<E: Float>: CubeType {
     fn col_index(&self, r: u32, c: u32) -> u32;
 
     /// row and col are absolute (i.e. must get row_index, col_index beforehand)
-    fn get_at_coor(&self, row: u32, col: u32) -> E;
+    fn get_at_coor(&self, row: u32, col: u32, mask: E) -> E;
 }

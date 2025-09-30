@@ -37,7 +37,7 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, row: u32, col: u32) -> E {
+    fn get_at_coor(&self, row: u32, col: u32, mask: E) -> E {
         todo!()
     }
 }

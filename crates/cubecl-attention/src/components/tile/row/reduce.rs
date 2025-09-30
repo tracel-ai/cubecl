@@ -1,4 +1,3 @@
-use cubecl_common::rand::Rng;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -32,7 +31,10 @@ impl<E: Float> RowOp<E> for RowMax {
     }
 
     fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
-        Max::max(acc, data.get_at_coor(row, col) + mask)
+        Max::max(
+            acc,
+            data.get_at_coor(row, col, <Self as RowOp<E>>::neutral_element()) + mask,
+        )
     }
 
     fn plane_reduce(acc: E) -> E {
@@ -49,8 +51,9 @@ impl<E: Float> RowOp<E> for RowSum {
     fn neutral_element() -> E {
         E::from_int(0)
     }
+
     fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
-        acc + data.get_at_coor(row, col) * mask
+        acc + data.get_at_coor(row, col, <Self as RowOp<E>>::neutral_element()) * mask
     }
 
     fn plane_reduce(acc: E) -> E {
@@ -83,7 +86,7 @@ fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(vals: &mut Array<E>, data:
 #[cube]
 pub fn row_sum<E: Float, PL: PlaneLayout<E>>(placeholder: &mut RowWise<E>, data: &PL) {
     placeholder.fill(<RowSum as RowOp<E>>::neutral_element());
-    row_op::<E, PL, RowSum>(&mut placeholder.vals, data)
+    row_op::<E, PL, RowSum>(&mut placeholder.vals_mut(), data)
 }
 
 #[cube]
@@ -93,5 +96,5 @@ pub fn row_max<E: Float, PL: PlaneLayout<E>>(
     data: &PL,
 ) {
     placeholder.copy_from(base);
-    row_op::<E, PL, RowMax>(&mut placeholder.vals, data);
+    row_op::<E, PL, RowMax>(&mut placeholder.vals_mut(), data);
 }

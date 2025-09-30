@@ -4,8 +4,8 @@ use cubecl_core::prelude::*;
 #[derive(CubeType)]
 pub struct RowWise<E: Float> {
     #[cube(comptime)]
-    pub num_rows: u32,
-    pub vals: Array<E>,
+    num_rows: u32,
+    vals: Array<E>,
 }
 
 #[cube]
@@ -55,5 +55,9 @@ impl<E: Float> RowWise<E> {
         for i in 0..self.num_rows {
             self.vals[i] = Max::max(self.vals[i], E::cast_from(other.vals[i]));
         }
+    }
+
+    pub fn vals_mut(&mut self) -> &mut Array<E> {
+        &mut self.vals
     }
 }
