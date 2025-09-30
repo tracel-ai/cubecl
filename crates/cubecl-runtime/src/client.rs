@@ -630,7 +630,9 @@ where
             alloc_descriptor.elem_size,
         );
 
-        self.channel.data_transfer_recv(id, desc, stream_id_dst);
+        dst_server
+            .channel
+            .data_transfer_recv(id, desc, stream_id_dst);
 
         // Send with source server
         // Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
