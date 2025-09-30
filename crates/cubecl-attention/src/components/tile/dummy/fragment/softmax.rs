@@ -1,18 +1,19 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::StridedTile;
 use cubecl_matmul::components::MatrixLayout;
+use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::PlaneLayout;
 use crate::components::tile::RowFormat;
 use crate::components::tile::RowWise;
-use crate::components::AttentionPrecision;
 use crate::components::{
-    tile::{
-        dummy::{AttentionMatmul, AttentionMatmulConfig},
-        RunningState, SoftmaxTile, SoftmaxTileExpand,
-    },
     AttentionIdent, TileMask,
+    tile::{
+        RunningState, SoftmaxTile, SoftmaxTileExpand,
+        dummy::{AttentionMatmul, AttentionMatmulConfig},
+    },
 };
 
 #[derive(CubeType)]
