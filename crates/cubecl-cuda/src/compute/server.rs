@@ -426,29 +426,36 @@ impl ComputeServer for CudaServer {
             server_src.command_no_current(stream_id_src, [&src.binding].into_iter());
         let mut command_dst = server_dst.command_no_current(stream_id_dst, [].into_iter());
 
+        // Vsyunc
         let size = src.binding.size();
-        let mut bytes = command_dst.reserve_cpu(size as usize, true, None);
-
         command_src.set_current();
-        let resource_src = command_src.resource(src.binding.clone())?;
+        let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
 
-        unsafe {
-            write_to_cpu(
-                src.shape,
-                src.strides,
-                src.elem_size,
-                &mut bytes,
-                resource_src.ptr,
-                stream_src,
-            )?;
-        }
+        //
+        // let mut bytes = command_dst.reserve_cpu(size as usize, true, None);
+
+        // command_src.set_current();
+        // let resource_src = command_src.resource(src.binding.clone())?;
+        // let stream_src = command_src.streams.current().sys;
+
+        // unsafe {
+        //     write_to_cpu(
+        //         src.shape,
+        //         src.strides,
+        //         src.elem_size,
+        //         &mut bytes,
+        //         resource_src.ptr,
+        //         stream_src,
+        //     )?;
+        // }
 
         let fence_src = Fence::new(stream_src);
 
         command_dst.set_current();
         let stream_dst = command_dst.streams.current().sys;
         fence_src.wait_async(stream_dst);
+
         core::mem::drop(src.binding);
         let dst = command_dst.reserve(size)?;
 
