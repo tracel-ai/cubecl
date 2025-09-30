@@ -419,6 +419,10 @@ impl<'a> Command<'a> {
         let binding_src = desc_src.binding.clone();
         let binding_dst = desc_dst.binding.clone();
 
+        let stream_src = command_src.streams.get(&binding_src.stream);
+        let fence = Fence::new(stream_src.sys);
+        fence.wait_sync();
+
         let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
 
         let stream_src = command_src.streams.get(&binding_src.stream);
