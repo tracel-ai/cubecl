@@ -363,6 +363,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    IsInf {
+        input: Variable,
+        out: Variable,
+    },
     VecInit {
         inputs: Vec<Variable>,
         out: Variable,
@@ -590,6 +594,7 @@ impl Display for Instruction {
             }
             Instruction::Powf { lhs, rhs, out } => super::call_powf(f, lhs, rhs, out),
             Instruction::IsNan { input, out } => super::call_is_nan(f, input, out),
+            Instruction::IsInf { input, out } => super::call_is_inf(f, input, out),
             Instruction::Sqrt { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")

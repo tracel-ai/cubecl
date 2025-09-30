@@ -335,7 +335,7 @@ fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> Str
     }
 }
 
-// `isnan` is defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
+// `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
 pub struct IsNan;
 
 impl<D: Dialect> Unary<D> for IsNan {
@@ -347,6 +347,24 @@ impl<D: Dialect> Unary<D> for IsNan {
         // Format unary function name based on *input* elem dtype
         let elem = input.elem();
         write!(f, "{}({input})", elem_function_name("isnan", elem))
+    }
+
+    fn can_optimize() -> bool {
+        true
+    }
+}
+
+pub struct IsInf;
+
+impl<D: Dialect> Unary<D> for IsInf {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        // Format unary function name based on *input* elem dtype
+        let elem = input.elem();
+        write!(f, "{}({input})", elem_function_name("isinf", elem))
     }
 
     fn can_optimize() -> bool {

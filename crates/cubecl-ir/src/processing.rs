@@ -200,6 +200,9 @@ impl ScopeProcessing {
                     Comparison::IsNan(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Comparison::IsInf(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                 },
                 Operation::Bitwise(op) => match op {
                     Bitwise::BitwiseAnd(op) => {

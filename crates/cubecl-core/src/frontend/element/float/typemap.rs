@@ -251,6 +251,7 @@ impl<const POS: u8> Round for ElemExpand<POS> {}
 impl<const POS: u8> Floor for ElemExpand<POS> {}
 impl<const POS: u8> Ceil for ElemExpand<POS> {}
 impl<const POS: u8> IsNan for ElemExpand<POS> {}
+impl<const POS: u8> IsInf for ElemExpand<POS> {}
 
 impl<const POS: u8> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;

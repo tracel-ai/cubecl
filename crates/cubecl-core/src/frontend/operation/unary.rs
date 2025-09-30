@@ -371,3 +371,16 @@ impl_unary_func_fixed_out_ty!(
     f32,
     f64
 );
+impl_unary_func_fixed_out_ty!(
+    IsInf,
+    is_inf,
+    __expand_is_inf,
+    bool,
+    Comparison::IsInf,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);

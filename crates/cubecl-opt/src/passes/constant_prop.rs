@@ -491,6 +491,14 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantScalarValue> {
                 Int(_, _) | UInt(_, _) | Bool(_) => Bool(false),
             })
         }
+        Comparison::IsInf(op) => {
+            use ConstantScalarValue::*;
+            op.input.as_const().map(|input| match input {
+                Float(val, _) => Bool(val.is_infinite()),
+                // Integers, bools, uints can't be infinite, so always false
+                Int(_, _) | UInt(_, _) | Bool(_) => Bool(false),
+            })
+        }
     }
 }
 

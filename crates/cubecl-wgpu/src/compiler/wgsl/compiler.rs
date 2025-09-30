@@ -878,6 +878,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Comparison::IsInf(op) => instructions.push(wgsl::Instruction::IsInf {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
         }
     }
 
@@ -1117,6 +1121,10 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             wgsl::Instruction::IsNan { input, out } => {
                 register_extension(wgsl::Extension::IsNanPrimitive(input.elem()));
                 register_extension(wgsl::Extension::IsNan(input.item(), out.item()));
+            }
+            wgsl::Instruction::IsInf { input, out } => {
+                register_extension(wgsl::Extension::IsInfPrimitive(input.elem()));
+                register_extension(wgsl::Extension::IsInf(input.item(), out.item()));
             }
             wgsl::Instruction::If { instructions, .. } => {
                 for extension in register_extensions(instructions) {

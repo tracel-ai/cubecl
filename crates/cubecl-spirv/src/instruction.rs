@@ -144,6 +144,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     b.is_nan(ty, Some(out), input).unwrap();
                 });
             }
+            Comparison::IsInf(op) => {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.is_inf(ty, Some(out), input).unwrap();
+                });
+            }
         }
     }
 

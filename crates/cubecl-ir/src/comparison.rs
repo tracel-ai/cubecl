@@ -18,6 +18,7 @@ pub enum Comparison {
     GreaterEqual(BinaryOperator),
     Greater(BinaryOperator),
     IsNan(UnaryOperator),
+    IsInf(UnaryOperator),
 }
 
 impl Display for Comparison {
@@ -30,6 +31,7 @@ impl Display for Comparison {
             Comparison::LowerEqual(op) => write!(f, "{} <= {}", op.lhs, op.rhs),
             Comparison::GreaterEqual(op) => write!(f, "{} >= {}", op.lhs, op.rhs),
             Comparison::IsNan(op) => write!(f, "{}.isnan()", op.input),
+            Comparison::IsInf(op) => write!(f, "{}.isinf()", op.input),
         }
     }
 }

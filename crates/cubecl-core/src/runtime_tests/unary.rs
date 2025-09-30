@@ -332,6 +332,33 @@ test_unary_impl_fixed!(
     ]
 );
 
+test_unary_impl_fixed!(
+    test_is_inf,
+    F,
+    u32,
+    F::is_inf,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            input: as_type![F: 0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
+            expected: as_type![u32: false as i64, false as i64, true as i64, true as i64]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            input: as_type![F: f32::INFINITY, -100., f32::NAN, f32::NEG_INFINITY],
+            expected: as_type![u32: true as i64, false as i64, false as i64, true as i64]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            input: as_type![F: f32::NEG_INFINITY, f32::INFINITY, 100., f32::NAN],
+            expected: as_type![u32: true as i64, true as i64, false as i64, false as i64]
+        }
+    ]
+);
+
 test_unary_impl_int_fixed!(test_count_ones, I, u32, I::count_ones, [
     {
         input_vectorization: 1,
@@ -453,6 +480,7 @@ macro_rules! testgen_unary {
             add_test!(test_magnitude);
             add_test!(test_abs);
             add_test!(test_is_nan);
+            add_test!(test_is_inf);
         }
     };
 }

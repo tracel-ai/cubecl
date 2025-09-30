@@ -13,6 +13,8 @@ pub enum Extension {
     SafeTanhPrimitive(Elem),
     IsNanPrimitive(Elem),
     IsNan(Item, Item),
+    IsInfPrimitive(Elem),
+    IsInf(Item, Item),
 }
 
 impl Display for Extension {
@@ -67,8 +69,19 @@ impl Display for Extension {
             Extension::IsNanPrimitive(elem) => format_is_nan_primitive(f, elem),
             Extension::IsNan(in_item, out_item) => construct_vector(
                 f,
-                ISNAN,
-                ISNAN_PRIMITIVE,
+                IS_NAN,
+                IS_NAN_PRIMITIVE,
+                &[VectorIdent {
+                    name: "x",
+                    item: *in_item,
+                }],
+                *out_item,
+            ),
+            Extension::IsInfPrimitive(elem) => format_is_inf_primitive(f, elem),
+            Extension::IsInf(in_item, out_item) => construct_vector(
+                f,
+                IS_INF,
+                IS_INF_PRIMITIVE,
                 &[VectorIdent {
                     name: "x",
                     item: *in_item,
@@ -88,8 +101,11 @@ const SAFE_TANH_PRIMITIVE: &str = "safe_tanh_primitive";
 #[cfg(target_os = "macos")]
 const SAFE_TANH: &str = "safe_tanh";
 
-const ISNAN_PRIMITIVE: &str = "is_nan_primitive";
-const ISNAN: &str = "is_nan";
+const IS_NAN_PRIMITIVE: &str = "is_nan_primitive";
+const IS_NAN: &str = "is_nan";
+
+const IS_INF_PRIMITIVE: &str = "is_inf_primitive";
+const IS_INF: &str = "is_inf";
 
 pub fn powf_extension(rhs: &Variable, out: &Variable) -> Extension {
     if should_use_scalar_powf(rhs) {
@@ -138,7 +154,17 @@ pub fn call_is_nan(
     input: &Variable,
     out: &Variable,
 ) -> core::fmt::Result {
-    let function_name = construct_vectorized_name(ISNAN, input.item());
+    let function_name = construct_vectorized_name(IS_NAN, input.item());
+    let out = out.fmt_left();
+    write!(f, "{out} = {function_name}({input});")
+}
+
+pub fn call_is_inf(
+    f: &mut core::fmt::Formatter,
+    input: &Variable,
+    out: &Variable,
+) -> core::fmt::Result {
+    let function_name = construct_vectorized_name(IS_INF, input.item());
     let out = out.fmt_left();
     write!(f, "{out} = {function_name}({input});")
 }
@@ -263,7 +289,7 @@ fn format_is_nan_primitive(
     f: &mut std::fmt::Formatter<'_>,
     in_elem: &Elem,
 ) -> Result<(), std::fmt::Error> {
-    let function_name = construct_primitive_name(ISNAN_PRIMITIVE, *in_elem);
+    let function_name = construct_primitive_name(IS_NAN_PRIMITIVE, *in_elem);
     // Per NaN definition in IEEE 754:
     //   - sign = either 0 or 1.
     //   - biased exponent = all 1 bits.
@@ -276,6 +302,25 @@ fn {function_name}(x: {in_elem}) -> bool {{
     let bits = bitcast<u32>(x);
     let abs_bits = bits & 0x7fffffffu;
     return abs_bits > 0x7f800000u;
+}}
+"
+    )?;
+    Ok(())
+}
+
+fn format_is_inf_primitive(
+    f: &mut std::fmt::Formatter<'_>,
+    in_elem: &Elem,
+) -> Result<(), std::fmt::Error> {
+    let function_name = construct_primitive_name(IS_INF_PRIMITIVE, *in_elem);
+    // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
+    write!(
+        f,
+        "
+fn {function_name}(x: {in_elem}) -> bool {{
+    let bits = bitcast<u32>(x);
+    let abs_bits = bits & 0x7fffffffu;
+    return abs_bits == 0x7f800000u;
 }}
 "
     )?;
