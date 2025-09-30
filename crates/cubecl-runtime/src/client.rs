@@ -618,10 +618,10 @@ where
             .unwrap()
             .remove(0);
 
-        let id = DataTransferId::new();
+        // let id = DataTransferId::new();
 
-        self.channel
-            .data_transfer_send(id, src_descriptor, stream_id_src);
+        // self.channel
+        //     .data_transfer_send(id, src_descriptor, stream_id_src);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(
@@ -630,12 +630,12 @@ where
             alloc_descriptor.elem_size,
         );
 
-        dst_server
-            .channel
-            .data_transfer_recv(id, desc, stream_id_dst);
+        // dst_server
+        //     .channel
+        //     .data_transfer_recv(id, desc, stream_id_dst);
 
         // Send with source server
-        // Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
+        Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
 
         alloc
     }
