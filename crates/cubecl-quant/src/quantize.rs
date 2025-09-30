@@ -192,7 +192,12 @@ pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
             }
         },
         QuantScheme {
-            value: QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2,
+            value:
+                QuantValue::Q8F
+                | QuantValue::Q8S
+                | QuantValue::E4M3
+                | QuantValue::E5M2
+                | QuantValue::E2M1,
             store: QuantStore::Native,
             ..
         } => {
@@ -297,7 +302,7 @@ fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
     }
 }
 
-fn quantize_packed<R: Runtime, F: Float + CubeElement, FS: CubePrimitive + CubeElement>(
+fn quantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,

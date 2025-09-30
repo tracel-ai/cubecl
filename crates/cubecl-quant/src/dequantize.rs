@@ -1,6 +1,7 @@
 #![allow(missing_docs)] // pub cube modules
 
 use cubecl::prelude::*;
+use cubecl_common::{e2m1x2, e4m3, e5m2, ue8m0};
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
 use cubecl_runtime::TypeUsage;
 
@@ -16,7 +17,7 @@ use half::{bf16, f16};
 
 /// Dequantize a line of values into floating-point values using the provided scale.
 #[cube]
-pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> Line<F> {
+pub fn dequantize_symmetric<F: Float, FS: CubePrimitive>(value: Line<F>, scale: FS) -> Line<F> {
     // x = scale * x_q
     Line::cast_from(scale) * value
 }
@@ -26,7 +27,7 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_values<F: Float, FS: CubePrimitive, QI: Int>(
     position: u32,
     values: &View<Line<QI>, u32>,
     scales: &View<FS, u32>,
@@ -40,7 +41,7 @@ pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
+pub fn dequantize_symmetric_packed_value_at<F: Float, FS: CubePrimitive, QI: Int>(
     position: u32,
     values: Line<QI>,
     scales: &View<FS, u32>,
@@ -54,7 +55,7 @@ pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
 /// Returns a line of floating-point values. The number of values in the line depends on the number of packed
 /// values in the stored quantization type.
 #[cube]
-pub fn dequantize_symmetric_packed_value<F: Float, FS: Float, QS: Int>(
+pub fn dequantize_symmetric_packed_value<F: Float, FS: CubePrimitive, QS: Int>(
     values: Line<QS>,
     scales: &View<FS, u32>,
     position: u32,
@@ -115,7 +116,7 @@ fn unpack_q<F: Float, QS: Int>(
 }
 
 #[cube(launch_unchecked)]
-fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
+fn dequantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
     input: &LinearView<Line<u32>>,
     scales: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
@@ -144,8 +145,8 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 }
 
 #[cube(launch_unchecked)]
-fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
-    input: &LinearView<Line<i8>>,
+fn dequantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimitive>(
+    input: &LinearView<Line<Q>>,
     scale: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
 ) {
@@ -153,8 +154,9 @@ fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
         terminate!();
     }
 
+    let native_packing = Q::packing_factor();
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = scale[ABSOLUTE_POS * input.line_size()];
+    let scale = scale[ABSOLUTE_POS * input.line_size() * native_packing];
 
     output[ABSOLUTE_POS] =
         dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
@@ -183,12 +185,20 @@ pub fn launch_ref<R: Runtime, F: Float>(
             QuantParam::BF16 => {
                 dequantize_packed::<R, F, bf16>(client, values, scheme, params, output)
             }
-            QuantParam::UE4M3 | QuantParam::UE8M0 => {
-                todo!("Not yet implemented");
+            QuantParam::UE8M0 => {
+                dequantize_packed::<R, F, ue8m0>(client, values, scheme, params, output)
+            }
+            QuantParam::UE4M3 => {
+                dequantize_packed::<R, F, e4m3>(client, values, scheme, params, output)
             }
         },
         QuantScheme {
-            value: QuantValue::Q8F | QuantValue::Q8S,
+            value:
+                QuantValue::Q8F
+                | QuantValue::Q8S
+                | QuantValue::E4M3
+                | QuantValue::E5M2
+                | QuantValue::E2M1,
             store: QuantStore::Native,
             ..
         } => {
@@ -209,8 +219,11 @@ pub fn launch_ref<R: Runtime, F: Float>(
                 QuantParam::BF16 => {
                     dequantize_native::<R, F, bf16>(client, values, scheme, params, output)
                 }
-                QuantParam::UE4M3 | QuantParam::UE8M0 => {
-                    todo!("Not yet implemented");
+                QuantParam::UE8M0 => {
+                    dequantize_native::<R, F, ue8m0>(client, values, scheme, params, output)
+                }
+                QuantParam::UE4M3 => {
+                    dequantize_native::<R, F, e4m3>(client, values, scheme, params, output)
                 }
             }
         }
@@ -224,7 +237,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
     }
 }
 
-fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
+fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
@@ -274,7 +287,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
     }
 }
 
-fn dequantize_native<R: Runtime, F: Float, FS: Float>(
+fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
@@ -295,12 +308,28 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
         QuantScheme {
             level: QuantLevel::Tensor | QuantLevel::Block(_),
             mode: QuantMode::Symmetric,
-            value: QuantValue::Q8F | QuantValue::Q8S,
+            value,
             store: QuantStore::Native,
             ..
         } => {
+            let launch = match value {
+                QuantValue::Q8F | QuantValue::Q8S => {
+                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, i8, R>
+                }
+                QuantValue::E4M3 => {
+                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e4m3, R>
+                }
+                QuantValue::E5M2 => {
+                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e5m2, R>
+                }
+                QuantValue::E2M1 => {
+                    dequantize_symmetric_native_kernel::launch_unchecked::<F, FS, e2m1x2, R>
+                }
+                other => panic!("Unsupported quantization value {other:?}"),
+            };
+
             unsafe {
-                dequantize_symmetric_int8_native_kernel::launch_unchecked::<F, FS, R>(
+                launch(
                     client,
                     cube_count,
                     cube_dim,
