@@ -1,13 +1,14 @@
 #[cfg(not(feature = "std"))]
-use spin::{
-    Mutex as MutexImported, MutexGuard, Once as OnceImported, RwLock as RwLockImported,
-    RwLockReadGuard, RwLockWriteGuard,
-};
+use spin::{Mutex as MutexImported, MutexGuard, Once as OnceImported, RwLock as RwLockImported};
 #[cfg(feature = "std")]
 use std::sync::{
     Mutex as MutexImported, MutexGuard, OnceLock as OnceImported, RwLock as RwLockImported,
-    RwLockReadGuard, RwLockWriteGuard,
 };
+
+#[cfg(not(feature = "std"))]
+pub use spin::{RwLockReadGuard, RwLockWriteGuard};
+#[cfg(feature = "std")]
+pub use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
 /// A mutual exclusion primitive useful for protecting shared data
 ///

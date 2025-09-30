@@ -15,6 +15,9 @@ pub mod rand;
 /// Device module.
 pub mod device;
 
+/// Map utilities and implementations.
+pub mod map;
+
 /// Utilities module to manipulate bytes.
 #[cfg(feature = "serde")]
 pub mod bytes;
