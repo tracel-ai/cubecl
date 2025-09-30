@@ -427,8 +427,14 @@ impl ComputeServer for CudaServer {
         let mut command_dst = server_dst.command_no_current(stream_id_dst, [].into_iter());
 
         // Vsyunc
-        let size = src.binding.size();
         command_src.set_current();
+
+        let size = src.binding.size();
+        let strides = src.strides.to_vec();
+        let shape = src.shape.to_vec();
+        let elem_size = src.elem_size;
+        let binding = src.binding.clone();
+
         let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
 
@@ -456,22 +462,22 @@ impl ComputeServer for CudaServer {
         let stream_dst = command_dst.streams.current().sys;
         fence_src.wait_async(stream_dst);
 
-        core::mem::drop(src.binding);
+        core::mem::drop(binding);
         let dst = command_dst.reserve(size)?;
 
         command_dst.write_to_gpu(
             CopyDescriptor {
                 binding: dst.clone().binding(),
-                shape: src.shape,
-                strides: src.strides,
-                elem_size: src.elem_size,
+                shape: &shape,
+                strides: &strides,
+                elem_size,
             },
             &bytes,
         )?;
 
         Ok(Allocation {
             handle: dst,
-            strides: src.strides.to_vec(),
+            strides,
         })
     }
 
