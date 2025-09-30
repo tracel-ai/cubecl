@@ -1,6 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::CudaCompiler;
-use crate::compute::command::{Command, write_to_cpu};
+use crate::compute::command::Command;
 use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
@@ -428,8 +428,6 @@ impl ComputeServer for CudaServer {
         let shape = src.shape.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
-        let size_cpu = shape.iter().product::<usize>() * elem_size;
-        let size_gpu = binding.size();
 
         let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
@@ -457,10 +455,8 @@ impl ComputeServer for CudaServer {
         let mut command_dst = server_dst.command(stream_id_dst, [].into_iter());
         // command_dst.set_current();
         let stream_dst = command_dst.streams.current().sys;
+        let dst = command_dst.reserve(binding.size())?;
         fence_src.wait_async(stream_dst);
-
-        core::mem::drop(binding);
-        let dst = command_dst.reserve(size_gpu)?;
 
         command_dst.write_to_gpu(
             CopyDescriptor {
@@ -472,11 +468,11 @@ impl ComputeServer for CudaServer {
             &bytes,
         )?;
         let fence_dst = Fence::new(stream_dst);
+        let gc = GcTask::new((bytes, binding), fence_dst);
+
         core::mem::drop(command_dst);
 
-        server_dst
-            .streams
-            .gc(GcTask::new(Box::new(bytes), fence_dst));
+        server_dst.streams.gc(gc);
 
         Ok(Allocation {
             handle: dst,
