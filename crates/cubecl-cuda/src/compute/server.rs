@@ -424,11 +424,11 @@ impl ComputeServer for CudaServer {
     ) -> Result<Allocation, IoError> {
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
 
-        let size = src.binding.size();
         let strides = src.strides.to_vec();
         let shape = src.shape.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
+        let size = shape.iter().product::<usize>() * elem_size;
 
         let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
@@ -459,7 +459,7 @@ impl ComputeServer for CudaServer {
         fence_src.wait_async(stream_dst);
 
         core::mem::drop(binding);
-        let dst = command_dst.reserve(size)?;
+        let dst = command_dst.reserve(size as u64)?;
 
         command_dst.write_to_gpu(
             CopyDescriptor {
