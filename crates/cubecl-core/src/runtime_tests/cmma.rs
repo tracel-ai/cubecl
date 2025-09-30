@@ -804,7 +804,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
         #[unroll]
         for k in 0..line_size_a {
             let n_elem = i * line_size_a + k;
-            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::A);
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::A);
             let value = a[row * size_k + col];
             reg[k] = value;
         }
@@ -818,7 +818,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
         #[unroll]
         for k in 0..line_size_b {
             let n_elem = i * line_size_b + k;
-            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::B);
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::B);
             let value = b[row * size_n + col];
             reg[k] = value;
         }
@@ -832,7 +832,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
         #[unroll]
         for k in 0..line_size_c {
             let n_elem = i * line_size_c + k;
-            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
             let value = c[row * size_n + col];
             reg[k] = value;
         }
@@ -848,7 +848,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
         #[unroll]
         for k in 0..line_size_d {
             let n_elem = i * line_size_d + k;
-            let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
             out[row * size_n + col] = reg[k];
         }
     }
@@ -996,7 +996,7 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     #[unroll]
     for i in 0..line_count_a {
         let n_elem = i * line_size_a * a_pack;
-        let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::A);
+        let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::A);
         let idx = row * size_k + col;
         let idx = idx / (a.line_size() * a_pack);
         let value = a[idx];
@@ -1014,7 +1014,7 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     #[unroll]
     for i in 0..line_count_b {
         let n_elem = i * line_size_b * b_pack;
-        let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::B);
+        let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::B);
         let idx = col * size_k + row;
         let idx = idx / (b.line_size() * b_pack);
         let value = b[idx];
@@ -1032,7 +1032,7 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     #[unroll]
     for i in 0..line_count_c {
         let n_elem = i * line_size_c;
-        let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+        let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
         let idx = row * size_n + col;
         let value = c[idx / c.line_size()];
         registers_c.push(value)
@@ -1050,7 +1050,7 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     #[unroll]
     for i in 0..line_count_d {
         let n_elem = i * line_size_d;
-        let (row, col) = def.indices_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+        let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
         let idx = row * size_n + col;
         out[idx / out.line_size()] = registers_d[i];
     }
