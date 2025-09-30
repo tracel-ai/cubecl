@@ -421,18 +421,21 @@ impl ComputeServer for CudaServer {
         desc_src: CopyDescriptor<'_>,
         desc_dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError> {
+        let stream_id = StreamId::current();
         let binding_src = desc_src.binding.clone();
-        let mut command_src = server_src.command(desc_src.binding.stream, [].into_iter());
+        let mut command_src = server_src.command(stream_id, [&desc_src.binding].into_iter());
         let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
-        let stream_src = command_src.streams.get(&binding_src.stream);
+        let stream_src = command_src.streams.current();
         let fence_src = Fence::new(stream_src.sys);
         fence_src.wait_sync();
 
+        core::mem::drop(binding_src);
+
         let binding_dst = desc_dst.binding.clone();
-        let mut command_dst = server_dst.command(desc_dst.binding.stream, [].into_iter());
+        let mut command_dst = server_dst.command(stream_id, [&desc_dst.binding].into_iter());
         command_dst.write_to_gpu(desc_dst, &data_src)?;
 
-        let stream_dst = command_dst.streams.get(&binding_dst.stream);
+        let stream_dst = command_dst.streams.current();
         let fence_dst = Fence::new(stream_dst.sys);
         let gc = GcTask::new((data_src, binding_dst), fence_dst);
         core::mem::drop(command_dst);
