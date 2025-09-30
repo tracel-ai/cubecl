@@ -1,13 +1,14 @@
+use cubecl_common::rand::Rng;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand, RowVal, RowWise};
+use crate::components::tile::{PlaneLayout, PlaneLayoutExpand, RowWise};
 
 #[cube]
 trait RowOp<E: Float> {
     fn mask(is_active: bool) -> E;
 
-    fn neutral_element(mask: E) -> E;
+    fn neutral_element() -> E;
 
     fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E;
 
@@ -26,8 +27,8 @@ impl<E: Float> RowOp<E> for RowMax {
         E::cast_from(!is_active) * E::min_value()
     }
 
-    fn neutral_element(mask: E) -> E {
-        E::min_value() + mask
+    fn neutral_element() -> E {
+        E::min_value()
     }
 
     fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
@@ -45,8 +46,8 @@ impl<E: Float> RowOp<E> for RowSum {
         E::cast_from(is_active)
     }
 
-    fn neutral_element(mask: E) -> E {
-        E::from_int(0) * mask
+    fn neutral_element() -> E {
+        E::from_int(0)
     }
     fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
         acc + data.get_at_coor(row, col) * mask
@@ -58,10 +59,8 @@ impl<E: Float> RowOp<E> for RowSum {
 }
 
 #[cube]
-fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(data: &PL) -> RowWise<E> {
-    let mut vals = Sequence::new();
+fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(vals: &mut Array<E>, data: &PL) {
     let total_row_count = data.total_rows_count();
-    let owned_row_count = data.owned_rows_count();
 
     #[unroll]
     for row in 0..total_row_count {
@@ -69,7 +68,7 @@ fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(data: &PL) -> RowWise<E> {
 
         let mask = RO::mask(is_active);
 
-        let mut local = RO::neutral_element(mask);
+        let mut local = RO::neutral_element();
 
         #[unroll]
         for c in 0..data.num_cols() {
@@ -77,20 +76,22 @@ fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(data: &PL) -> RowWise<E> {
             local = RO::local_update::<PL>(local, row, col, &data, mask);
         }
 
-        let val = RO::plane_reduce(local);
-
-        vals.push(RowVal::new(val));
+        vals[row] = RO::plane_reduce(local);
     }
-
-    RowWise::<E>::new(owned_row_count, vals)
 }
 
 #[cube]
-pub fn row_sum<E: Float, PL: PlaneLayout<E>>(data: &PL) -> RowWise<E> {
-    row_op::<E, PL, RowSum>(data)
+pub fn row_sum<E: Float, PL: PlaneLayout<E>>(placeholder: &mut RowWise<E>, data: &PL) {
+    placeholder.fill(<RowSum as RowOp<E>>::neutral_element());
+    row_op::<E, PL, RowSum>(&mut placeholder.vals, data)
 }
 
 #[cube]
-pub fn row_max<E: Float, PL: PlaneLayout<E>>(base: RowWise<E>, data: &PL) -> RowWise<E> {
-    base.max(&row_op::<E, PL, RowMax>(data))
+pub fn row_max<E: Float, PL: PlaneLayout<E>>(
+    placeholder: &mut RowWise<E>,
+    base: &RowWise<E>,
+    data: &PL,
+) {
+    placeholder.copy_from(base);
+    row_op::<E, PL, RowMax>(&mut placeholder.vals, data);
 }

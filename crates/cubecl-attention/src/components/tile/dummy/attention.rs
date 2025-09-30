@@ -7,9 +7,9 @@ use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
-use crate::components::tile::RowFmt;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
+use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::dummy::DummyAccumulator;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
@@ -34,14 +34,14 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     type SoftmaxTile = DummySoftmax<AP, AM>;
     type AccumulatorTile = DummyAccumulator<AP, AM>;
 
-    type State = RunningState<SM<AP>, RowFmt<Self::SoftmaxTile, AP>>;
+    type State = RunningState<SM<AP>>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
         prev_state: &Self::State,
         #[comptime] _config: Self::Config,
     ) {
-        acc.scale(&prev_state.l.cast::<ACC<AP>>(), ScaleMode::Divide);
+        acc.scale(&prev_state.l, ScaleMode::Divide);
     }
 
     fn write_results(
@@ -76,8 +76,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         Self::SoftmaxTile::new(config)
     }
 
-    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
-        Self::State::init()
+    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+        Self::State::init(config.attention_tile_size().seq_q)
     }
 
     fn fill_key<E: Numeric>(
@@ -118,15 +118,16 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
         state: &mut Self::State,
+        max_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,
     ) -> RowWise<ACC<AP>> {
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         softmax.scale_and_mask(inv_sqrt_dk, mask);
 
-        let score_max = softmax.row_max(state.m.copy());
+        softmax.row_max(max_placeholder, &state.m);
 
-        softmax.to_prob(state, &score_max)
+        softmax.to_prob(state, &max_placeholder)
     }
 
     fn accumulate_value(
@@ -144,5 +145,9 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
             &mut accumulator.fragment,
             config,
         );
+    }
+
+    fn init_placeholder<E: Float>(#[comptime] num_rows: u32) -> RowWise<E> {
+        RowWise::new_filled(num_rows, E::min_value())
     }
 }

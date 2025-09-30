@@ -45,8 +45,6 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 }
 
-pub type RowFmt<ST, AP> = <ST as SoftmaxTile<AP>>::RowFormat;
-
 #[cube]
 pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
@@ -108,6 +106,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
         state: &mut Self::State,
+        max_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,
     ) -> RowWise<ACC<AP>>;
 
@@ -118,4 +117,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         scale: &RowWise<ACC<AP>>,
         #[comptime] config: Self::Config,
     );
+
+    fn init_placeholder<E: Float>(#[comptime] num_rows: u32) -> RowWise<E>;
 }

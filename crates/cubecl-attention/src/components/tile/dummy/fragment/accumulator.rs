@@ -71,7 +71,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyAccumulator<AP, AM> {
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<ACC<AP>>
     for DummyAccumulator<AP, AM>
 {
-    fn scale(&mut self, scale: &RowWise<ACC<AP>>, #[comptime] scale_op: ScaleMode) {
+    fn scale<E: Float>(&mut self, scale: &RowWise<E>, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)

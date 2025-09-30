@@ -5,7 +5,6 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::RowFormat;
 use crate::components::tile::RowWise;
 use crate::components::tile::{row_max, row_sum};
 use crate::components::{
@@ -74,25 +73,10 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
     }
 }
 
-// Each thread works in exactly one row
-#[derive(CubeType)]
-pub struct SingleRowFormat {}
-
-#[cube]
-impl RowFormat for SingleRowFormat {
-    type RowElement<E: Float> = RowWise<E>;
-
-    fn new_filled<E: Float>(value: E) -> Self::RowElement<E> {
-        RowWise::<E>::new_filled(1u32, value)
-    }
-}
-
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
-    type RowFormat = SingleRowFormat;
-
-    fn init_state() -> RunningState<SM<AP>, Self::RowFormat> {
-        RunningState::<SM<AP>, Self::RowFormat>::init()
+    fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
+        RunningState::<SM<AP>>::init(num_rows)
     }
 
     fn zero(&mut self) {
@@ -132,8 +116,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         sync_cube();
     }
 
-    fn row_max(&self, base: RowWise<SM<AP>>) -> RowWise<SM<AP>> {
-        row_max::<SM<AP>, AM::Softmax>(base, &self.fragment)
+    fn row_max(&self, placeholder: &mut RowWise<SM<AP>>, base: &RowWise<SM<AP>>) {
+        row_max::<SM<AP>, AM::Softmax>(placeholder, base, &self.fragment)
         // let slice = self.tmp_smem.slice(self.tmp_smem_start, self.tmp_smem_end);
 
         // let row_offset = self.row * self.num_cols;
@@ -151,7 +135,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
     fn to_prob(
         &mut self,
-        state: &mut RunningState<SM<AP>, Self::RowFormat>,
+        state: &mut RunningState<SM<AP>>,
         new_m: &RowWise<SM<AP>>,
     ) -> RowWise<ACC<AP>> {
         let new_m_val = new_m.index(0u32);
@@ -196,7 +180,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
         let new_l = exp_m_diff * state.l.index(0u32) + row_sum;
 
-        state.update(new_m.copy(), RowWise::single(new_l));
+        state.update(new_m, &RowWise::single(new_l));
 
         RowWise::<ACC<AP>>::single(ACC::<AP>::cast_from(exp_m_diff))
     }

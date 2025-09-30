@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;
-use crate::components::tile::RowFormat;
 use crate::components::tile::{RowWise, RunningState};
 
 #[cube]
@@ -24,28 +23,28 @@ pub trait KeyValueTile<E: Float>: CubeType {
 
 #[cube]
 pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
-    type RowFormat: RowFormat;
-
-    fn init_state() -> RunningState<SM<AP>, Self::RowFormat>;
+    fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>>;
 
     fn zero(&mut self);
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask);
 
-    fn row_max(&self, base: RowWise<SM<AP>>) -> RowWise<SM<AP>>;
+    // fn row_max(&self, base: &mut RowWise<SM<AP>>);
+    fn row_max(&self, placeholder: &mut RowWise<SM<AP>>, base: &RowWise<SM<AP>>);
+    // fn row_max(&self, base: RowWise<SM<AP>>) -> RowWise<SM<AP>>;
 
     /// Converts scores → probabilities, updates running state,
     /// and returns the factor needed to scale the accumulator
     fn to_prob(
         &mut self,
-        state: &mut RunningState<SM<AP>, Self::RowFormat>,
+        state: &mut RunningState<SM<AP>>,
         max: &RowWise<SM<AP>>,
     ) -> RowWise<ACC<AP>>;
 }
 
 #[cube]
 pub trait AccumulatorTile<E: Float>: CubeType {
-    fn scale(&mut self, scale: &RowWise<E>, #[comptime] scale_op: ScaleMode);
+    fn scale<E2: Float>(&mut self, scale: &RowWise<E2>, #[comptime] scale_op: ScaleMode);
 }
 
 pub enum ScaleMode {

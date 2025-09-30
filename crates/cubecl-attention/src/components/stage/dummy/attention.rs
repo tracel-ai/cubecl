@@ -59,6 +59,9 @@ impl<
 
         let mut kv = comptime![0u32];
 
+        let mut max_placeholder =
+            TA::init_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
+
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..p.seq_kv {
@@ -106,6 +109,7 @@ impl<
                     softmax_tile,
                     partition_mask.to_tile(q, kv),
                     state_q,
+                    &mut max_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );
 

@@ -1,25 +1,25 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::{RowElement, RowFormat};
+use crate::components::tile::RowWise;
 
 #[derive(CubeType)]
-pub struct RunningState<E: Float, RF: RowFormat> {
-    pub m: RF::RowElement<E>,
-    pub l: RF::RowElement<E>,
+pub struct RunningState<E: Float> {
+    pub m: RowWise<E>,
+    pub l: RowWise<E>,
 }
 
 #[cube]
-impl<E: Float, RF: RowFormat> RunningState<E, RF> {
-    pub fn init() -> RunningState<E, RF> {
-        RunningState::<E, RF> {
-            m: RF::new_filled(E::min_value()),
-            l: RF::new_filled(E::from_int(0)),
+impl<E: Float> RunningState<E> {
+    pub fn init(#[comptime] num_rows: u32) -> RunningState<E> {
+        RunningState::<E> {
+            m: RowWise::new_filled(num_rows, E::min_value()),
+            l: RowWise::new_filled(num_rows, E::from_int(0)),
         }
     }
 
-    pub fn update(&mut self, new_m: RF::RowElement<E>, new_l: RF::RowElement<E>) {
-        <RF::RowElement<E> as RowElement<E>>::copy(&new_m, &mut self.m);
-        <RF::RowElement<E> as RowElement<E>>::copy(&new_l, &mut self.l);
+    pub fn update(&mut self, new_m: &RowWise<E>, new_l: &RowWise<E>) {
+        self.m.copy_from(new_m);
+        self.l.copy_from(new_l);
     }
 }
