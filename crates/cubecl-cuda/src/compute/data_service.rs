@@ -434,7 +434,7 @@ impl DataTransferInfo {
     }
 }
 
-fn enable_one_way_peer_access(ctx_src: sys::CUcontext) -> Result<(), sys::CUresult> {
+pub(crate) fn enable_one_way_peer_access(ctx_src: sys::CUcontext) -> Result<(), sys::CUresult> {
     unsafe {
         match sys::cuCtxEnablePeerAccess(ctx_src, 0) {
             CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),

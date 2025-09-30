@@ -2,6 +2,7 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::CudaCompiler;
 use crate::compute::command::{Command, write_to_cpu};
 use crate::compute::context::CudaContext;
+use crate::compute::enable_one_way_peer_access;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
@@ -422,46 +423,7 @@ impl ComputeServer for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let shape = src.shape.to_vec();
-        let strides = src.strides.to_vec();
-        let elem_size = src.elem_size;
-        let binding = src.binding.clone();
-        let num_bytes = shape.iter().product::<usize>() * elem_size;
-
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let handle = command_dst.reserve(binding.size())?;
-        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
-
-        core::mem::drop(command_dst);
-
-        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-        let resource_src = command_src.resource(binding.clone())?;
-        let stream_src = command_src.streams.current().sys;
-
-        unsafe {
-            write_to_cpu(
-                &shape,
-                &strides,
-                elem_size,
-                &mut bytes,
-                resource_src.ptr,
-                stream_src,
-            );
-        }
-        let fence_src = Fence::new(stream_src);
-
-        core::mem::drop(command_src);
-
-        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
-        let stream_dst = command_dst.streams.current().sys;
-
-        fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
-
-        core::mem::drop(command_dst);
-
-        Ok(Allocation { handle, strides })
+        Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
     }
     //
     //
@@ -576,6 +538,116 @@ impl CudaServer {
                 max_streams,
             ),
         }
+    }
+
+    fn change_server_peer(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let shape = src.shape.to_vec();
+        let strides = src.strides.to_vec();
+        let elem_size = src.elem_size;
+        let binding = src.binding.clone();
+
+        let context_src = server_src.ctx.context.clone();
+        let context_dst = server_dst.ctx.context.clone();
+
+        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let resource_src = command_src.resource(binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+        let fence_src = Fence::new(stream_src);
+
+        core::mem::drop(command_src);
+
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        let handle = command_dst.reserve(binding.size())?;
+        let resource_dst = command_dst.resource(handle.clone().binding())?;
+        fence_src.wait_async(stream_dst);
+
+        unsafe {
+            let result = cudarc::driver::sys::cuMemcpyPeerAsync(
+                resource_dst.ptr,
+                context_dst,
+                resource_src.ptr,
+                context_src,
+                binding.size() as usize,
+                stream_dst,
+            )
+            .result();
+            // TODO: We should have a fallback when peer access isn't supported.
+            if let Err(_err) = result {
+                enable_one_way_peer_access(context_src).expect("Can't enable peer access");
+
+                cudarc::driver::sys::cuMemcpyPeerAsync(
+                    resource_dst.ptr,
+                    context_dst,
+                    resource_src.ptr,
+                    context_src,
+                    binding.size() as usize,
+                    stream_dst,
+                )
+                .result()
+                .expect("Peer communication is not activated for the provided GPUs");
+            }
+        }
+
+        core::mem::drop(command_dst);
+
+        Ok(Allocation { handle, strides })
+    }
+
+    fn change_server_serialized(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let shape = src.shape.to_vec();
+        let strides = src.strides.to_vec();
+        let elem_size = src.elem_size;
+        let binding = src.binding.clone();
+        let num_bytes = shape.iter().product::<usize>() * elem_size;
+
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let handle = command_dst.reserve(binding.size())?;
+        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
+        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
+
+        core::mem::drop(command_dst);
+
+        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let resource_src = command_src.resource(binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+
+        unsafe {
+            write_to_cpu(
+                &shape,
+                &strides,
+                elem_size,
+                &mut bytes,
+                resource_src.ptr,
+                stream_src,
+            )?;
+        }
+        let fence_src = Fence::new(stream_src);
+
+        core::mem::drop(command_src);
+
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        fence_src.wait_async(stream_dst);
+        command_dst.write_to_gpu(copy_desc, &bytes)?;
+
+        core::mem::drop(command_dst);
+
+        Ok(Allocation { handle, strides })
     }
 
     fn command_no_inputs(&mut self, stream_id: StreamId) -> Command<'_> {
