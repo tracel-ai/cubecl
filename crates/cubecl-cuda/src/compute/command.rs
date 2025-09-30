@@ -424,13 +424,14 @@ impl<'a> Command<'a> {
         let stream_src = command_src.streams.get(&binding_src.stream);
         let fence = Fence::new(stream_src.sys);
         fence.wait_sync();
+        core::mem::drop(binding_src);
 
         command_dst.write_to_gpu(desc_dst, &data_src)?;
 
         let stream_dst = command_dst.streams.get(&binding_dst.stream);
         let fence = Fence::new(stream_dst.sys);
 
-        Ok(GcTask::new((binding_src, data_src, binding_dst), fence))
+        Ok(GcTask::new((data_src, binding_dst), fence))
 
         //m let resource_src = command_src.resource(desc_src.binding.clone()).unwrap();
 
