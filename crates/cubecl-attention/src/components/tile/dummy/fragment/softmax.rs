@@ -5,9 +5,9 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::PlaneLayout;
 use crate::components::tile::RowFormat;
 use crate::components::tile::RowWise;
+use crate::components::tile::{row_max, row_sum};
 use crate::components::{
     AttentionIdent, TileMask,
     tile::{
@@ -133,19 +133,20 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     }
 
     fn row_max(&self, base: RowWise<SM<AP>>) -> RowWise<SM<AP>> {
-        let slice = self.tmp_smem.slice(self.tmp_smem_start, self.tmp_smem_end);
+        row_max::<SM<AP>, AM::Softmax>(base, &self.fragment)
+        // let slice = self.tmp_smem.slice(self.tmp_smem_start, self.tmp_smem_end);
 
-        let row_offset = self.row * self.num_cols;
-        let mut row_max = base.index(0u32);
+        // let row_offset = self.row * self.num_cols;
+        // let mut row_max = base.index(0u32);
 
-        for i in 0..self.num_cols {
-            let ts = slice[row_offset + i];
-            if ts > row_max {
-                row_max = ts;
-            }
-        }
+        // for i in 0..self.num_cols {
+        //     let ts = slice[row_offset + i];
+        //     if ts > row_max {
+        //         row_max = ts;
+        //     }
+        // }
 
-        RowWise::<SM<AP>>::single(row_max)
+        // RowWise::<SM<AP>>::single(row_max)
     }
 
     fn to_prob(
@@ -186,6 +187,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
         let row_offset = self.row * self.num_cols;
 
+        // let row_sum = row_sum::<SM<AP>, AM::Softmax>(&self.fragment);
         let mut row_sum = SM::<AP>::from_int(0);
         for i in 0..self.num_cols {
             row_sum += slice[row_offset + i];

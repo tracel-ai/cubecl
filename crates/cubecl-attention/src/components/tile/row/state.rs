@@ -13,7 +13,7 @@ pub struct RunningState<E: Float, RF: RowFormat> {
 impl<E: Float, RF: RowFormat> RunningState<E, RF> {
     pub fn init() -> RunningState<E, RF> {
         RunningState::<E, RF> {
-            m: RF::new_filled(E::from_int(-99999999999)),
+            m: RF::new_filled(E::min_value()),
             l: RF::new_filled(E::from_int(0)),
         }
     }

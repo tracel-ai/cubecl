@@ -5,10 +5,42 @@ use cubecl_matmul::components::tile::StridedTile;
 use crate::components::attention_types::*;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::{AttentionIdent, AttentionPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
+
+#[cube]
+impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
+    fn owned_rows_count(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn is_owned(&self, row: u32) -> bool {
+        todo!()
+    }
+
+    fn total_rows_count(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn row_index(&self, r: u32) -> u32 {
+        todo!()
+    }
+
+    fn num_cols(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn col_index(&self, r: u32, c: u32) -> u32 {
+        todo!()
+    }
+
+    fn get_at_coor(&self, row: u32, col: u32) -> E {
+        todo!()
+    }
+}
 
 #[cube]
 impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul {

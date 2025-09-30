@@ -32,11 +32,26 @@ impl<E: Float> RowVal<E> {
             val: E2::cast_from(self.val),
         }
     }
+
+    pub fn update(&mut self, val: E) {
+        self.val = val;
+    }
 }
 
 #[cube]
 impl<E: Float> RowWise<E> {
     pub fn new(#[comptime] num_rows: u32, vals: Sequence<RowVal<E>>) -> RowWise<E> {
+        RowWise::<E> { num_rows, vals }
+    }
+
+    pub fn from_array(#[comptime] num_rows: u32, array: Array<E>) -> RowWise<E> {
+        let mut vals = Sequence::new();
+
+        #[unroll]
+        for i in 0..num_rows {
+            vals.push(RowVal::new(array[i]));
+        }
+
         RowWise::<E> { num_rows, vals }
     }
 
@@ -86,5 +101,15 @@ impl<E: Float> RowWise<E> {
             vals.push(self.vals.index(i).cast::<E2>());
         }
         RowWise::<E2>::new(self.num_rows, vals)
+    }
+
+    pub fn max(&self, other: &RowWise<E>) -> Self {
+        let mut vals = Sequence::new();
+        #[unroll]
+        for i in 0..self.num_rows {
+            let val = Max::max(self.vals.index(i).val, other.vals.index(i).val);
+            vals.push(RowVal::<E> { val });
+        }
+        RowWise::<E>::new(self.num_rows, vals)
     }
 }

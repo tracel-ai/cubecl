@@ -4,6 +4,7 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
+use crate::components::tile::PlaneLayout;
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
@@ -16,7 +17,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Softmax: CubeType;
+    type Softmax: PlaneLayout<SM<AP>>;
     type Accumulator: CubeType;
 
     fn score_matmul(

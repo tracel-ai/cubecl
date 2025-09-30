@@ -8,6 +8,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
@@ -21,8 +22,6 @@ pub struct ArrayTile<E: Float> {
     array: Array<E>,
     #[cube(comptime)]
     size: Coords2d,
-    #[cube(comptime)]
-    plane_dim: u32,
 
     #[cube(comptime)]
     num_rows_per_unit: u32,
@@ -45,7 +44,6 @@ impl<E: Float> ArrayTile<E> {
         ArrayTile::<E> {
             array,
             size,
-            plane_dim,
             num_rows_per_unit,
             num_cols_per_unit,
         }
@@ -65,9 +63,19 @@ impl<E: Float> ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Float> PlaneLayout for ArrayTile<E> {
-    fn num_rows(&self) -> comptime_type!(u32) {
+impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
+    fn owned_rows_count(&self) -> comptime_type!(u32) {
         self.num_rows_per_unit
+    }
+
+    fn is_owned(&self, row: u32) -> bool {
+        let first_row = UNIT_POS_X * self.num_rows_per_unit;
+        let last_row = first_row + self.num_rows_per_unit;
+        row >= first_row && row < last_row
+    }
+
+    fn total_rows_count(&self) -> comptime_type!(u32) {
+        self.size.0
     }
 
     fn row_index(&self, r: u32) -> u32 {
@@ -75,18 +83,18 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         (first_idx + r * self.num_cols_per_unit) / self.size.1
     }
 
-    fn num_cols(&self, r: u32) -> u32 {
-        if comptime!(self.num_rows_per_unit == 1) {
-            self.num_cols_per_unit.runtime()
-        } else {
-            self.size.0 * self.size.1 - UNIT_POS_X * self.num_cols_per_unit - r * self.size.1
-        }
+    fn num_cols(&self) -> comptime_type!(u32) {
+        self.num_cols_per_unit
     }
 
     fn col_index(&self, r: u32, c: u32) -> u32 {
         let first_idx = UNIT_POS_X * self.num_cols_per_unit;
         let row_start = (first_idx + r * self.num_cols_per_unit) % self.size.1;
         row_start + c
+    }
+
+    fn get_at_coor(&self, row: u32, col: u32) -> E {
+        self.array[row + self.size.1 + col]
     }
 }
 

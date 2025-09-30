@@ -89,6 +89,6 @@ impl PartitionMask {
 impl TileMask {
     pub fn apply<E: Numeric>(&self, row: u32, col: u32) -> Line<E> {
         let should_mask = Line::<E>::cast_from(row >= self.q_bound || col >= self.kv_bound);
-        should_mask * Line::cast_from(-999999)
+        should_mask * Line::cast_from(E::min_value())
     }
 }
