@@ -72,27 +72,17 @@ where
     fn load_lhs<E: Numeric>(
         tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        CmmaStageReader::<Self::LhsTile>::load_fragment(
-            tile,
-            lhs,
-            CubeOption::new_None(),
-            config.stage_line_size(StageIdent::Lhs),
-        );
+        CmmaStageReader::<Self::LhsTile>::load_fragment(tile, lhs, CubeOption::new_None());
     }
 
     fn load_rhs<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        CmmaStageReader::<Self::RhsTile>::load_fragment(
-            tile,
-            rhs,
-            CubeOption::new_None(),
-            config.stage_line_size(StageIdent::Rhs),
-        );
+        CmmaStageReader::<Self::RhsTile>::load_fragment(tile, rhs, CubeOption::new_None());
     }
 
     fn load_acc<E: Numeric>(
@@ -101,12 +91,7 @@ where
         #[comptime] config: Self::Config,
     ) {
         let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
-        CmmaStageReader::<Self::AccTile>::load_fragment(
-            tile,
-            acc,
-            CubeOption::new_Some(layout),
-            config.stage_line_size(StageIdent::Acc),
-        );
+        CmmaStageReader::<Self::AccTile>::load_fragment(tile, acc, CubeOption::new_Some(layout));
     }
 
     fn write_results<E: Numeric>(
@@ -115,8 +100,7 @@ where
         #[comptime] _config: Self::Config,
     ) {
         let out = cmma::cast::<A, E>(out);
-        let line_size = tile.slice.line_size();
-        CmmaStageWriter::store_fragment(tile, &out, line_size);
+        CmmaStageWriter::store_fragment(tile, &out);
     }
 
     fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {

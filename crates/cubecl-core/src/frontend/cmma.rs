@@ -384,6 +384,20 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         })
     }
 
+    /// Returns the number of lines of size `line_size` with layout `line_layout` per lane.
+    ///
+    /// # Note
+    /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
+    /// to a cube.
+    #[allow(unused)]
+    pub fn lines_per_lane(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
+        intrinsic!(|scope| {
+            let elems = self.clone().__expand_elems_per_lane_method(scope, ident);
+            let line_size = self.__expand_line_size_method(scope, ident);
+            elems / line_size
+        })
+    }
+
     /// The layout of each line in this matrix (row major or column major)
     #[allow(unused)]
     pub fn line_layout(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(MatrixLayout) {
@@ -419,7 +433,7 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     /// "Lane" here refers to the unit relative to a plane, to distinguish it from a unit relative
     /// to a cube.
     #[allow(unused_variables)]
-    pub fn indices_of_nth(
+    pub fn position_of_nth(
         &self,
         lane_id: u32,
         elem_idx: u32,

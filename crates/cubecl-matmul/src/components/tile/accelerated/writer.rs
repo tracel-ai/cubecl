@@ -12,10 +12,9 @@ impl CmmaStageWriter {
     pub fn store_fragment<E: Numeric, V: Numeric>(
         tile: &mut StridedTile<V, ReadWrite>,
         fragment: &cmma::Matrix<E>,
-        #[comptime] line_size: u32,
     ) {
         let layout = as_cmma_layout(tile.layout);
-        let (mut slice, stride) = tile.as_unlined(line_size);
+        let (mut slice, stride) = tile.as_unlined();
         cmma::store(&mut slice, fragment, stride, layout);
     }
 }
