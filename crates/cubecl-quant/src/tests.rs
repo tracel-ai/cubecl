@@ -123,6 +123,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
     let (q_min, q_max) = value.range();
 
     let scale_count = data.len() / block_size;
+    let shape_scale = vec![m, n / block_size];
 
     let mut scales = Vec::with_capacity(scale_count);
 
@@ -146,17 +147,17 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
 
     let scale_alloc = client.create_tensor(
         f32::as_bytes(&scales),
-        &[scale_count],
+        &shape_scale,
         f32::elem_size() as usize,
     );
 
     let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape.clone(), input_alloc.strides);
     let scale =
-        TensorHandle::<R, f32>::new(scale_alloc.handle, vec![scale_count], scale_alloc.strides);
+        TensorHandle::<R, f32>::new(scale_alloc.handle, shape_scale.clone(), scale_alloc.strides);
     let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
 
     let scheme = QuantScheme::default()
-        .with_level(QuantLevel::Block(block_size))
+        .with_level(QuantLevel::Block(vec![1, block_size]))
         .with_mode(mode)
         .with_value(value)
         .with_store(QuantStore::U32)
@@ -175,7 +176,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
             },
             AllocationDescriptor {
                 kind: cubecl_core::server::AllocationKind::Contiguous,
-                shape: &[scale_count],
+                shape: &shape_scale,
                 elem_size: f32::elem_size() as usize,
             },
         ])
@@ -184,7 +185,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
     let output = TensorHandle::<R, u32>::new(output_alloc.handle, shape_out, output_alloc.strides);
     let output_scale = TensorHandle::<R, f32>::new(
         output_scale_alloc.handle,
-        vec![scale_count],
+        shape_scale.clone(),
         output_scale_alloc.strides,
     );
 
@@ -225,7 +226,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         let diff = f32::abs(actual - expected);
         assert!(
             diff <= max_error,
-            "Expected: {expected} | Actual: {actual} (diff {diff} > {max_error})"
+            "Mismatch at {i}, Expected: {expected} | Actual: {actual} (diff {diff} > {max_error})"
         );
     }
 }

@@ -5,7 +5,7 @@ use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_siz
 use cubecl_runtime::TypeUsage;
 
 use crate::{
-    qparams::QParams,
+    layout::{ScalesView, scales_view},
     scheme::{QuantLevel, QuantMode, QuantParam, QuantScheme, QuantStore, QuantValue},
 };
 use cubecl_std::tensor::{
@@ -29,8 +29,8 @@ pub fn dequantize_symmetric<F: Float, FS: Float>(value: Line<F>, scale: FS) -> L
 pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: &View<Line<QI>, u32>,
-    scales: &View<Line<FS>, u32>,
-    #[comptime] scheme: QuantScheme,
+    scales: &View<FS, u32>,
+    #[comptime] scheme: &QuantScheme,
 ) -> Array<Line<F>> {
     dequantize_symmetric_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
 }
@@ -43,11 +43,10 @@ pub fn dequantize_symmetric_packed_values<F: Float, FS: Float, QI: Int>(
 pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
     position: u32,
     values: Line<QI>,
-    scales: &View<Line<FS>, u32>,
-    #[comptime] scheme: QuantScheme,
+    scales: &View<FS, u32>,
+    #[comptime] scheme: &QuantScheme,
 ) -> Array<Line<F>> {
-    let qparams = QParams::new(scheme);
-    dequantize_symmetric_packed_value::<F, FS, QI>(values, scales, qparams, position, scheme)
+    dequantize_symmetric_packed_value::<F, FS, QI>(values, scales, position, scheme)
 }
 
 /// Dequantize a single packed value using the scale provided.
@@ -57,19 +56,18 @@ pub fn dequantize_symmetric_packed_value_at<F: Float, FS: Float, QI: Int>(
 #[cube]
 pub fn dequantize_symmetric_packed_value<F: Float, FS: Float, QS: Int>(
     values: Line<QS>,
-    scales: &View<Line<FS>, u32>,
-    qparams: QParams,
+    scales: &View<FS, u32>,
     position: u32,
-    #[comptime] scheme: QuantScheme,
+    #[comptime] scheme: &QuantScheme,
 ) -> Array<Line<F>> {
     let line_size_values = values.line_size();
-    let num_quants = comptime!(qparams.num_quants);
+    let num_quants = comptime!(scheme.num_quants() as u32);
     let mut tmp = Array::vectorized(line_size_values, num_quants);
 
     #[unroll]
     for i in 0..line_size_values {
         let floats = unpack_q::<F, QS>(values[i], scheme.value, scheme.store);
-        let scale = qparams.scale(scales, (position * line_size_values) + i);
+        let scale = scales[(position * line_size_values) + i * num_quants];
         let values = dequantize_symmetric::<F, FS>(floats, scale);
         tmp[i] = values;
     }
@@ -119,31 +117,25 @@ fn unpack_q<F: Float, QS: Int>(
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
     input: &LinearView<Line<u32>>,
-    scales: &LinearView<Line<FS>>,
+    scales: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
-    #[comptime] scheme: QuantScheme,
+    #[comptime] scheme: &QuantScheme,
 ) {
     if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
-    let qparams = QParams::new(scheme);
     let line_size_in = input.line_size();
     let line_size_out = output.line_size();
 
     comptime! {
-        assert_eq!(line_size_out, qparams.num_quants);
+        assert_eq!(line_size_out, scheme.num_quants() as u32);
     }
 
     let values = input[ABSOLUTE_POS];
+    let packed_pos = ABSOLUTE_POS * comptime![scheme.num_quants() as u32];
 
-    let out = dequantize_symmetric_packed_value::<F, FS, u32>(
-        values,
-        scales,
-        qparams,
-        ABSOLUTE_POS,
-        scheme,
-    );
+    let out = dequantize_symmetric_packed_value::<F, FS, u32>(values, scales, packed_pos, scheme);
 
     #[unroll]
     for i in 0..line_size_in {
@@ -154,17 +146,15 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: Float>(
 #[cube(launch_unchecked)]
 fn dequantize_symmetric_int8_native_kernel<F: Float, FS: Float>(
     input: &LinearView<Line<i8>>,
-    scale: &LinearView<Line<FS>>,
+    scale: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
-    #[comptime] scheme: QuantScheme,
 ) {
     if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
     }
 
-    let qparams = QParams::new(scheme);
     // Absolute pos represents the logical block (scale) used to dequantize, not layout
-    let scale = qparams.scale(scale, ABSOLUTE_POS * input.line_size());
+    let scale = scale[ABSOLUTE_POS * input.line_size()];
 
     output[ABSOLUTE_POS] =
         dequantize_symmetric::<F, FS>(Line::cast_from(input[ABSOLUTE_POS]), scale);
@@ -193,6 +183,9 @@ pub fn launch_ref<R: Runtime, F: Float>(
             QuantParam::BF16 => {
                 dequantize_packed::<R, F, bf16>(client, values, scheme, params, output)
             }
+            QuantParam::UE4M3 | QuantParam::UE8M0 => {
+                todo!("Not yet implemented");
+            }
         },
         QuantScheme {
             value: QuantValue::Q8F | QuantValue::Q8S,
@@ -215,6 +208,9 @@ pub fn launch_ref<R: Runtime, F: Float>(
                 }
                 QuantParam::BF16 => {
                     dequantize_native::<R, F, bf16>(client, values, scheme, params, output)
+                }
+                QuantParam::UE4M3 | QuantParam::UE8M0 => {
+                    todo!("Not yet implemented");
                 }
             }
         }
@@ -268,9 +264,9 @@ fn dequantize_packed<R: Runtime, F: Float, FS: Float>(
                     cube_count,
                     cube_dim,
                     linear_view(client, input, &line_size_in),
-                    linear_view(client, scale, &1),
+                    scales_view(client, input, scale, &1, scheme),
                     linear_view(client, output, &line_size_out),
-                    *scheme,
+                    scheme.clone(),
                 )
             };
         }
@@ -309,9 +305,8 @@ fn dequantize_native<R: Runtime, F: Float, FS: Float>(
                     cube_count,
                     cube_dim,
                     linear_view(client, input, &line_size),
-                    linear_view(client, scale, &1),
+                    scales_view(client, input, scale, &1, scheme),
                     linear_view(client, output, &line_size),
-                    *scheme,
                 )
             };
         }
