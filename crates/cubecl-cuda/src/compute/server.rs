@@ -1,6 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::CudaCompiler;
-use crate::compute::command::Command;
+use crate::compute::command::{Command, write_to_cpu};
 use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
@@ -415,6 +415,59 @@ impl ComputeServer for CudaServer {
         command.allocation_mode(mode)
     }
 
+    fn change_server_v2(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let mut command_src =
+            server_src.command_no_current(stream_id_src, [&src.binding].into_iter());
+        let mut command_dst = server_dst.command_no_current(stream_id_dst, [].into_iter());
+
+        let size = src.binding.size();
+        let mut bytes = command_dst.reserve_cpu(size as usize, true, None);
+
+        command_src.set_current();
+        let resource_src = command_src.resource(src.binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+
+        unsafe {
+            write_to_cpu(
+                src.shape,
+                src.strides,
+                src.elem_size,
+                &mut bytes,
+                resource_src.ptr,
+                stream_src,
+            )?;
+        }
+
+        let fence_src = Fence::new(stream_src);
+
+        command_dst.set_current();
+        let stream_dst = command_dst.streams.current().sys;
+        fence_src.wait_async(stream_dst);
+        core::mem::drop(src.binding);
+        let dst = command_dst.reserve(size)?;
+
+        command_dst.write_to_gpu(
+            CopyDescriptor {
+                binding: dst.clone().binding(),
+                shape: src.shape,
+                strides: src.strides,
+                elem_size: src.elem_size,
+            },
+            &bytes,
+        )?;
+
+        Ok(Allocation {
+            handle: dst,
+            strides: src.strides.to_vec(),
+        })
+    }
+
     fn change_server(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -495,6 +548,15 @@ impl CudaServer {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
+        let streams = self.streams.resolve(stream_id, bindings);
+
+        Command::new(&mut self.ctx, streams)
+    }
+    fn command_no_current<'a>(
+        &mut self,
+        stream_id: StreamId,
+        bindings: impl Iterator<Item = &'a Binding>,
+    ) -> Command<'_> {
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)

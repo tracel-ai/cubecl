@@ -57,6 +57,16 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         desc_dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError>;
 
+    fn change_server_v2(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        todo!()
+    }
+
     /// Wait for the completion of every task in the server.
     fn sync(&self, stream_id: StreamId) -> DynFut<()>;
 

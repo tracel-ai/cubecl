@@ -97,6 +97,25 @@ where
         Server::change_server(&mut server_src, &mut server_dst, desc_src, desc_dst)
     }
 
+    fn change_server_v2(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let mut server_src = server_src.server.lock();
+        let mut server_dst = server_dst.server.lock();
+
+        Server::change_server_v2(
+            &mut server_src,
+            &mut server_dst,
+            src,
+            stream_id_src,
+            stream_id_dst,
+        )
+    }
+
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
         server.register_dest(stream_id, id, dst);

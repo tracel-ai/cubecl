@@ -344,10 +344,18 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        let shape = src_descriptor.shape;
-        let elem_size = src_descriptor.elem_size;
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
-        self.data_transfer(src_descriptor, alloc_desc, dst_server)
+        Channel::change_server_v2(
+            &self.channel,
+            &dst_server.channel,
+            src_descriptor,
+            self.stream_id(),
+            dst_server.stream_id(),
+        )
+        .unwrap()
+        // let shape = src_descriptor.shape;
+        // let elem_size = src_descriptor.elem_size;
+        // let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
+        // self.data_transfer(src_descriptor, alloc_desc, dst_server)
     }
 
     #[track_caller]

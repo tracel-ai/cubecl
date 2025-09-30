@@ -151,6 +151,16 @@ where
         desc_src: CopyDescriptor<'_>,
         desc_dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError>;
+
+    fn change_server_v2(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        unimplemented!()
+    }
 }
 
 /// Defines a way to move data from one compute server to another.

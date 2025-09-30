@@ -18,7 +18,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::{GcTask, ResolvedStreams},
+    stream::ResolvedStreams,
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
@@ -60,7 +60,11 @@ impl<'a> Command<'a> {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .ok_or(IoError::InvalidHandle)
     }
-
+    pub fn set_current(&mut self) {
+        unsafe {
+            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
+        };
+    }
     /// Retrieves the gpu memory usage of the current stream.
     ///
     /// # Returns
@@ -408,88 +412,6 @@ impl<'a> Command<'a> {
                 );
             }
         }
-    }
-
-    pub fn data_transfer(
-        mut command_src: Self,
-        mut command_dst: Self,
-        desc_src: CopyDescriptor<'_>,
-        desc_dst: CopyDescriptor<'_>,
-    ) -> Result<GcTask<CudaStreamBackend>, IoError> {
-        let binding_src = desc_src.binding.clone();
-        let binding_dst = desc_dst.binding.clone();
-
-        let stream_src = command_src.streams.get(&binding_src.stream);
-        let fence = Fence::new(stream_src.sys);
-        fence.wait_sync();
-
-        let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
-
-        let stream_src = command_src.streams.get(&binding_src.stream);
-        let fence = Fence::new(stream_src.sys);
-        fence.wait_sync();
-        core::mem::drop(binding_src);
-
-        command_dst.write_to_gpu(desc_dst, &data_src)?;
-
-        let stream_dst = command_dst.streams.get(&binding_dst.stream);
-        let fence = Fence::new(stream_dst.sys);
-
-        Ok(GcTask::new((data_src, binding_dst), fence))
-
-        //m let resource_src = command_src.resource(desc_src.binding.clone()).unwrap();
-
-        //m let stream_src = command_src.streams.get(&desc_src.binding.stream);
-        //m let item_src = DataTransferItem {
-        //m     stream: stream_src.sys,
-        //m     context: command_src.ctx.context,
-        //m     resource: resource_src,
-        //m };
-
-        //m let resource_dst = command_dst.resource(desc_dst.binding.clone()).unwrap();
-        //m let stream_dst = command_dst.streams.get(&desc_dst.binding.stream);
-        //m let item_dest = DataTransferItem {
-        //m     stream: stream_dst.sys,
-        //m     context: command_dst.ctx.context,
-        //m     resource: resource_dst,
-        //m };
-        //m let num_bytes = desc_dst.shape.iter().product::<usize>() * desc_dst.elem_size;
-        //m let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
-
-        //m let fence = unsafe {
-        //m     cudarc::driver::result::ctx::set_current(item_src.context).unwrap();
-
-        //m     write_to_cpu(
-        //m         desc_src.shape,
-        //m         desc_src.strides,
-        //m         desc_src.elem_size,
-        //m         &mut bytes,
-        //m         item_src.resource.ptr,
-        //m         item_src.stream,
-        //m     )?;
-
-        //m     let fence = Fence::new(item_src.stream);
-        //m     fence.wait_sync();
-
-        //m     cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
-
-        //m     // fence.wait_async(item_dest.stream);
-
-        //m     write_to_gpu(
-        //m         desc_dst.shape,
-        //m         desc_dst.strides,
-        //m         desc_dst.elem_size,
-        //m         &bytes,
-        //m         item_dest.resource.ptr,
-        //m         item_dest.stream,
-        //m     )?;
-        //m     let fence = Fence::new(item_dest.stream);
-        //m     fence.wait_sync();
-
-        //m     Fence::new(item_dest.stream)
-        //m };
-
-        //m Ok(GcTask::new((bytes, desc_src.binding), fence))
     }
 
     /// Synchronizes the current stream, ensuring all pending operations are complete.
