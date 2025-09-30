@@ -64,7 +64,8 @@ impl QuantScheme {
 
     /// Returns the size of the quantization storage type in bits.
     pub fn size_bits_stored(&self) -> usize {
-        self.store.size_bits(&self.value)
+        // Assume native packing if store type is < 8 bits
+        self.store.size_bits(&self.value).max(8)
     }
 
     /// Returns the size of the quantization storage type in bits.
