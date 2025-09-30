@@ -464,7 +464,7 @@ impl<'a> Command<'a> {
             Fence::new(item_dest.stream)
         };
 
-        Ok(GcTask::new(Box::new((bytes, desc_src.binding)), fence))
+        Ok(GcTask::new((bytes, desc_src.binding), fence))
     }
 
     /// Synchronizes the current stream, ensuring all pending operations are complete.

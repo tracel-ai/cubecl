@@ -71,11 +71,20 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     pub current: StreamId,
 }
 
-#[derive(new, Debug)]
+#[derive(Debug)]
 pub struct GcTask<B: EventStreamBackend> {
     to_drop: Box<dyn Any + Send + 'static>,
     /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
     event: B::Event,
+}
+
+impl<B: EventStreamBackend> GcTask<B> {
+    pub fn new<T: Send + 'static>(to_drop: T, event: B::Event) -> Self {
+        Self {
+            to_drop: Box::new(to_drop),
+            event,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -155,10 +164,7 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
             .drain()
             .for_each(|item| ids.extend(item.1));
 
-        self.gc.register(GcTask {
-            to_drop: Box::new(ids),
-            event,
-        });
+        self.gc.register(GcTask::new(ids, event));
     }
 }
 
