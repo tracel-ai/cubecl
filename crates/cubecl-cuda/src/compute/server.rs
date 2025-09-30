@@ -3,6 +3,7 @@ use crate::CudaCompiler;
 use crate::compute::command::Command;
 use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
+use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::server::Binding;
@@ -30,7 +31,7 @@ use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::stream::{GcTask, MultiStream};
 use cudarc::driver::sys::CUtensorMapInterleave;
 use cudarc::driver::sys::{
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
@@ -420,12 +421,22 @@ impl ComputeServer for CudaServer {
         desc_src: CopyDescriptor<'_>,
         desc_dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError> {
-        let command_src =
-            server_src.command(desc_src.binding.stream, [&desc_src.binding].into_iter());
-        let command_dst =
-            server_dst.command(desc_dst.binding.stream, [&desc_dst.binding].into_iter());
+        let binding_src = desc_src.binding.clone();
+        let mut command_src = server_src.command(desc_src.binding.stream, [].into_iter());
+        let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
+        let stream_src = command_src.streams.get(&binding_src.stream);
+        let fence_src = Fence::new(stream_src.sys);
+        fence_src.wait_sync();
 
-        let gc = Command::data_transfer(command_src, command_dst, desc_src, desc_dst)?;
+        let binding_dst = desc_dst.binding.clone();
+        let mut command_dst = server_dst.command(desc_dst.binding.stream, [].into_iter());
+        command_dst.write_to_gpu(desc_dst, &data_src)?;
+
+        let stream_dst = command_dst.streams.get(&binding_dst.stream);
+        let fence_dst = Fence::new(stream_dst.sys);
+        let gc = GcTask::new((data_src, binding_dst), fence_dst);
+        core::mem::drop(command_dst);
+
         server_dst.streams.gc(gc);
 
         Ok(())

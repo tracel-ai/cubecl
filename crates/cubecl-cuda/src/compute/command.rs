@@ -39,7 +39,7 @@ enum DeviceTransferStrategy {
 /// registration, and task execution.
 pub struct Command<'a> {
     ctx: &'a mut CudaContext,
-    streams: ResolvedStreams<'a, CudaStreamBackend>,
+    pub(crate) streams: ResolvedStreams<'a, CudaStreamBackend>,
 }
 
 impl<'a> Command<'a> {
