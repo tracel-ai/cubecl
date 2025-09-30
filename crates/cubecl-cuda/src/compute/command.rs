@@ -410,11 +410,9 @@ impl<'a> Command<'a> {
         }
     }
 
-    pub async fn data_transfer(
+    pub fn data_transfer(
         mut command_src: Self,
         mut command_dst: Self,
-        _stream_src: StreamId,
-        _stream_dst: StreamId,
         desc_src: CopyDescriptor<'_>,
         desc_dst: CopyDescriptor<'_>,
     ) -> Result<(), IoError> {

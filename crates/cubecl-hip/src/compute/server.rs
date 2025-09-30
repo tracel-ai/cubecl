@@ -236,6 +236,15 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
     }
+
+    fn change_server(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        todo!()
+    }
 }
 
 impl HipServer {

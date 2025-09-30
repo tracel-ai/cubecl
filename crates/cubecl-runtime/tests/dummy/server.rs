@@ -220,6 +220,15 @@ impl ComputeServer for DummyServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
     }
+
+    fn change_server(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        todo!()
+    }
 }
 
 impl DummyServer {
