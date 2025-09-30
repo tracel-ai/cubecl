@@ -37,6 +37,7 @@ pub trait Float:
     + Magnitude
     + Normalize
     + Dot
+    + IsNan
     + Into<Self::ExpandType>
     + core::ops::Neg<Output = Self>
     + core::ops::Add<Output = Self>

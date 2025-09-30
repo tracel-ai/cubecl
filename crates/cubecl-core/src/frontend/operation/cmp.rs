@@ -3,6 +3,8 @@ use crate::frontend::operation::base::cmp_expand;
 use crate::ir::{Comparison, Scope};
 use crate::prelude::CubePrimitive;
 
+// NOTE: Unary comparison tests are in the unary module
+
 pub mod ne {
     use super::*;
 

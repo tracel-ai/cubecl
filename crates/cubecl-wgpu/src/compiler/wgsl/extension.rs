@@ -11,6 +11,8 @@ pub enum Extension {
     SafeTanh(Item),
     #[cfg(target_os = "macos")]
     SafeTanhPrimitive(Elem),
+    IsNanPrimitive(Elem),
+    IsNan(Item, Item),
 }
 
 impl Display for Extension {
@@ -62,6 +64,17 @@ impl Display for Extension {
                 }],
                 *item,
             ),
+            Extension::IsNanPrimitive(elem) => format_is_nan_primitive(f, elem),
+            Extension::IsNan(in_item, out_item) => construct_vector(
+                f,
+                ISNAN,
+                ISNAN_PRIMITIVE,
+                &[VectorIdent {
+                    name: "x",
+                    item: *in_item,
+                }],
+                *out_item,
+            ),
         }
     }
 }
@@ -74,6 +87,9 @@ const POWF_SCALAR: &str = "powf_scalar";
 const SAFE_TANH_PRIMITIVE: &str = "safe_tanh_primitive";
 #[cfg(target_os = "macos")]
 const SAFE_TANH: &str = "safe_tanh";
+
+const ISNAN_PRIMITIVE: &str = "is_nan_primitive";
+const ISNAN: &str = "is_nan";
 
 pub fn powf_extension(rhs: &Variable, out: &Variable) -> Extension {
     if should_use_scalar_powf(rhs) {
@@ -117,6 +133,16 @@ fn should_use_scalar_powf(rhs: &Variable) -> bool {
     rhs.is_always_scalar() || rhs.item().vectorization_factor() == 1
 }
 
+pub fn call_is_nan(
+    f: &mut core::fmt::Formatter,
+    input: &Variable,
+    out: &Variable,
+) -> core::fmt::Result {
+    let function_name = construct_vectorized_name(ISNAN, input.item());
+    let out = out.fmt_left();
+    write!(f, "{out} = {function_name}({input});")
+}
+
 fn construct_vectorized_name(base_name: &str, item: Item) -> String {
     let vec_factor = item.vectorization_factor();
     let elem = item.elem();
@@ -139,9 +165,10 @@ fn construct_vector(
     inputs: &[VectorIdent],
     output: Item,
 ) -> core::fmt::Result {
+    let in_item = inputs[0].item;
     let vec_factor = output.vectorization_factor();
-    let function_name = construct_vectorized_name(base_name, output);
-    let primitive_name = construct_primitive_name(primitive_name, *output.elem());
+    let function_name = construct_vectorized_name(base_name, in_item);
+    let primitive_name = construct_primitive_name(primitive_name, *in_item.elem());
     write!(f, "fn {function_name}(")?;
     for VectorIdent { name, item } in inputs {
         write!(f, "{name}: {item}, ")?;
@@ -226,6 +253,29 @@ fn {function_name}(x: {elem}) -> {elem} {{
     }} else {{
         return tanh(x);
     }}
+}}
+"
+    )?;
+    Ok(())
+}
+
+fn format_is_nan_primitive(
+    f: &mut std::fmt::Formatter<'_>,
+    in_elem: &Elem,
+) -> Result<(), std::fmt::Error> {
+    let function_name = construct_primitive_name(ISNAN_PRIMITIVE, *in_elem);
+    // Per NaN definition in IEEE 754:
+    //   - sign = either 0 or 1.
+    //   - biased exponent = all 1 bits.
+    //   - fraction = anything except all 0 bits (since all 0 bits represents infinity).
+    // https://en.wikipedia.org/wiki/IEEE_754-1985#Representation_of_non-numbers
+    write!(
+        f,
+        "
+fn {function_name}(x: {in_elem}) -> bool {{
+    let bits = bitcast<u32>(x);
+    let abs_bits = bits & 0x7fffffffu;
+    return abs_bits > 0x7f800000u;
 }}
 "
     )?;

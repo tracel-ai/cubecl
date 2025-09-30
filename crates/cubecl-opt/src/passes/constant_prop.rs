@@ -483,6 +483,14 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantScalarValue> {
         Comparison::Greater(op) => const_eval_cmp!(> op.lhs, op.rhs),
         Comparison::LowerEqual(op) => const_eval_cmp!(<= op.lhs, op.rhs),
         Comparison::GreaterEqual(op) => const_eval_cmp!(>= op.lhs, op.rhs),
+        Comparison::IsNan(op) => {
+            use ConstantScalarValue::*;
+            op.input.as_const().map(|input| match input {
+                Float(val, _) => Bool(val.is_nan()),
+                // Integers, bools, uints can't be NaN, so always false
+                Int(_, _) | UInt(_, _) | Bool(_) => Bool(false),
+            })
+        }
     }
 }
 
