@@ -451,7 +451,8 @@ impl<'a> Command<'a> {
 
             cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
 
-            fence.wait_async(item_dest.stream);
+            fence.wait_sync();
+            // fence.wait_async(item_dest.stream);
 
             write_to_gpu(
                 desc_dst.shape,
