@@ -608,17 +608,20 @@ where
         alloc_descriptor: AllocationDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
+        let stream_id_src = self.stream_id();
+        let stream_id_dst = dst_server.stream_id();
+
         // Allocate destination
         let alloc = dst_server
             .channel
-            .create(vec![alloc_descriptor], self.stream_id())
+            .create(vec![alloc_descriptor], stream_id_dst)
             .unwrap()
             .remove(0);
 
         let id = DataTransferId::new();
-        let stream = src_descriptor.binding.stream;
 
-        self.channel.data_transfer_send(id, src_descriptor, stream);
+        self.channel
+            .data_transfer_send(id, src_descriptor, stream_id_src);
 
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(
@@ -626,9 +629,8 @@ where
             &alloc.strides,
             alloc_descriptor.elem_size,
         );
-        let stream = desc.binding.stream;
 
-        self.channel.data_transfer_recv(id, desc, stream);
+        self.channel.data_transfer_recv(id, desc, stream_id_dst);
 
         // Send with source server
         // Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
