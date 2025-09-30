@@ -54,6 +54,8 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
+    const CHANGE_SERVER: bool = true;
+
     fn logger(&self) -> Arc<ServerLogger> {
         todo!();
     }
@@ -93,6 +95,18 @@ where
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.borrow_mut();
         server.register_dest(stream_id, id, dst);
+    }
+
+    fn change_server(
+        server_src: &Self,
+        server_dst: &Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        let mut server_src = server_src.server.borrow_mut();
+        let mut server_dst = server_dst.server.borrow_mut();
+
+        Server::change_server(&mut server_src, &mut server_dst, desc_src, desc_dst)
     }
 
     fn sync(&self, stream_id: StreamId) -> DynFut<()> {

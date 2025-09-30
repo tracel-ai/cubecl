@@ -410,6 +410,64 @@ impl<'a> Command<'a> {
         }
     }
 
+    pub async fn data_transfer(
+        mut command_src: Self,
+        mut command_dst: Self,
+        _stream_src: StreamId,
+        _stream_dst: StreamId,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        let resource_src = command_src.resource(desc_src.binding.clone()).unwrap();
+
+        let stream_src = command_src.streams.get(&desc_src.binding.stream);
+        let item_src = DataTransferItem {
+            stream: stream_src.sys,
+            context: command_src.ctx.context,
+            resource: resource_src,
+        };
+
+        let resource_dst = command_dst.resource(desc_dst.binding.clone()).unwrap();
+        let stream_dst = command_dst.streams.get(&desc_dst.binding.stream);
+        let item_dest = DataTransferItem {
+            stream: stream_dst.sys,
+            context: command_dst.ctx.context,
+            resource: resource_dst,
+        };
+        let num_bytes = desc_dst.shape.iter().product::<usize>() * desc_dst.elem_size;
+        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
+
+        unsafe {
+            cudarc::driver::result::ctx::set_current(item_src.context).unwrap();
+
+            write_to_cpu(
+                desc_src.shape,
+                desc_src.strides,
+                desc_src.elem_size,
+                &mut bytes,
+                item_src.resource.ptr,
+                item_src.stream,
+            )?;
+
+            let fence = Fence::new(item_src.stream);
+
+            cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
+
+            fence.wait_async(item_dest.stream);
+
+            write_to_gpu(
+                desc_dst.shape,
+                desc_dst.strides,
+                desc_dst.elem_size,
+                &bytes,
+                item_dest.resource.ptr,
+                item_dest.stream,
+            )?;
+        };
+
+        Ok(())
+    }
+
     /// Synchronizes the current stream, ensuring all pending operations are complete.
     ///
     /// # Returns

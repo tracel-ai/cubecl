@@ -2,7 +2,6 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
-    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -609,7 +608,6 @@ where
         let strides = src_descriptor.strides;
         let shape = src_descriptor.shape;
         let elem_size = src_descriptor.elem_size;
-        let stream_id = self.stream_id();
 
         // Allocate destination
         let alloc = dst_server
@@ -618,16 +616,11 @@ where
             .unwrap()
             .remove(0);
 
-        // Unique id for this transaction
-        let id = DataTransferId::new();
-
-        // Send with source server
-        self.channel
-            .data_transfer_send(id, src_descriptor, stream_id);
-
         // Recv with destination server
         let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
-        dst_server.channel.data_transfer_recv(id, desc, stream_id);
+
+        // Send with source server
+        Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
 
         alloc
     }
@@ -675,7 +668,7 @@ where
         alloc_descriptor: AllocationDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if self.properties().memory.data_transfer_async {
+        if Channel::CHANGE_SERVER && self.properties().memory.data_transfer_async {
             self.data_transfer_async(src_descriptor, alloc_descriptor, dst_server)
         } else {
             self.data_transfer_sync(src_descriptor, alloc_descriptor, dst_server)

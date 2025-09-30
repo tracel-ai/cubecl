@@ -48,6 +48,8 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
+    const CHANGE_SERVER: bool = true;
+
     fn logger(&self) -> Arc<ServerLogger> {
         self.server.lock().logger()
     }
@@ -81,6 +83,18 @@ where
     fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
         let mut server = self.server.lock();
         server.register_src(stream_id, id, src);
+    }
+
+    fn change_server(
+        server_src: &Self,
+        server_dst: &Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        let mut server_src = server_src.server.lock();
+        let mut server_dst = server_dst.server.lock();
+
+        Server::change_server(&mut server_src, &mut server_dst, desc_src, desc_dst)
     }
 
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {

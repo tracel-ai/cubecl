@@ -228,6 +228,8 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
+    const CHANGE_SERVER: bool = false;
+
     fn logger(&self) -> Arc<ServerLogger> {
         let (callback, response) = async_channel::unbounded();
 
@@ -413,6 +415,17 @@ where
             .sender
             .send_blocking(Message::AllocationMode(stream_id, mode))
             .unwrap()
+    }
+
+    fn change_server(
+        _server_src: &Self,
+        _server_dst: &Self,
+        _desc_src: CopyDescriptor<'_>,
+        _desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        Err(IoError::Unknown(
+            "MSPC Channel doesn't support change_server".to_string(),
+        ))
     }
 }
 

@@ -144,6 +144,13 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+
+    fn change_server(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError>;
 }
 
 /// Defines a way to move data from one compute server to another.

@@ -413,6 +413,28 @@ impl ComputeServer for CudaServer {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
     }
+
+    async fn change_server(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        stream_src: StreamId,
+        stream_dst: StreamId,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError> {
+        let command_src = server_src.command(stream_src, [&desc_src.binding].into_iter());
+        let command_dst = server_dst.command(stream_dst, [&desc_dst.binding].into_iter());
+
+        Command::data_transfer(
+            command_src,
+            command_dst,
+            stream_src,
+            stream_dst,
+            desc_src,
+            desc_dst,
+        )
+        .await
+    }
 }
 
 impl DataTransferService for CudaServer {

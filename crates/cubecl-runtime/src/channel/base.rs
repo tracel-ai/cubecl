@@ -18,6 +18,8 @@ use alloc::vec::Vec;
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
+    const CHANGE_SERVER: bool;
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 
@@ -47,6 +49,13 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
 
     /// Receive data from another server. Returns when the transfer has been registered.
     fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId);
+
+    fn change_server(
+        server_src: &Self,
+        server_dst: &Self,
+        desc_src: CopyDescriptor<'_>,
+        desc_dst: CopyDescriptor<'_>,
+    ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&self, stream_id: StreamId) -> DynFut<()>;

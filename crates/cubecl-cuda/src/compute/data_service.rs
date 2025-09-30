@@ -270,12 +270,12 @@ impl DataTransferRuntime {
 }
 
 #[derive(Default)]
-struct DataTransferInfo {
-    info_src: Option<DataTransferInfoSrc>,
-    info_dest: Option<DataTransferInfoDest>,
+pub(crate) struct DataTransferInfo {
+    pub info_src: Option<DataTransferInfoSrc>,
+    pub info_dest: Option<DataTransferInfoDest>,
 }
 
-enum DataTransferInfoSrc {
+pub enum DataTransferInfoSrc {
     Serialized {
         item: DataTransferItem,
         binding: Binding,
@@ -286,7 +286,7 @@ enum DataTransferInfoSrc {
     },
 }
 
-enum DataTransferInfoDest {
+pub enum DataTransferInfoDest {
     Peer {
         item: DataTransferItem,
         callback: SyncSender<()>,
@@ -386,7 +386,7 @@ impl DataTransferInfo {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn execute_serialized(
+    pub fn execute_serialized(
         item_src: DataTransferItem,
         item_dest: DataTransferItem,
         mut bytes: Bytes,
