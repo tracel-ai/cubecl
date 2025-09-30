@@ -422,63 +422,34 @@ impl ComputeServer for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let strides = src.strides.to_vec();
         let shape = src.shape.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
+        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, &shape, elem_size);
 
         let alloc = server_dst
-            .create(
-                vec![AllocationDescriptor {
-                    kind: AllocationKind::Optimized,
-                    shape: &shape,
-                    elem_size,
-                }],
-                stream_id_dst,
-            )?
+            .create(vec![alloc_desc], stream_id_dst)?
             .remove(0);
+        let copy_desc =
+            alloc
+                .handle
+                .copy_descriptor(&alloc_desc.shape, &alloc.strides, alloc_desc.elem_size);
 
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
 
         let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
-
-        //
-        // let mut bytes = command_dst.reserve_cpu(size as usize, true, None);
-
-        // command_src.set_current();
-        // let resource_src = command_src.resource(src.binding.clone())?;
-        // let stream_src = command_src.streams.current().sys;
-
-        // unsafe {
-        //     write_to_cpu(
-        //         src.shape,
-        //         src.strides,
-        //         src.elem_size,
-        //         &mut bytes,
-        //         resource_src.ptr,
-        //         stream_src,
-        //     )?;
-        // }
-
         let fence_src = Fence::new(stream_src);
 
-        let mut command_dst = server_dst.command(stream_id_dst, [].into_iter());
-        // command_dst.set_current();
+        core::mem::drop(command_src);
+
+        let mut command_dst = server_dst.command(stream_id_dst, [&copy_desc.binding].into_iter());
         let stream_dst = command_dst.streams.current().sys;
 
-        // let dst = command_dst.reserve(binding.size())?;
         fence_src.wait_async(stream_dst);
 
-        command_dst.write_to_gpu(
-            CopyDescriptor {
-                binding: alloc.handle.clone().binding(),
-                shape: &shape,
-                strides: &alloc.strides,
-                elem_size,
-            },
-            &bytes,
-        )?;
+        command_dst.write_to_gpu(copy_desc, &bytes)?;
+
         let fence_dst = Fence::new(stream_dst);
         let gc = GcTask::new((bytes, binding), fence_dst);
 
