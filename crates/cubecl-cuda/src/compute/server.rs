@@ -1,6 +1,6 @@
 use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::CudaCompiler;
-use crate::compute::command::Command;
+use crate::compute::command::{Command, write_to_cpu};
 use crate::compute::context::CudaContext;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
@@ -423,42 +423,92 @@ impl ComputeServer for CudaServer {
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
         let shape = src.shape.to_vec();
+        let strides = src.strides.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, &shape, elem_size);
+        let num_bytes = shape.iter().product() * elem_size;
 
-        let alloc = server_dst
-            .create(vec![alloc_desc], stream_id_dst)?
-            .remove(0);
-        let copy_desc =
-            alloc
-                .handle
-                .copy_descriptor(&alloc_desc.shape, &alloc.strides, alloc_desc.elem_size);
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let handle = command_dst.reserve(binding.size())?;
+        let bytes = command_dst.reserve_cpu(num_bytes, true, None);
+        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
+
+        core::mem::drop(command_dst);
 
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-
-        let bytes = command_src.copy_to_bytes(src, true, None)?;
+        let resource_src = command_src.resource(binding.clone())?;
         let stream_src = command_src.streams.current().sys;
+
+        unsafe {
+            write_to_cpu(
+                &shape,
+                &strides,
+                elem_size,
+                &mut bytes,
+                resource_src.ptr,
+                stream_src,
+            );
+        }
         let fence_src = Fence::new(stream_src);
 
         core::mem::drop(command_src);
 
-        let mut command_dst = server_dst.command(stream_id_dst, [&copy_desc.binding].into_iter());
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-
         command_dst.write_to_gpu(copy_desc, &bytes)?;
-
-        let fence_dst = Fence::new(stream_dst);
-        let gc = GcTask::new((bytes, binding), fence_dst);
 
         core::mem::drop(command_dst);
 
-        server_dst.streams.gc(gc);
-
-        Ok(alloc)
+        Ok(Allocation { handle, strides })
     }
+    //
+    //
+    // fn change_server_v2(
+    //     server_src: &mut Self,
+    //     server_dst: &mut Self,
+    //     src: CopyDescriptor<'_>,
+    //     stream_id_src: StreamId,
+    //     stream_id_dst: StreamId,
+    // ) -> Result<Allocation, IoError> {
+    //     let shape = src.shape.to_vec();
+    //     let elem_size = src.elem_size;
+    //     let binding = src.binding.clone();
+    //     let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, &shape, elem_size);
+
+    //     let alloc = server_dst
+    //         .create(vec![alloc_desc], stream_id_dst)?
+    //         .remove(0);
+    //     let copy_desc =
+    //         alloc
+    //             .handle
+    //             .copy_descriptor(&alloc_desc.shape, &alloc.strides, alloc_desc.elem_size);
+
+    //     let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+
+    //     let bytes = command_src.copy_to_bytes(src, true, None)?;
+    //     let stream_src = command_src.streams.current().sys;
+    //     let fence_src = Fence::new(stream_src);
+
+    //     core::mem::drop(command_src);
+
+    //     let mut command_dst = server_dst.command(stream_id_dst, [&copy_desc.binding].into_iter());
+    //     let stream_dst = command_dst.streams.current().sys;
+
+    //     fence_src.wait_async(stream_dst);
+
+    //     command_dst.write_to_gpu(copy_desc, &bytes)?;
+
+    //     let fence_dst = Fence::new(stream_dst);
+    //     let gc = GcTask::new((bytes, binding), fence_dst);
+
+    //     core::mem::drop(command_dst);
+
+    //     server_dst.streams.gc(gc);
+
+    //     Ok(alloc)
+    // }
 
     fn change_server(
         server_src: &mut Self,
