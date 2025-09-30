@@ -1,5 +1,5 @@
 use core::default::Default;
-use cubecl_common::{e2m1, e4m3, e5m2};
+use cubecl_common::{e4m3, e5m2};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
@@ -132,7 +132,7 @@ impl QuantValue {
             QuantValue::Q2S => (-1.0, 1.0),
             QuantValue::E4M3 => (e4m3::MIN as f32, e4m3::MAX as f32),
             QuantValue::E5M2 => (e5m2::MIN as f32, e5m2::MAX as f32),
-            QuantValue::E2M1 => (e2m1::MIN as f32, e2m1::MAX as f32),
+            QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
         }
     }
 
