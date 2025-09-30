@@ -422,12 +422,7 @@ impl ComputeServer for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let mut command_src =
-            server_src.command_no_current(stream_id_src, [&src.binding].into_iter());
-        let mut command_dst = server_dst.command_no_current(stream_id_dst, [].into_iter());
-
-        // Vsyunc
-        command_src.set_current();
+        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
 
         let size = src.binding.size();
         let strides = src.strides.to_vec();
@@ -458,7 +453,8 @@ impl ComputeServer for CudaServer {
 
         let fence_src = Fence::new(stream_src);
 
-        command_dst.set_current();
+        let mut command_dst = server_dst.command(stream_id_dst, [].into_iter());
+        // command_dst.set_current();
         let stream_dst = command_dst.streams.current().sys;
         fence_src.wait_async(stream_dst);
 
@@ -474,6 +470,12 @@ impl ComputeServer for CudaServer {
             },
             &bytes,
         )?;
+        let fence_dst = Fence::new(stream_dst);
+        core::mem::drop(command_dst);
+
+        server_dst
+            .streams
+            .gc(GcTask::new(Box::new(bytes), fence_dst));
 
         Ok(Allocation {
             handle: dst,
