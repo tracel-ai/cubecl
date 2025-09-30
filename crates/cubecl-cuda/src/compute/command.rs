@@ -448,10 +448,11 @@ impl<'a> Command<'a> {
             )?;
 
             let fence = Fence::new(item_src.stream);
+            fence.wait_sync();
 
             cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
 
-            fence.wait_async(item_dest.stream);
+            // fence.wait_async(item_dest.stream);
 
             write_to_gpu(
                 desc_dst.shape,
@@ -461,6 +462,9 @@ impl<'a> Command<'a> {
                 item_dest.resource.ptr,
                 item_dest.stream,
             )?;
+            let fence = Fence::new(item_dest.stream);
+            fence.wait_sync();
+
             Fence::new(item_dest.stream)
         };
 
