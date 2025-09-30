@@ -605,10 +605,6 @@ where
         alloc_descriptor: AllocationDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        let strides = src_descriptor.strides;
-        let shape = src_descriptor.shape;
-        let elem_size = src_descriptor.elem_size;
-
         // Allocate destination
         let alloc = dst_server
             .channel
@@ -617,7 +613,11 @@ where
             .remove(0);
 
         // Recv with destination server
-        let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
+        let desc = alloc.handle.copy_descriptor(
+            alloc_descriptor.shape,
+            &alloc.strides,
+            alloc_descriptor.elem_size,
+        );
 
         // Send with source server
         Channel::change_server(&self.channel, &dst_server.channel, src_descriptor, desc).unwrap();
