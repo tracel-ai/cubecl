@@ -426,11 +426,11 @@ impl ComputeServer for CudaServer {
         let strides = src.strides.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
-        let num_bytes = shape.iter().product() * elem_size;
+        let num_bytes = shape.iter().product::<usize>() * elem_size;
 
         let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
         let handle = command_dst.reserve(binding.size())?;
-        let bytes = command_dst.reserve_cpu(num_bytes, true, None);
+        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
         let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
 
         core::mem::drop(command_dst);
