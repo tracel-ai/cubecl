@@ -426,20 +426,21 @@ impl ComputeServer for CudaServer {
         let mut command_src = server_src.command(stream_id, [&desc_src.binding].into_iter());
 
         let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
-        let stream_src = command_src.streams.current();
-        let fence_src = Fence::new(stream_src.sys);
-        fence_src.wait_sync();
+        let stream_src = command_src.streams.current().sys;
+        let fence_src = Fence::new(stream_src);
 
-        core::mem::drop(binding_src);
         core::mem::drop(command_src);
 
-        let binding_dst = desc_dst.binding.clone();
         let mut command_dst = server_dst.command(stream_id, [&desc_dst.binding].into_iter());
+        let stream_dst = command_dst.streams.current().sys;
+
+        fence_src.wait_async(stream_dst);
+
         command_dst.write_to_gpu(desc_dst, &data_src)?;
 
-        let stream_dst = command_dst.streams.current();
-        let fence_dst = Fence::new(stream_dst.sys);
-        let gc = GcTask::new((data_src, binding_dst), fence_dst);
+        let fence_dst = Fence::new(stream_dst);
+
+        let gc = GcTask::new((data_src, binding_src), fence_dst);
         core::mem::drop(command_dst);
 
         server_dst.streams.gc(gc);
