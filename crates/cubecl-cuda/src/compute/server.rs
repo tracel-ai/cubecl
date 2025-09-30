@@ -425,7 +425,10 @@ impl ComputeServer for CudaServer {
         let command_dst =
             server_dst.command(desc_dst.binding.stream, [&desc_dst.binding].into_iter());
 
-        Command::data_transfer(command_src, command_dst, desc_src, desc_dst)
+        let gc = Command::data_transfer(command_src, command_dst, desc_src, desc_dst)?;
+        server_dst.streams.gc(gc);
+
+        Ok(())
     }
 }
 

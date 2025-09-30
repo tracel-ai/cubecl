@@ -5,6 +5,7 @@ use crate::{
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
+use core::any::Any;
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 use std::sync::{Arc, mpsc::SyncSender};
@@ -70,12 +71,9 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
     pub current: StreamId,
 }
 
-#[derive(Debug)]
-struct GcTask<B: EventStreamBackend> {
-    /// All the bindings shared in a single execution.
-    ///
-    /// We keep the binding alive so it won't be allocated in other concurrent streams.
-    ids: Vec<SliceId>,
+#[derive(new, Debug)]
+pub struct GcTask<B: EventStreamBackend> {
+    to_drop: Box<dyn Any + Send + 'static>,
     /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
     event: B::Event,
 }
@@ -109,8 +107,7 @@ impl<B: EventStreamBackend> GcThread<B> {
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
                 B::wait_event_sync(event.event);
-                log::info!("Release memory: {:?}", event.ids);
-                core::mem::drop(event.ids);
+                core::mem::drop(event.to_drop);
             }
         });
 
@@ -158,7 +155,10 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
             .drain()
             .for_each(|item| ids.extend(item.1));
 
-        self.gc.register(GcTask { ids, event });
+        self.gc.register(GcTask {
+            to_drop: Box::new(ids),
+            event,
+        });
     }
 }
 
@@ -172,6 +172,10 @@ impl<B: EventStreamBackend> MultiStream<B> {
             max_streams: max_streams as usize,
             gc: GcThread::new(),
         }
+    }
+
+    pub fn gc(&mut self, gc: GcTask<B>) {
+        self.gc.sender.send(gc).unwrap();
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary

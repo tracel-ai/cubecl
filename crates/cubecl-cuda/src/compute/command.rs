@@ -18,7 +18,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::ResolvedStreams,
+    stream::{GcTask, ResolvedStreams},
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
@@ -415,7 +415,7 @@ impl<'a> Command<'a> {
         mut command_dst: Self,
         desc_src: CopyDescriptor<'_>,
         desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
+    ) -> Result<GcTask<CudaStreamBackend>, IoError> {
         let resource_src = command_src.resource(desc_src.binding.clone()).unwrap();
 
         let stream_src = command_src.streams.get(&desc_src.binding.stream);
@@ -433,9 +433,9 @@ impl<'a> Command<'a> {
             resource: resource_dst,
         };
         let num_bytes = desc_dst.shape.iter().product::<usize>() * desc_dst.elem_size;
-        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
+        let mut bytes = command_src.reserve_cpu(num_bytes, true, None);
 
-        unsafe {
+        let fence = unsafe {
             cudarc::driver::result::ctx::set_current(item_src.context).unwrap();
 
             write_to_cpu(
@@ -451,8 +451,7 @@ impl<'a> Command<'a> {
 
             cudarc::driver::result::ctx::set_current(item_dest.context).unwrap();
 
-            fence.wait_sync();
-            // fence.wait_async(item_dest.stream);
+            fence.wait_async(item_dest.stream);
 
             write_to_gpu(
                 desc_dst.shape,
@@ -462,9 +461,10 @@ impl<'a> Command<'a> {
                 item_dest.resource.ptr,
                 item_dest.stream,
             )?;
+            Fence::new(item_dest.stream)
         };
 
-        Ok(())
+        Ok(GcTask::new(Box::new((bytes, desc_src.binding)), fence))
     }
 
     /// Synchronizes the current stream, ensuring all pending operations are complete.
