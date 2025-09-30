@@ -433,7 +433,7 @@ impl<'a> Command<'a> {
             resource: resource_dst,
         };
         let num_bytes = desc_dst.shape.iter().product::<usize>() * desc_dst.elem_size;
-        let mut bytes = command_src.reserve_cpu(num_bytes, true, None);
+        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
 
         let fence = unsafe {
             cudarc::driver::result::ctx::set_current(item_src.context).unwrap();
