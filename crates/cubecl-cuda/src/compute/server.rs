@@ -422,12 +422,23 @@ impl ComputeServer for CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-
         let strides = src.strides.to_vec();
         let shape = src.shape.to_vec();
         let elem_size = src.elem_size;
         let binding = src.binding.clone();
+
+        let alloc = server_dst
+            .create(
+                vec![AllocationDescriptor {
+                    kind: AllocationKind::Optimized,
+                    shape: &shape,
+                    elem_size,
+                }],
+                stream_id_dst,
+            )?
+            .remove(0);
+
+        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
 
         let bytes = command_src.copy_to_bytes(src, true, None)?;
         let stream_src = command_src.streams.current().sys;
@@ -455,14 +466,15 @@ impl ComputeServer for CudaServer {
         let mut command_dst = server_dst.command(stream_id_dst, [].into_iter());
         // command_dst.set_current();
         let stream_dst = command_dst.streams.current().sys;
-        let dst = command_dst.reserve(binding.size())?;
+
+        // let dst = command_dst.reserve(binding.size())?;
         fence_src.wait_async(stream_dst);
 
         command_dst.write_to_gpu(
             CopyDescriptor {
-                binding: dst.clone().binding(),
+                binding: alloc.handle.clone().binding(),
                 shape: &shape,
-                strides: &strides,
+                strides: &alloc.strides,
                 elem_size,
             },
             &bytes,
@@ -474,10 +486,7 @@ impl ComputeServer for CudaServer {
 
         server_dst.streams.gc(gc);
 
-        Ok(Allocation {
-            handle: dst,
-            strides,
-        })
+        Ok(alloc)
     }
 
     fn change_server(
