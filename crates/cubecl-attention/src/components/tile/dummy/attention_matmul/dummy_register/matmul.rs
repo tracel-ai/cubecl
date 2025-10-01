@@ -25,8 +25,6 @@ pub struct ArrayTile<E: Float> {
 
     #[cube(comptime)]
     num_rows_per_unit: u32,
-    // #[cube(comptime)]
-    // num_units_per_row: u32,
     #[cube(comptime)]
     num_cols_per_unit: u32,
 }
