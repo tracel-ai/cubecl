@@ -113,15 +113,15 @@ fn is_nan<F: Float, U: Int>(
     #[comptime] mantissa_bits: u32,
     #[comptime] exp_bits: u32,
 ) -> Line<bool> {
-    // Need to mark as i64 otherwise it is coerced into i32 which does not fit the values for f64
-    let inf_bits = comptime![((1i64 << exp_bits as i64) - 1i64) << mantissa_bits as i64];
-    let abs_mask = comptime![(1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64];
+    // Need to mark as u64 otherwise it is coerced into i32 which does not fit the values for f64
+    let inf_bits = comptime![((1u64 << exp_bits as u64) - 1u64) << mantissa_bits as u64];
+    let abs_mask = comptime![(1u64 << (exp_bits as u64 + mantissa_bits as u64)) - 1u64];
 
     let bits: Line<U> = Line::<U>::reinterpret(x);
 
-    let abs_bits = bits & Line::new(U::new(abs_mask));
+    let abs_bits = bits & Line::new(U::cast_from(abs_mask));
 
-    abs_bits.greater_than(Line::new(U::new(inf_bits)))
+    abs_bits.greater_than(Line::new(U::cast_from(inf_bits)))
 }
 
 // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
@@ -131,13 +131,13 @@ fn is_inf<F: Float, U: Int>(
     #[comptime] mantissa_bits: u32,
     #[comptime] exp_bits: u32,
 ) -> Line<bool> {
-    // Need to mark as i64 otherwise it is coerced into i32 which does not fit the values for f64
-    let inf_bits = comptime![((1i64 << exp_bits as i64) - 1i64) << mantissa_bits as i64];
-    let abs_mask = comptime![(1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64];
+    // Need to mark as u64 otherwise it is coerced into i32 which does not fit the values for f64
+    let inf_bits = comptime![((1u64 << exp_bits as u64) - 1u64) << mantissa_bits as u64];
+    let abs_mask = comptime![(1u64 << (exp_bits as u64 + mantissa_bits as u64)) - 1u64];
 
     let bits: Line<U> = Line::<U>::reinterpret(x);
 
-    let abs_bits = bits & Line::new(U::new(abs_mask));
+    let abs_bits = bits & Line::new(U::cast_from(abs_mask));
 
-    abs_bits.equal(Line::new(U::new(inf_bits)))
+    abs_bits.equal(Line::new(U::cast_from(inf_bits)))
 }
