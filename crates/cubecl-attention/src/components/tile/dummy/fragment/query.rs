@@ -14,7 +14,7 @@ pub struct QueryFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryFragment<AP, AM> {
-    pub fn new<E: Numeric>(
+    pub fn new<E: Float>(
         tile: &StridedTile<E>,
         #[comptime] config: AM::Config,
     ) -> QueryFragment<AP, AM> {

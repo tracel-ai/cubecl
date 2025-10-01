@@ -43,6 +43,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
         &mut self,
         state: &mut RunningState<Self::RowWise>,
         max: &Self::RowWise,
+        placeholder: &mut Self::RowWise,
     ) -> Self::RowWise;
 }
 

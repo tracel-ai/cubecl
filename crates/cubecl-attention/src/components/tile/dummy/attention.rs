@@ -81,7 +81,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         Self::State::init(config.attention_tile_size().seq_q)
     }
 
-    fn fill_key<E: Numeric>(
+    fn fill_key<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
@@ -89,7 +89,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         AM::fill_key_value(tile, rhs.key_mut(), config);
     }
 
-    fn fill_value<E: Numeric>(
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
@@ -128,6 +128,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         mask: TileMask,
         state: &mut Self::State,
         max_placeholder: &mut Self::RowWise,
+        sum_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
     ) -> Self::RowWise {
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
@@ -136,7 +137,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
 
         softmax.row_max(max_placeholder, &state.m);
 
-        softmax.to_prob(state, &max_placeholder)
+        softmax.to_prob(state, &max_placeholder, sum_placeholder)
     }
 
     fn accumulate_value(
@@ -156,7 +157,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         );
     }
 
-    fn init_placeholder(#[comptime] num_rows: u32) -> Self::RowWise {
+    fn init_max_placeholder(#[comptime] num_rows: u32) -> Self::RowWise {
         <Self::RowWise as RowWise>::new_min_value(num_rows)
+    }
+
+    fn init_sum_placeholder(#[comptime] num_rows: u32) -> Self::RowWise {
+        <Self::RowWise as RowWise>::new_zero(num_rows)
     }
 }

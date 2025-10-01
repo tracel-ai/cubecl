@@ -60,7 +60,9 @@ impl<
         let mut kv = comptime![0u32];
 
         let mut max_placeholder =
-            TA::init_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
+            TA::init_max_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
+        let mut sum_placeholder =
+            TA::init_sum_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
@@ -110,10 +112,14 @@ impl<
                     partition_mask.to_tile(q, kv),
                     state_q,
                     &mut max_placeholder,
+                    &mut sum_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                 );
 
                 scales.push(accumulator_scale);
+                // scales.push(TA::init_max_placeholder(
+                //     config.tiling_scheme().elements_in_tile_seq_q(),
+                // ));
 
                 comptime![q += 1];
             }

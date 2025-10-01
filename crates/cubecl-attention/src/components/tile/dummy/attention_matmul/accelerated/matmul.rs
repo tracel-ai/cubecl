@@ -27,15 +27,15 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn row_index(&self, r: u32) -> u32 {
+    fn abs_row_index(&self, r: u32) -> u32 {
         todo!()
     }
 
-    fn num_cols(&self) -> comptime_type!(u32) {
+    fn num_cols_per_unit(&self) -> comptime_type!(u32) {
         todo!()
     }
 
-    fn col_index(&self, r: u32, c: u32) -> u32 {
+    fn abs_col_index(&self, r: u32, c: u32) -> u32 {
         todo!()
     }
 
@@ -44,6 +44,10 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
     }
 
     fn scale_at_coor(&mut self, row: u32, col: u32, val: E) {
+        todo!()
+    }
+
+    fn exp_m_diff_at_coor(&mut self, row: u32, col: u32, val: E) {
         todo!()
     }
 }

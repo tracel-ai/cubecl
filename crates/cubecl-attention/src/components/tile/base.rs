@@ -82,13 +82,13 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
-    fn fill_key<E: Numeric>(
+    fn fill_key<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
-    fn fill_value<E: Numeric>(
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
@@ -108,6 +108,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         mask: TileMask,
         state: &mut Self::State,
         max_placeholder: &mut Self::RowWise,
+        sum_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
     ) -> Self::RowWise;
 
@@ -119,5 +120,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
-    fn init_placeholder(#[comptime] num_rows: u32) -> Self::RowWise;
+    fn init_max_placeholder(#[comptime] num_rows: u32) -> Self::RowWise;
+    fn init_sum_placeholder(#[comptime] num_rows: u32) -> Self::RowWise;
 }

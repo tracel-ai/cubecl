@@ -30,6 +30,10 @@ impl<E: Float> RowWise for SparseArray<E> {
         Self::new_filled(num_rows, E::min_value())
     }
 
+    fn new_zero(#[comptime] num_rows: u32) -> SparseArray<E> {
+        Self::new_filled(num_rows, E::from_int(0))
+    }
+
     fn copy_from(this: &mut Self, other: &Self) {
         #[unroll]
         for i in 0..this.num_rows {
@@ -130,6 +134,7 @@ impl<PL: PlaneLayout> RowOp<PL> for RowSum {
     }
 
     fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
+        // TODO BIG PROBLEM: get_at_coor is given absolute row, col but is implemented as if received local
         acc + data.get_at_coor(row, col) * mask
     }
 
@@ -151,8 +156,8 @@ fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Array<PL::E>, data: &PL) {
         let mut local = RO::neutral_element();
 
         #[unroll]
-        for c in 0..data.num_cols() {
-            let col = data.col_index(row, c);
+        for c in 0..data.num_cols_per_unit() {
+            let col = data.abs_col_index(row, c);
             local = RO::local_update(local, row, col, &data, mask);
         }
 

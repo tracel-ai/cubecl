@@ -84,24 +84,31 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         self.total_size.0
     }
 
-    fn row_index(&self, r: u32) -> u32 {
-        UNIT_POS_X / self.unit_size.1
+    fn abs_row_index(&self, r: u32) -> u32 {
+        let num_units_per_col = self.total_size.1 / self.unit_size.1;
+        UNIT_POS_X / num_units_per_col
     }
 
-    fn num_cols(&self) -> comptime_type!(u32) {
+    fn num_cols_per_unit(&self) -> comptime_type!(u32) {
         self.unit_size.1
     }
 
-    fn col_index(&self, r: u32, c: u32) -> u32 {
-        UNIT_POS_X % self.unit_size.1 + c
+    fn abs_col_index(&self, r: u32, c: u32) -> u32 {
+        let num_units_per_col = self.total_size.1 / self.unit_size.1;
+        self.unit_size.1 * (UNIT_POS_X % num_units_per_col) + c
     }
 
-    fn get_at_coor(&self, row: u32, col: u32) -> E {
-        self.array[row * self.unit_size.1 + col]
+    fn get_at_coor(&self, r: u32, c: u32) -> E {
+        self.array[r * self.unit_size.1 + c]
     }
 
-    fn scale_at_coor(&mut self, row: u32, col: u32, factor: E) {
-        self.array[row * self.unit_size.1 + col] *= factor;
+    fn scale_at_coor(&mut self, r: u32, c: u32, factor: E) {
+        self.array[r * self.unit_size.1 + c] *= factor;
+    }
+
+    fn exp_m_diff_at_coor(&mut self, r: u32, c: u32, val: E) {
+        let index = r * self.unit_size.1 + c;
+        self.array[index] = Exp::exp(self.array[index] - val);
     }
 }
 
@@ -112,19 +119,29 @@ fn array_tile_to_tmp_smem<E: Float>(array_tile: &ArrayTile<E>) -> SharedMemory<E
 
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        tmp_smem[array_tile.row_index(0u32) * array_tile.total_size.1
-            + array_tile.col_index(0u32, c)] = array_tile.array[c];
+        tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
+            + array_tile.abs_col_index(0u32, c)] = array_tile.array[c];
     }
 
     tmp_smem
 }
 
 #[cube]
+fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<E>) {
+    // assume unit_size.0 = 1
+    for c in 0..array_tile.unit_size.1 {
+        tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
+            + array_tile.abs_col_index(0u32, c)] = E::from_int(1);
+    }
+    sync_cube();
+}
+
+#[cube]
 fn tmp_smem_to_array_tile<E: Float>(tmp_smem: &SharedMemory<E>, array_tile: &mut ArrayTile<E>) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = tmp_smem
-            [array_tile.row_index(0u32) * array_tile.total_size.1 + array_tile.col_index(0u32, c)];
+        array_tile.array[c] = tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
+            + array_tile.abs_col_index(0u32, c)];
     }
 }
 
@@ -135,9 +152,10 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
 ) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = E2::cast_from(
-            strided_tile.get_line(array_tile.row_index(0u32), array_tile.col_index(0u32, c)),
-        )
+        array_tile.array[c] = E2::cast_from(strided_tile.get_line(
+            array_tile.abs_row_index(0u32),
+            array_tile.abs_col_index(0u32, c),
+        ))
     }
 }
 
@@ -148,8 +166,8 @@ fn array_tile_to_slice<E: Float, E2: Float>(
 ) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        slice[array_tile.row_index(0u32) * array_tile.total_size.1
-            + array_tile.col_index(0u32, c)] = Line::cast_from(array_tile.array[c]);
+        slice[array_tile.abs_row_index(0u32) * array_tile.total_size.1
+            + array_tile.abs_col_index(0u32, c)] = Line::cast_from(array_tile.array[c]);
     }
 }
 
@@ -168,7 +186,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs);
+        let mut tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs);
         let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs);
         let mut tmp_out_smem = array_tile_to_tmp_smem::<SM<AP>>(out);
         sync_cube();
@@ -200,10 +218,14 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs);
-        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs);
+        sync_cube();
+        let mut tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs);
+        let mut tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs);
         let mut tmp_out_smem = array_tile_to_tmp_smem::<ACC<AP>>(out);
         sync_cube();
+
+        // change_smem(lhs, &mut tmp_lhs_smem);
+        // change_smem(rhs, &mut tmp_rhs_smem);
 
         if UNIT_POS_X == 0 {
             let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
@@ -224,21 +246,6 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         sync_cube();
         tmp_smem_to_array_tile(&tmp_out_smem, out);
         sync_cube();
-    }
-
-    fn allocate_fill_query<EI: Float>(
-        tile: &StridedTile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query {
-        let seq_q = config.attention_tile_size().seq_q;
-        let head_dim = config.attention_tile_size().head_dim;
-
-        let mut query = ArrayTile::new((seq_q, head_dim), config.plane_dim());
-
-        strided_tile_to_array_tile(tile, &mut query);
-
-        sync_cube();
-        query
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
@@ -277,16 +284,6 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         )
     }
 
-    fn fill_key_value<E: Float>(
-        tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValue,
-        #[comptime] config: Self::Config,
-    ) {
-        strided_tile_to_array_tile(tile, rhs);
-
-        sync_cube();
-    }
-
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
         ArrayTile::new(
             (
@@ -295,10 +292,6 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
             ),
             config.plane_dim(),
         )
-    }
-
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config) {
-        softmax.zero();
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -311,8 +304,39 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         )
     }
 
+    fn allocate_fill_query<EI: Float>(
+        tile: &StridedTile<EI>,
+        #[comptime] config: Self::Config,
+    ) -> Self::Query {
+        let seq_q = config.attention_tile_size().seq_q;
+        let head_dim = config.attention_tile_size().head_dim;
+
+        let mut query = ArrayTile::new((seq_q, head_dim), config.plane_dim());
+
+        strided_tile_to_array_tile(tile, &mut query);
+
+        sync_cube();
+        query
+    }
+
+    fn fill_key_value<E: Float>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    ) {
+        strided_tile_to_array_tile(tile, rhs);
+
+        sync_cube();
+    }
+
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config) {
+        softmax.zero();
+        sync_cube();
+    }
+
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config) {
         acc.zero();
+        sync_cube();
     }
 
     fn write_results<E: Float>(
@@ -324,49 +348,4 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
 
         sync_cube();
     }
-
-    // fn tmp_fill_accumulator(
-    //     tile: &StridedTile<ACC<AP>>,
-    //     acc: &mut Self::Accumulator,
-    //     #[comptime] config: Self::Config,
-    // ) {
-    //     if UNIT_POS_X == 0 {
-    //         let size = config.attention_tile_size().accumulator_size();
-    //         for i in 0..size {
-    //             acc.assign(i, tile.as_unlined(1u32).0[i]);
-    //         }
-    //     }
-
-    //     sync_cube();
-    // }
-
-    // fn tmp_fill_prob(
-    //     tile: &StridedTile<SM<AP>>,
-    //     prob: &mut Self::Softmax,
-    //     #[comptime] config: Self::Config,
-    // ) {
-    //     if UNIT_POS_X == 0 {
-    //         let len = config.attention_tile_size().softmax_size();
-    //         for i in 0..len {
-    //             prob.assign(i, tile.as_unlined(1u32).0[i]);
-    //         }
-    //     }
-
-    //     sync_cube();
-    // }
-
-    // fn tmp_write_softmax(
-    //     softmax: &Self::Softmax,
-    //     slice: &mut SliceMut<Line<SM<AP>>>,
-    //     #[comptime] config: Self::Config,
-    // ) {
-    //     if UNIT_POS_X == 0 {
-    //         let size = config.attention_tile_size().softmax_size();
-    //         for i in 0..size {
-    //             slice[i] = Line::cast_from(softmax.get_at(i));
-    //         }
-    //     }
-
-    //     sync_cube();
-    // }
 }

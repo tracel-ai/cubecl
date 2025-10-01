@@ -12,20 +12,21 @@ pub trait PlaneLayout: CubeType {
     fn is_owned(&self, row: u32) -> bool;
 
     /// Number of columns for a unit in one row
-    fn num_cols(&self) -> comptime_type!(u32);
+    fn num_cols_per_unit(&self) -> comptime_type!(u32);
 
     /// Maps `(r, c)` with `c ∈ [0..num_cols(r))` to the absolute column index
-    fn col_index(&self, r: u32, c: u32) -> u32;
+    fn abs_col_index(&self, r: u32, c: u32) -> u32;
 
-    /// row and col are absolute (i.e. must get row_index, col_index beforehand)
-    fn get_at_coor(&self, row: u32, col: u32) -> Self::E;
-    fn scale_at_coor(&mut self, row: u32, col: u32, val: Self::E);
+    /// r and c are local
+    fn get_at_coor(&self, r: u32, c: u32) -> Self::E;
+    fn scale_at_coor(&mut self, r: u32, c: u32, val: Self::E);
+    fn exp_m_diff_at_coor(&mut self, r: u32, c: u32, m: Self::E);
 
     /// Number of logical rows this thread handles
     fn owned_rows_count(&self) -> comptime_type!(u32);
 
     /// Maps `r ∈ [0..num_rows)` to the absolute row index
-    fn row_index(&self, r: u32) -> u32;
+    fn abs_row_index(&self, r: u32) -> u32;
 }
 
 #[cube]
@@ -34,6 +35,7 @@ pub trait RowWise: CubeType {
 
     fn new_filled(#[comptime] num_rows: u32, val: Self::E) -> Self;
     fn new_min_value(#[comptime] num_rows: u32) -> Self;
+    fn new_zero(#[comptime] num_rows: u32) -> Self;
 
     fn copy_from(this: &mut Self, other: &Self);
     fn index(&self, i: u32) -> Self::E;
