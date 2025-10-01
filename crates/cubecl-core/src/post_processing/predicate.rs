@@ -97,7 +97,6 @@ fn run_polyfill<T: CubePrimitive, O: CubePrimitive>(
         panic!("Should be float")
     };
 
-    // let out_poly = polyfill(&mut scope, input.into()).expand;
     let tmp_processing = scope.process([]);
 
     processing.instructions.extend(tmp_processing.instructions);
@@ -115,8 +114,8 @@ fn is_nan<F: Float, U: Int>(
     #[comptime] exp_bits: u32,
 ) -> Line<bool> {
     // Need to mark as i64 otherwise it is coerced into i32 which does not fit the values for f64
-    let inf_bits = comptime![(((1i64 << exp_bits as i64) - 1) << mantissa_bits as i64) as i64];
-    let abs_mask = comptime![((1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64) as i64];
+    let inf_bits = comptime![((1i64 << exp_bits as i64) - 1i64) << mantissa_bits as i64];
+    let abs_mask = comptime![(1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64];
 
     let bits: Line<U> = Line::<U>::reinterpret(x);
 
@@ -133,8 +132,8 @@ fn is_inf<F: Float, U: Int>(
     #[comptime] exp_bits: u32,
 ) -> Line<bool> {
     // Need to mark as i64 otherwise it is coerced into i32 which does not fit the values for f64
-    let inf_bits = comptime![(((1i64 << exp_bits as i64) - 1) << mantissa_bits as i64) as i64];
-    let abs_mask = comptime![((1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64) as i64];
+    let inf_bits = comptime![((1i64 << exp_bits as i64) - 1i64) << mantissa_bits as i64];
+    let abs_mask = comptime![(1i64 << (exp_bits as i64 + mantissa_bits as i64)) - 1i64];
 
     let bits: Line<U> = Line::<U>::reinterpret(x);
 
