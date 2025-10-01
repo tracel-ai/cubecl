@@ -18,7 +18,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Query: CubeType;
     type KeyValue: CubeType;
     type Softmax: PlaneLayout<E = SM<AP>>;
-    type Accumulator: CubeType;
+    type Accumulator: PlaneLayout<E = ACC<AP>>;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -34,7 +34,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_fill_query<EI: Numeric>(
+    fn allocate_fill_query<EI: Float>(
         tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query;
@@ -43,7 +43,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
-    fn fill_key_value<E: Numeric>(
+    fn fill_key_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
@@ -55,28 +55,28 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
     fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
 
-    fn write_results<E: Numeric>(
+    fn write_results<E: Float>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );
 
-    // These methods should be deletable when we have proper control over fragments
-    fn tmp_fill_accumulator(
-        tile: &StridedTile<ACC<AP>>,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    );
-    fn tmp_fill_prob(
-        tile: &StridedTile<SM<AP>>,
-        prob: &mut Self::Softmax,
-        #[comptime] config: Self::Config,
-    );
-    fn tmp_write_softmax(
-        softmax: &Self::Softmax,
-        slice: &mut SliceMut<Line<SM<AP>>>,
-        #[comptime] config: Self::Config,
-    );
+    // // These methods should be deletable when we have proper control over fragments
+    // fn tmp_fill_accumulator(
+    //     tile: &StridedTile<ACC<AP>>,
+    //     acc: &mut Self::Accumulator,
+    //     #[comptime] config: Self::Config,
+    // );
+    // fn tmp_fill_prob(
+    //     tile: &StridedTile<SM<AP>>,
+    //     prob: &mut Self::Softmax,
+    //     #[comptime] config: Self::Config,
+    // );
+    // fn tmp_write_softmax(
+    //     softmax: &Self::Softmax,
+    //     slice: &mut SliceMut<Line<SM<AP>>>,
+    //     #[comptime] config: Self::Config,
+    // );
 }
 
 /// Configuration for the Tile Attention level

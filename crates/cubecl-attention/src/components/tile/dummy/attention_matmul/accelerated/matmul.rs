@@ -39,7 +39,11 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, row: u32, col: u32, mask: E) -> E {
+    fn get_at_coor(&self, row: u32, col: u32) -> E {
+        todo!()
+    }
+
+    fn scale_at_coor(&mut self, row: u32, col: u32, val: E) {
         todo!()
     }
 }
@@ -206,32 +210,32 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         );
     }
 
-    fn tmp_fill_accumulator(
-        tile: &StridedTile<ACC<AP>>,
-        acc: &mut Self::Accumulator,
-        #[comptime] _config: Self::Config,
-    ) {
-        let (slice, stride) = tile.as_unlined(1u32);
-        cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
-    }
-    fn tmp_fill_prob(
-        tile: &StridedTile<SM<AP>>,
-        prob: &mut Self::Softmax,
-        #[comptime] _config: Self::Config,
-    ) {
-        let (slice, stride) = tile.as_unlined(1u32);
-        cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
-    }
-    fn tmp_write_softmax(
-        softmax: &Self::Softmax,
-        slice: &mut SliceMut<Line<SM<AP>>>,
-        #[comptime] config: Self::Config,
-    ) {
-        cmma::store(
-            slice,
-            softmax,
-            config.attention_tile_size().seq_kv,
-            cmma::MatrixLayout::RowMajor,
-        );
-    }
+    // fn tmp_fill_accumulator(
+    //     tile: &StridedTile<ACC<AP>>,
+    //     acc: &mut Self::Accumulator,
+    //     #[comptime] _config: Self::Config,
+    // ) {
+    //     let (slice, stride) = tile.as_unlined(1u32);
+    //     cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
+    // }
+    // fn tmp_fill_prob(
+    //     tile: &StridedTile<SM<AP>>,
+    //     prob: &mut Self::Softmax,
+    //     #[comptime] _config: Self::Config,
+    // ) {
+    //     let (slice, stride) = tile.as_unlined(1u32);
+    //     cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
+    // }
+    // fn tmp_write_softmax(
+    //     softmax: &Self::Softmax,
+    //     slice: &mut SliceMut<Line<SM<AP>>>,
+    //     #[comptime] config: Self::Config,
+    // ) {
+    //     cmma::store(
+    //         slice,
+    //         softmax,
+    //         config.attention_tile_size().seq_kv,
+    //         cmma::MatrixLayout::RowMajor,
+    //     );
+    // }
 }

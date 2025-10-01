@@ -37,7 +37,7 @@ impl<E: Float> RowWise for SparseArray<E> {
         }
     }
 
-    fn index(&self, #[comptime] i: u32) -> Self::E {
+    fn index(&self, i: u32) -> Self::E {
         self.vals[i]
     }
 
@@ -84,7 +84,7 @@ impl<E: Float> SparseArray<E> {
 }
 
 #[cube]
-pub trait RowOp<PL: PlaneLayout> {
+trait RowOp<PL: PlaneLayout> {
     fn mask(is_active: bool) -> PL::E;
 
     fn neutral_element() -> PL::E;
@@ -95,10 +95,10 @@ pub trait RowOp<PL: PlaneLayout> {
 }
 
 #[derive(CubeType)]
-pub struct RowMax {}
+struct RowMax {}
 
 #[derive(CubeType)]
-pub struct RowSum {}
+struct RowSum {}
 
 #[cube]
 impl<PL: PlaneLayout> RowOp<PL> for RowMax {
@@ -111,10 +111,7 @@ impl<PL: PlaneLayout> RowOp<PL> for RowMax {
     }
 
     fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
-        Max::max(
-            acc,
-            data.get_at_coor(row, col, <Self as RowOp<PL>>::neutral_element()) + mask,
-        )
+        Max::max(acc, data.get_at_coor(row, col) + mask)
     }
 
     fn plane_reduce(acc: PL::E) -> PL::E {
@@ -133,7 +130,7 @@ impl<PL: PlaneLayout> RowOp<PL> for RowSum {
     }
 
     fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
-        acc + data.get_at_coor(row, col, <Self as RowOp<PL>>::neutral_element()) * mask
+        acc + data.get_at_coor(row, col) * mask
     }
 
     fn plane_reduce(acc: PL::E) -> PL::E {
@@ -142,7 +139,7 @@ impl<PL: PlaneLayout> RowOp<PL> for RowSum {
 }
 
 #[cube]
-pub fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Array<PL::E>, data: &PL) {
+fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Array<PL::E>, data: &PL) {
     let total_row_count = data.total_rows_count();
 
     #[unroll]

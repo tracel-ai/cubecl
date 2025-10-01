@@ -18,7 +18,8 @@ pub trait PlaneLayout: CubeType {
     fn col_index(&self, r: u32, c: u32) -> u32;
 
     /// row and col are absolute (i.e. must get row_index, col_index beforehand)
-    fn get_at_coor(&self, row: u32, col: u32, mask: Self::E) -> Self::E;
+    fn get_at_coor(&self, row: u32, col: u32) -> Self::E;
+    fn scale_at_coor(&mut self, row: u32, col: u32, val: Self::E);
 
     /// Number of logical rows this thread handles
     fn owned_rows_count(&self) -> comptime_type!(u32);
@@ -35,7 +36,7 @@ pub trait RowWise: CubeType {
     fn new_min_value(#[comptime] num_rows: u32) -> Self;
 
     fn copy_from(this: &mut Self, other: &Self);
-    fn index(&self, #[comptime] i: u32) -> Self::E;
+    fn index(&self, i: u32) -> Self::E;
 
     fn row_sum<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, data: &PL);
     fn row_max<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, base: &Self, data: &PL);

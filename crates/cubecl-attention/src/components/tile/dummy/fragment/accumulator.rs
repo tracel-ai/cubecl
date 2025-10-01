@@ -12,6 +12,7 @@ use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::AttentionMatmulConfig;
+use crate::components::tile::row::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 
 #[derive(CubeType)]
@@ -75,42 +76,77 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> DummyAccumula
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> AccumulatorTile<AP, RW>
     for DummyAccumulator<AP, AM, RW>
 {
-    fn scale(&mut self, scale: &RW, #[comptime] scale_op: ScaleMode) {
-        let mut slice = self
-            .tmp_smem
-            .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
-            .try_cast_unchecked();
+    fn scale(&mut self, scale: &RW, #[comptime] scale_mode: ScaleMode) {
+        let scale = ACC::<AP>::cast_from(scale.index(self.row));
+        let scale = match scale_mode {
+            ScaleMode::Multiply => scale,
+            // ScaleMode::Divide => scale,
+            ScaleMode::Divide => Recip::recip(scale),
+        };
 
-        AM::write_results::<ACC<AP>>(&self.fragment, &mut slice, self.config);
+        #[unroll]
+        for c in 0..self.num_cols {
+            let col = self.col_start + c;
 
-        if self.row < self.num_rows {
-            #[unroll]
-            for i in 0..self.num_cols_per_unit {
-                let col = self.col_start + i;
-
-                if col < self.num_cols {
-                    match scale_op {
-                        ScaleMode::Multiply => {
-                            slice[self.row * self.num_cols + col] = slice
-                                [self.row * self.num_cols + col]
-                                * Line::cast_from(scale.index(0u32))
-                        }
-                        ScaleMode::Divide => {
-                            slice[self.row * self.num_cols + col] = slice
-                                [self.row * self.num_cols + col]
-                                / Line::cast_from(scale.index(0u32))
-                        }
-                    }
-                }
-            }
+            self.fragment.scale_at_coor(self.row, col, scale);
         }
 
-        let tile = StridedTile::<ACC<AP>>::new_strided(
-            slice.to_slice(),
-            self.num_cols.runtime(),
-            MatrixLayout::RowMajor,
-        );
+        ///////////////
 
-        AM::tmp_fill_accumulator(&tile, &mut self.fragment, self.config);
+        // #[unroll]
+        // for r in 0..self.fragment.owned_rows_count() {
+        //     let row = self.fragment.row_index(r);
+        //     let scale = ACC::<AP>::cast_from(scale.index(row));
+        //     let scale = match scale_mode {
+        //         ScaleMode::Multiply => scale,
+        //         ScaleMode::Divide => Recip::recip(scale),
+        //     };
+
+        //     #[unroll]
+        //     for c in 0..self.fragment.num_cols() {
+        //         let col = self.fragment.col_index(r, c);
+
+        //         self.fragment.scale_at_coor(row, col, scale);
+        //     }
+        // }
+
+        ///////////////
+
+        // let mut slice = self
+        //     .tmp_smem
+        //     .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
+        //     .try_cast_unchecked();
+
+        // AM::write_results::<ACC<AP>>(&self.fragment, &mut slice, self.config);
+
+        // if self.row < self.num_rows {
+        //     #[unroll]
+        //     for i in 0..self.num_cols_per_unit {
+        //         let col = self.col_start + i;
+
+        //         if col < self.num_cols {
+        //             match scale_mode {
+        //                 ScaleMode::Multiply => {
+        //                     slice[self.row * self.num_cols + col] = slice
+        //                         [self.row * self.num_cols + col]
+        //                         * Line::cast_from(scale.index(0u32))
+        //                 }
+        //                 ScaleMode::Divide => {
+        //                     slice[self.row * self.num_cols + col] = slice
+        //                         [self.row * self.num_cols + col]
+        //                         / Line::cast_from(scale.index(0u32))
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
+
+        // let tile = StridedTile::<ACC<AP>>::new_strided(
+        //     slice.to_slice(),
+        //     self.num_cols.runtime(),
+        //     MatrixLayout::RowMajor,
+        // );
+
+        // AM::tmp_fill_accumulator(&tile, &mut self.fragment, self.config);
     }
 }
