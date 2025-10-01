@@ -314,19 +314,19 @@ test_unary_impl_fixed!(
         {
             input_vectorization: 1,
             out_vectorization: 1,
-            input: as_type![F: 0., f32::NAN, f32::INFINITY, f32::NEG_INFINITY],
+            input: &[F::new(0.), F::NAN, F::INFINITY, F::NEG_INFINITY],
             expected: as_type![u32: false as i64, true as i64, false as i64, false as i64]
         },
         {
             input_vectorization: 2,
             out_vectorization: 2,
-            input: as_type![F: f32::INFINITY, -100., f32::NAN, f32::NEG_INFINITY],
+            input: &[F::INFINITY, F::new(-100.), F::NAN, F::NEG_INFINITY],
             expected: as_type![u32: false as i64, false as i64, true as i64, false as i64]
         },
         {
             input_vectorization: 4,
             out_vectorization: 4,
-            input: as_type![F: f32::NEG_INFINITY, f32::INFINITY, 100., f32::NAN],
+            input: &[F::NEG_INFINITY, F::INFINITY, F::new(100.), F::NAN],
             expected: as_type![u32: false as i64, false as i64, false as i64, true as i64]
         }
     ]

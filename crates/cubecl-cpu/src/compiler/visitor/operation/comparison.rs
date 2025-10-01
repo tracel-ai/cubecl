@@ -13,7 +13,7 @@ impl<'a> Visitor<'a> {
             Comparison::GreaterEqual(bin_op) => bin_op,
             Comparison::Greater(bin_op) => bin_op,
             Comparison::IsNan(_op) | Comparison::IsInf(_op) => {
-                panic!("{comparison:?} is not supported on CPU.")
+                unreachable!("Should be removed by preprocessor")
             }
         };
 
