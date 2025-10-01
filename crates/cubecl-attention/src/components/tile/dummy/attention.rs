@@ -32,9 +32,10 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     type QueryTile = QueryFragment<AP, AM>;
     type KeyValueTile = KeyValueFragment<AP, AM>;
     type SoftmaxTile = DummySoftmax<AP, AM>;
-    type AccumulatorTile = DummyAccumulator<AP, AM>;
+    type AccumulatorTile = DummyAccumulator<AP, AM, Self::RowWise>;
 
-    type State = RunningState<SM<AP>>;
+    type RowWise = <Self::SoftmaxTile as SoftmaxTile<AP>>::RowWise;
+    type State = RunningState<Self::RowWise>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
@@ -114,13 +115,21 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         );
     }
 
+    //     fn softmax(
+    //     softmax: &mut Self::SoftmaxTile,
+    //     mask: TileMask,
+    //     state: &mut Self::State,
+    //     max_placeholder: &mut <<Self::SoftmaxTile as SoftmaxTile<AP>>::PlaneLayout as PlaneLayout>::RowWise,
+    //     #[comptime] dk: u32,
+    // ) -> <<Self::SoftmaxTile as SoftmaxTile<AP>>::PlaneLayout as PlaneLayout>::RowWise;
+
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
         state: &mut Self::State,
-        max_placeholder: &mut RowWise<SM<AP>>,
+        max_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
-    ) -> RowWise<ACC<AP>> {
+    ) -> Self::RowWise {
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         softmax.scale_and_mask(inv_sqrt_dk, mask);
@@ -134,7 +143,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
-        scale: &RowWise<ACC<AP>>,
+        scale: &Self::RowWise,
         #[comptime] config: Self::Config,
     ) {
         accumulator.scale(scale, ScaleMode::Multiply);
@@ -147,7 +156,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         );
     }
 
-    fn init_placeholder<E: Float>(#[comptime] num_rows: u32) -> RowWise<E> {
-        RowWise::new_filled(num_rows, E::min_value())
+    fn init_placeholder(#[comptime] num_rows: u32) -> Self::RowWise {
+        <Self::RowWise as RowWise>::new_min_value(num_rows)
     }
 }

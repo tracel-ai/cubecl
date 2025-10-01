@@ -63,7 +63,9 @@ impl<E: Float> ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
+impl<E: Float> PlaneLayout for ArrayTile<E> {
+    type E = E;
+
     fn owned_rows_count(&self) -> comptime_type!(u32) {
         self.num_rows_per_unit
     }

@@ -10,7 +10,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
-    tile::{KeyValueTile, QueryTile, RowWise, dummy::AttentionMatmulConfig},
+    tile::{KeyValueTile, QueryTile, dummy::AttentionMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use crate::components::{TileMask, tile::SoftmaxTile};
@@ -53,7 +53,8 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type QueryTile: QueryTile<QT<AP>>;
     type KeyValueTile: KeyValueTile<KVT<AP>>;
     type SoftmaxTile: SoftmaxTile<AP>;
-    type AccumulatorTile: AccumulatorTile<ACC<AP>>;
+    type AccumulatorTile: AccumulatorTile<AP, <Self::SoftmaxTile as SoftmaxTile<AP>>::RowWise>;
+    type RowWise: CubeType;
 
     type State: CubeType;
 
@@ -106,17 +107,17 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
         state: &mut Self::State,
-        max_placeholder: &mut RowWise<SM<AP>>,
+        max_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
-    ) -> RowWise<ACC<AP>>;
+    ) -> Self::RowWise;
 
     fn accumulate_value(
         softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
-        scale: &RowWise<ACC<AP>>,
+        scale: &Self::RowWise,
         #[comptime] config: Self::Config,
     );
 
-    fn init_placeholder<E: Float>(#[comptime] num_rows: u32) -> RowWise<E>;
+    fn init_placeholder(#[comptime] num_rows: u32) -> Self::RowWise;
 }

@@ -12,7 +12,9 @@ use crate::components::{AttentionIdent, AttentionPrecision};
 pub struct AcceleratedAttentionMatmul;
 
 #[cube]
-impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
+impl<E: Float> PlaneLayout for cmma::Matrix<E> {
+    type E = E;
+
     fn owned_rows_count(&self) -> comptime_type!(u32) {
         todo!()
     }

@@ -2,19 +2,20 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
+use std::marker::PhantomData;
 
 use crate::components::AttentionIdent;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
-use crate::components::tile::RowWise;
 use crate::components::tile::ScaleMode;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::AttentionMatmulConfig;
+use crate::components::tile::{RowWise, RowWiseExpand};
 
 #[derive(CubeType)]
-pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> {
     tmp_smem: SharedMemory<ACC<AP>>,
     pub fragment: AM::Accumulator,
 
@@ -32,11 +33,13 @@ pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     num_cols_per_unit: u32,
     #[cube(comptime)]
     config: AM::Config,
+    #[cube(comptime)]
+    _phantom: PhantomData<RW>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyAccumulator<AP, AM> {
-    pub fn new(#[comptime] config: AM::Config) -> DummyAccumulator<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> DummyAccumulator<AP, AM, RW> {
+    pub fn new(#[comptime] config: AM::Config) -> DummyAccumulator<AP, AM, RW> {
         let mut fragment = AM::allocate_accumulator(config);
         AM::zero_accumulator(&mut fragment, config);
 
@@ -52,7 +55,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyAccumulator<AP, AM> {
         let tmp_smem_start = UNIT_POS_Y * acc_size;
         let tmp_smem_end = tmp_smem_start + acc_size;
 
-        DummyAccumulator::<AP, AM> {
+        DummyAccumulator::<AP, AM, RW> {
             tmp_smem: SharedMemory::new(acc_size * config.num_planes()),
             fragment,
             row,
@@ -63,15 +66,16 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyAccumulator<AP, AM> {
             num_cols,
             num_cols_per_unit,
             config,
+            _phantom: PhantomData,
         }
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<ACC<AP>>
-    for DummyAccumulator<AP, AM>
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> AccumulatorTile<AP, RW>
+    for DummyAccumulator<AP, AM, RW>
 {
-    fn scale<E: Float>(&mut self, scale: &RowWise<E>, #[comptime] scale_op: ScaleMode) {
+    fn scale(&mut self, scale: &RW, #[comptime] scale_op: ScaleMode) {
         let mut slice = self
             .tmp_smem
             .slice_mut(self.tmp_smem_start, self.tmp_smem_end)

@@ -5,8 +5,8 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::RowWise;
-use crate::components::tile::{row_max, row_sum};
+use crate::components::tile::SparseArray;
+use crate::components::tile::{RowWise, RowWiseExpand};
 use crate::components::{
     AttentionIdent, TileMask,
     tile::{
@@ -75,8 +75,15 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
-    fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
-        RunningState::<SM<AP>>::init(num_rows)
+    type PlaneLayout = AM::Softmax;
+    type RowWise = SparseArray<SM<AP>>;
+
+    fn init_state(#[comptime] num_rows: u32) -> RunningState<Self::RowWise> {
+        RunningState::<Self::RowWise>::init(num_rows)
+    }
+
+    fn init_placeholder(#[comptime] num_rows: u32) -> Self::RowWise {
+        Self::RowWise::new_filled(num_rows, SM::<AP>::min_value())
     }
 
     fn zero(&mut self) {
@@ -116,15 +123,15 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         sync_cube();
     }
 
-    fn row_max(&self, placeholder: &mut RowWise<SM<AP>>, base: &RowWise<SM<AP>>) {
-        row_max::<SM<AP>, AM::Softmax>(placeholder, base, &self.fragment)
+    fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise) {
+        Self::RowWise::row_max::<Self::PlaneLayout>(placeholder, base, &self.fragment)
     }
 
     fn to_prob(
         &mut self,
-        state: &mut RunningState<SM<AP>>,
-        new_m: &RowWise<SM<AP>>,
-    ) -> RowWise<ACC<AP>> {
+        state: &mut RunningState<Self::RowWise>,
+        new_m: &Self::RowWise,
+    ) -> Self::RowWise {
         let new_m_val = new_m.index(0u32);
 
         let mut slice = self
@@ -167,8 +174,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
         let new_l = exp_m_diff * state.l.index(0u32) + row_sum;
 
-        state.update(new_m, &RowWise::single(new_l));
+        state.update(new_m, &SparseArray::single(new_l));
 
-        RowWise::<ACC<AP>>::single(ACC::<AP>::cast_from(exp_m_diff))
+        SparseArray::<SM<AP>>::single(exp_m_diff)
     }
 }

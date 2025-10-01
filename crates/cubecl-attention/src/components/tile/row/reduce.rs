@@ -1,68 +1,68 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand, RowWise};
+use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 
 #[cube]
-trait RowOp<E: Float> {
-    fn mask(is_active: bool) -> E;
+pub trait RowOp<PL: PlaneLayout> {
+    fn mask(is_active: bool) -> PL::E;
 
-    fn neutral_element() -> E;
+    fn neutral_element() -> PL::E;
 
-    fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E;
+    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E;
 
-    fn plane_reduce(acc: E) -> E;
+    fn plane_reduce(acc: PL::E) -> PL::E;
 }
 
 #[derive(CubeType)]
-struct RowMax {}
+pub struct RowMax {}
 
 #[derive(CubeType)]
-struct RowSum {}
+pub struct RowSum {}
 
 #[cube]
-impl<E: Float> RowOp<E> for RowMax {
-    fn mask(is_active: bool) -> E {
-        E::cast_from(!is_active) * E::min_value()
+impl<PL: PlaneLayout> RowOp<PL> for RowMax {
+    fn mask(is_active: bool) -> PL::E {
+        PL::E::cast_from(!is_active) * PL::E::min_value()
     }
 
-    fn neutral_element() -> E {
-        E::min_value()
+    fn neutral_element() -> PL::E {
+        PL::E::min_value()
     }
 
-    fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
+    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
         Max::max(
             acc,
-            data.get_at_coor(row, col, <Self as RowOp<E>>::neutral_element()) + mask,
+            data.get_at_coor(row, col, <Self as RowOp<PL>>::neutral_element()) + mask,
         )
     }
 
-    fn plane_reduce(acc: E) -> E {
-        plane_max::<E>(acc)
+    fn plane_reduce(acc: PL::E) -> PL::E {
+        plane_max::<PL::E>(acc)
     }
 }
 
 #[cube]
-impl<E: Float> RowOp<E> for RowSum {
-    fn mask(is_active: bool) -> E {
-        E::cast_from(is_active)
+impl<PL: PlaneLayout> RowOp<PL> for RowSum {
+    fn mask(is_active: bool) -> PL::E {
+        PL::E::cast_from(is_active)
     }
 
-    fn neutral_element() -> E {
-        E::from_int(0)
+    fn neutral_element() -> PL::E {
+        PL::E::from_int(0)
     }
 
-    fn local_update<PL: PlaneLayout<E>>(acc: E, row: u32, col: u32, data: &PL, mask: E) -> E {
-        acc + data.get_at_coor(row, col, <Self as RowOp<E>>::neutral_element()) * mask
+    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
+        acc + data.get_at_coor(row, col, <Self as RowOp<PL>>::neutral_element()) * mask
     }
 
-    fn plane_reduce(acc: E) -> E {
-        plane_sum::<E>(acc)
+    fn plane_reduce(acc: PL::E) -> PL::E {
+        plane_sum::<PL::E>(acc)
     }
 }
 
 #[cube]
-fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(vals: &mut Array<E>, data: &PL) {
+pub fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Array<PL::E>, data: &PL) {
     let total_row_count = data.total_rows_count();
 
     #[unroll]
@@ -76,25 +76,9 @@ fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>>(vals: &mut Array<E>, data:
         #[unroll]
         for c in 0..data.num_cols() {
             let col = data.col_index(row, c);
-            local = RO::local_update::<PL>(local, row, col, &data, mask);
+            local = RO::local_update(local, row, col, &data, mask);
         }
 
         vals[row] = RO::plane_reduce(local);
     }
-}
-
-#[cube]
-pub fn row_sum<E: Float, PL: PlaneLayout<E>>(placeholder: &mut RowWise<E>, data: &PL) {
-    placeholder.fill(<RowSum as RowOp<E>>::neutral_element());
-    row_op::<E, PL, RowSum>(&mut placeholder.vals_mut(), data)
-}
-
-#[cube]
-pub fn row_max<E: Float, PL: PlaneLayout<E>>(
-    placeholder: &mut RowWise<E>,
-    base: &RowWise<E>,
-    data: &PL,
-) {
-    placeholder.copy_from(base);
-    row_op::<E, PL, RowMax>(&mut placeholder.vals_mut(), data);
 }

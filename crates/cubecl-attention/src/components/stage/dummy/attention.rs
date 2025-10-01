@@ -82,7 +82,7 @@ impl<
             }
 
             let mut q = comptime![0u32];
-            let mut scales = Sequence::<RowWise<ACC<AP>>>::new();
+            let mut scales = Sequence::<TA::RowWise>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]

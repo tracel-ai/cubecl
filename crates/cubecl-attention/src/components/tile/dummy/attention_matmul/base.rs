@@ -17,7 +17,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Softmax: PlaneLayout<SM<AP>>;
+    type Softmax: PlaneLayout<E = SM<AP>>;
     type Accumulator: CubeType;
 
     fn score_matmul(
