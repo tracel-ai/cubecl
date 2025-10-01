@@ -47,7 +47,7 @@ impl Compiler for MlirCompiler {
             .with_transformer(ErfTransform)
             .with_processor(CheckedIoProcessor::new(mode))
             .with_processor(SaturatingArithmeticProcessor::new(true))
-            .with_processor(PredicateProcessor::default())
+            .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
         let mut shared_memories = SharedMemories::default();
