@@ -89,6 +89,7 @@ tracel-xtask = { version = "=2.1.8" }
 portable-atomic = { version = "1.10", default-features = false, features = [
     "serde",
 ] }
+portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async
