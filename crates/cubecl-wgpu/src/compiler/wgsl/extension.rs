@@ -285,6 +285,16 @@ fn {function_name}(x: {elem}) -> {elem} {{
     Ok(())
 }
 
+/// Returns (inf_bits, abs_mask, unsigned type) based on the floating point data type.
+fn select_inf_bits_abs_mask_uint(in_elem: &Elem) -> (&'static str, &'static str, &'static str) {
+    match in_elem {
+        Elem::F16 => ("0x7c00", "0x7fff", "u16"),
+        Elem::F32 => ("0x7f800000u", "0x7fffffffu", "u32"),
+        Elem::F64 => ("0x7fffffffffffffff", "0x7ff0000000000000", "u64"),
+        _ => unreachable!(),
+    }
+}
+
 fn format_is_nan_primitive(
     f: &mut std::fmt::Formatter<'_>,
     in_elem: &Elem,
@@ -295,13 +305,14 @@ fn format_is_nan_primitive(
     //   - biased exponent = all 1 bits.
     //   - fraction = anything except all 0 bits (since all 0 bits represents infinity).
     // https://en.wikipedia.org/wiki/IEEE_754-1985#Representation_of_non-numbers
+    let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
     write!(
         f,
         "
 fn {function_name}(x: {in_elem}) -> bool {{
-    let bits = bitcast<u32>(x);
-    let abs_bits = bits & 0x7fffffffu;
-    return abs_bits > 0x7f800000u;
+    let bits = bitcast<{uint}>(x);
+    let abs_bits = bits & {abs_mask};
+    return abs_bits > {inf_bits};
 }}
 "
     )?;
@@ -314,13 +325,14 @@ fn format_is_inf_primitive(
 ) -> Result<(), std::fmt::Error> {
     let function_name = construct_primitive_name(IS_INF_PRIMITIVE, *in_elem);
     // Same trick as NaN detection following IEEE 754, but check for all 0 bits equality
+    let (inf_bits, abs_mask, uint) = select_inf_bits_abs_mask_uint(in_elem);
     write!(
         f,
         "
 fn {function_name}(x: {in_elem}) -> bool {{
-    let bits = bitcast<u32>(x);
-    let abs_bits = bits & 0x7fffffffu;
-    return abs_bits == 0x7f800000u;
+    let bits = bitcast<{uint}>(x);
+    let abs_bits = bits & {abs_mask};
+    return abs_bits == {inf_bits};
 }}
 "
     )?;
