@@ -15,27 +15,15 @@ pub struct AcceleratedAttentionMatmul;
 impl<E: Float> PlaneLayout for cmma::Matrix<E> {
     type E = E;
 
-    fn owned_rows_count(&self) -> comptime_type!(u32) {
+    fn num_local_rows(&self) -> comptime_type!(u32) {
         todo!()
     }
 
-    fn is_owned(&self, row: u32) -> bool {
+    fn num_local_cols(&self) -> comptime_type!(u32) {
         todo!()
     }
 
-    fn total_rows_count(&self) -> comptime_type!(u32) {
-        todo!()
-    }
-
-    fn abs_row_index(&self, r: u32) -> u32 {
-        todo!()
-    }
-
-    fn num_cols_per_unit(&self) -> comptime_type!(u32) {
-        todo!()
-    }
-
-    fn abs_col_index(&self, r: u32, c: u32) -> u32 {
+    fn num_units_per_row(&self) -> comptime_type!(u32) {
         todo!()
     }
 

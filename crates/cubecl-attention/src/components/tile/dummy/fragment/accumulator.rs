@@ -77,7 +77,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> AccumulatorTi
     for DummyAccumulator<AP, AM, RW>
 {
     fn scale(&mut self, scale: &RW, #[comptime] scale_mode: ScaleMode) {
-        let scale = ACC::<AP>::cast_from(scale.index(self.row));
+        let scale = ACC::<AP>::cast_from(scale.index(0u32));
         let scale = match scale_mode {
             ScaleMode::Multiply => scale,
             ScaleMode::Divide => Recip::recip(scale),

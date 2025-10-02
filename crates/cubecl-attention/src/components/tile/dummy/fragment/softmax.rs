@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::SparseArray;
+use crate::components::tile::RowVals;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 use crate::components::{
@@ -55,7 +55,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
     type PlaneLayout = AM::Softmax;
-    type RowWise = SparseArray<SM<AP>>;
+    type RowWise = RowVals<SM<AP>>;
 
     fn init_state(#[comptime] num_rows: u32) -> RunningState<Self::RowWise> {
         RunningState::<Self::RowWise>::init(num_rows)
@@ -117,7 +117,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         new_m: &Self::RowWise,
         rowsum_placeholder: &mut Self::RowWise,
     ) -> Self::RowWise {
-        let new_m_val = new_m.index(self.row);
+        let new_m_val = new_m.index(0u32);
 
         #[unroll]
         for c in 0..self.num_cols {
@@ -126,12 +126,12 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
         Self::RowWise::row_sum::<Self::PlaneLayout>(rowsum_placeholder, &self.fragment);
 
-        let exp_m_diff = Exp::exp(state.m.index(self.row) - new_m_val);
-        let new_l = exp_m_diff * state.l.index(self.row) + rowsum_placeholder.index(self.row);
+        let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
+        let new_l = exp_m_diff * state.l.index(0u32) + rowsum_placeholder.index(0u32);
 
-        state.update(new_m, &SparseArray::single(new_l));
+        state.update(new_m, &RowVals::new_filled(1u32, new_l));
 
-        SparseArray::<SM<AP>>::single(exp_m_diff)
+        RowVals::<SM<AP>>::new_filled(1u32, exp_m_diff)
 
         // SparseArray::<SM<AP>>::new_zero(8u32)
     }

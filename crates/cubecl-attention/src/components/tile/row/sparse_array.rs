@@ -1,48 +1,59 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::runtime_tests::plane;
 
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 
 #[derive(CubeType)]
-/// Contains as many elements as there are rows in a tile.
-/// Indices of rows where the unit does not participate are masked but take up space.
-pub struct SparseArray<E: Float> {
+pub struct RowVals<E: Float> {
     #[cube(comptime)]
     num_rows: u32,
-    vals: Array<E>,
+    vals: Sequence<RowVal<E>>,
+}
+
+#[derive(CubeType)]
+pub struct RowVal<E: Float> {
+    val: E,
 }
 
 #[cube]
-impl<E: Float> RowWise for SparseArray<E> {
+impl<E: Float> RowWise for RowVals<E> {
     type E = E;
 
-    fn new_filled(#[comptime] num_rows: u32, val: E) -> SparseArray<E> {
-        let mut sparse_arr = SparseArray::<E> {
-            num_rows,
-            vals: Array::new(num_rows),
-        };
-        sparse_arr.fill(val);
-        sparse_arr
+    fn new_filled(#[comptime] num_rows: u32, val: E) -> RowVals<E> {
+        let mut vals = Sequence::new();
+        #[unroll]
+        for _ in 0..num_rows {
+            vals.push(RowVal::<E> { val });
+        }
+        RowVals::<E> { num_rows, vals }
     }
 
-    fn new_min_value(#[comptime] num_rows: u32) -> SparseArray<E> {
+    fn new_min_value(#[comptime] num_rows: u32) -> RowVals<E> {
         Self::new_filled(num_rows, E::min_value())
     }
 
-    fn new_zero(#[comptime] num_rows: u32) -> SparseArray<E> {
+    fn new_zero(#[comptime] num_rows: u32) -> RowVals<E> {
         Self::new_filled(num_rows, E::from_int(0))
     }
 
-    fn copy_from(this: &mut Self, other: &Self) {
+    fn copy_from(this: &mut Self, other: &RowVals<E>) {
+        // let row_val = this.vals.index_mut(0u32);
+        // row_val.val = other.index(0u32);
+
+        let mut i = comptime![0u32];
         #[unroll]
-        for i in 0..this.num_rows {
-            this.vals[i] = other.vals[i];
+        for _ in 0..this.num_rows {
+            let row_val = this.vals.index_mut(i);
+            row_val.val = other.index(i);
+
+            comptime![i += 1];
         }
     }
 
     fn index(&self, i: u32) -> Self::E {
-        self.vals[i]
+        self.vals.index(i).val
     }
 
     fn row_sum<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, data: &PL) {
@@ -55,47 +66,25 @@ impl<E: Float> RowWise for SparseArray<E> {
     }
 }
 
-#[cube]
-impl<E: Float> SparseArray<E> {
-    pub fn single(val: E) -> SparseArray<E> {
-        Self::new_filled(1u32, val)
-    }
+// #[cube]
+// impl<E: Float> RowVals<E> {
+//     pub fn single(val: E) -> RowVals<E> {
+//         Self::new_filled(1u32, val)
+//     }
 
-    pub fn fill(&mut self, val: E) {
-        #[unroll]
-        for i in 0..self.num_rows {
-            self.vals[i] = val;
-        }
-    }
-
-    pub fn cast_from<E2: Float>(&mut self, other: &SparseArray<E2>) {
-        #[unroll]
-        for i in 0..self.num_rows {
-            self.vals[i] = E::cast_from(other.vals[i]);
-        }
-    }
-
-    pub fn max_from(&mut self, other: &SparseArray<E>) {
-        #[unroll]
-        for i in 0..self.num_rows {
-            self.vals[i] = Max::max(self.vals[i], E::cast_from(other.vals[i]));
-        }
-    }
-
-    pub fn vals_mut(&mut self) -> &mut Array<E> {
-        &mut self.vals
-    }
-}
+//     pub fn fill(&mut self, val: E) {
+//         #[unroll]
+//         for i in 0..self.num_rows {
+//             self.vals[i] = val;
+//         }
+//     }
+// }
 
 #[cube]
 trait RowOp<PL: PlaneLayout> {
-    fn mask(is_active: bool) -> PL::E;
-
     fn neutral_element() -> PL::E;
 
-    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E;
-
-    fn plane_reduce(acc: PL::E) -> PL::E;
+    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E;
 }
 
 #[derive(CubeType)]
@@ -106,61 +95,97 @@ struct RowSum {}
 
 #[cube]
 impl<PL: PlaneLayout> RowOp<PL> for RowMax {
-    fn mask(is_active: bool) -> PL::E {
-        PL::E::cast_from(!is_active) * PL::E::min_value()
-    }
-
     fn neutral_element() -> PL::E {
         PL::E::min_value()
     }
 
-    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
-        Max::max(acc, data.get_at_coor(row, col) + mask)
-    }
-
-    fn plane_reduce(acc: PL::E) -> PL::E {
-        plane_max::<PL::E>(acc)
+    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E {
+        Max::max(acc, val + PL::E::cast_from(mask) * PL::E::min_value())
     }
 }
 
 #[cube]
 impl<PL: PlaneLayout> RowOp<PL> for RowSum {
-    fn mask(is_active: bool) -> PL::E {
-        PL::E::cast_from(is_active)
-    }
-
     fn neutral_element() -> PL::E {
         PL::E::from_int(0)
     }
 
-    fn local_update(acc: PL::E, row: u32, col: u32, data: &PL, mask: PL::E) -> PL::E {
-        // TODO BIG PROBLEM: get_at_coor is given absolute row, col but is implemented as if received local
-        acc + data.get_at_coor(row, col) * mask
-    }
-
-    fn plane_reduce(acc: PL::E) -> PL::E {
-        plane_sum::<PL::E>(acc)
+    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E {
+        acc + val * PL::E::cast_from(!mask)
     }
 }
 
 #[cube]
-fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Array<PL::E>, data: &PL) {
-    let total_row_count = data.total_rows_count();
+fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Sequence<RowVal<PL::E>>, data: &PL) {
+    let num_local_rows = data.num_local_rows();
+    let num_local_cols = data.num_local_cols();
+    let num_units_per_row = data.num_units_per_row();
+    let num_plane_share = comptime!((num_units_per_row as f32).log2().ceil() as u32);
+
+    let unit_pos = UNIT_POS_X;
+    let unit_pos_in_row = unit_pos % num_units_per_row;
+
+    let mut fpb = FakePlaneBroadcast::<PL::E>::new(32u32, 1u32);
+
+    // Loop over the rows that this subgroup handles (2 rows per subgroup)
+    let mut local_row = comptime![0];
 
     #[unroll]
-    for row in 0..total_row_count {
-        let is_active = data.is_owned(row);
-
-        let mask = RO::mask(is_active);
-
-        let mut local = RO::neutral_element();
+    for _ in 0..num_local_rows {
+        let mut local_val = RO::neutral_element();
 
         #[unroll]
-        for c in 0..data.num_cols_per_unit() {
-            let col = data.abs_col_index(row, c);
-            local = RO::local_update(local, row, col, &data, mask);
+        for local_col in 0..num_local_cols {
+            local_val = RO::update(local_val, data.get_at_coor(local_row, local_col), false);
         }
 
-        vals[row] = RO::plane_reduce(local);
+        let mut total_val = local_val;
+
+        // Do a reduction across the subgroup (8 threads)
+        for i in 0..num_plane_share {
+            let offset = num_units_per_row >> (i + 1);
+            let source_unit = unit_pos + offset;
+
+            let value_from_source = fpb.plane_broadcast(total_val, source_unit);
+
+            // Mask if outside the row
+            let mask = unit_pos_in_row + offset >= num_units_per_row;
+            total_val = RO::update(total_val, value_from_source, mask);
+        }
+
+        // Broadcast back to subgroup
+        let row_result = fpb.plane_broadcast(total_val, unit_pos - unit_pos_in_row);
+        let row_val = vals.index_mut(local_row);
+        row_val.val = row_result;
+
+        comptime![local_row += 1];
+    }
+}
+
+#[derive(CubeType)]
+struct FakePlaneBroadcast<E: Float> {
+    smem: SharedMemory<E>,
+    #[cube(comptime)]
+    plane_dim: u32,
+}
+
+#[cube]
+impl<E: Float> FakePlaneBroadcast<E> {
+    pub fn new(#[comptime] plane_dim: u32, #[comptime] num_planes: u32) -> Self {
+        FakePlaneBroadcast::<E> {
+            smem: SharedMemory::<E>::new(plane_dim * num_planes),
+            plane_dim,
+        }
+    }
+
+    pub fn plane_broadcast(&mut self, val: E, source_unit: u32) -> E {
+        let plane_offset = UNIT_POS_Y * self.plane_dim;
+        self.smem[plane_offset + UNIT_POS_X] = val;
+        sync_cube();
+
+        let result = self.smem[plane_offset + source_unit];
+        sync_cube();
+
+        result
     }
 }

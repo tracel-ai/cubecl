@@ -78,7 +78,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     }
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State {
-        Self::State::init(config.attention_tile_size().seq_q)
+        // TODO not hardcode to 1
+        Self::State::init(1u32)
     }
 
     fn fill_key<E: Float>(

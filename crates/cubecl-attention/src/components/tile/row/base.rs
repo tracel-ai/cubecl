@@ -5,28 +5,13 @@ use cubecl_core::prelude::*;
 pub trait PlaneLayout: CubeType {
     type E: Float;
 
-    /// Absolute number of rows in the tile
-    fn total_rows_count(&self) -> comptime_type!(u32);
+    fn num_local_rows(&self) -> comptime_type!(u32);
+    fn num_local_cols(&self) -> comptime_type!(u32);
+    fn num_units_per_row(&self) -> comptime_type!(u32);
 
-    /// Whether absolute number of row is part of owned rows
-    fn is_owned(&self, row: u32) -> bool;
-
-    /// Number of columns for a unit in one row
-    fn num_cols_per_unit(&self) -> comptime_type!(u32);
-
-    /// Maps `(r, c)` with `c ∈ [0..num_cols(r))` to the absolute column index
-    fn abs_col_index(&self, r: u32, c: u32) -> u32;
-
-    /// r and c are local
-    fn get_at_coor(&self, r: u32, c: u32) -> Self::E;
-    fn scale_at_coor(&mut self, r: u32, c: u32, val: Self::E);
-    fn exp_m_diff_at_coor(&mut self, r: u32, c: u32, m: Self::E);
-
-    /// Number of logical rows this thread handles
-    fn owned_rows_count(&self) -> comptime_type!(u32);
-
-    /// Maps `r ∈ [0..num_rows)` to the absolute row index
-    fn abs_row_index(&self, r: u32) -> u32;
+    fn get_at_coor(&self, local_row: u32, local_col: u32) -> Self::E;
+    fn scale_at_coor(&mut self, local_row: u32, local_col: u32, val: Self::E);
+    fn exp_m_diff_at_coor(&mut self, local_row: u32, local_col: u32, m: Self::E);
 }
 
 #[cube]

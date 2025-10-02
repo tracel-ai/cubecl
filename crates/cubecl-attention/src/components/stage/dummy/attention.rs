@@ -59,10 +59,9 @@ impl<
 
         let mut kv = comptime![0u32];
 
-        let mut max_placeholder =
-            TA::init_max_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
-        let mut sum_placeholder =
-            TA::init_sum_placeholder(config.tiling_scheme().elements_in_tile_seq_q());
+        // TODO not hardcode to 1
+        let mut max_placeholder = TA::init_max_placeholder(1u32);
+        let mut sum_placeholder = TA::init_sum_placeholder(1u32);
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]

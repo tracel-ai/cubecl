@@ -51,51 +51,31 @@ impl<E: Float> ArrayTile<E> {
         }
     }
 
-    // pub fn get_at(&self, row: u32, col: u32) -> E {
-    //     self.array[i]
-    // }
+    fn abs_row_index(&self) -> u32 {
+        let num_units_per_col = self.total_size.1 / self.unit_size.1;
+        UNIT_POS_X / num_units_per_col
+    }
 
-    // pub fn assign(&mut self, i: u32, val: E) {
-    //     self.array[i] = val;
-    // }
-
-    // pub fn add_assign(&mut self, i: u32, val: E) {
-    //     self.array[i] += val;
-    // }
-
-    // pub fn mul_assign(&mut self, i: u32, val: E) {
-    //     self.array[i] *= val;
-    // }
+    fn abs_col_index(&self, c: u32) -> u32 {
+        let num_units_per_col = self.total_size.1 / self.unit_size.1;
+        self.unit_size.1 * (UNIT_POS_X % num_units_per_col) + c
+    }
 }
 
 #[cube]
 impl<E: Float> PlaneLayout for ArrayTile<E> {
     type E = E;
 
-    fn owned_rows_count(&self) -> comptime_type!(u32) {
+    fn num_local_rows(&self) -> comptime_type!(u32) {
         self.unit_size.0
     }
 
-    fn is_owned(&self, row: u32) -> bool {
-        UNIT_POS_X / self.unit_size.1 == row
-    }
-
-    fn total_rows_count(&self) -> comptime_type!(u32) {
-        self.total_size.0
-    }
-
-    fn abs_row_index(&self, r: u32) -> u32 {
-        let num_units_per_col = self.total_size.1 / self.unit_size.1;
-        UNIT_POS_X / num_units_per_col
-    }
-
-    fn num_cols_per_unit(&self) -> comptime_type!(u32) {
+    fn num_local_cols(&self) -> comptime_type!(u32) {
         self.unit_size.1
     }
 
-    fn abs_col_index(&self, r: u32, c: u32) -> u32 {
-        let num_units_per_col = self.total_size.1 / self.unit_size.1;
-        self.unit_size.1 * (UNIT_POS_X % num_units_per_col) + c
+    fn num_units_per_row(&self) -> comptime_type!(u32) {
+        comptime!(self.total_size.1 / self.unit_size.1)
     }
 
     fn get_at_coor(&self, r: u32, c: u32) -> E {
@@ -119,8 +99,9 @@ fn array_tile_to_tmp_smem<E: Float>(array_tile: &ArrayTile<E>) -> SharedMemory<E
 
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
-            + array_tile.abs_col_index(0u32, c)] = array_tile.array[c];
+        tmp_smem
+            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
+            array_tile.array[c];
     }
 
     tmp_smem
@@ -130,8 +111,9 @@ fn array_tile_to_tmp_smem<E: Float>(array_tile: &ArrayTile<E>) -> SharedMemory<E
 fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<E>) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
-            + array_tile.abs_col_index(0u32, c)] = E::from_int(1);
+        tmp_smem
+            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
+            E::from_int(1);
     }
     sync_cube();
 }
@@ -140,8 +122,8 @@ fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<
 fn tmp_smem_to_array_tile<E: Float>(tmp_smem: &SharedMemory<E>, array_tile: &mut ArrayTile<E>) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = tmp_smem[array_tile.abs_row_index(0u32) * array_tile.total_size.1
-            + array_tile.abs_col_index(0u32, c)];
+        array_tile.array[c] = tmp_smem
+            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)];
     }
 }
 
@@ -152,10 +134,9 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
 ) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = E2::cast_from(strided_tile.get_line(
-            array_tile.abs_row_index(0u32),
-            array_tile.abs_col_index(0u32, c),
-        ))
+        array_tile.array[c] = E2::cast_from(
+            strided_tile.get_line(array_tile.abs_row_index(), array_tile.abs_col_index(c)),
+        )
     }
 }
 
@@ -166,8 +147,8 @@ fn array_tile_to_slice<E: Float, E2: Float>(
 ) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        slice[array_tile.abs_row_index(0u32) * array_tile.total_size.1
-            + array_tile.abs_col_index(0u32, c)] = Line::cast_from(array_tile.array[c]);
+        slice[array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
+            Line::cast_from(array_tile.array[c]);
     }
 }
 
