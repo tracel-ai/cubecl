@@ -444,6 +444,7 @@ impl CudaServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
+        device_id: i32,
     ) -> Self {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -453,6 +454,11 @@ impl CudaServer {
         };
 
         let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
+        if peer_activated {
+            log::info!("Peer data transfer activated for device {device_id}");
+        } else {
+            log::info!("Peer data transfer not available for device {device_id}");
+        }
 
         Self {
             mem_alignment,

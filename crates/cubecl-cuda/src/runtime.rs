@@ -235,6 +235,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_properties,
         options.memory_config,
         mem_alignment,
+        device_id,
     );
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }
