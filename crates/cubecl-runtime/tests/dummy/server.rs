@@ -5,7 +5,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{
-    Bindings, CopyDescriptor, DataTransferService, ProfileError, ProfilingToken,
+    Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication,
 };
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
 use cubecl_runtime::{id::KernelId, server::IoError};
@@ -61,7 +61,9 @@ impl KernelTask {
     }
 }
 
-impl DataTransferService for DummyServer {}
+impl ServerCommunication for DummyServer {
+    const SERVER_COMM_ENABLED: bool = false;
+}
 
 impl ComputeServer for DummyServer {
     type Kernel = KernelTask;
@@ -219,15 +221,6 @@ impl ComputeServer for DummyServer {
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.memory_management.mode(mode)
-    }
-
-    fn change_server(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        desc_src: CopyDescriptor<'_>,
-        desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        todo!()
     }
 }
 
