@@ -215,6 +215,14 @@ impl ComputeServer for CudaServer {
             (Vec::new(), handles)
         };
 
+        let mut resources = bindings
+            .tensor_maps
+            .iter()
+            .map(|it| it.binding.clone())
+            .chain(bindings.buffers)
+            .map(|binding| command.resource(binding).expect("Resource to exist."))
+            .collect::<Vec<_>>();
+
         let tensor_maps: Vec<_> = bindings
             .tensor_maps
             .into_iter()
@@ -248,6 +256,7 @@ impl ComputeServer for CudaServer {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
+                        println!("ptr: {:x}", resource.ptr);
 
                         cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
@@ -340,11 +349,6 @@ impl ComputeServer for CudaServer {
             })
             .collect::<_>();
 
-        let mut resources = bindings
-            .buffers
-            .into_iter()
-            .map(|binding| command.resource(binding).expect("Resource to exist."))
-            .collect::<Vec<_>>();
         resources.extend(
             scalar_bindings
                 .into_iter()

@@ -192,6 +192,12 @@ pub enum Instruction<D: Dialect> {
     BulkWaitGroupRead {
         max_pending: u32,
     },
+    TmaReplacePointer {
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        tensor_map: Variable<D>,
+        out: Variable<D>,
+    },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
@@ -647,6 +653,24 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
+            Instruction::TmaReplacePointer {
+                buffer,
+                offset,
+                tensor_map,
+                out,
+            } => {
+                let pos = Variable::<D>::UnitPos;
+                writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
+                writeln!(
+                    f,
+                    "
+if({pos} == 0) {{
+    {out} = {tensor_map};
+    tensormap_replace_global_address({out}, &{buffer}[{offset}]);
+}}"
+                )?;
+                writeln!(f, "__syncthreads();")
+            }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
                 smem_offset,

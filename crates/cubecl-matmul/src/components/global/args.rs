@@ -98,17 +98,17 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Reinterpret lhs as tensor map
     fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Lhs>;
+    ) -> CubeOption<TensorMap<Lhs>>;
 
     /// Reinterpret rhs as tensor map
     fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Rhs>;
+    ) -> CubeOption<TensorMap<Rhs>>;
 
     /// Reinterpret rhs as tensor map
     fn as_tensor_map_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<EO>;
+    ) -> CubeOption<TensorMap<EO>>;
 
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
@@ -317,11 +317,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         TensorOutputExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(
-        &self,
-        _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<EO>> {
-        unimplemented!("TensorOutputExpand can't be turned into a tensor map");
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<EO>> {
+        CubeOption::__expand_new_None(scope)
     }
 }
 
@@ -394,10 +391,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         TensorLhsExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(
-        &self,
-        scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<Lhs>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<Lhs>> {
         TensorLhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -471,10 +465,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         TensorRhsExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(
-        &self,
-        scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<Rhs>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<Rhs>> {
         TensorRhsExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -548,10 +539,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> VirtualTensorOpera
         TensorAccExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(
-        &self,
-        scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<EO>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<EO>> {
         TensorAccExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -644,7 +632,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorLhs<Lhs, Rhs
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<Lhs> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<Lhs>> {
         unsafe { MA::as_tensor_map_lhs(&(*self.state)) }
     }
 
@@ -698,7 +686,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorRhs<Lhs, Rhs
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<Rhs> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<Rhs>> {
         unsafe { MA::as_tensor_map_rhs(&(*self.state)) }
     }
 
@@ -752,7 +740,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric, MA: MatmulArgs> TensorAcc<Lhs, Rhs
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<EO> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<EO>> {
         unsafe { MA::as_tensor_map_acc(&(*self.state)) }
     }
 
@@ -948,26 +936,20 @@ impl MatmulArgs for TensorArgs {
 
     fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Lhs> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<Lhs>> {
+        CubeOption::new_None()
     }
 
     fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Rhs> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<Rhs>> {
+        CubeOption::new_None()
     }
 
     fn as_tensor_map_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<EO> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<EO>> {
+        CubeOption::new_None()
     }
 
     fn shape_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
@@ -1361,22 +1343,20 @@ impl MatmulArgs for TensorMapArgs {
 
     fn as_tensor_map_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Lhs> {
-        unsafe { *state.0 }
+    ) -> CubeOption<TensorMap<Lhs>> {
+        CubeOption::new_Some(unsafe { *state.0 })
     }
 
     fn as_tensor_map_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<Rhs> {
-        unsafe { *state.1 }
+    ) -> CubeOption<TensorMap<Rhs>> {
+        CubeOption::new_Some(unsafe { *state.1 })
     }
 
     fn as_tensor_map_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> TensorMap<EO> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<EO>> {
+        CubeOption::new_None()
     }
 
     fn shape_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(

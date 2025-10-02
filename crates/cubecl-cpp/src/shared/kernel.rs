@@ -68,7 +68,7 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub tensor_maps: Vec<Id>,
+    pub tensor_maps: Vec<Binding<D>>,
     pub buffers: Vec<Binding<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
     pub meta_static_len: usize,
@@ -201,7 +201,7 @@ uint x[{static_len}];
 
 pub fn compile_bindings<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    tensor_maps: &[Id],
+    tensor_maps: &[Binding<D>],
     buffers: &[Binding<D>],
     trailing_comma: bool,
     flags: &Flags,
@@ -210,19 +210,25 @@ pub fn compile_bindings<D: Dialect>(
 
     let mut args = Vec::new();
 
+    args.extend(tensor_maps.iter().map(|binding| {
+        format!(
+            "const __grid_constant__ CUtensorMap tensor_map_{}",
+            binding.id
+        )
+    }));
     args.extend(
         tensor_maps
             .iter()
-            .map(|id| format!("const __grid_constant__ CUtensorMap tensor_map_{id}")),
+            .chain(buffers.iter())
+            .map(|binding| match binding.vis {
+                Visibility::Read => {
+                    format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
+                }
+                Visibility::ReadWrite => {
+                    format!("{}* buffer_{}", binding.item, binding.id)
+                }
+            }),
     );
-    args.extend(buffers.iter().map(|binding| match binding.vis {
-        Visibility::Read => {
-            format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
-        }
-        Visibility::ReadWrite => {
-            format!("{}* buffer_{}", binding.item, binding.id)
-        }
-    }));
     args.extend(
         flags
             .has_dynamic_meta

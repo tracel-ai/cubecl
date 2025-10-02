@@ -163,8 +163,8 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         let mut all_meta: Vec<_> = value
             .buffers
             .iter()
+            .chain(value.tensor_maps.iter())
             .map(|buf| (buf.id, buf.has_extended_meta))
-            .chain(value.tensor_maps.iter().map(|id| (*id, true)))
             .collect();
         all_meta.sort_by_key(|(id, _)| *id);
 

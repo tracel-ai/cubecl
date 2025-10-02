@@ -14,7 +14,7 @@ pub struct KernelIntegrator {
     expansion: KernelExpansion,
     buffer_bindings: Vec<Binding>,
     scalar_bindings: Vec<ScalarBinding>,
-    tensor_maps: Vec<Id>,
+    tensor_maps: Vec<Binding>,
 }
 
 /// The information necessary to compile a [kernel definition](KernelDefinition).
@@ -22,7 +22,7 @@ pub struct KernelIntegrator {
 pub struct KernelExpansion {
     pub buffers: Vec<BufferInfo>,
     pub scalars: Vec<ScalarInfo>,
-    pub tensor_maps: Vec<Id>,
+    pub tensor_maps: Vec<BufferInfo>,
     pub scope: Scope,
 }
 
@@ -143,8 +143,15 @@ impl KernelIntegrator {
     }
 
     fn register_tensor_maps(&mut self) {
-        for id in self.expansion.tensor_maps.drain(..) {
-            self.tensor_maps.push(id);
+        for buffer in self.expansion.tensor_maps.drain(..) {
+            self.tensor_maps.push(Binding {
+                id: buffer.id,
+                ty: buffer.item,
+                visibility: buffer.visibility,
+                location: Location::Storage,
+                has_extended_meta: buffer.has_extended_meta,
+                size: None,
+            });
         }
     }
 }
