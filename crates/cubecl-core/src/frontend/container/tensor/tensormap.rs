@@ -250,6 +250,7 @@ macro_rules! tma_store {
     };
 }
 
+tma_store!(1, x);
 tma_store!(2, y, x);
 tma_store!(3, z, y, x);
 tma_store!(4, w, z, y, x);
