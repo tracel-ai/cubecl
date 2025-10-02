@@ -72,6 +72,7 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
 }
 
 #[derive(Debug)]
+/// A task to be enqueue on the gc stream that will be clearned after an event is reached.
 pub struct GcTask<B: EventStreamBackend> {
     to_drop: Box<dyn Any + Send + 'static>,
     /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
@@ -79,6 +80,7 @@ pub struct GcTask<B: EventStreamBackend> {
 }
 
 impl<B: EventStreamBackend> GcTask<B> {
+    /// Creates a new task that will be clearned when the event is reached.
     pub fn new<T: Send + 'static>(to_drop: T, event: B::Event) -> Self {
         Self {
             to_drop: Box::new(to_drop),
