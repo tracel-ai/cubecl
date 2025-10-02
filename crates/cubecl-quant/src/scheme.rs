@@ -1,8 +1,9 @@
 use core::default::Default;
+use cubecl_common::{e4m3, e5m2};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., QInt8).
     ///
@@ -63,7 +64,8 @@ impl QuantScheme {
 
     /// Returns the size of the quantization storage type in bits.
     pub fn size_bits_stored(&self) -> usize {
-        self.store.size_bits(&self.value)
+        // Assume native packing if store type is < 8 bits
+        self.store.size_bits(&self.value).max(8)
     }
 
     /// Returns the size of the quantization storage type in bits.
@@ -78,12 +80,12 @@ impl QuantScheme {
 }
 
 /// Level or granularity of quantization.
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantLevel {
     /// Quantize the whole tensor using a single tensor.
     Tensor,
-    /// Quantize a tensor using multiple 1D linear blocks.
-    Block(usize),
+    /// Quantize a tensor using multiple blocks.
+    Block(Vec<usize>),
 }
 
 /// Data type used to represent quantized values.
@@ -91,8 +93,14 @@ pub enum QuantLevel {
 pub enum QuantValue {
     /// 8-bit quantization with full range.
     Q8F,
+    /// 8-bit floating point, e5m2 format.
+    E5M2,
+    /// 8-bit floating point, e4m3 format.
+    E4M3,
     /// 4-bit quantization with full range.
     Q4F,
+    /// 4-bit floating point, e2m1 format.
+    E2M1,
     /// 2-bit quantization with full range.
     Q2F,
     /// 8-bit quantization with symmetric range.
@@ -107,8 +115,8 @@ impl QuantValue {
     /// Returns the size of the quantization input type in bits.
     pub fn size_bits(&self) -> usize {
         match self {
-            QuantValue::Q8F | QuantValue::Q8S => 8,
-            QuantValue::Q4F | QuantValue::Q4S => 4,
+            QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2 => 8,
+            QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 => 4,
             QuantValue::Q2F | QuantValue::Q2S => 2,
         }
     }
@@ -122,13 +130,16 @@ impl QuantValue {
             QuantValue::Q8S => (-i8::MAX as f32, i8::MAX as f32),
             QuantValue::Q4S => (-7.0, 7.0),
             QuantValue::Q2S => (-1.0, 1.0),
+            QuantValue::E4M3 => (e4m3::MIN as f32, e4m3::MAX as f32),
+            QuantValue::E5M2 => (e5m2::MIN as f32, e5m2::MAX as f32),
+            QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
         }
     }
 
     /// If the range of values is symmetric around zero.
     pub fn is_symmetric(&self) -> bool {
         match self {
-            Self::Q8F | Self::Q4F | Self::Q2F => false,
+            Self::Q8F | Self::Q4F | Self::Q2F | Self::E4M3 | Self::E5M2 | Self::E2M1 => false,
             Self::Q8S | Self::Q4S | Self::Q2S => true,
         }
     }
@@ -174,4 +185,8 @@ pub enum QuantParam {
     F16,
     /// bfloat16 precision.
     BF16,
+    /// unsigned floating point, e8m0 format.
+    UE8M0,
+    /// unsigned floating point, e4m3 format.
+    UE4M3,
 }

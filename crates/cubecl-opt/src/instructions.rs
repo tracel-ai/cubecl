@@ -127,6 +127,9 @@ impl Optimizer {
             | Comparison::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
             }
+            Comparison::IsNan(unary_operator) | Comparison::IsInf(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read)
+            }
         }
     }
 

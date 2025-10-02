@@ -9,7 +9,7 @@ use crate::components::{MatrixLayout, StageIdent, TileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
-pub struct AcceleratedConfig {
+pub struct MmaMatmulConfig {
     tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
@@ -21,7 +21,7 @@ pub struct AcceleratedConfig {
     rhs_stage_line_size: u32,
 }
 
-impl TileConfig for AcceleratedConfig {
+impl TileConfig for MmaMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -58,7 +58,7 @@ impl TileConfig for AcceleratedConfig {
     }
 }
 
-impl AcceleratedConfig {
+impl MmaMatmulConfig {
     #[allow(clippy::too_many_arguments)]
     /// Create a new config for accelerated matmul
     ///
@@ -100,7 +100,7 @@ impl AcceleratedConfig {
         let acc = Acc::as_type_native_unchecked();
 
         let size = self.tile_size();
-        if !client.properties().features.cmma.contains(&MmaConfig {
+        if !client.properties().features.mma.contains(&MmaConfig {
             a_type: lhs,
             b_type: rhs,
             cd_type: acc,

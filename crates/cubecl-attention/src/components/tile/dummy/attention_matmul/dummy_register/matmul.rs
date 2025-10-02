@@ -117,7 +117,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().key_size();
             for i in 0..size {
-                rhs[i] = KVT::<AP>::cast_from(tile.as_unlined(1u32).0[i]);
+                rhs[i] = KVT::<AP>::cast_from(tile.as_unlined().0[i]);
             }
         }
 
@@ -176,7 +176,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         if UNIT_POS_X == 0 {
             let size = config.attention_tile_size().accumulator_size();
             for i in 0..size {
-                acc[i] = tile.as_unlined(1u32).0[i];
+                acc[i] = tile.as_unlined().0[i];
             }
         }
 
@@ -191,7 +191,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         if UNIT_POS_X == 0 {
             let len = config.attention_tile_size().softmax_size();
             for i in 0..len {
-                prob[i] = tile.as_unlined(1u32).0[i];
+                prob[i] = tile.as_unlined().0[i];
             }
         }
 

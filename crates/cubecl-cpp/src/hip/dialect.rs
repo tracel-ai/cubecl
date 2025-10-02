@@ -413,7 +413,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
     }
 
     fn compile_saturating_sub(
@@ -422,7 +422,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
     }
 
     // others
