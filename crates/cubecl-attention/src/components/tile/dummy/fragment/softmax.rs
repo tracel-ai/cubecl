@@ -47,12 +47,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     }
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
-        #[unroll]
-        for c in 0..self.fragment.num_local_cols() {
-            // TODO more than one row
-            // TODO mask
-            self.fragment.scale_at_coor(0u32, c, scale);
-        }
+        // TODO mask
+        self.fragment.scale(scale);
     }
 
     fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise) {
@@ -67,11 +63,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     ) -> Self::RowWise {
         let new_m_val = new_m.index(0u32);
 
-        #[unroll]
-        for c in 0..self.fragment.num_local_cols() {
-            // TODO more than one row
-            self.fragment.exp_m_diff_at_coor(0u32, c, new_m_val);
-        }
+        self.fragment.exp_m_diff(new_m_val);
 
         Self::RowWise::row_sum::<Self::PlaneLayout>(rowsum_placeholder, &self.fragment);
 

@@ -10,8 +10,8 @@ pub trait PlaneLayout: CubeType {
     fn num_units_per_row(&self) -> comptime_type!(u32);
 
     fn get_at_coor(&self, local_row: u32, local_col: u32) -> Self::E;
-    fn scale_at_coor(&mut self, local_row: u32, local_col: u32, val: Self::E);
-    fn exp_m_diff_at_coor(&mut self, local_row: u32, local_col: u32, m: Self::E);
+    fn scale(&mut self, val: Self::E);
+    fn exp_m_diff(&mut self, m: Self::E);
 }
 
 #[cube]

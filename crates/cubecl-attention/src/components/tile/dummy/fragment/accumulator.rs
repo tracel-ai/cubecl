@@ -36,22 +36,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>, RW: RowWise> AccumulatorTi
     for DummyAccumulator<AP, AM, RW>
 {
     fn scale_mul(&mut self, scale: &RW) {
-        let scale = ACC::<AP>::cast_from(scale.index(0u32));
-
-        #[unroll]
-        for c in 0..self.fragment.num_local_cols() {
-            // TODO more than one row
-            self.fragment.scale_at_coor(0u32, c, scale);
-        }
+        self.fragment.scale(ACC::<AP>::cast_from(scale.index(0u32)));
     }
 
     fn scale_div(&mut self, scale: &RW) {
-        let scale = Recip::recip(ACC::<AP>::cast_from(scale.index(0u32)));
-
-        #[unroll]
-        for c in 0..self.fragment.num_local_cols() {
-            // TODO more than one row
-            self.fragment.scale_at_coor(0u32, c, scale);
-        }
+        self.fragment
+            .scale(Recip::recip(ACC::<AP>::cast_from(scale.index(0u32))));
     }
 }

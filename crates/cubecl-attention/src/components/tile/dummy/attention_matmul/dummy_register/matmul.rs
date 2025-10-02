@@ -81,14 +81,28 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         self.array[r * self.unit_size.1 + c]
     }
 
-    fn scale_at_coor(&mut self, r: u32, c: u32, factor: E) {
-        let index = r * self.unit_size.1 + c;
-        self.array[index] = self.array[index] * factor;
+    fn scale(&mut self, factor: E) {
+        #[unroll]
+        for r in 0..self.unit_size.0 {
+            let row_offset = r * self.unit_size.1;
+            #[unroll]
+            for c in 0..self.unit_size.1 {
+                let index = row_offset + c;
+                self.array[index] = self.array[index] * factor;
+            }
+        }
     }
 
-    fn exp_m_diff_at_coor(&mut self, r: u32, c: u32, val: E) {
-        let index = r * self.unit_size.1 + c;
-        self.array[index] = Exp::exp(self.array[index] - val);
+    fn exp_m_diff(&mut self, val: E) {
+        #[unroll]
+        for r in 0..self.unit_size.0 {
+            let row_offset = r * self.unit_size.1;
+            #[unroll]
+            for c in 0..self.unit_size.1 {
+                let index = row_offset + c;
+                self.array[index] = Exp::exp(self.array[index] - val);
+            }
+        }
     }
 }
 

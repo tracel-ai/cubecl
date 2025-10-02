@@ -31,11 +31,11 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_at_coor(&mut self, _row: u32, _col: u32, _val: E) {
+    fn scale(&mut self, _val: E) {
         todo!()
     }
 
-    fn exp_m_diff_at_coor(&mut self, _row: u32, _col: u32, _val: E) {
+    fn exp_m_diff(&mut self, _val: E) {
         todo!()
     }
 }
