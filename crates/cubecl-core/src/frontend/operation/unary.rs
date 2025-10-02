@@ -1,5 +1,5 @@
 use cubecl_common::{e2m1, e4m3, e5m2, ue8m0};
-use cubecl_ir::{Bitwise, Operator, Type};
+use cubecl_ir::{Bitwise, Comparison, Operator, Type};
 use half::{bf16, f16};
 
 use crate::{
@@ -357,4 +357,30 @@ impl_unary_func_fixed_out_ty!(
     i32,
     u64,
     i64
+);
+impl_unary_func_fixed_out_ty!(
+    IsNan,
+    is_nan,
+    __expand_is_nan,
+    bool,
+    Comparison::IsNan,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func_fixed_out_ty!(
+    IsInf,
+    is_inf,
+    __expand_is_inf,
+    bool,
+    Comparison::IsInf,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
 );
