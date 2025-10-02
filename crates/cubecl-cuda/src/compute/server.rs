@@ -249,8 +249,6 @@ impl ComputeServer for CudaServer {
                     .collect();
                 let elem_stride: Vec<_> = map.elem_stride.iter().rev().map(|s| *s as u32).collect();
 
-                println!("meta: {map:?}");
-
                 debug_assert!(
                     strides.iter().all(|it| it % 16 == 0),
                     "Strides must be 16 byte aligned"
