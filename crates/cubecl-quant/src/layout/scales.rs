@@ -54,6 +54,8 @@ impl Layout for ScalesLayout {
 
 #[cube]
 impl ScalesLayout {
+    /// Whether the position is at the start of a new block. Used for electing a unit to write each
+    /// scale.
     pub fn is_block_start(&self, pos: u32) -> bool {
         match self {
             ScalesLayout::PerTensor(layout) => layout.is_block_start(pos),
@@ -91,6 +93,8 @@ impl Layout for PerTensorLayout {
 
 #[cube]
 impl PerTensorLayout {
+    /// Whether the position is at the start of a new block. Used for electing a unit to write each
+    /// scale.
     pub fn is_block_start(&self, pos: u32) -> bool {
         pos == 0
     }
@@ -145,6 +149,8 @@ impl Layout for BlockScaledLayout {
 
 #[cube]
 impl BlockScaledLayout {
+    /// Whether the position is at the start of a new block. Used for electing a unit to write each
+    /// scale.
     pub fn is_block_start(&self, pos: u32) -> bool {
         let rank = comptime![self.scales_strides.len()];
         let mut offs = pos;
