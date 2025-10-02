@@ -38,6 +38,7 @@ impl EventStreamBackend for CudaStreamBackend {
         let storage = GpuStorage::new(self.mem_alignment, stream);
         let memory_management_gpu =
             MemoryManagement::from_configuration(storage, &self.mem_props, self.mem_config.clone());
+
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
         let memory_management_cpu = MemoryManagement::from_configuration(
@@ -46,6 +47,8 @@ impl EventStreamBackend for CudaStreamBackend {
                 max_page_size: self.mem_props.max_page_size,
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             self.mem_config.clone(),
         );

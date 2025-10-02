@@ -3,7 +3,7 @@ use hashbrown::HashMap;
 
 use crate::storage::StorageId;
 
-use super::{MemoryPage, Slice, SliceId};
+use super::{MemoryChunk, MemoryFragment};
 
 #[derive(Debug)]
 pub struct RingBuffer {
@@ -31,12 +31,12 @@ impl RingBuffer {
             .insert(storage_id, self.queue.len() - 1);
     }
 
-    pub fn find_free_slice(
+    pub fn find_free_slice<M: MemoryChunk>(
         &mut self,
         size: u64,
-        pages: &mut HashMap<StorageId, MemoryPage>,
-        slices: &mut HashMap<SliceId, Slice>,
-    ) -> Option<SliceId> {
+        pages: &mut HashMap<StorageId, M>,
+        slices: &mut HashMap<M::Key, M::Fragment>,
+    ) -> Option<M::Key> {
         let max_second = self.cursor_chunk;
         let result = self.find_free_slice_in_all_chunks(size, pages, slices, self.queue.len());
 
@@ -49,13 +49,13 @@ impl RingBuffer {
         self.find_free_slice_in_all_chunks(size, pages, slices, max_second)
     }
 
-    fn find_free_slice_in_chunk(
+    fn find_free_slice_in_chunk<M: MemoryChunk>(
         &mut self,
         size: u64,
-        page: &mut MemoryPage,
-        slices: &mut HashMap<SliceId, Slice>,
+        page: &mut M,
+        slices: &mut HashMap<M::Key, M::Fragment>,
         mut slice_index: u64,
-    ) -> Option<(u64, SliceId)> {
+    ) -> Option<(u64, M::Key)> {
         while let Some(slice_id) = page.find_slice(slice_index) {
             //mutable borrow scope
             {
@@ -93,13 +93,13 @@ impl RingBuffer {
         None
     }
 
-    fn find_free_slice_in_all_chunks(
+    fn find_free_slice_in_all_chunks<M: MemoryChunk>(
         &mut self,
         size: u64,
-        pages: &mut HashMap<StorageId, MemoryPage>,
-        slices: &mut HashMap<SliceId, Slice>,
+        pages: &mut HashMap<StorageId, M>,
+        slices: &mut HashMap<M::Key, M::Fragment>,
         max_cursor_position: usize,
-    ) -> Option<SliceId> {
+    ) -> Option<M::Key> {
         let start = self.cursor_chunk;
         let end = usize::min(self.queue.len(), max_cursor_position);
         let mut slice_index = self.cursor_slice;
@@ -126,10 +126,66 @@ impl RingBuffer {
 
         None
     }
+
+    /// Remove a page from the ring buffer
+    pub fn remove_page(&mut self, storage_id: &StorageId) -> bool {
+        if let Some(&position) = self.chunk_positions.get(storage_id) {
+            // Remove from the queue
+            self.queue.remove(position);
+
+            // Remove from positions map
+            self.chunk_positions.remove(storage_id);
+
+            // Update positions for all pages that came after the removed one
+            for (_id, pos) in self.chunk_positions.iter_mut() {
+                if *pos > position {
+                    *pos -= 1;
+                }
+            }
+
+            // Adjust cursors if necessary
+            if self.cursor_chunk > position {
+                // The current cursor chunk moved one position back
+                self.cursor_chunk -= 1;
+            } else if self.cursor_chunk == position {
+                // We removed the page we were currently on
+                if self.cursor_chunk >= self.queue.len() {
+                    // We were on the last page, wrap around or reset
+                    self.cursor_chunk = if self.queue.is_empty() {
+                        0
+                    } else {
+                        self.queue.len() - 1
+                    };
+                    self.cursor_slice = 0;
+                }
+                // If cursor_chunk < queue.len(), we can stay on the same index
+                // as it now points to the next page
+                self.cursor_slice = 0;
+            }
+
+            true // Successfully removed
+        } else {
+            false // Page not found
+        }
+    }
+
+    /// Check if a page exists in the ring buffer
+    #[cfg(test)]
+    fn contains_page(&self, storage_id: &StorageId) -> bool {
+        self.chunk_positions.contains_key(storage_id)
+    }
+
+    /// Get the current number of pages in the ring buffer
+    #[cfg(test)]
+    fn page_count(&self) -> usize {
+        self.queue.len()
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::memory_management::SliceId;
+    use crate::memory_management::memory_pool::Slice;
     use crate::{
         memory_management::memory_pool::{MemoryPage, SliceHandle},
         storage::StorageHandle,
@@ -301,5 +357,108 @@ mod tests {
                 .collect(),
             mem_page,
         )
+    }
+
+    /// Added this test to verify that page removal works properly.
+    #[test]
+    fn test_ring_buffer_page_removal() {
+        let mut ring = RingBuffer::new(1);
+
+        // Create three chunks with different slice configurations
+        let (storage_id_1, _slice_ids_1, mut slices, chunk_1) = new_chunk(&[100, 200]);
+        let (storage_id_2, _slice_ids_2, slices_2, chunk_2) = new_chunk(&[150, 250]);
+        let (storage_id_3, _slice_ids_3, slices_3, chunk_3) = new_chunk(&[300]);
+
+        // Add all pages to ring buffer
+        ring.push_page(storage_id_1);
+        ring.push_page(storage_id_2);
+        ring.push_page(storage_id_3);
+
+        let mut chunks = HashMap::from([
+            (storage_id_1, chunk_1),
+            (storage_id_2, chunk_2),
+            (storage_id_3, chunk_3),
+        ]);
+
+        // Merge all slices
+        slices.extend(slices_2);
+        slices.extend(slices_3);
+
+        // Verify initial state
+        assert_eq!(ring.page_count(), 3);
+        assert!(ring.contains_page(&storage_id_1));
+        assert!(ring.contains_page(&storage_id_2));
+        assert!(ring.contains_page(&storage_id_3));
+
+        // Test allocation before removal
+        let slice_before = ring.find_free_slice(100, &mut chunks, &mut slices).unwrap();
+        assert!(slices.contains_key(&slice_before));
+
+        // Remove the middle page
+        assert!(ring.remove_page(&storage_id_2));
+        chunks.remove(&storage_id_2);
+
+        // Remove slices that belonged to the removed page
+        let slices_to_remove: Vec<SliceId> = slices
+            .iter()
+            .filter(|(_, slice)| slice.storage.id == storage_id_2)
+            .map(|(&id, _)| id)
+            .collect();
+
+        for slice_id in slices_to_remove {
+            slices.remove(&slice_id);
+        }
+
+        // Verify removal
+        assert_eq!(ring.page_count(), 2);
+        assert!(ring.contains_page(&storage_id_1));
+        assert!(!ring.contains_page(&storage_id_2));
+        assert!(ring.contains_page(&storage_id_3));
+
+        // Verify positions are updated correctly
+        assert_eq!(ring.chunk_positions.get(&storage_id_1), Some(&0));
+        assert_eq!(ring.chunk_positions.get(&storage_id_3), Some(&1));
+
+        // Test that allocation still works after removal
+        let slice_after = ring.find_free_slice(250, &mut chunks, &mut slices).unwrap();
+        assert!(slices.contains_key(&slice_after));
+        // Should find the slice from storage_id_3 (300 bytes)
+        assert_eq!(slices.get(&slice_after).unwrap().storage.id, storage_id_3);
+
+        // Remove first page
+        assert!(ring.remove_page(&storage_id_1));
+        chunks.remove(&storage_id_1);
+
+        // Remove slices that belonged to the removed page
+        let slices_to_remove: Vec<SliceId> = slices
+            .iter()
+            .filter(|(_, slice)| slice.storage.id == storage_id_1)
+            .map(|(&id, _)| id)
+            .collect();
+
+        for slice_id in slices_to_remove {
+            slices.remove(&slice_id);
+        }
+
+        // Verify only one page remains
+        assert_eq!(ring.page_count(), 1);
+        assert!(!ring.contains_page(&storage_id_1));
+        assert!(ring.contains_page(&storage_id_3));
+        assert_eq!(ring.chunk_positions.get(&storage_id_3), Some(&0));
+
+        // Try to remove non-existent page
+        assert!(!ring.remove_page(&storage_id_2));
+        assert_eq!(ring.page_count(), 1);
+
+        // Remove last page
+        assert!(ring.remove_page(&storage_id_3));
+        chunks.remove(&storage_id_3);
+
+        assert_eq!(ring.page_count(), 0);
+        assert!(ring.chunk_positions.is_empty());
+
+        // Verify allocation fails when no pages exist
+        let no_slice = ring.find_free_slice(100, &mut chunks, &mut slices);
+        assert!(no_slice.is_none());
     }
 }

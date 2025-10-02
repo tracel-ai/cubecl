@@ -113,3 +113,5 @@ impl ComputeStorage for PinnedMemoryStorage {
         }
     }
 }
+
+impl cubecl_runtime::storage::VirtualStorage for PinnedMemoryStorage {}

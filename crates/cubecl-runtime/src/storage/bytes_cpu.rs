@@ -1,6 +1,7 @@
 use crate::server::IoError;
 
 use super::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
+use crate::storage::VirtualStorage;
 use alloc::alloc::{Layout, alloc, dealloc};
 use hashbrown::HashMap;
 
@@ -23,8 +24,10 @@ unsafe impl Send for BytesResource {}
 /// This struct is a pointer to a memory chunk or slice.
 #[derive(Debug, Clone)]
 pub struct BytesResource {
-    ptr: *mut u8,
-    utilization: StorageUtilization,
+    /// Address at which this resource is referring to in the heap.
+    pub ptr: *mut u8,
+    /// The utilization of this resource
+    pub utilization: StorageUtilization,
 }
 
 /// This struct refers to a specific (contiguous) layout of bytes.
@@ -74,6 +77,8 @@ impl BytesResource {
         unsafe { core::slice::from_raw_parts(ptr, len) }
     }
 }
+
+impl VirtualStorage for BytesStorage {}
 
 impl ComputeStorage for BytesStorage {
     type Resource = BytesResource;

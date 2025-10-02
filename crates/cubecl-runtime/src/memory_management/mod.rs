@@ -29,6 +29,11 @@ pub enum PoolType {
         /// The maximum size of a slice to allocate in the pool.
         max_slice_size: u64,
     },
+    /// Use a pool designed specifically to work with virtual memory
+    VirtualMemory {
+        /// The physical allocation size
+        alloc_size: u64,
+    },
 }
 
 /// Options to create a memory pool.
@@ -53,6 +58,8 @@ pub enum MemoryConfiguration {
     /// Default preset for using exclusive pages.
     /// This can be necessary for backends don't support sub-slices.
     ExclusivePages,
+    /// Virtual Memory configuration
+    VirtualMemory,
     /// Custom settings.
     Custom {
         /// Options for each pool to construct. When allocating, the first
@@ -84,6 +91,10 @@ pub struct MemoryDeviceProperties {
     pub alignment: u64,
     /// Defines if memory can be transferred async between multiple devices of the same kind.
     pub data_transfer_async: bool,
+    /// Determines whether virtual memory is supported on the target device.
+    pub virtual_memory_supported: bool,
+    /// Minimum granularity of the target device (Decouple from alignment)
+    pub min_granularity: u64,
 }
 
 /// Properties of the device related to the accelerator hardware.

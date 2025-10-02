@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool, VirtualMemoryPool},
 };
 use crate::{
     server::IoError,
@@ -19,6 +19,7 @@ pub use super::memory_pool::{SliceBinding, handle::*};
 enum DynamicPool {
     Sliced(SlicedPool),
     Exclusive(ExclusiveMemoryPool),
+    Virtual(VirtualMemoryPool),
 }
 
 impl MemoryPool for DynamicPool {
@@ -26,6 +27,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
             DynamicPool::Exclusive(m) => m.get(binding),
+            DynamicPool::Virtual(m) => m.get(binding),
         }
     }
 
@@ -33,6 +35,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.try_reserve(size),
             DynamicPool::Exclusive(m) => m.try_reserve(size),
+            DynamicPool::Virtual(m) => m.try_reserve(size),
         }
     }
 
@@ -44,6 +47,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.alloc(storage, size),
             DynamicPool::Exclusive(m) => m.alloc(storage, size),
+            DynamicPool::Virtual(m) => m.alloc(storage, size),
         }
     }
 
@@ -51,6 +55,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
+            DynamicPool::Virtual(m) => m.get_memory_usage(),
         }
     }
 
@@ -58,6 +63,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.max_alloc_size(),
             DynamicPool::Exclusive(m) => m.max_alloc_size(),
+            DynamicPool::Virtual(m) => m.max_alloc_size(),
         }
     }
 
@@ -70,6 +76,7 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.cleanup(storage, alloc_nr, explicit),
             DynamicPool::Exclusive(m) => m.cleanup(storage, alloc_nr, explicit),
+            DynamicPool::Virtual(m) => m.cleanup(storage, alloc_nr, explicit),
         }
     }
 }
@@ -125,7 +132,7 @@ const BASE_DEALLOC_PERIOD: u64 = 5000;
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
-        storage: Storage,
+        storage: Storage, // It is needed to make this dynamically dispatch at runtime to be compatible with virtualstorage and pool.
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
     ) -> Self {
@@ -219,6 +226,49 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     })
                     .collect()
             }
+            MemoryConfiguration::VirtualMemory => {
+                if properties.virtual_memory_supported && storage.is_virtual_mem_enabled() {
+                    // Collect the minimum granularity of the target device.
+                    let minimum_granularity = properties.min_granularity;
+                    // I am following `PyTorch approach here. PyTorch maintains two virtual memory pools.
+                    // One of them makes allocations aligned to 10 * min_granularity (huge pages), mainly useful with LLMs and very large models that allocate huge tensors.
+
+                    let big_alloc_size = 10 * minimum_granularity; // Around 20MiB
+                    let small_alloc_size = minimum_granularity; // Around 2MiB
+
+                    // The other makes finer grained allocations aligned to gpu page size. It is better to set the second one's max_alloc_size equal to the granularity, as it will make memory reuse easier by enforcing all physical allocations to be the same size.
+                    let small_dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                        * (1.0 + small_alloc_size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        as u64;
+
+                    let big_dealloc_period = (BASE_DEALLOC_PERIOD as f64
+                        * (1.0 + big_alloc_size as f64 / (DEALLOC_SCALE_MB as f64)).round())
+                        as u64;
+                    vec![
+                        // Smaller pool, fixed size physical allocations,
+                        // Always allocates memory of about 2MiB.
+                        MemoryPoolOptions {
+                            pool_type: PoolType::VirtualMemory {
+                                alloc_size: small_alloc_size,
+                            },
+                            dealloc_period: Some(small_dealloc_period),
+                        },
+                        // Bigger pool.
+                        // Max alloc size is 10 * min_granularity (about 20MiB)
+                        // Alignment is half that value, so the pool will allocate physical blocks of sizes ranging from 10MiB to 20MiB.
+                        MemoryPoolOptions {
+                            pool_type: PoolType::VirtualMemory {
+                                alloc_size: big_alloc_size,
+                            },
+                            // The dealloc period depends on the expected size of the allocations.
+                            dealloc_period: Some(big_dealloc_period),
+                        },
+                    ]
+                // In case virtual memory is not set to be supported return an empty vector, which in practice will fallback to use the static pool.
+                } else {
+                    Vec::new()
+                }
+            }
             MemoryConfiguration::Custom { pool_options } => pool_options,
         };
 
@@ -241,6 +291,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                     DynamicPool::Exclusive(ExclusiveMemoryPool::new(
                         max_alloc_size,
                         properties.alignment,
+                        options.dealloc_period.unwrap_or(u64::MAX),
+                    ))
+                }
+                PoolType::VirtualMemory { alloc_size } => {
+                    DynamicPool::Virtual(VirtualMemoryPool::new(
+                        alloc_size,
+                        properties.min_granularity,
                         options.dealloc_period.unwrap_or(u64::MAX),
                     ))
                 }
@@ -376,13 +433,39 @@ impl<Storage> core::fmt::Debug for MemoryManagement<Storage> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{memory_management::MemoryManagement, storage::BytesStorage};
+    use crate::storage::BytesAllocationMode;
+    use crate::{
+        memory_management::MemoryManagement,
+        storage::{BytesStorage, BytesVirtualStorage},
+    };
 
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
         max_page_size: 128 * 1024 * 1024,
         alignment: 32,
         data_transfer_async: false,
+        virtual_memory_supported: false,
+        min_granularity: 0,
     };
+
+    const VIRTUAL_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
+        max_page_size: 64,
+        alignment: 64,
+        data_transfer_async: false,
+        virtual_memory_supported: true,
+        min_granularity: 64,
+    };
+
+    fn create_virtual_memory_manager() -> MemoryManagement<BytesVirtualStorage> {
+        let storage = BytesVirtualStorage::new(
+            VIRTUAL_MEM_PROPS.alignment as usize,
+            BytesAllocationMode::Virtual,
+        );
+        MemoryManagement::from_configuration(
+            storage,
+            &VIRTUAL_MEM_PROPS,
+            MemoryConfiguration::VirtualMemory,
+        )
+    }
 
     // Test pools with slices.
     #[test]
@@ -526,6 +609,8 @@ mod tests {
                 max_page_size: page_size,
                 alignment: 50,
                 data_transfer_async: false,
+                virtual_memory_supported: true,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -565,6 +650,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 10,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -590,6 +677,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -620,6 +709,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -652,6 +743,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             }),
             MemoryConfiguration::ExclusivePages,
         );
@@ -746,6 +839,8 @@ mod tests {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 50,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -782,6 +877,8 @@ mod tests {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 10,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -803,6 +900,8 @@ mod tests {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
                 data_transfer_async: false,
+                virtual_memory_supported: false,
+                min_granularity: 0,
             },
             MemoryConfiguration::ExclusivePages,
         );
@@ -821,5 +920,165 @@ mod tests {
         assert_eq!(usage_before.number_allocs, usage_after.number_allocs);
         assert_eq!(usage_before.bytes_in_use, usage_after.bytes_in_use);
         assert_eq!(usage_before.bytes_reserved, usage_after.bytes_reserved);
+    }
+
+    #[test]
+    // Validates that we can safely perform allocations on the virtual pool,
+    // And that data integrity is respected.
+    fn test_virtual_pool_alloc() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+
+        // Allocate multiple blocks that will create separate pages
+        let mut handles = Vec::with_capacity(4);
+        for i in 0..4 {
+            let handle = memory_manager.reserve(page_size).unwrap();
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+            handles.push(handle);
+        }
+
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert!(num_pages == 4); // Four pages should have been allocated.
+        assert!(num_slices == 4); // Four slices should have been allocated.
+
+        // Validate data integrity
+        for (i, handle) in handles.iter().enumerate() {
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            assert_eq!(resource.read()[0], (i + 10) as u8);
+        }
+    }
+
+    #[test]
+    /// Validates that defragmentation happens after explicitly calling cleanup
+    fn test_virtual_pool_cleanup() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+        {
+            // Allocate multiple blocks that will create separate pages
+            let mut handles = Vec::with_capacity(4);
+            for i in 0..4 {
+                let handle = memory_manager.reserve(page_size).unwrap();
+                let resource = memory_manager
+                    .get_resource(handle.clone().binding(), None, None)
+                    .unwrap();
+                resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+                handles.push(handle);
+            }
+
+            let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+                DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+                _ => panic!("Should be using Virtual Memory Pool"),
+            };
+
+            assert!(num_pages == 4); // Four pages should have been allocated.
+            assert!(num_slices == 4); // Four slices should have been allocated.
+
+            // Validate data integrity
+            for (i, handle) in handles.iter().enumerate() {
+                let resource = memory_manager
+                    .get_resource(handle.clone().binding(), None, None)
+                    .unwrap();
+                assert_eq!(resource.read()[0], (i + 10) as u8);
+            }
+        }
+
+        memory_manager.cleanup(true);
+
+        let usage = memory_manager.memory_usage();
+
+        // Bytes in use should be zero as memory has been deallocated.
+        assert_eq!(usage.bytes_in_use, 0);
+        // Bytes reserved should be zero, as we have called it explicitly and therefore no free physical memory should be kept.
+        assert_eq!(usage.bytes_reserved, 0);
+
+        // Check if merging has worked.
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert_eq!(num_pages, 1); // Pages should have been merged in a single one.
+        assert_eq!(num_slices, 1); // Slices should have been merged after defragmentation
+    }
+
+    #[test]
+    // This pattern is more complex to better test defragmentation
+    // Allocate foiur handles, deallocate two of them, defragment.
+    // The final page count and slice count should be three as two of the pages are currently allocated and cannot be merged.
+    fn test_virtual_pool_cleanup_no_explicit() {
+        // Tests the overall functionality of the virtual memory pool.
+        let mut memory_manager = create_virtual_memory_manager();
+        let page_size = 64 * 2; // Small size to go to smaller pool
+
+        // Allocate multiple blocks that will create separate pages
+        let mut handles = Vec::with_capacity(4);
+
+        for i in 0..4 {
+            let handle = memory_manager.reserve(page_size).unwrap();
+            let resource = memory_manager
+                .get_resource(handle.clone().binding(), None, None)
+                .unwrap();
+            resource.write()[0] = (i + 10) as u8; // Unique marker to be able to later check that data integrity is preserved.
+
+            handles.push(handle);
+        }
+
+        let dealloc_period = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => {
+                p.reset_tracking();
+                p.dealloc_period
+            }
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+        // Clear the recently allocated vector.
+        memory_manager.alloc_reserve_count = dealloc_period; //  force alloc reserve count to be dealloc period so that defragment is called at the following cleanup call
+
+        let usage_before = memory_manager.memory_usage();
+
+        // Extract handles to deallocate
+        let handle_0 = handles.remove(0); // Remove index 0, others shift down
+        let handle_2 = handles.remove(1); // What was index 2 is now index 1
+
+        // Deallocate every other allocation to create fragmented pages
+        drop(handle_0);
+        drop(handle_2);
+
+        let usage_after = memory_manager.memory_usage();
+
+        assert!(usage_before.bytes_in_use == usage_after.bytes_in_use + 2 * page_size);
+
+        // Cleanup without explicit call should return physical memory for reuse.
+        memory_manager.cleanup(false);
+
+        let available_mem = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => p.reusable_memory(),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert!(available_mem > 0); // There should be some free handles ready to be reused
+        let final_usage = memory_manager.memory_usage();
+
+        assert!(final_usage.bytes_in_use == usage_after.bytes_in_use);
+        assert!(final_usage.bytes_reserved == usage_after.bytes_reserved); // memory should not have been freed
+
+        // Check if merging has worked.
+        let (num_pages, num_slices) = match &mut memory_manager.pools[0] {
+            DynamicPool::Virtual(p) => (p.pages.len(), p.virtual_slices.len()),
+            _ => panic!("Should be using Virtual Memory Pool"),
+        };
+
+        assert_eq!(num_pages, 3); // Pages should have been merged in three, as we had four and have freed two, which should have merged in one
+        assert_eq!(num_slices, 3); // Slices should have been merged after defragmentation.
     }
 }
