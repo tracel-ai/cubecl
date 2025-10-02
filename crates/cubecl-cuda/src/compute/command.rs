@@ -1,9 +1,8 @@
 use crate::{
     CudaCompiler,
     compute::{
-        DataTransferItem, DataTransferRuntime, MB, context::CudaContext,
-        io::controller::PinnedMemoryManagedAllocController, storage::gpu::GpuResource,
-        stream::CudaStreamBackend, sync::Fence, valid_strides,
+        MB, context::CudaContext, io::controller::PinnedMemoryManagedAllocController,
+        storage::gpu::GpuResource, stream::CudaStreamBackend, sync::Fence, valid_strides,
     },
 };
 use cubecl_common::{bytes::Bytes, stream_id::StreamId};
@@ -14,7 +13,6 @@ use cubecl_core::{
     server::{Binding, CopyDescriptor, Handle, IoError, ProfileError},
 };
 use cubecl_runtime::{
-    data_service::DataTransferId,
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
@@ -24,14 +22,6 @@ use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
 };
 use std::{ffi::c_void, ops::DerefMut, sync::Arc};
-
-const DEVICE_TO_DEVICE: DeviceTransferStrategy = DeviceTransferStrategy::Serialized;
-
-#[allow(unused)]
-enum DeviceTransferStrategy {
-    Peer,
-    Serialized,
-}
 
 #[derive(new)]
 /// The `Command` struct encapsulates a CUDA context and a set of resolved CUDA streams, providing an
@@ -60,11 +50,7 @@ impl<'a> Command<'a> {
             .get_resource(binding.memory, binding.offset_start, binding.offset_end)
             .ok_or(IoError::InvalidHandle)
     }
-    pub fn set_current(&mut self) {
-        unsafe {
-            cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
-        };
-    }
+
     /// Retrieves the gpu memory usage of the current stream.
     ///
     /// # Returns
@@ -346,72 +332,6 @@ impl<'a> Command<'a> {
         )?;
 
         Ok(handle)
-    }
-
-    /// Registers a source for an asynchronous data transfer operation.
-    ///
-    /// # Parameters
-    ///
-    /// * `id` - The unique identifier for the data transfer.
-    /// * `src` - The descriptor for the source GPU memory.
-    pub fn data_transfer_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let src_resource = self.resource(src.binding.clone()).unwrap();
-        let client = DataTransferRuntime::client();
-        let current = self.streams.current();
-
-        let handle = DataTransferItem {
-            stream: current.sys,
-            context: self.ctx.context,
-            resource: src_resource,
-        };
-
-        match DEVICE_TO_DEVICE {
-            DeviceTransferStrategy::Peer => {
-                let fence = Fence::new(current.sys);
-
-                client.register_src_peer(id, handle, fence);
-            }
-            DeviceTransferStrategy::Serialized => {
-                client.register_src_serialized(id, handle, src.binding);
-            }
-        }
-    }
-
-    /// Registers a destination for an asynchronous data transfer operation.
-    ///
-    /// # Parameters
-    ///
-    /// * `id` - The unique identifier for the data transfer.
-    /// * `dest` - The descriptor for the destination GPU memory.
-    pub fn data_transfer_dest(&mut self, id: DataTransferId, dest: CopyDescriptor<'_>) {
-        let dst_resource = self.resource(dest.binding).unwrap();
-        let current = self.streams.current();
-        let client = DataTransferRuntime::client();
-
-        let item = DataTransferItem {
-            context: self.ctx.context,
-            stream: current.sys,
-            resource: dst_resource,
-        };
-
-        match DEVICE_TO_DEVICE {
-            DeviceTransferStrategy::Peer => {
-                client.register_dest_peer(id, item);
-            }
-            DeviceTransferStrategy::Serialized => {
-                let num_bytes = dest.shape.iter().product::<usize>() * dest.elem_size;
-                let bytes = self.reserve_cpu(num_bytes, true, None);
-
-                client.register_dest_serialized(
-                    id,
-                    item,
-                    bytes,
-                    dest.shape.to_vec(),
-                    dest.strides.to_vec(),
-                    dest.elem_size,
-                );
-            }
-        }
     }
 
     /// Synchronizes the current stream, ensuring all pending operations are complete.

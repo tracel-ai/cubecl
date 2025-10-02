@@ -2,17 +2,13 @@ use super::storage::gpu::{GpuResource, GpuStorage};
 use crate::CudaCompiler;
 use crate::compute::command::{Command, write_to_cpu};
 use crate::compute::context::CudaContext;
-use crate::compute::enable_one_way_peer_access;
 use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
 use cubecl_core::server::Binding;
 use cubecl_core::{MemoryConfiguration, prelude::*};
-use cubecl_core::{
-    compute::CubeTask,
-    server::{DataTransferService, IoError},
-};
+use cubecl_core::{compute::CubeTask, server::IoError};
 use cubecl_core::{
     future::{self, DynFut},
     server::AllocationKind,
@@ -26,14 +22,13 @@ use cubecl_core::{
     server::{Allocation, AllocationDescriptor, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::config::GlobalConfig;
-use cubecl_runtime::data_service::DataTransferId;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, MemoryUsage};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
-use cubecl_runtime::stream::{GcTask, MultiStream};
-use cudarc::driver::sys::CUtensorMapInterleave;
+use cubecl_runtime::stream::MultiStream;
+use cudarc::driver::sys::{CUcontext, CUresult, CUtensorMapInterleave, cuCtxEnablePeerAccess};
 use cudarc::driver::sys::{
     CUtensorMapDataType, CUtensorMapFloatOOBfill, CUtensorMapL2promotion, CUtensorMapSwizzle,
     cuTensorMapEncodeIm2col, cuTensorMapEncodeTiled,
@@ -48,6 +43,7 @@ pub(crate) const MB: usize = 1024 * 1024;
 pub struct CudaServer {
     ctx: CudaContext,
     streams: MultiStream<CudaStreamBackend>,
+    peer_activated: bool,
     mem_alignment: usize,
 }
 
@@ -416,105 +412,24 @@ impl ComputeServer for CudaServer {
         command.allocation_mode(mode)
     }
 
-    fn change_server_v2(
+    fn change_server(
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor<'_>,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
-    }
-    //
-    //
-    // fn change_server_v2(
-    //     server_src: &mut Self,
-    //     server_dst: &mut Self,
-    //     src: CopyDescriptor<'_>,
-    //     stream_id_src: StreamId,
-    //     stream_id_dst: StreamId,
-    // ) -> Result<Allocation, IoError> {
-    //     let shape = src.shape.to_vec();
-    //     let elem_size = src.elem_size;
-    //     let binding = src.binding.clone();
-    //     let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, &shape, elem_size);
-
-    //     let alloc = server_dst
-    //         .create(vec![alloc_desc], stream_id_dst)?
-    //         .remove(0);
-    //     let copy_desc =
-    //         alloc
-    //             .handle
-    //             .copy_descriptor(&alloc_desc.shape, &alloc.strides, alloc_desc.elem_size);
-
-    //     let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
-
-    //     let bytes = command_src.copy_to_bytes(src, true, None)?;
-    //     let stream_src = command_src.streams.current().sys;
-    //     let fence_src = Fence::new(stream_src);
-
-    //     core::mem::drop(command_src);
-
-    //     let mut command_dst = server_dst.command(stream_id_dst, [&copy_desc.binding].into_iter());
-    //     let stream_dst = command_dst.streams.current().sys;
-
-    //     fence_src.wait_async(stream_dst);
-
-    //     command_dst.write_to_gpu(copy_desc, &bytes)?;
-
-    //     let fence_dst = Fence::new(stream_dst);
-    //     let gc = GcTask::new((bytes, binding), fence_dst);
-
-    //     core::mem::drop(command_dst);
-
-    //     server_dst.streams.gc(gc);
-
-    //     Ok(alloc)
-    // }
-
-    fn change_server(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        desc_src: CopyDescriptor<'_>,
-        desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        let stream_id = StreamId::current();
-        let binding_src = desc_src.binding.clone();
-        let mut command_src = server_src.command(stream_id, [&desc_src.binding].into_iter());
-
-        let data_src = command_src.copy_to_bytes(desc_src, true, None)?;
-        let stream_src = command_src.streams.current().sys;
-        let fence_src = Fence::new(stream_src);
-
-        core::mem::drop(command_src);
-
-        let mut command_dst = server_dst.command(stream_id, [&desc_dst.binding].into_iter());
-        let stream_dst = command_dst.streams.current().sys;
-
-        fence_src.wait_async(stream_dst);
-
-        command_dst.write_to_gpu(desc_dst, &data_src)?;
-
-        let fence_dst = Fence::new(stream_dst);
-
-        let gc = GcTask::new((data_src, binding_src), fence_dst);
-        core::mem::drop(command_dst);
-
-        server_dst.streams.gc(gc);
-
-        Ok(())
-    }
-}
-
-impl DataTransferService for CudaServer {
-    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
-        let mut command = self.command(stream_id, [&src.binding].into_iter());
-        command.data_transfer_src(id, src);
-    }
-
-    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dest: CopyDescriptor<'_>) {
-        let mut command = self.command(stream_id, [&dest.binding].into_iter());
-        command.data_transfer_dest(id, dest);
+        if server_src.peer_activated {
+            Self::change_server_peer(server_src, server_dst, src, stream_id_src, stream_id_dst)
+        } else {
+            Self::change_server_serialized(
+                server_src,
+                server_dst,
+                src,
+                stream_id_src,
+                stream_id_dst,
+            )
+        }
     }
 }
 
@@ -529,9 +444,16 @@ impl CudaServer {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
+        unsafe {
+            cudarc::driver::result::ctx::set_current(ctx.context).unwrap();
+        };
+
+        let peer_activated = enable_one_way_peer_access(ctx.context).is_ok();
+
         Self {
             mem_alignment,
             ctx,
+            peer_activated,
             streams: MultiStream::new(
                 Arc::new(ServerLogger::default()),
                 CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
@@ -547,9 +469,7 @@ impl CudaServer {
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
-        let shape = src.shape.to_vec();
         let strides = src.strides.to_vec();
-        let elem_size = src.elem_size;
         let binding = src.binding.clone();
 
         let context_src = server_src.ctx.context.clone();
@@ -570,7 +490,7 @@ impl CudaServer {
         fence_src.wait_async(stream_dst);
 
         unsafe {
-            let result = cudarc::driver::sys::cuMemcpyPeerAsync(
+            cudarc::driver::sys::cuMemcpyPeerAsync(
                 resource_dst.ptr,
                 context_dst,
                 resource_src.ptr,
@@ -578,22 +498,8 @@ impl CudaServer {
                 binding.size() as usize,
                 stream_dst,
             )
-            .result();
-            // TODO: We should have a fallback when peer access isn't supported.
-            if let Err(_err) = result {
-                enable_one_way_peer_access(context_src).expect("Can't enable peer access");
-
-                cudarc::driver::sys::cuMemcpyPeerAsync(
-                    resource_dst.ptr,
-                    context_dst,
-                    resource_src.ptr,
-                    context_src,
-                    binding.size() as usize,
-                    stream_dst,
-                )
-                .result()
-                .expect("Peer communication is not activated for the provided GPUs");
-            }
+            .result()
+            .expect("Peer communication should be activated");
         }
 
         core::mem::drop(command_dst);
@@ -662,15 +568,6 @@ impl CudaServer {
         unsafe {
             cudarc::driver::result::ctx::set_current(self.ctx.context).unwrap();
         };
-        let streams = self.streams.resolve(stream_id, bindings);
-
-        Command::new(&mut self.ctx, streams)
-    }
-    fn command_no_current<'a>(
-        &mut self,
-        stream_id: StreamId,
-        bindings: impl Iterator<Item = &'a Binding>,
-    ) -> Command<'_> {
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
@@ -775,4 +672,16 @@ pub fn valid_strides(shape: &[usize], strides: &[usize]) -> bool {
         }
     }
     true
+}
+
+use cudarc::driver::sys::cudaError_enum::CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED;
+use cudarc::driver::sys::cudaError_enum::CUDA_SUCCESS;
+
+fn enable_one_way_peer_access(ctx_src: CUcontext) -> Result<(), CUresult> {
+    unsafe {
+        match cuCtxEnablePeerAccess(ctx_src, 0) {
+            CUDA_SUCCESS | CUDA_ERROR_PEER_ACCESS_ALREADY_ENABLED => Ok(()),
+            err => Err(err),
+        }
+    }
 }

@@ -1,5 +1,4 @@
 use super::ComputeChannel;
-use crate::data_service::DataTransferId;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
@@ -87,28 +86,6 @@ where
         server.write(descriptors, stream_id)
     }
 
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
-        let mut server = self.server.borrow_mut();
-        server.register_src(stream_id, id, src);
-    }
-
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
-        let mut server = self.server.borrow_mut();
-        server.register_dest(stream_id, id, dst);
-    }
-
-    fn change_server(
-        server_src: &Self,
-        server_dst: &Self,
-        desc_src: CopyDescriptor<'_>,
-        desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        let mut server_src = server_src.server.borrow_mut();
-        let mut server_dst = server_dst.server.borrow_mut();
-
-        Server::change_server(&mut server_src, &mut server_dst, desc_src, desc_dst)
-    }
-
     fn sync(&self, stream_id: StreamId) -> DynFut<()> {
         let mut server = self.server.borrow_mut();
         server.sync(stream_id)
@@ -167,6 +144,25 @@ where
         stream_id: StreamId,
     ) {
         self.server.borrow_mut().allocation_mode(mode, stream_id)
+    }
+
+    fn change_server(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let mut server_src = server_src.server.borrow_mut();
+        let mut server_dst = server_dst.server.borrow_mut();
+
+        Server::change_server(
+            &mut server_src,
+            &mut server_dst,
+            src,
+            stream_id_src,
+            stream_id_dst,
+        )
     }
 }
 

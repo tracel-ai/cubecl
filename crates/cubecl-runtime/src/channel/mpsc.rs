@@ -10,7 +10,6 @@ use cubecl_common::{
 
 use super::ComputeChannel;
 use crate::{
-    data_service::DataTransferId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
@@ -131,8 +130,6 @@ where
         StreamId,
         ProfilingToken,
     ),
-    DataTransferSend(StreamId, DataTransferId, CopyDescriptorOwned),
-    DataTransferRecv(StreamId, DataTransferId, CopyDescriptorOwned),
 }
 
 impl<Server> MpscComputeChannel<Server>
@@ -199,12 +196,6 @@ where
                     }
                     Message::AllocationMode(stream, mode) => {
                         server.allocation_mode(mode, stream);
-                    }
-                    Message::DataTransferSend(stream, id, src) => {
-                        server.register_src(stream, id, src.as_ref());
-                    }
-                    Message::DataTransferRecv(stream, id, dst) => {
-                        server.register_dest(stream, id, dst.as_ref());
                     }
                 };
             }
@@ -294,24 +285,6 @@ where
             .unwrap();
 
         handle_response(response.recv_blocking())
-    }
-
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
-        let sender = self.state.sender.clone();
-        let src = src.into();
-
-        sender
-            .send_blocking(Message::DataTransferSend(stream_id, id, src))
-            .unwrap();
-    }
-
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
-        let sender = self.state.sender.clone();
-        let dst = dst.into();
-
-        sender
-            .send_blocking(Message::DataTransferRecv(stream_id, id, dst))
-            .unwrap();
     }
 
     fn get_resource(
@@ -416,16 +389,14 @@ where
             .send_blocking(Message::AllocationMode(stream_id, mode))
             .unwrap()
     }
-
     fn change_server(
         _server_src: &Self,
         _server_dst: &Self,
-        _desc_src: CopyDescriptor<'_>,
-        _desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        Err(IoError::Unknown(
-            "MSPC Channel doesn't support change_server".to_string(),
-        ))
+        _src: CopyDescriptor<'_>,
+        _stream_id_src: StreamId,
+        _stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        panic!("MPSC doesn't support changing the server")
     }
 }
 
