@@ -482,8 +482,8 @@ impl CudaServer {
         let strides = src.strides.to_vec();
         let binding = src.binding.clone();
 
-        let context_src = server_src.ctx.context.clone();
-        let context_dst = server_dst.ctx.context.clone();
+        let context_src = server_src.ctx.context;
+        let context_dst = server_dst.ctx.context;
 
         let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
         let resource_src = command_src.resource(binding.clone())?;

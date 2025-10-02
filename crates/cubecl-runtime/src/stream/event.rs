@@ -182,6 +182,7 @@ impl<B: EventStreamBackend> MultiStream<B> {
         }
     }
 
+    /// Enqueue a task to be cleaned.
     pub fn gc(&mut self, gc: GcTask<B>) {
         self.gc.sender.send(gc).unwrap();
     }
