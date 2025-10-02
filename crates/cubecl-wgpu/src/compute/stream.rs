@@ -122,8 +122,8 @@ impl WgpuStream {
         descriptors: Vec<(WgpuResource, Vec<usize>, usize)>,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         self.compute_pass = None;
-        let mut staging_info = Vec::with_capacity(descriptors.len());
-        let mut callbacks = Vec::with_capacity(descriptors.len());
+        let (sender, receiver) = async_channel::bounded(descriptors.len());
+        let num_descriptors = descriptors.len();
 
         for (resource, shape, elem_size) in descriptors {
             let size = shape.iter().product::<usize>() * elem_size;
@@ -141,17 +141,18 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            let (sender, receiver) = async_channel::bounded(1);
 
-            self.encoder
-                .map_buffer_on_submit(&staging.buffer, wgpu::MapMode::Read, .., move |v| {
+            let sender = sender.clone();
+            self.encoder.map_buffer_on_submit(
+                &staging.buffer.clone(),
+                wgpu::MapMode::Read,
+                ..,
+                move |v| {
                     // This might fail if the channel is closed (eg. the future is dropped).
                     // This is fine, just means results aren't needed anymore.
-                    let _ = sender.try_send(v);
-                });
-
-            staging_info.push((staging, binding, size));
-            callbacks.push(receiver);
+                    let _ = sender.try_send(v.map(|_| (staging, binding, size)));
+                },
+            );
         }
 
         self.flush();
@@ -159,30 +160,23 @@ impl WgpuStream {
         let poll = self.poll.start_polling();
 
         Box::pin(async move {
-            for callback in callbacks {
-                callback
+            let mut byte_results = vec![];
+
+            for _ in 0..num_descriptors {
+                let (staging, binding, size) = receiver
                     .recv()
                     .await
                     .expect("Unable to receive buffer slice result.")
                     .expect("Failed to map buffer");
+                let controller = Box::new(WgpuAllocController::init(binding, staging.buffer));
+                // SAFETY: The binding has initialized memory for at least `size` bytes.
+                byte_results.push(unsafe { Bytes::from_controller(controller, size) });
             }
 
-            // Can stop polling now.
+            // Can stop polling now. Nb: it's important poll is captured otherwise it's dropped prematurely.
             core::mem::drop(poll);
 
-            let result = {
-                staging_info
-                    .into_iter()
-                    .map(|(staging, binding, size)| {
-                        let controller =
-                            Box::new(WgpuAllocController::init(binding, staging.buffer));
-                        // SAFETY: The binding has initialized memory for at least `size` bytes.
-                        unsafe { Bytes::from_controller(controller, size) }
-                    })
-                    .collect()
-            };
-
-            Ok(result)
+            Ok(byte_results)
         })
     }
 
@@ -246,15 +240,15 @@ impl WgpuStream {
 
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let (sender, receiver) = async_channel::bounded::<()>(1);
-        let poll = self.poll.start_polling();
-        self.encoder.on_submitted_work_done(move || {
+        self.flush();
+        self.queue.on_submitted_work_done(move || {
             // Signal that we're done.
             let _ = sender.try_send(());
-            core::mem::drop(poll);
         });
-        self.flush();
 
+        let poll = self.poll.start_polling();
         Box::pin(async move {
+            core::mem::drop(poll);
             let _ = receiver.recv().await;
         })
     }
