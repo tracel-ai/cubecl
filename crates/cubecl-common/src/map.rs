@@ -1,11 +1,12 @@
-use crate::stub::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use alloc::sync::Arc;
+use crate::stub::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use hashbrown::HashMap;
 
 /// A thread-safe map that allows concurrent access to values using read-write locks.
 pub struct SharedStateMap<K, V> {
-    state: Mutex<Option<HashMap<K, Arc<RwLock<V>>>>>,
+    state: Mutex<Option<State<K, V>>>,
 }
+
+type State<K, V> = HashMap<K, Arc<RwLock<V>>>;
 
 /// A value in the [SharedStateMap] that provides read and write access.
 pub struct SharedState<V> {
@@ -47,7 +48,7 @@ where
     /// Retrieves a value associated with the given key, if it exists.
     pub fn get(&self, k: &K) -> Option<SharedState<V>> {
         let mut state = self.state.lock().unwrap();
-        let map = get_or_init(&mut state);
+        let map = get_or_init::<K, V>(&mut state);
 
         match map.get(k) {
             Some(val) => Some(SharedState { val: val.clone() }),
@@ -62,7 +63,7 @@ where
         K: Clone,
     {
         let mut state = self.state.lock().unwrap();
-        let map = get_or_init(&mut state);
+        let map = get_or_init::<K, V>(&mut state);
 
         match map.get(k) {
             Some(val) => SharedState { val: val.clone() },
@@ -78,7 +79,7 @@ where
     /// Inserts a key-value pair into the map.
     pub fn insert(&self, k: K, v: V) {
         let mut state = self.state.lock().unwrap();
-        let map = get_or_init(&mut state);
+        let map = get_or_init::<K, V>(&mut state);
 
         map.insert(k, Arc::new(RwLock::new(v)));
     }
@@ -86,16 +87,16 @@ where
     /// Clears the map, removing all key-value pairs.
     pub fn clear(&self) {
         let mut state = self.state.lock().unwrap();
-        let map = get_or_init(&mut state);
+        let map = get_or_init::<K, V>(&mut state);
         map.clear();
     }
 }
 
-fn get_or_init<T: Default>(state: &mut Option<T>) -> &mut T {
+fn get_or_init<K, V>(state: &mut Option<State<K, V>>) -> &mut State<K, V> {
     match state {
         Some(state) => state,
         None => {
-            *state = Some(T::default());
+            *state = Some(State::<K, V>::default());
             state.as_mut().unwrap()
         }
     }
