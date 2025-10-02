@@ -31,12 +31,11 @@ impl WgpuServer {
                 let spirv = repr.assemble();
                 unsafe {
                     self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough::SpirV(
-                            wgpu::ShaderModuleDescriptorSpirV {
-                                label: Some(&kernel.entrypoint_name),
-                                source: Cow::Borrowed(&spirv),
-                            },
-                        ),
+                        wgpu::ShaderModuleDescriptorPassthrough {
+                            label: Some(&kernel.entrypoint_name),
+                            spirv: Some(Cow::Borrowed(&spirv)),
+                            ..Default::default()
+                        },
                     )
                 }
             }
@@ -45,14 +44,13 @@ impl WgpuServer {
                 let source = &kernel.source;
                 unsafe {
                     self.device.create_shader_module_passthrough(
-                        wgpu::ShaderModuleDescriptorPassthrough::Msl(
-                            wgpu::ShaderModuleDescriptorMsl {
-                                entry_point: kernel.entrypoint_name.clone(),
-                                label: Some(&kernel.entrypoint_name),
-                                source: Cow::Borrowed(source),
-                                num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
-                            },
-                        ),
+                        wgpu::ShaderModuleDescriptorPassthrough {
+                            entry_point: kernel.entrypoint_name.clone(),
+                            label: Some(&kernel.entrypoint_name),
+                            msl: Some(Cow::Borrowed(source)),
+                            num_workgroups: (repr.cube_dim.x, repr.cube_dim.y, repr.cube_dim.z),
+                            ..Default::default()
+                        },
                     )
                 }
             }

@@ -141,25 +141,20 @@ impl WgpuStream {
                 0,
                 aligned_len,
             );
-            staging_info.push((staging, binding, size));
-        }
-
-        // Flush all commands to the queue, so GPU gets started on copying to the staging buffer.
-        self.flush();
-
-        for (staging, _binding, _size) in staging_info.iter() {
             let (sender, receiver) = async_channel::bounded(1);
-            staging
-                .buffer
-                .slice(..)
-                .map_async(wgpu::MapMode::Read, move |v| {
+
+            self.encoder
+                .map_buffer_on_submit(&staging.buffer, wgpu::MapMode::Read, .., move |v| {
                     // This might fail if the channel is closed (eg. the future is dropped).
                     // This is fine, just means results aren't needed anymore.
                     let _ = sender.try_send(v);
                 });
 
+            staging_info.push((staging, binding, size));
             callbacks.push(receiver);
         }
+
+        self.flush();
 
         let poll = self.poll.start_polling();
 
@@ -250,18 +245,16 @@ impl WgpuStream {
     }
 
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
+        let (sender, receiver) = async_channel::bounded::<()>(1);
+        let poll = self.poll.start_polling();
+        self.encoder.on_submitted_work_done(move || {
+            // Signal that we're done.
+            let _ = sender.try_send(());
+            core::mem::drop(poll);
+        });
         self.flush();
 
-        let queue = self.queue.clone();
-
-        let poll = self.poll.start_polling();
         Box::pin(async move {
-            let (sender, receiver) = async_channel::bounded::<()>(1);
-            queue.on_submitted_work_done(move || {
-                // Signal that we're done.
-                let _ = sender.try_send(());
-                core::mem::drop(poll);
-            });
             let _ = receiver.recv().await;
         })
     }
@@ -446,12 +439,12 @@ mod __submission_load {
 
                     if *tasks_count_submitted >= MAX_TOTAL_TASKS {
                         core::mem::swap(last_index, &mut index);
-                        if let Err(e) = device.poll(wgpu::PollType::WaitForSubmissionIndex(index)) {
-                            log::warn!(
-                                "wgpu: requested wait timed out before the submission was completed during sync. ({e})"
-                            )
-                        }
-                        *tasks_count_submitted = 0;
+                        device
+                            .poll(wgpu::PollType::Wait {
+                                submission_index: Some(index),
+                                timeout: None,
+                            })
+                            .expect("Failed to poll device");
                     }
                 }
                 SubmissionLoad::Empty => {

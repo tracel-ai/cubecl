@@ -117,7 +117,7 @@ cfg-if = { workspace = true }
 
 ## wgpu dependency for platforms other than macOS
 [target.'cfg(not(target_os = "macos"))'.dependencies]
-wgpu = { version = "26.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
+wgpu = { version = "27.0.0", features = ["fragile-send-sync-non-atomic-wasm"] }
 ## Uncomment if targeting metal through msl feature
 # wgpu = { git = "https://github.com/tracel-ai/wgpu", features = ["fragile-send-sync-non-atomic-wasm"], rev = "624db2ae762b83446693020ae637e2c5879b3af9" }
 ## For development on wgpu uncomment this one and make it point to your local wgpu repo
