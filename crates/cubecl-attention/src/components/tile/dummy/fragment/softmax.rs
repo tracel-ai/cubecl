@@ -47,8 +47,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     }
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
-        // TODO mask
-        self.fragment.scale(scale);
+        self.fragment.scale_and_mask(scale, mask);
     }
 
     fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise) {

@@ -1,6 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::TileMask;
+
 #[cube]
 pub trait PlaneLayout: CubeType {
     type E: Float;
@@ -11,6 +13,7 @@ pub trait PlaneLayout: CubeType {
 
     fn get_at_coor(&self, local_row: u32, local_col: u32) -> Self::E;
     fn scale(&mut self, val: Self::E);
+    fn scale_and_mask(&mut self, scale: Self::E, mask: TileMask);
     fn exp_m_diff(&mut self, m: Self::E);
 }
 

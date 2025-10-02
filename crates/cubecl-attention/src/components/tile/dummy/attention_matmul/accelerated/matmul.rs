@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
@@ -32,6 +33,10 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
     }
 
     fn scale(&mut self, _val: E) {
+        todo!()
+    }
+
+    fn scale_and_mask(&mut self, _scale: Self::E, _mask: TileMask) {
         todo!()
     }
 

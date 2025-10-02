@@ -1,5 +1,4 @@
 use std::cmp::max;
-use std::cmp::min;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -9,6 +8,7 @@ use cubecl_std::tensor::layout::Coords2d;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 
+use crate::components::TileMask;
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
@@ -59,6 +59,10 @@ impl<E: Float> ArrayTile<E> {
         let num_units_per_col = self.total_size.1 / self.unit_size.1;
         self.unit_size.1 * (UNIT_POS_X % num_units_per_col) + c
     }
+
+    fn abs_pos(&self, local_pos: Coords2d) -> Coords2d {
+        (self.abs_row_index(), self.abs_col_index(local_pos.1))
+    }
 }
 
 #[cube]
@@ -81,14 +85,27 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         self.array[r * self.unit_size.1 + c]
     }
 
-    fn scale(&mut self, factor: E) {
+    fn scale(&mut self, scale: E) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;
             #[unroll]
             for c in 0..self.unit_size.1 {
                 let index = row_offset + c;
-                self.array[index] = self.array[index] * factor;
+                self.array[index] = self.array[index] * scale;
+            }
+        }
+    }
+
+    fn scale_and_mask(&mut self, scale: E, mask: TileMask) {
+        #[unroll]
+        for r in 0..self.unit_size.0 {
+            let row_offset = r * self.unit_size.1;
+            #[unroll]
+            for c in 0..self.unit_size.1 {
+                let index = row_offset + c;
+                self.array[index] =
+                    self.array[index] * scale + mask.apply::<E>(self.abs_pos((r, c)));
             }
         }
     }
