@@ -240,15 +240,16 @@ impl WgpuStream {
 
     pub fn sync(&mut self) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>> {
         let (sender, receiver) = async_channel::bounded::<()>(1);
-        self.flush();
-        self.queue.on_submitted_work_done(move || {
+        let poll = self.poll.start_polling();
+        self.encoder.on_submitted_work_done(move || {
             // Signal that we're done.
             let _ = sender.try_send(());
-        });
-
-        let poll = self.poll.start_polling();
-        Box::pin(async move {
             core::mem::drop(poll);
+        });
+        self.tasks_count += 1;
+        self.flush();
+
+        Box::pin(async move {
             let _ = receiver.recv().await;
         })
     }
