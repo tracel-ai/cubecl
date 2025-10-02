@@ -1062,6 +1062,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Comparison::NotEqual(op) => {
                 instructions.push(Instruction::NotEqual(self.compile_binary(op, out)))
             }
+            gpu::Comparison::IsNan(op) => {
+                instructions.push(Instruction::IsNan(self.compile_unary(op, out)))
+            }
+            gpu::Comparison::IsInf(op) => {
+                instructions.push(Instruction::IsInf(self.compile_unary(op, out)))
+            }
         };
     }
 

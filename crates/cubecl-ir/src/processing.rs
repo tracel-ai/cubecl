@@ -197,6 +197,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
                     }
+                    Comparison::IsNan(_op) | Comparison::IsInf(_op) => {
+                        // Nothing to do
+                    }
                 },
                 Operation::Bitwise(op) => match op {
                     Bitwise::BitwiseAnd(op) => {

@@ -19,7 +19,6 @@ pub(crate) trait CmmaFragmentReader {
         tile: &<Self::TileKind as TileKind>::Tile<V>,
         fragment: &mut cmma::Matrix<E>,
         layout: CubeOption<cmma::MatrixLayout>,
-        #[comptime] line_size: u32,
     );
 }
 
@@ -38,9 +37,8 @@ impl CmmaFragmentReader for CmmaStageReader<Strided> {
         tile: &StridedTile<V>,
         fragment: &mut cmma::Matrix<E>,
         layout: CubeOption<cmma::MatrixLayout>,
-        #[comptime] line_size: u32,
     ) {
-        let (slice, stride) = tile.as_unlined(line_size);
+        let (slice, stride) = tile.as_unlined();
         match layout {
             CubeOption::None => cmma::load(fragment, &slice, stride),
             CubeOption::Some(layout) => cmma::load_with_layout(fragment, &slice, stride, layout),
@@ -56,7 +54,6 @@ impl CmmaFragmentReader for CmmaStageReader<Filled> {
         value: &V,
         fragment: &mut cmma::Matrix<E>,
         _layout: CubeOption<cmma::MatrixLayout>,
-        #[comptime] _line_size: u32,
     ) {
         cmma::fill(fragment, E::cast_from(*value));
     }
@@ -73,18 +70,14 @@ where
         tile: &CubeOption<Inner::Tile<V>>,
         fragment: &mut cmma::Matrix<E>,
         layout: CubeOption<cmma::MatrixLayout>,
-        #[comptime] line_size: u32,
     ) {
         match tile {
             CubeOption::Some(tile) => {
-                CmmaStageReader::<Inner>::load_fragment(tile, fragment, layout, line_size)
+                CmmaStageReader::<Inner>::load_fragment(tile, fragment, layout)
             }
-            CubeOption::None => CmmaStageReader::<Filled>::load_fragment::<E, V>(
-                &V::from_int(0),
-                fragment,
-                layout,
-                line_size,
-            ),
+            CubeOption::None => {
+                CmmaStageReader::<Filled>::load_fragment::<E, V>(&V::from_int(0), fragment, layout)
+            }
         }
     }
 }
