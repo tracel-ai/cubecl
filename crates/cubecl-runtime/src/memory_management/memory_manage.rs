@@ -381,7 +381,6 @@ mod tests {
     const DUMMY_MEM_PROPS: MemoryDeviceProperties = MemoryDeviceProperties {
         max_page_size: 128 * 1024 * 1024,
         alignment: 32,
-        data_transfer_async: false,
     };
 
     // Test pools with slices.
@@ -525,7 +524,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: page_size,
                 alignment: 50,
-                data_transfer_async: false,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -564,7 +562,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 10,
-                data_transfer_async: false,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -589,7 +586,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
-                data_transfer_async: false,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -619,7 +615,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
-                data_transfer_async: false,
             },
             MemoryConfiguration::SubSlices,
         );
@@ -651,7 +646,6 @@ mod tests {
             &(MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
-                data_transfer_async: false,
             }),
             MemoryConfiguration::ExclusivePages,
         );
@@ -745,7 +739,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 50,
-                data_transfer_async: false,
             },
             MemoryConfiguration::Custom {
                 pool_options: vec![MemoryPoolOptions {
@@ -781,7 +774,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
                 alignment: 10,
-                data_transfer_async: false,
             },
             MemoryConfiguration::Custom {
                 pool_options: pools,
@@ -802,7 +794,6 @@ mod tests {
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
                 alignment: 32,
-                data_transfer_async: false,
             },
             MemoryConfiguration::ExclusivePages,
         );

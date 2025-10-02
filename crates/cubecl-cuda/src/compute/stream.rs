@@ -45,7 +45,6 @@ impl EventStreamBackend for CudaStreamBackend {
             &MemoryDeviceProperties {
                 max_page_size: self.mem_props.max_page_size,
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
-                data_transfer_async: false,
             },
             self.mem_config.clone(),
         );

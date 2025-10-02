@@ -1,9 +1,4 @@
-use cubecl_common::{
-    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
-};
-
 use crate::{
-    data_service::DataTransferId,
     logging::ServerLogger,
     memory_management::MemoryAllocationMode,
     server::{
@@ -14,10 +9,16 @@ use crate::{
 };
 use alloc::sync::Arc;
 use alloc::vec::Vec;
+use cubecl_common::{
+    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+};
 
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
+    /// Whether the channel supports changing an allocation from one server to another.
+    const SERVER_COMM_SUPPORTED: bool;
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 
@@ -42,11 +43,14 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
-    /// Send data to another server.
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId);
-
-    /// Receive data from another server. Returns when the transfer has been registered.
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId);
+    /// Moves data from the source server to the destination server on the provided stream IDs.
+    fn copy(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError>;
 
     /// Wait for the completion of every task in the server.
     fn sync(&self, stream_id: StreamId) -> DynFut<()>;

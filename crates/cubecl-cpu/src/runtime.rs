@@ -64,7 +64,6 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_shared_memory_size as u64,
         alignment: ALIGNMENT,
-        data_transfer_async: false,
     };
 
     let memory_management =
