@@ -91,7 +91,6 @@ portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
 ] }
-portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async
