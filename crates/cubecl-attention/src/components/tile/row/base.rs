@@ -11,7 +11,6 @@ pub trait PlaneLayout: CubeType {
 
     fn get_at_coor(&self, local_row: u32, local_col: u32) -> Self::E;
     fn scale_at_coor(&mut self, local_row: u32, local_col: u32, val: Self::E);
-    // fn scale_at_coor_tmp(&mut self, local_row: u32, local_col: u32, val: Self::E);
     fn exp_m_diff_at_coor(&mut self, local_row: u32, local_col: u32, m: Self::E);
 }
 

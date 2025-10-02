@@ -86,13 +86,6 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         self.array[index] = self.array[index] * factor;
     }
 
-    // fn scale_at_coor_tmp(&mut self, r: u32, c: u32, factor: E) {
-    //     let index = r * self.unit_size.1 + c;
-    //     // self.array[index] = E::from_int(0);
-
-    //     self.array[index] = self.array[index] + E::new(0.001);
-    // }
-
     fn exp_m_diff_at_coor(&mut self, r: u32, c: u32, val: E) {
         let index = r * self.unit_size.1 + c;
         self.array[index] = Exp::exp(self.array[index] - val);
@@ -181,8 +174,8 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let mut tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs, false);
-        let mut tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
+        let tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs, false);
+        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
         let mut tmp_out_smem = array_tile_to_tmp_smem::<SM<AP>>(out, false);
         sync_cube();
 
@@ -214,13 +207,10 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         #[comptime] config: Self::Config,
     ) {
         sync_cube();
-        let mut tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs, false);
-        let mut tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
+        let tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs, false);
+        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
         let mut tmp_out_smem = array_tile_to_tmp_smem::<ACC<AP>>(out, true);
         sync_cube();
-
-        // change_smem(lhs, &mut tmp_lhs_smem);
-        // change_smem(rhs, &mut tmp_rhs_smem);
 
         if UNIT_POS_X == 0 {
             let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};

@@ -2,13 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
-use crate::components::AttentionIdent;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::row::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 

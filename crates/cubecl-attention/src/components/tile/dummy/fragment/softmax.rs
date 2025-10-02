@@ -7,11 +7,8 @@ use crate::components::tile::RowVals;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 use crate::components::{
-    AttentionIdent, TileMask,
-    tile::{
-        RunningState, SoftmaxTile, SoftmaxTileExpand,
-        dummy::{AttentionMatmul, AttentionMatmulConfig},
-    },
+    TileMask,
+    tile::{RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul},
 };
 
 #[derive(CubeType)]
