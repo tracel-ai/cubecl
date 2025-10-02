@@ -367,7 +367,8 @@ pub(crate) fn into_mut_expand_element<E: Into<ExpandElement>>(
         | VariableKind::Matrix { .. }
         | VariableKind::Barrier { .. }
         | VariableKind::Pipeline { .. }
-        | VariableKind::TensorMap(_) => elem,
+        | VariableKind::TensorMapOutput(_)
+        | VariableKind::TensorMapInput(_) => elem,
     }
 }
 

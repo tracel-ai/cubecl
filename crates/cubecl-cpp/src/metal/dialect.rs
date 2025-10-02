@@ -13,7 +13,7 @@ use crate::{
 };
 use cubecl_core::{
     compute::{Location, Visibility},
-    ir::{self as gpu, Id},
+    ir::{self as gpu},
 };
 use cubecl_runtime::MmaConfig;
 
@@ -324,7 +324,7 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
