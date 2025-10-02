@@ -16,7 +16,7 @@ use cubecl_common::{
 /// The ComputeChannel trait links the ComputeClient to the ComputeServer
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
-    /// Whether the channel supports changing an allocation from a server to another.
+    /// Whether the channel supports changing an allocation from one server to another.
     const SERVER_COMM_SUPPORTED: bool;
 
     /// Retrieve the server logger.
@@ -43,7 +43,7 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
-    /// Moves data from the src server to the dst server on the provided stream ids.
+    /// Moves data from the source server to the destination server on the provided stream IDs.
     fn copy(
         server_src: &Self,
         server_dst: &Self,

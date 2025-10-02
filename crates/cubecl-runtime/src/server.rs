@@ -145,14 +145,31 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// Defines functions to optimize data transfer between server with custom communication
-/// features such as peer to peer communication or custom implementation.
+/// Defines functions for optimized data transfer between servers, supporting custom communication
+/// mechanisms such as peer-to-peer communication or specialized implementations.
 pub trait ServerCommunication {
-    /// Wheter server communication is activated.
+    /// Indicates whether server-to-server communication is enabled for this implementation.
     const SERVER_COMM_ENABLED: bool;
 
+    /// Copies data from a source server to a destination server.
+    ///
+    /// # Arguments
+    ///
+    /// * `server_src` - A mutable reference to the source server from which data is copied.
+    /// * `server_dst` - A mutable reference to the destination server receiving the data.
+    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
+    /// * `stream_id_src` - The stream ID associated with the source server's operation.
+    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if server communication is not enabled (`SERVER_COMM_ENABLED` is `false`) or if the
+    /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
-    /// Copy data from the src server to the dst server.
     fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
@@ -161,11 +178,11 @@ pub trait ServerCommunication {
         stream_id_dst: StreamId,
     ) -> Result<Allocation, IoError> {
         if !Self::SERVER_COMM_ENABLED {
-            panic!("Server communication is not supported on the current server.")
+            panic!("Server-to-server communication is not supported by this server.");
         } else {
             panic!(
-                "[Internal] `ServerCommunication` trait is wrongly implemented by the current server."
-            )
+                "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
+            );
         }
     }
 }
