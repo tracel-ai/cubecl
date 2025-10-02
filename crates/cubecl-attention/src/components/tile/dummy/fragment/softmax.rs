@@ -18,11 +18,6 @@ use crate::components::{
 pub struct DummySoftmax<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     pub fragment: AM::Softmax,
 
-    row: u32,
-    col_start: u32,
-
-    #[cube(comptime)]
-    num_cols: u32,
     #[cube(comptime)]
     config: AM::Config,
 }
@@ -33,22 +28,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
         let mut fragment = AM::allocate_softmax(config);
         AM::zero_softmax(&mut fragment, config);
 
-        let num_cols = config
-            .attention_tile_size()
-            .num_cols(AttentionIdent::Softmax);
-        let num_units_per_row = config.num_units_per_row(AttentionIdent::Softmax);
-        let num_cols_per_unit = config.num_cols_per_unit(AttentionIdent::Softmax);
-
-        let row = UNIT_POS_X / num_units_per_row;
-        let col_start = (UNIT_POS_X % num_units_per_row) * num_cols_per_unit;
-
-        DummySoftmax::<AP, AM> {
-            fragment,
-            row,
-            col_start,
-            num_cols,
-            config,
-        }
+        DummySoftmax::<AP, AM> { fragment, config }
     }
 }
 
@@ -71,40 +51,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
         #[unroll]
-        for c in 0..self.num_cols {
+        for c in 0..self.fragment.num_local_cols() {
+            // TODO more than one row
+            // TODO mask
             self.fragment.scale_at_coor(0u32, c, scale);
         }
-
-        // let mut slice = self
-        //     .tmp_smem
-        //     .slice_mut(self.tmp_smem_start, self.tmp_smem_end)
-        //     .try_cast_unchecked();
-
-        // AM::tmp_write_softmax(&self.fragment, &mut slice, self.config);
-
-        // if self.row < self.num_rows {
-        //     #[unroll]
-        //     for i in 0..self.num_cols_per_unit {
-        //         let col = self.col_start + i;
-
-        //         if col < self.num_cols {
-        //             let index = self.row * self.num_cols + col;
-
-        //             slice[index] =
-        //                 slice[index] * Line::cast_from(scale) + mask.apply::<SM<AP>>(self.row, col);
-        //         }
-        //     }
-        // }
-
-        // sync_cube();
-
-        // let tile = StridedTile::<SM<AP>>::new_strided(
-        //     slice.to_slice().try_cast_unchecked(),
-        //     self.num_cols.runtime(),
-        //     MatrixLayout::RowMajor,
-        // );
-        // AM::tmp_fill_prob(&tile, &mut self.fragment, self.config);
-        // sync_cube();
     }
 
     fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise) {
@@ -120,7 +71,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         let new_m_val = new_m.index(0u32);
 
         #[unroll]
-        for c in 0..self.num_cols {
+        for c in 0..self.fragment.num_local_cols() {
+            // TODO more than one row
             self.fragment.exp_m_diff_at_coor(0u32, c, new_m_val);
         }
 
@@ -132,7 +84,5 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         state.update(new_m, &RowVals::new_filled(1u32, new_l));
 
         RowVals::<SM<AP>>::new_filled(1u32, exp_m_diff)
-
-        // SparseArray::<SM<AP>>::new_zero(8u32)
     }
 }

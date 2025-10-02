@@ -13,7 +13,6 @@ use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::SoftmaxPartition;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
-use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
@@ -106,19 +105,14 @@ impl<
 
                 let state_q = state.index_mut(q);
 
-                let accumulator_scale = TA::softmax(
+                scales.push(TA::softmax(
                     softmax_tile,
                     partition_mask.to_tile(q, kv),
                     state_q,
                     &mut max_placeholder,
                     &mut sum_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
-                );
-
-                scales.push(accumulator_scale);
-                // scales.push(TA::init_max_placeholder(
-                //     config.tiling_scheme().elements_in_tile_seq_q(),
-                // ));
+                ));
 
                 comptime![q += 1];
             }

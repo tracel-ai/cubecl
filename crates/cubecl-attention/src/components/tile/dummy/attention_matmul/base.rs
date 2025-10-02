@@ -53,7 +53,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+    fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn write_results<E: Float>(
         out: &Self::Accumulator,

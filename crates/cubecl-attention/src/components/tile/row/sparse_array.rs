@@ -1,6 +1,5 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_core::runtime_tests::plane;
 
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
@@ -39,9 +38,6 @@ impl<E: Float> RowWise for RowVals<E> {
     }
 
     fn copy_from(this: &mut Self, other: &RowVals<E>) {
-        // let row_val = this.vals.index_mut(0u32);
-        // row_val.val = other.index(0u32);
-
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..this.num_rows {
@@ -65,20 +61,6 @@ impl<E: Float> RowWise for RowVals<E> {
         row_op::<PL, RowMax>(&mut placeholder.vals, data)
     }
 }
-
-// #[cube]
-// impl<E: Float> RowVals<E> {
-//     pub fn single(val: E) -> RowVals<E> {
-//         Self::new_filled(1u32, val)
-//     }
-
-//     pub fn fill(&mut self, val: E) {
-//         #[unroll]
-//         for i in 0..self.num_rows {
-//             self.vals[i] = val;
-//         }
-//     }
-// }
 
 #[cube]
 trait RowOp<PL: PlaneLayout> {

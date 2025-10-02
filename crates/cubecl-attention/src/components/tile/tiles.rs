@@ -33,9 +33,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask);
 
-    // fn row_max(&self, base: &mut RowWise<SM<AP>>);
     fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise);
-    // fn row_max(&self, base: RowWise<SM<AP>>) -> RowWise<SM<AP>>;
 
     /// Converts scores → probabilities, updates running state,
     /// and returns the factor needed to scale the accumulator
@@ -49,10 +47,6 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
 #[cube]
 pub trait AccumulatorTile<AP: AttentionPrecision, RW: RowWise>: CubeType {
-    fn scale(&mut self, scale: &RW, #[comptime] scale_op: ScaleMode);
-}
-
-pub enum ScaleMode {
-    Multiply,
-    Divide,
+    fn scale_mul(&mut self, scale: &RW);
+    fn scale_div(&mut self, scale: &RW);
 }

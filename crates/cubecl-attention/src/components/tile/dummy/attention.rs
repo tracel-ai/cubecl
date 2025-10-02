@@ -7,9 +7,7 @@ use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
-use crate::components::tile::ScaleMode;
 use crate::components::tile::SoftmaxTileExpand;
-use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::dummy::DummyAccumulator;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
@@ -42,7 +40,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         prev_state: &Self::State,
         #[comptime] _config: Self::Config,
     ) {
-        acc.scale(&prev_state.l, ScaleMode::Divide);
+        acc.scale_div(&prev_state.l);
     }
 
     fn write_results(
@@ -77,7 +75,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         Self::SoftmaxTile::new(config)
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
         // TODO not hardcode to 1
         Self::State::init(1u32)
     }
@@ -116,14 +114,6 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         );
     }
 
-    //     fn softmax(
-    //     softmax: &mut Self::SoftmaxTile,
-    //     mask: TileMask,
-    //     state: &mut Self::State,
-    //     max_placeholder: &mut <<Self::SoftmaxTile as SoftmaxTile<AP>>::PlaneLayout as PlaneLayout>::RowWise,
-    //     #[comptime] dk: u32,
-    // ) -> <<Self::SoftmaxTile as SoftmaxTile<AP>>::PlaneLayout as PlaneLayout>::RowWise;
-
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
@@ -148,7 +138,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         scale: &Self::RowWise,
         #[comptime] config: Self::Config,
     ) {
-        accumulator.scale(scale, ScaleMode::Multiply);
+        accumulator.scale_mul(scale);
 
         AM::value_matmul(
             &softmax.fragment,

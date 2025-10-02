@@ -27,15 +27,15 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, row: u32, col: u32) -> E {
+    fn get_at_coor(&self, _row: u32, _col: u32) -> E {
         todo!()
     }
 
-    fn scale_at_coor(&mut self, row: u32, col: u32, val: E) {
+    fn scale_at_coor(&mut self, _row: u32, _col: u32, _val: E) {
         todo!()
     }
 
-    fn exp_m_diff_at_coor(&mut self, row: u32, col: u32, val: E) {
+    fn exp_m_diff_at_coor(&mut self, _row: u32, _col: u32, _val: E) {
         todo!()
     }
 }
@@ -184,7 +184,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         }
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
+    fn zero_accumulator(acc: &mut Self::Accumulator) {
         cmma::fill(acc, ACC::<AP>::from_int(0));
     }
 
