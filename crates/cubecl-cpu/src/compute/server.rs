@@ -6,8 +6,8 @@ use cubecl_core::{
     compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
-        DataTransferService, Handle, IoError, ProfileError, ProfilingToken,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
+        IoError, ProfileError, ProfilingToken, ServerCommunication,
     },
 };
 use cubecl_runtime::{
@@ -27,8 +27,6 @@ pub struct CpuServer {
     scheduler: Scheduler,
     logger: Arc<ServerLogger>,
 }
-
-impl DataTransferService for CpuServer {}
 
 impl CpuServer {
     pub fn new(ctx: CpuContext) -> Self {
@@ -225,14 +223,10 @@ impl ComputeServer for CpuServer {
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
         self.ctx.memory_management.mode(mode);
     }
-    fn change_server(
-        server_src: &mut Self,
-        server_dst: &mut Self,
-        desc_src: CopyDescriptor<'_>,
-        desc_dst: CopyDescriptor<'_>,
-    ) -> Result<(), IoError> {
-        todo!()
-    }
+}
+
+impl ServerCommunication for CpuServer {
+    const SERVER_COMM_ENABLED: bool = false;
 }
 
 impl CpuServer {

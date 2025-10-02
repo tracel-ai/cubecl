@@ -17,7 +17,7 @@ use cubecl_common::{
 /// while ensuring thread-safety
 pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send + Sync {
     /// Whether the channel supports changing an allocation from a server to another.
-    const CHANGE_SERVER: bool;
+    const SERVER_COMM_SUPPORTED: bool;
 
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
@@ -43,8 +43,8 @@ pub trait ComputeChannel<Server: ComputeServer>: Clone + core::fmt::Debug + Send
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
-    /// TODO
-    fn change_server(
+    /// Moves data from the src server to the dst server on the provided stream ids.
+    fn copy(
         server_src: &Self,
         server_dst: &Self,
         src: CopyDescriptor<'_>,

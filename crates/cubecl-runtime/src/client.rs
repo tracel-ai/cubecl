@@ -331,7 +331,7 @@ where
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
 
-        if Channel::CHANGE_SERVER {
+        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = AllocationDescriptor::new(
@@ -351,8 +351,8 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if Channel::CHANGE_SERVER {
-            Channel::change_server(
+        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
+            Channel::copy(
                 &self.channel,
                 &dst_server.channel,
                 src_descriptor,

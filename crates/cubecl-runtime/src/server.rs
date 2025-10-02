@@ -33,7 +33,7 @@ pub enum ProfileError {
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug
+pub trait ComputeServer: Send + core::fmt::Debug + ServerCommunication
 where
     Self: Sized,
 {
@@ -143,15 +143,31 @@ where
 
     /// Update the memory mode of allocation in the server.
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
+}
 
-    /// TODO:
-    fn change_server(
+/// Defines functions to optimize data transfer between server with custom communication
+/// features such as peer to peer communication or custom implementation.
+pub trait ServerCommunication {
+    /// Wheter server communication is activated.
+    const SERVER_COMM_ENABLED: bool;
+
+    #[allow(unused_variables)]
+    /// Copy data from the src server to the dst server.
+    fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor<'_>,
         stream_id_src: StreamId,
         stream_id_dst: StreamId,
-    ) -> Result<Allocation, IoError>;
+    ) -> Result<Allocation, IoError> {
+        if !Self::SERVER_COMM_ENABLED {
+            panic!("Server communication is not supported on the current server.")
+        } else {
+            panic!(
+                "[Internal] `ServerCommunication` trait is wrongly implemented by the current server."
+            )
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]

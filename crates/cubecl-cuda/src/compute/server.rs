@@ -6,7 +6,7 @@ use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
-use cubecl_core::server::Binding;
+use cubecl_core::server::{Binding, ServerCommunication};
 use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{compute::CubeTask, server::IoError};
 use cubecl_core::{
@@ -411,8 +411,12 @@ impl ComputeServer for CudaServer {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
     }
+}
 
-    fn change_server(
+impl ServerCommunication for CudaServer {
+    const SERVER_COMM_ENABLED: bool = true;
+
+    fn copy(
         server_src: &mut Self,
         server_dst: &mut Self,
         src: CopyDescriptor<'_>,

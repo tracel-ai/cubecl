@@ -47,7 +47,7 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
-    const CHANGE_SERVER: bool = true;
+    const SERVER_COMM_SUPPORTED: bool = true;
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.server.lock().logger()
@@ -79,7 +79,7 @@ where
         server.write(descriptors, stream_id)
     }
 
-    fn change_server(
+    fn copy(
         server_src: &Self,
         server_dst: &Self,
         src: CopyDescriptor<'_>,
@@ -89,7 +89,7 @@ where
         let mut server_src = server_src.server.lock();
         let mut server_dst = server_dst.server.lock();
 
-        Server::change_server(
+        Server::copy(
             &mut server_src,
             &mut server_dst,
             src,

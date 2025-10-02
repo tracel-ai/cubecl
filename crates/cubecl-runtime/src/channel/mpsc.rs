@@ -219,7 +219,7 @@ impl<Server> ComputeChannel<Server> for MpscComputeChannel<Server>
 where
     Server: ComputeServer + 'static,
 {
-    const CHANGE_SERVER: bool = false;
+    const SERVER_COMM_SUPPORTED: bool = false;
 
     fn logger(&self) -> Arc<ServerLogger> {
         let (callback, response) = async_channel::unbounded();
@@ -389,7 +389,7 @@ where
             .send_blocking(Message::AllocationMode(stream_id, mode))
             .unwrap()
     }
-    fn change_server(
+    fn copy(
         _server_src: &Self,
         _server_dst: &Self,
         _src: CopyDescriptor<'_>,

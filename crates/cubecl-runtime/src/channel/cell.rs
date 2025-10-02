@@ -53,7 +53,7 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
-    const CHANGE_SERVER: bool = true;
+    const SERVER_COMM_SUPPORTED: bool = true;
 
     fn logger(&self) -> Arc<ServerLogger> {
         todo!();
@@ -146,7 +146,7 @@ where
         self.server.borrow_mut().allocation_mode(mode, stream_id)
     }
 
-    fn change_server(
+    fn copy(
         server_src: &Self,
         server_dst: &Self,
         src: CopyDescriptor<'_>,
@@ -156,7 +156,7 @@ where
         let mut server_src = server_src.server.borrow_mut();
         let mut server_dst = server_dst.server.borrow_mut();
 
-        Server::change_server(
+        Server::copy(
             &mut server_src,
             &mut server_dst,
             src,
