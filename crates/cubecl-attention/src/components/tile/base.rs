@@ -33,6 +33,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.

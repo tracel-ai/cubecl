@@ -127,7 +127,7 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
 fn array_tile_to_tmp_smem<E: Float>(
     array_tile: &ArrayTile<E>,
     #[comptime] num_planes: u32,
-) -> SharedMemory<E> {
+) -> SliceMut<E> {
     let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
     let mut tmp_smem = SharedMemory::<E>::new(comptime!(num_planes * tile_size));
 
@@ -144,32 +144,16 @@ fn array_tile_to_tmp_smem<E: Float>(
 
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        tmp_smem_slice
-            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
-            array_tile.array[c];
+        let index =
+            array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c);
+        tmp_smem_slice[index] = array_tile.array[c];
     }
 
-    tmp_smem
+    tmp_smem_slice
 }
 
-// #[cube]
-// fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<E>) {
-//     // assume unit_size.0 = 1
-//     for c in 0..array_tile.unit_size.1 {
-//         tmp_smem
-//             [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
-//             E::from_int(999);
-//     }
-//     sync_cube();
-// }
-
 #[cube]
-fn tmp_smem_to_array_tile<E: Float>(tmp_smem: &SharedMemory<E>, array_tile: &mut ArrayTile<E>) {
-    let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
-    let start = UNIT_POS_Y * tile_size;
-    let end = start + tile_size;
-    let tmp_smem_slice = tmp_smem.slice(start, end);
-
+fn tmp_smem_to_array_tile<E: Float>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
         array_tile.array[c] = tmp_smem_slice
@@ -182,7 +166,6 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
     strided_tile: &StridedTile<E>,
     array_tile: &mut ArrayTile<E2>,
 ) {
-    // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
         array_tile.array[c] = E2::cast_from(
             strided_tile.get_line(array_tile.abs_row_index(), array_tile.abs_col_index(c)),
@@ -197,8 +180,9 @@ fn array_tile_to_slice<E: Float, E2: Float>(
 ) {
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        slice[array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
-            Line::cast_from(array_tile.array[c]);
+        let index =
+            array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c);
+        slice[index] = Line::cast_from(array_tile.array[c]);
     }
 }
 
@@ -217,9 +201,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem = array_tile_to_tmp_smem::<SM<AP>>(out, config.num_planes());
+        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
+        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
+        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {
@@ -229,17 +213,17 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 for j in 0..n {
                     let mut sum = SM::<AP>::from_int(0);
                     for ki in 0..k {
-                        let lhs_val = tmp_lhs_smem[i * k + ki];
-                        let rhs_val = tmp_rhs_smem[ki * n + j];
+                        let lhs_val = tmp_lhs_smem_slice[i * k + ki];
+                        let rhs_val = tmp_rhs_smem_slice[ki * n + j];
                         sum += SM::<AP>::cast_from(lhs_val) * SM::<AP>::cast_from(rhs_val);
                     }
-                    tmp_out_smem[i * n + j] += sum;
+                    tmp_out_smem_slice[i * n + j] = tmp_out_smem_slice[i * n + j] + sum;
                 }
             }
         }
 
         sync_cube();
-        tmp_smem_to_array_tile(&tmp_out_smem, out);
+        tmp_smem_to_array_tile(&tmp_out_smem_slice, out);
         sync_cube();
     }
 
@@ -250,9 +234,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         #[comptime] config: Self::Config,
     ) {
         sync_cube();
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem = array_tile_to_tmp_smem::<ACC<AP>>(out, config.num_planes());
+        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(lhs, config.num_planes());
+        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
+        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<ACC<AP>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {
@@ -262,17 +246,17 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 for j in 0..n {
                     let mut sum = ACC::<AP>::from_int(0);
                     for ki in 0..k {
-                        let lhs_val = tmp_lhs_smem[i * k + ki];
-                        let rhs_val = tmp_rhs_smem[ki * n + j];
+                        let lhs_val = tmp_lhs_smem_slice[i * k + ki];
+                        let rhs_val = tmp_rhs_smem_slice[ki * n + j];
                         sum += ACC::<AP>::cast_from(lhs_val) * ACC::<AP>::cast_from(rhs_val);
                     }
-                    tmp_out_smem[i * n + j] += sum;
+                    tmp_out_smem_slice[i * n + j] = tmp_out_smem_slice[i * n + j] + sum;
                 }
             }
         }
 
         sync_cube();
-        tmp_smem_to_array_tile(&tmp_out_smem, out);
+        tmp_smem_to_array_tile(&tmp_out_smem_slice, out);
         sync_cube();
     }
 

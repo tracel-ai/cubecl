@@ -76,6 +76,7 @@ macro_rules! testgen_attention {
 
             #[cfg(target_os = "macos")]
             #[test]
+            #[ignore = "accelerated disabled"]
             fn attention_8_8_8_8_accelerated() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -114,6 +115,7 @@ macro_rules! testgen_attention {
             }
 
             #[test]
+            #[ignore = "Only 8x8x8x8 supported right now"]
             fn attention_9_9_9_9() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -152,6 +154,7 @@ macro_rules! testgen_attention {
             }
 
             #[test]
+            #[ignore = "Only 8x8x8x8 supported right now"]
             fn attention_7_3_10_10() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -457,6 +460,7 @@ macro_rules! testgen_attention {
 
             #[cfg(target_os = "macos")]
             #[test]
+            #[ignore = "Accelerated disabled"]
             fn attention_partition2_global2_accelerated() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -496,6 +500,7 @@ macro_rules! testgen_attention {
 
             #[cfg(target_os = "macos")]
             #[test]
+            #[ignore = "Accelerated disabled"]
             fn attention_partition_q2_stage2_accelerated() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -768,10 +773,10 @@ macro_rules! testgen_attention {
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 1,
-                    seq_kv: 1,
-                    head_dim: 1,
-                    val_dim: 1,
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,

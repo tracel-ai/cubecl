@@ -13,8 +13,8 @@ pub struct RunningState<RW: RowWise> {
 impl<RW: RowWise> RunningState<RW> {
     pub fn init(#[comptime] num_rows: u32) -> RunningState<RW> {
         RunningState::<RW> {
-            m: RW::new_filled(num_rows, RW::E::min_value()),
-            l: RW::new_filled(num_rows, RW::E::from_int(0)),
+            m: RW::new_min_value(num_rows),
+            l: RW::new_zero(num_rows),
         }
     }
 
