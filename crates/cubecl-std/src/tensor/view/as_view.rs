@@ -1,10 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::{prelude::*, unexpanded};
 
-use crate::tensor::{
-    View, ViewExpand,
-    layout::{Coordinates, Coords1d, VirtualLayout, VirtualLayoutExpand},
-};
+use crate::tensor::{View, ViewExpand, layout::*};
 
 pub trait AsView<E: CubePrimitive>:
     CubeType<ExpandType: AsViewExpand<E, SourceCoords = Self::SourceCoords>>
@@ -59,18 +56,18 @@ pub trait AsViewMutExpand<E: CubePrimitive>: AsViewExpand<E> {
 }
 
 macro_rules! impl_as_view {
-    ($ty: ident) => {
+    ($ty: ident, $coords: ty) => {
         impl<E: CubePrimitive> AsView<E> for $ty<E> {
-            type SourceCoords = Coords1d;
+            type SourceCoords = $coords;
         }
         impl<E: CubePrimitive> AsViewExpand<E> for ExpandElementTyped<$ty<E>> {
-            type SourceCoords = Coords1d;
+            type SourceCoords = $coords;
             fn __expand_view_method<C: Coordinates + 'static>(
                 self,
                 scope: &mut Scope,
-                layout: VirtualLayoutExpand<C, Coords1d>,
+                layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadOnly> {
-                View::__expand_new::<$ty<E>, Coords1d>(scope, self, layout)
+                View::__expand_new::<$ty<E>, $coords>(scope, self, layout)
             }
         }
 
@@ -79,17 +76,17 @@ macro_rules! impl_as_view {
             fn __expand_view_mut_method<C: Coordinates + 'static>(
                 self,
                 scope: &mut Scope,
-                layout: VirtualLayoutExpand<C, Coords1d>,
+                layout: VirtualLayoutExpand<C, $coords>,
             ) -> super::ViewExpand<E, C, ReadWrite> {
-                View::__expand_new_mut::<$ty<E>, Coords1d>(scope, self, layout)
+                View::__expand_new_mut::<$ty<E>, $coords>(scope, self, layout)
             }
         }
     };
 }
 
-impl_as_view!(Array);
-impl_as_view!(Tensor);
-impl_as_view!(SharedMemory);
+impl_as_view!(Array, Coords1d);
+impl_as_view!(Tensor, Coords1d);
+impl_as_view!(SharedMemory, Coords1d);
 
 impl<E: CubePrimitive, IO: SliceVisibility + 'static> AsView<E> for Slice<E, IO> {
     type SourceCoords = Coords1d;
@@ -129,3 +126,93 @@ impl<E: CubePrimitive> AsViewMutExpand<E> for SliceExpand<E, ReadWrite> {
         View::__expand_new_mut::<Slice<E, ReadWrite>, Coords1d>(scope, self, layout)
     }
 }
+
+macro_rules! as_view_tensor_map {
+    ($($dim: literal),*) => {
+        paste::paste! {
+            pub trait AsTensorView<E: CubePrimitive>:
+                CubeType<ExpandType: AsTensorViewExpand<E>>
+            {
+                $(
+                    #[allow(unused)]
+                    fn [<view_ $dim>]<C: Coordinates + 'static>(
+                        &self,
+                        layout: impl Into<VirtualLayout<C, [<Coords $dim>]>>,
+                    ) -> View<E, C, ReadOnly> {
+                        unexpanded!()
+                    }
+
+                    fn [<__expand_view_ $dim>]<C: Coordinates + 'static>(
+                        scope: &mut Scope,
+                        this: Self::ExpandType,
+                        layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
+                    ) -> ViewExpand<E, C, ReadOnly> {
+                        this.[<__expand_view_ $dim _method>](scope, layout)
+                    }
+                )*
+            }
+
+            pub trait AsTensorViewExpand<E: CubePrimitive> {
+                $(
+                    #[allow(unused)]
+                    fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
+                        self,
+                        scope: &mut Scope,
+                        layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
+                    ) -> ViewExpand<E, C, ReadOnly>;
+                )*
+            }
+
+            pub trait AsTensorViewMut<E: CubePrimitive>: AsTensorView<E> {
+                $(
+                    #[allow(unused)]
+                    fn [<view_mut_ $dim>]<C: Coordinates + 'static>(
+                        &mut self,
+                        layout: impl Into<VirtualLayout<C, [<Coords $dim>]>>,
+                    ) -> View<E, C, ReadWrite> {
+                        unexpanded!()
+                    }
+                )*
+            }
+
+            pub trait AsTensorViewMutExpand<E: CubePrimitive>: AsTensorViewExpand<E> {
+                $(
+                    #[allow(clippy::too_many_arguments)]
+                    fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
+                        self,
+                        scope: &mut Scope,
+                        layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
+                    ) -> ViewExpand<E, C, ReadWrite>;
+                )*
+            }
+
+            impl<E: CubePrimitive> AsTensorView<E> for TensorMap<E> {}
+            impl<E: CubePrimitive> AsTensorViewExpand<E> for ExpandElementTyped<TensorMap<E>> {
+                $(
+                    fn [<__expand_view_ $dim _method>]<C: Coordinates + 'static>(
+                        self,
+                        scope: &mut Scope,
+                        layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
+                    ) -> super::ViewExpand<E, C, ReadOnly> {
+                        View::__expand_new::<TensorMap<E>, [<Coords $dim>]>(scope, self, layout)
+                    }
+                )*
+            }
+
+            impl<E: CubePrimitive> AsTensorViewMut<E> for TensorMap<E> {}
+            impl<E: CubePrimitive> AsTensorViewMutExpand<E> for ExpandElementTyped<TensorMap<E>> {
+                $(
+                    fn [<__expand_view_mut_ $dim _method>]<C: Coordinates + 'static>(
+                        self,
+                        scope: &mut Scope,
+                        layout: VirtualLayoutExpand<C, [<Coords $dim>]>,
+                    ) -> super::ViewExpand<E, C, ReadWrite> {
+                        View::__expand_new_mut::<TensorMap<E>, [<Coords $dim>]>(scope, self, layout)
+                    }
+                )*
+            }
+        }
+    };
+}
+
+as_view_tensor_map!(1d, 2d, 3d, 4d, 5d, 1i, 2i, 3i, 4i, 5i);

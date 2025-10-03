@@ -166,7 +166,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -209,7 +209,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
             tile,
             line_index_within_tile,
             num_lines_to_skip_global,
-            tensor_reader,
+            global_iter,
             stage,
             config,
         );
@@ -228,7 +228,7 @@ impl SyncPartialTilewiseJob {
         tile: Coords2d,
         line_index_within_tile: u32,
         num_lines_to_skip_global: u32,
-        global_iter: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

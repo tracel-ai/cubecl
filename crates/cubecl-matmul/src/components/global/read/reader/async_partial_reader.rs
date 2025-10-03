@@ -47,8 +47,8 @@ pub struct AsyncBufferGlobalReader<
     CM: CopyMechanism,
     L: AsyncPartialLoadingStrategy,
 > {
-    tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
+    global_iter: GlobalIterator<Line<IP::Global>>,
+    stage: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -67,11 +67,11 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
-        let stage_memory = StridedStage::new(
+        let stage = StridedStage::new(
             comptime!(ident.into_stage()),
             config.stage_memory_config(ident),
         );
-        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), true);
+        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), true);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
@@ -82,8 +82,8 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
         };
 
         AsyncBufferGlobalReader::<IP, S, CM, L> {
-            tensor_reader,
-            stage_memory,
+            global_iter,
+            stage,
             loading_job,
             ident,
             _phantom: PhantomData::<(S, CM)>,
@@ -95,12 +95,12 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
     ) -> StridedStage<IP::Stage, L::TilingLayout> {
-        self.stage_memory.with_buffer_index(stage_buffer.to_index())
+        self.stage.with_buffer_index(stage_buffer.to_index())
     }
 
     /// Advance the view over global memory along the k dimension.
     pub fn advance_view(&mut self) {
-        self.tensor_reader.advance();
+        self.global_iter.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory
@@ -130,8 +130,8 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
             L::Job::<IP>::execute_task::<CM, DoubleBufferingGlobalConfig<S>>(
                 &mut loading_job,
                 task_id,
-                &self.tensor_reader,
-                &mut self.stage_memory,
+                &self.global_iter,
+                &mut self.stage,
                 mechanism,
                 config,
             );
@@ -144,7 +144,7 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) {
-        self.stage_memory
+        self.stage
             .clear_stage::<DoubleBufferingGlobalConfig<S>>(stage_buffer, self.ident, config)
     }
 }

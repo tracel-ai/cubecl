@@ -74,7 +74,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        tensor_reader: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -113,7 +113,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 #[cube]
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
     nth_slice: u32,
-    global_iter: &GlobalIterator<EG>,
+    global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] ident: MatmulIdent,

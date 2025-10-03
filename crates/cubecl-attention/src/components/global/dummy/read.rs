@@ -23,7 +23,7 @@ pub struct QueryReader<AP: AttentionPrecision> {
 
 #[derive(CubeType)]
 pub struct DummyKeyReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    global_iter: GlobalIterator<KG<AP>>,
+    global_iter: GlobalIterator<Line<KG<AP>>>,
     stage_memory: StridedStage<KS<AP>, AttentionTilingLayout>,
 
     #[cube(comptime)]
@@ -32,7 +32,7 @@ pub struct DummyKeyReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 
 #[derive(CubeType)]
 pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    global_iter: GlobalIterator<VG<AP>>,
+    global_iter: GlobalIterator<Line<VG<AP>>>,
     stage_memory: StridedStage<VS<AP>, AttentionTilingLayout>,
 
     #[cube(comptime)]

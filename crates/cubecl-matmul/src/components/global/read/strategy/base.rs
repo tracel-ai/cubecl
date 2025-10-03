@@ -16,7 +16,7 @@ pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout>: CubeType + Copy + C
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        tensor_reader: &GlobalIterator<Line<IP::Global>>,
         stage_memory: &mut StridedStage<IP::Stage, TL>,
         #[comptime] config: G,
     );
@@ -36,7 +36,7 @@ pub trait AsyncLoadingJob<IP: MatrixPrecision, TL: TilingLayout>: CubeType + Cop
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        tensor_reader: &GlobalIterator<Line<IP::Global>>,
         stage_memory: &mut StridedStage<IP::Stage, TL>,
         mechanism: &CM,
         #[comptime] config: G,

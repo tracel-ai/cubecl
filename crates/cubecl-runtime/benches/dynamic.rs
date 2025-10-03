@@ -14,7 +14,6 @@ fn main() {
     let mem_props = MemoryDeviceProperties {
         max_page_size: 2048 * MB,
         alignment: 32,
-        server_communication: false,
     };
     let mut mm = MemoryManagement::from_configuration(storage, &mem_props, config);
     let mut handles = LinkedList::new();

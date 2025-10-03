@@ -93,7 +93,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStride
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         #[comptime] config: G,
     ) {

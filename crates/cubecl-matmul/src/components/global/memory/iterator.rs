@@ -4,8 +4,8 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 
 #[derive(Clone, CubeType)]
 /// An iterator over global memory, advancing along k.
-pub struct GlobalIterator<EI: Numeric> {
-    global_view: View<Line<EI>, Coords2d>,
+pub struct GlobalIterator<EI: CubePrimitive> {
+    global_view: View<EI, Coords2d>,
     offset: RuntimeCell<u32>,
     /// The amount to advance by on each iteration
     step: u32,
@@ -16,8 +16,8 @@ pub struct GlobalIterator<EI: Numeric> {
     checked: bool,
 }
 
-unsafe impl<EG: Numeric> Sync for GlobalIterator<EG> {}
-unsafe impl<EG: Numeric> Send for GlobalIterator<EG> {}
+unsafe impl<EG: CubePrimitive> Sync for GlobalIterator<EG> {}
+unsafe impl<EG: CubePrimitive> Send for GlobalIterator<EG> {}
 
 #[derive(CubeType, Clone, Copy)]
 pub enum ViewDirection {
@@ -28,14 +28,14 @@ pub enum ViewDirection {
 }
 
 #[cube]
-impl<EG: Numeric> GlobalIterator<EG> {
+impl<EG: CubePrimitive> GlobalIterator<EG> {
     /// Instantiate a read iterator over the given global view, which should be sliced to the size
     /// of one `m`/`n` stage and the full range of `k` handled by this matmul instance.
     ///
     /// `step` is the amount advanced in `view_direction` each iteration.
     /// `checked` determines whether the slices should be created as checked or unchecked.
     pub fn new(
-        global_view: View<Line<EG>, Coords2d>,
+        global_view: View<EG, Coords2d>,
         step: u32,
         #[comptime] view_direction: ViewDirection,
         #[comptime] checked: bool,
@@ -63,7 +63,7 @@ impl<EG: Numeric> GlobalIterator<EG> {
     }
 
     /// Returns the current view slice of the iterator
-    pub fn view(&self) -> View<Line<EG>, Coords2d> {
+    pub fn view(&self) -> View<EG, Coords2d> {
         let offset = match comptime![self.view_direction] {
             ViewDirection::Row => (self.offset.read(), 0u32),
             ViewDirection::Col => (0u32, self.offset.read()),

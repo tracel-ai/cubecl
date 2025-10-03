@@ -45,7 +45,7 @@ pub struct AsyncFullStageGlobalReader<
     L: AsyncFullLoadingStrategy,
     G: GlobalConfig,
 > {
-    tensor_reader: GlobalIterator<IP::Global>,
+    tensor_reader: GlobalIterator<Line<IP::Global>>,
     stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]

@@ -48,8 +48,8 @@ pub struct SyncFullStageGlobalReader<
     G: GlobalConfig,
     L: SyncFullLoadingStrategy,
 > {
-    tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
+    global_iter: GlobalIterator<Line<IP::Global>>,
+    stage: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -68,11 +68,11 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StridedStage::new(
+        let stage = StridedStage::new(
             comptime!(ident.into_stage()),
             config.stage_memory_config(ident),
         );
-        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
+        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
@@ -80,8 +80,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         };
 
         SyncFullStageGlobalReader::<IP, G, L> {
-            tensor_reader,
-            stage_memory,
+            global_iter,
+            stage,
             loading_job,
             ident,
             _phantom: PhantomData::<(G, L)>,
@@ -90,16 +90,16 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 
     /// Give a reader to the loaded stage memory.
     pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
-        self.stage_memory
+        self.stage
     }
 
     pub fn free_stage(self) {
-        unsafe { self.stage_memory.free() };
+        unsafe { self.stage.free() };
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(&mut self) {
-        self.tensor_reader.advance();
+        self.global_iter.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory
@@ -118,8 +118,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
             L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
-                &self.tensor_reader,
-                &mut self.stage_memory,
+                &self.global_iter,
+                &mut self.stage,
                 config,
             );
             comptime![task_id += 1];
@@ -162,8 +162,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         L::Job::<IP>::execute_task::<G>(
             &mut job_iterator.job,
             task_id,
-            &this.tensor_reader,
-            &mut this.stage_memory,
+            &this.global_iter,
+            &mut this.stage,
             config,
         );
 
@@ -187,8 +187,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
             L::Job::<IP>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
-                &this.tensor_reader,
-                &mut this.stage_memory,
+                &this.global_iter,
+                &mut this.stage,
                 config,
             );
             comptime![task_id += 1];
