@@ -42,6 +42,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::NonSemantic(debug) => self.compile_debug(debug),
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
+            Operation::Free(_) => {}
         }
     }
 
@@ -136,6 +137,16 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         _ => unreachable!(),
                     }
                     .unwrap();
+                });
+            }
+            Comparison::IsNan(op) => {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.is_nan(ty, Some(out), input).unwrap();
+                });
+            }
+            Comparison::IsInf(op) => {
+                self.compile_unary_op(op, out, uniform, |b, _, ty, input, out| {
+                    b.is_inf(ty, Some(out), input).unwrap();
                 });
             }
         }

@@ -113,7 +113,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
-        data_transfer_async: false,
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);

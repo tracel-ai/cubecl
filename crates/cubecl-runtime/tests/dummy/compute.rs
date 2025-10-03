@@ -24,7 +24,6 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
     let mem_properties = MemoryDeviceProperties {
         max_page_size: 1024 * 1024 * 512,
         alignment: 32,
-        data_transfer_async: false,
     };
     let topology = HardwareProperties {
         plane_size_min: 32,

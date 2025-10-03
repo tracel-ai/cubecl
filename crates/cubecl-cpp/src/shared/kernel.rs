@@ -22,9 +22,15 @@ pub struct Binding<D: Dialect> {
 pub struct SharedMemory<D: Dialect> {
     pub index: Id,
     pub item: Item<D>,
-    pub size: u32,
-    pub align: Option<u32>,
+    pub length: u32,
+    pub align: u32,
     pub offset: u32,
+}
+
+impl<D: Dialect> SharedMemory<D> {
+    pub fn size(&self) -> u32 {
+        self.length * self.item.size() as u32
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -49,11 +55,11 @@ impl<D: Dialect> LocalArray<D> {
 }
 
 impl<D: Dialect> SharedMemory<D> {
-    pub fn new(index: Id, item: Item<D>, size: u32, align: Option<u32>) -> Self {
+    pub fn new(index: Id, item: Item<D>, size: u32, align: u32) -> Self {
         Self {
             index,
             item,
-            size,
+            length: size,
             align,
             offset: 0, // initialized later
         }
@@ -62,7 +68,7 @@ impl<D: Dialect> SharedMemory<D> {
 
 #[derive(Debug, Clone)]
 pub struct ComputeKernel<D: Dialect> {
-    pub tensor_maps: Vec<Id>,
+    pub tensor_maps: Vec<Binding<D>>,
     pub buffers: Vec<Binding<D>>,
     pub scalars: Vec<(Elem<D>, usize)>,
     pub meta_static_len: usize,
@@ -77,22 +83,9 @@ pub struct ComputeKernel<D: Dialect> {
 
 impl<D: Dialect> ComputeKernel<D> {
     pub fn shared_memory_size(&self) -> usize {
-        // Account for alignment padding between shared memory buffers
-        // Sorted to minimize that padding
-        let mut shared_memories = self.body.shared_memories.clone();
-        shared_memories.sort_by_key(|smem| smem.align.unwrap_or(smem.item.size() as u32));
-        shared_memories.reverse();
-
-        let mut current = 0usize;
-
-        for var in self.body.shared_memories.iter() {
-            let align = var.align.unwrap_or(var.item.size() as u32);
-            let size_bytes = var.size as usize * var.item.size();
-            let offset = current.next_multiple_of(align as usize);
-            current = offset + size_bytes;
-        }
-
-        current
+        let smems = self.body.shared_memories.iter();
+        let ends = smems.map(|it| it.offset + it.size());
+        ends.max().unwrap_or_default() as usize
     }
 }
 
@@ -208,7 +201,7 @@ uint x[{static_len}];
 
 pub fn compile_bindings<D: Dialect>(
     f: &mut core::fmt::Formatter<'_>,
-    tensor_maps: &[Id],
+    tensor_maps: &[Binding<D>],
     buffers: &[Binding<D>],
     trailing_comma: bool,
     flags: &Flags,
@@ -217,19 +210,25 @@ pub fn compile_bindings<D: Dialect>(
 
     let mut args = Vec::new();
 
+    args.extend(tensor_maps.iter().map(|binding| {
+        format!(
+            "const __grid_constant__ CUtensorMap tensor_map_{}",
+            binding.id
+        )
+    }));
     args.extend(
         tensor_maps
             .iter()
-            .map(|id| format!("const __grid_constant__ CUtensorMap tensor_map_{id}")),
+            .chain(buffers.iter())
+            .map(|binding| match binding.vis {
+                Visibility::Read => {
+                    format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
+                }
+                Visibility::ReadWrite => {
+                    format!("{}* buffer_{}", binding.item, binding.id)
+                }
+            }),
     );
-    args.extend(buffers.iter().map(|binding| match binding.vis {
-        Visibility::Read => {
-            format!("const {}* __restrict__ buffer_{}", binding.item, binding.id)
-        }
-        Visibility::ReadWrite => {
-            format!("{}* buffer_{}", binding.item, binding.id)
-        }
-    }));
     args.extend(
         flags
             .has_dynamic_meta

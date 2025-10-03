@@ -179,6 +179,8 @@ pub enum Instruction<D: Dialect> {
         max_value: Variable<D>,
         out: Variable<D>,
     },
+    IsNan(UnaryInstruction<D>),
+    IsInf(UnaryInstruction<D>),
     SyncThreads,
     SyncWarp,
     ThreadFence,
@@ -189,6 +191,12 @@ pub enum Instruction<D: Dialect> {
     },
     BulkWaitGroupRead {
         max_pending: u32,
+    },
+    TmaReplacePointer {
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        tensor_map: Variable<D>,
+        out: Variable<D>,
     },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
@@ -523,6 +531,8 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 max_value,
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
+            Instruction::IsNan(it) => IsNan::format(f, &it.input, &it.out),
+            Instruction::IsInf(it) => IsInf::format(f, &it.input, &it.out),
             Instruction::SyncThreads => D::compile_instruction_sync_threads(f),
             Instruction::SyncWarp => D::compile_instruction_sync_warp(f),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
@@ -643,6 +653,24 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
+            Instruction::TmaReplacePointer {
+                buffer,
+                offset,
+                tensor_map,
+                out,
+            } => {
+                let pos = Variable::<D>::UnitPos;
+                writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
+                writeln!(
+                    f,
+                    "
+if({pos} == 0) {{
+    {out} = {tensor_map};
+    tensormap_replace_global_address({out}, &{buffer}[{offset}]);
+}}"
+                )?;
+                writeln!(f, "__syncthreads();")
+            }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
                 smem_offset,

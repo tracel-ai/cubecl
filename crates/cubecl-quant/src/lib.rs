@@ -9,7 +9,7 @@ pub mod dequantize;
 pub mod quantize;
 
 #[cfg(feature = "kernels")]
-pub mod qparams;
+pub mod layout;
 
 pub mod scheme;
 
@@ -27,8 +27,9 @@ pub(crate) mod utils {
             ..
         } = scheme
         {
+            let block_size = *block_size.last().unwrap();
             assert!(
-                *block_size % div == 0,
+                block_size % div == 0,
                 "Block size must be divisible by {div}, got block_size={block_size}"
             );
         }

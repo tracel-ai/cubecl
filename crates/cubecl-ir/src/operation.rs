@@ -55,6 +55,9 @@ pub enum Operation {
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
+    /// Frees a shared memory, allowing reuse in later blocks. Only used as a marker for the shared
+    /// memory analysis, should be ignored by compilers.
+    Free(Variable),
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
@@ -189,6 +192,7 @@ impl Display for Operation {
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
+            Operation::Free(var) => write!(f, "free({var})"),
         }
     }
 }

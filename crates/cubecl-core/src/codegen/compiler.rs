@@ -28,4 +28,5 @@ pub trait Compiler: Sync + Send + 'static + Clone + core::fmt::Debug {
 pub struct WgpuCompilationOptions {
     pub supports_fp_fast_math: bool,
     pub supports_u64: bool,
+    pub supports_explicit_smem: bool,
 }

@@ -118,7 +118,7 @@ where
     ) -> Self::LhsGlobalReader {
         let (x_offset, y_offset) = offset;
         Self::LhsGlobalReader::new(
-            lhs.as_tensor_map(),
+            lhs.as_tensor_map().unwrap(),
             x_offset,
             y_offset,
             nth_batch,
@@ -137,7 +137,7 @@ where
     ) -> Self::RhsGlobalReader {
         let (x_offset, y_offset) = offset;
         Self::RhsGlobalReader::new(
-            rhs.as_tensor_map(),
+            rhs.as_tensor_map().unwrap(),
             x_offset,
             y_offset,
             nth_batch,

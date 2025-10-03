@@ -5,7 +5,7 @@ use crate::{
     prelude::{Lined, LinedExpand},
     unexpanded,
 };
-use cubecl_ir::VariableKind;
+use cubecl_ir::{Instruction, Operation, VariableKind};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -15,6 +15,8 @@ use crate::{
         Line, List, ListExpand, ListMut, ListMutExpand, index, index_assign, index_unchecked,
     },
 };
+
+type SharedMemoryExpand<T> = ExpandElementTyped<SharedMemory<T>>;
 
 #[derive(Clone, Copy)]
 pub struct SharedMemory<T: CubeType> {
@@ -132,6 +134,15 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
             );
             ExpandElementTyped::new(var)
         })
+    }
+
+    /// Frees the shared memory for reuse, if possible on the target runtime.
+    ///
+    /// # Safety
+    /// *Must* be used in uniform control flow
+    /// *Must not* have any dangling references to this shared memory
+    pub unsafe fn free(self) {
+        intrinsic!(|scope| { scope.register(Instruction::no_out(Operation::Free(*self.expand))) })
     }
 }
 

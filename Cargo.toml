@@ -60,7 +60,7 @@ serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
 float4 = "0.1"
-float8 = "0.4"
+float8 = { version = "0.4", default-features = false }
 half = { version = "2.5", features = [
     "alloc",
     "num-traits",
@@ -86,7 +86,9 @@ tracy-client = { version = "0.18.0" }
 strum = { version = "0.27.1", features = ["derive"] }
 tracel-xtask = { version = "=2.1.8" }
 
-portable-atomic = { version = "1.10", default-features = false, features = [
+
+portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
+portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
 ] }
 pretty_assertions = "1.4"

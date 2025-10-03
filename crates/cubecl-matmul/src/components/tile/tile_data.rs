@@ -100,7 +100,8 @@ impl<ES: Numeric, IO: SliceVisibility> StridedTile<ES, IO> {
     /// Returns:
     /// - The unlined slice
     /// - The updated stride to account for line width removal
-    pub fn as_unlined(&self, #[comptime] stage_line_size: u32) -> (Slice<ES, IO>, u32) {
+    pub fn as_unlined(&self) -> (Slice<ES, IO>, u32) {
+        let stage_line_size = comptime![self.slice.line_size()];
         (
             self.slice.try_cast_unchecked(),
             self.stride * stage_line_size,

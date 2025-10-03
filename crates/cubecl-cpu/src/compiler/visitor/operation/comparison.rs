@@ -12,6 +12,9 @@ impl<'a> Visitor<'a> {
             Comparison::NotEqual(bin_op) => bin_op,
             Comparison::GreaterEqual(bin_op) => bin_op,
             Comparison::Greater(bin_op) => bin_op,
+            Comparison::IsNan(_op) | Comparison::IsInf(_op) => {
+                unreachable!("Should be removed by preprocessor")
+            }
         };
 
         let (lhs, rhs) = self.get_binary_op_variable(bin_op.lhs, bin_op.rhs);
@@ -25,6 +28,7 @@ impl<'a> Visitor<'a> {
                 Comparison::NotEqual(_) => CmpfPredicate::One,
                 Comparison::GreaterEqual(_) => CmpfPredicate::Oge,
                 Comparison::Greater(_) => CmpfPredicate::Ogt,
+                Comparison::IsNan(_op) | Comparison::IsInf(_op) => unreachable!(),
             };
             self.append_operation_with_result(arith::cmpf(
                 self.context,
@@ -41,6 +45,7 @@ impl<'a> Visitor<'a> {
                 Comparison::NotEqual(_) => CmpiPredicate::Ne,
                 Comparison::GreaterEqual(_) => CmpiPredicate::Sge,
                 Comparison::Greater(_) => CmpiPredicate::Sgt,
+                Comparison::IsNan(_op) | Comparison::IsInf(_op) => unreachable!(),
             };
             self.append_operation_with_result(arith::cmpi(
                 self.context,
@@ -57,6 +62,7 @@ impl<'a> Visitor<'a> {
                 Comparison::NotEqual(_) => CmpiPredicate::Ne,
                 Comparison::GreaterEqual(_) => CmpiPredicate::Uge,
                 Comparison::Greater(_) => CmpiPredicate::Ugt,
+                Comparison::IsNan(_op) | Comparison::IsInf(_op) => unreachable!(),
             };
             self.append_operation_with_result(arith::cmpi(
                 self.context,

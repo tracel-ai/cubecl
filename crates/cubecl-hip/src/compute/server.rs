@@ -9,9 +9,9 @@ use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::compute::CubeTask;
+use cubecl_core::server::ServerCommunication;
 use cubecl_core::server::{
-    Allocation, AllocationKind, CopyDescriptor, DataTransferService, IoError, ProfileError,
-    ProfilingToken,
+    Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
 };
 use cubecl_core::server::{Binding, Bindings};
 use cubecl_core::{MemoryConfiguration, future, prelude::*};
@@ -32,7 +32,6 @@ pub struct HipServer {
 }
 
 unsafe impl Send for HipServer {}
-impl DataTransferService for HipServer {}
 
 impl ComputeServer for HipServer {
     type Kernel = Box<dyn CubeTask<HipCompiler>>;
@@ -236,6 +235,10 @@ impl ComputeServer for HipServer {
         let mut command = self.command_no_inputs(stream_id);
         command.allocation_mode(mode)
     }
+}
+
+impl ServerCommunication for HipServer {
+    const SERVER_COMM_ENABLED: bool = false;
 }
 
 impl HipServer {

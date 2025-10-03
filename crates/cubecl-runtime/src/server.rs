@@ -1,5 +1,4 @@
 use crate::{
-    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -34,7 +33,7 @@ pub enum ProfileError {
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: DataTransferService + Send + core::fmt::Debug
+pub trait ComputeServer: Send + core::fmt::Debug + ServerCommunication
 where
     Self: Sized,
 {
@@ -146,33 +145,45 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// Defines a way to move data from one compute server to another.
-///
-/// # Notes
-///
-/// This is an optional trait to be implemented and methods will only be called if the
-/// memory device property 'data_service_async' is set to 'true'.
-pub trait DataTransferService {
-    /// Send data to another server. Should be called with [register_dest](DataTransferService::register_dest)
-    ///
-    /// # Arguments
-    ///
-    /// - `id`: A unique id for the transaction
-    /// - `src`: The source for the read operation.
-    #[allow(unused_variables)]
-    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
-    }
+/// Defines functions for optimized data transfer between servers, supporting custom communication
+/// mechanisms such as peer-to-peer communication or specialized implementations.
+pub trait ServerCommunication {
+    /// Indicates whether server-to-server communication is enabled for this implementation.
+    const SERVER_COMM_ENABLED: bool;
 
-    /// Receive data from another server. Should be called with [register_src](DataTransferService::register_src)
+    /// Copies data from a source server to a destination server.
     ///
     /// # Arguments
     ///
-    /// - `id`: A unique id for the transaction
-    /// - `dst`: The destination for the write operation.
+    /// * `server_src` - A mutable reference to the source server from which data is copied.
+    /// * `server_dst` - A mutable reference to the destination server receiving the data.
+    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
+    /// * `stream_id_src` - The stream ID associated with the source server's operation.
+    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if server communication is not enabled (`SERVER_COMM_ENABLED` is `false`) or if the
+    /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
-    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
+    fn copy(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        if !Self::SERVER_COMM_ENABLED {
+            panic!("Server-to-server communication is not supported by this server.");
+        } else {
+            panic!(
+                "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
+            );
+        }
     }
 }
 

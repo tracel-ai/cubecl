@@ -2,8 +2,9 @@ use std::marker::PhantomData;
 
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
-use cubecl_std::tensor::r#virtual::{
-    VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand,
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::r#virtual::{VirtualTensor, VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
 pub trait ReduceDType {
@@ -250,9 +251,9 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::In>
 
     fn __expand_as_tensor_map_method(
         &self,
-        _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<P::In>> {
-        todo!()
+        scope: &mut Scope,
+    ) -> CubeOptionExpand<TensorMap<P::In>> {
+        CubeOption::__expand_new_None(scope)
     }
 }
 
@@ -322,9 +323,9 @@ impl<P: ReduceDType, RA: ReduceArgs> VirtualTensorOperationsExpand<P::Out>
 
     fn __expand_as_tensor_map_method(
         &self,
-        _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<P::Out>> {
-        todo!()
+        scope: &mut Scope,
+    ) -> CubeOptionExpand<TensorMap<P::Out>> {
+        CubeOption::__expand_new_None(scope)
     }
 }
 

@@ -2,12 +2,12 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
-use crate::components::{AttentionIdent, AttentionPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
@@ -75,7 +75,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Query));
+        let (slice, stride) = tile.as_unlined();
         let size = config.attention_tile_size().to_score_matmul_tile_size();
 
         if config.cast_query() {
@@ -153,9 +153,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     fn fill_key_value<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Key));
+        let (slice, stride) = tile.as_unlined();
         cmma::load(rhs, &slice, stride);
     }
 
@@ -206,33 +206,4 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
             cmma::MatrixLayout::RowMajor,
         );
     }
-
-    // fn tmp_fill_accumulator(
-    //     tile: &StridedTile<ACC<AP>>,
-    //     acc: &mut Self::Accumulator,
-    //     #[comptime] _config: Self::Config,
-    // ) {
-    //     let (slice, stride) = tile.as_unlined(1u32);
-    //     cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
-    // }
-    // fn tmp_fill_prob(
-    //     tile: &StridedTile<SM<AP>>,
-    //     prob: &mut Self::Softmax,
-    //     #[comptime] _config: Self::Config,
-    // ) {
-    //     let (slice, stride) = tile.as_unlined(1u32);
-    //     cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
-    // }
-    // fn tmp_write_softmax(
-    //     softmax: &Self::Softmax,
-    //     slice: &mut SliceMut<Line<SM<AP>>>,
-    //     #[comptime] config: Self::Config,
-    // ) {
-    //     cmma::store(
-    //         slice,
-    //         softmax,
-    //         config.attention_tile_size().seq_kv,
-    //         cmma::MatrixLayout::RowMajor,
-    //     );
-    // }
 }

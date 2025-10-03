@@ -96,8 +96,6 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory / 4,
         alignment: mem_alignment as u64,
-        // TODO: We should have a fallback when peer access isn't supported.
-        data_transfer_async: true,
     };
 
     let mut comp_opts = CompilationOptions::default();
@@ -237,6 +235,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_properties,
         options.memory_config,
         mem_alignment,
+        device_id,
     );
     ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
 }

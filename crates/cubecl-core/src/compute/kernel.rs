@@ -156,7 +156,7 @@ source:
 #[allow(missing_docs)]
 pub struct KernelDefinition {
     pub buffers: Vec<Binding>,
-    pub tensor_maps: Vec<Id>,
+    pub tensor_maps: Vec<Binding>,
     pub scalars: Vec<ScalarBinding>,
     pub cube_dim: CubeDim,
     pub body: Scope,
