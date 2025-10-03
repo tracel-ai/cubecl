@@ -24,7 +24,7 @@ pub trait KeyValueTile<E: Float>: CubeType {
 
 #[cube]
 pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
-    type PlaneLayout: PlaneLayout<E = SM<AP>>;
+    type PlaneLayout: PlaneLayout<RW = Self::RowWise>;
     type RowWise: RowWise<E = SM<AP>>;
 
     fn init_state(#[comptime] num_rows: u32) -> RunningState<Self::RowWise>;
@@ -32,7 +32,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
     fn zero(&mut self);
 
-    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask);
+    fn scale_and_mask(&mut self, scale: &Self::RowWise, mask: TileMask);
 
     fn row_max<TC: AttentionMatmulConfig>(
         &self,

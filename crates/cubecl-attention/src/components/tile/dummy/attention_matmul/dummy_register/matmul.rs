@@ -1,4 +1,5 @@
 use std::cmp::max;
+use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -7,11 +8,13 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::RowVals;
 
 use crate::components::TileMask;
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{RowWise, RowWiseExpand};
 
 pub struct DummyRegisterAttentionMatmul;
 
@@ -20,7 +23,7 @@ pub struct DummyRegisterAttentionMatmul;
 /// - All elements of a unit are contiguous
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
 /// - There is never more than one row for one unit
-pub struct ArrayTile<E: Float> {
+pub struct ArrayTile<E: Float, RW: RowWise> {
     array: Array<E>,
     #[cube(comptime)]
     total_size: Coords2d,
@@ -30,6 +33,8 @@ pub struct ArrayTile<E: Float> {
     num_units_per_row: u32,
     #[cube(comptime)]
     plane_dim: u32,
+    #[cube(comptime)]
+    _phantom: PhantomData<RW>,
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -61,12 +66,12 @@ pub enum InnerLayout {
 }
 
 #[cube]
-impl<E: Float> ArrayTile<E> {
+impl<E: Float, RW: RowWise> ArrayTile<E, RW> {
     pub fn new(
         #[comptime] total_size: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] inner_layout: InnerLayout,
-    ) -> ArrayTile<E> {
+    ) -> ArrayTile<E, RW> {
         let total_elements = total_size.0 * total_size.1;
         let elements_per_unit = total_elements.div_ceil(plane_dim);
 
@@ -79,12 +84,13 @@ impl<E: Float> ArrayTile<E> {
         let array = Array::<E>::new(comptime!(unit_size.0 * unit_size.1));
         let num_units_per_row = comptime!(total_size.1 / unit_size.1);
 
-        ArrayTile::<E> {
+        ArrayTile::<E, RW> {
             array,
             total_size,
             unit_size,
             num_units_per_row,
             plane_dim,
+            _phantom: PhantomData,
         }
     }
 
@@ -114,8 +120,8 @@ impl<E: Float> ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Float> PlaneLayout for ArrayTile<E> {
-    type E = E;
+impl<E: Float, RW: RowWise<E = E>> PlaneLayout for ArrayTile<E, RW> {
+    type RW = RW;
 
     fn num_local_rows(&self) -> comptime_type!(u32) {
         self.unit_size.0
@@ -129,23 +135,23 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
         comptime!(self.total_size.1 / self.unit_size.1)
     }
 
-    fn get_at_coor(&self, r: u32, c: u32) -> E {
+    fn get_at_coor(&self, r: u32, c: u32) -> <Self::RW as RowWise>::E {
         self.array[r * self.unit_size.1 + c]
     }
 
-    fn scale(&mut self, scale: E) {
+    fn scale(&mut self, scale: &Self::RW) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;
             #[unroll]
             for c in 0..self.unit_size.1 {
                 let index = row_offset + c;
-                self.array[index] = self.array[index] * scale;
+                self.array[index] = self.array[index] * scale.index(r);
             }
         }
     }
 
-    fn scale_and_mask(&mut self, scale: E, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: &Self::RW, mask: TileMask) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;
@@ -153,27 +159,27 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
             for c in 0..self.unit_size.1 {
                 let index = row_offset + c;
                 self.array[index] =
-                    self.array[index] * scale + mask.apply::<E>(self.abs_pos((r, c)));
+                    self.array[index] * scale.index(r) + mask.apply::<E>(self.abs_pos((r, c)));
             }
         }
     }
 
-    fn exp_m_diff(&mut self, val: E) {
+    fn exp_m_diff(&mut self, val: &Self::RW) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;
             #[unroll]
             for c in 0..self.unit_size.1 {
                 let index = row_offset + c;
-                self.array[index] = Exp::exp(self.array[index] - val);
+                self.array[index] = Exp::exp(self.array[index] - val.index(r));
             }
         }
     }
 }
 
 #[cube]
-fn array_tile_to_tmp_smem<E: Float>(
-    array_tile: &ArrayTile<E>,
+fn array_tile_to_tmp_smem<E: Float, RW: RowWise>(
+    array_tile: &ArrayTile<E, RW>,
     #[comptime] num_planes: u32,
 ) -> SliceMut<E> {
     let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
@@ -202,7 +208,10 @@ fn array_tile_to_tmp_smem<E: Float>(
 }
 
 #[cube]
-fn tmp_smem_to_array_tile<E: Float>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
+fn tmp_smem_to_array_tile<E: Float, RW: RowWise>(
+    tmp_smem_slice: &SliceMut<E>,
+    array_tile: &mut ArrayTile<E, RW>,
+) {
     for r in 0..array_tile.unit_size.0 {
         for c in 0..array_tile.unit_size.1 {
             array_tile.array[c] = tmp_smem_slice[array_tile.abs_row_index(r)
@@ -213,9 +222,9 @@ fn tmp_smem_to_array_tile<E: Float>(tmp_smem_slice: &SliceMut<E>, array_tile: &m
 }
 
 #[cube]
-fn strided_tile_to_array_tile<E: Float, E2: Float>(
+fn strided_tile_to_array_tile<E: Float, E2: Float, RW: RowWise>(
     strided_tile: &StridedTile<E>,
-    array_tile: &mut ArrayTile<E2>,
+    array_tile: &mut ArrayTile<E2, RW>,
 ) {
     for r in 0..array_tile.unit_size.0 {
         for c in 0..array_tile.unit_size.1 {
@@ -227,8 +236,8 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
 }
 
 #[cube]
-fn array_tile_to_slice<E: Float, E2: Float>(
-    array_tile: &ArrayTile<E>,
+fn array_tile_to_slice<E: Float, E2: Float, RW: RowWise>(
+    array_tile: &ArrayTile<E, RW>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
     for r in 0..array_tile.unit_size.0 {
@@ -244,10 +253,10 @@ fn array_tile_to_slice<E: Float, E2: Float>(
 impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmul {
     type Config = DummyRegisterAttentionMatmulConfig;
 
-    type Query = ArrayTile<QT<AP>>;
-    type KeyValue = ArrayTile<KVT<AP>>;
-    type Softmax = ArrayTile<SM<AP>>;
-    type Accumulator = ArrayTile<ACC<AP>>;
+    type Query = ArrayTile<QT<AP>, RowVals<QT<AP>>>;
+    type KeyValue = ArrayTile<KVT<AP>, RowVals<KVT<AP>>>;
+    type Softmax = ArrayTile<SM<AP>, RowVals<SM<AP>>>;
+    type Accumulator = ArrayTile<ACC<AP>, RowVals<ACC<AP>>>;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -255,9 +264,12 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(out, config.num_planes());
+        let tmp_lhs_smem_slice =
+            array_tile_to_tmp_smem::<QT<AP>, RowVals<QT<AP>>>(lhs, config.num_planes());
+        let tmp_rhs_smem_slice =
+            array_tile_to_tmp_smem::<KVT<AP>, RowVals<KVT<AP>>>(rhs, config.num_planes());
+        let mut tmp_out_smem_slice =
+            array_tile_to_tmp_smem::<SM<AP>, RowVals<SM<AP>>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {
@@ -288,9 +300,12 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         #[comptime] config: Self::Config,
     ) {
         sync_cube();
-        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<ACC<AP>>(out, config.num_planes());
+        let tmp_lhs_smem_slice =
+            array_tile_to_tmp_smem::<SM<AP>, RowVals<SM<AP>>>(lhs, config.num_planes());
+        let tmp_rhs_smem_slice =
+            array_tile_to_tmp_smem::<KVT<AP>, RowVals<KVT<AP>>>(rhs, config.num_planes());
+        let mut tmp_out_smem_slice =
+            array_tile_to_tmp_smem::<ACC<AP>, RowVals<ACC<AP>>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {

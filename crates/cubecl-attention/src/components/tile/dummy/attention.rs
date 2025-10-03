@@ -123,9 +123,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         #[comptime] dk: u32,
         #[comptime] config: Self::Config,
     ) -> Self::RowWise {
+        // TODO not 1u32
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
+        let scale_per_row = Self::RowWise::new_filled(1u32, inv_sqrt_dk);
 
-        softmax.scale_and_mask(inv_sqrt_dk, mask);
+        softmax.scale_and_mask(&inv_sqrt_dk, mask);
 
         softmax.row_max::<Self::Config>(max_placeholder, &state.m, config);
 

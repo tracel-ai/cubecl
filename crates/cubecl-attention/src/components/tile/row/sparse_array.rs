@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::PLElem;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
@@ -64,7 +65,7 @@ impl<E: Float> RowWise for RowVals<E> {
         }
     }
 
-    fn row_sum<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+    fn row_sum<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,
         data: &PL,
         #[comptime] config: TC,
@@ -73,7 +74,7 @@ impl<E: Float> RowWise for RowVals<E> {
         row_op::<PL, RowSum, TC>(&mut placeholder.vals, data, config)
     }
 
-    fn row_max<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+    fn row_max<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,
         base: &Self,
         data: &PL,
@@ -86,9 +87,9 @@ impl<E: Float> RowWise for RowVals<E> {
 
 #[cube]
 trait RowOp<PL: PlaneLayout> {
-    fn neutral_element() -> PL::E;
+    fn neutral_element() -> PLElem<PL>;
 
-    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E;
+    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL>;
 }
 
 #[derive(CubeType)]
@@ -99,29 +100,32 @@ struct RowSum {}
 
 #[cube]
 impl<PL: PlaneLayout> RowOp<PL> for RowMax {
-    fn neutral_element() -> PL::E {
-        PL::E::min_value()
+    fn neutral_element() -> PLElem<PL> {
+        PLElem::<PL>::min_value()
     }
 
-    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E {
-        Max::max(acc, val + PL::E::cast_from(mask) * PL::E::min_value())
+    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL> {
+        Max::max(
+            acc,
+            val + PLElem::<PL>::cast_from(mask) * PLElem::<PL>::min_value(),
+        )
     }
 }
 
 #[cube]
 impl<PL: PlaneLayout> RowOp<PL> for RowSum {
-    fn neutral_element() -> PL::E {
-        PL::E::from_int(0)
+    fn neutral_element() -> PLElem<PL> {
+        PLElem::<PL>::from_int(0)
     }
 
-    fn update(acc: PL::E, val: PL::E, mask: bool) -> PL::E {
-        acc + val * PL::E::cast_from(!mask)
+    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL> {
+        acc + val * PLElem::<PL>::cast_from(!mask)
     }
 }
 
 #[cube]
 fn row_op<PL: PlaneLayout, RO: RowOp<PL>, TC: AttentionMatmulConfig>(
-    vals: &mut Sequence<RowVal<PL::E>>,
+    vals: &mut Sequence<RowVal<PLElem<PL>>>,
     data: &PL,
     #[comptime] config: TC,
 ) {
@@ -133,7 +137,7 @@ fn row_op<PL: PlaneLayout, RO: RowOp<PL>, TC: AttentionMatmulConfig>(
     let unit_pos = UNIT_POS_X;
     let unit_pos_in_row = unit_pos % num_units_per_row;
 
-    let mut fpb = FakePlaneBroadcast::<PL::E>::new(config.plane_dim(), config.num_planes());
+    let mut fpb = FakePlaneBroadcast::<PLElem<PL>>::new(config.plane_dim(), config.num_planes());
 
     let mut local_row = comptime![0];
 

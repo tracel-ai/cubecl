@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::attention_types::*;
 use crate::components::tile::PlaneLayout;
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -17,8 +16,8 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Softmax: PlaneLayout<E = SM<AP>>;
-    type Accumulator: PlaneLayout<E = ACC<AP>>;
+    type Softmax: PlaneLayout;
+    type Accumulator: PlaneLayout;
 
     fn score_matmul(
         lhs: &Self::Query,

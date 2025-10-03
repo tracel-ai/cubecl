@@ -4,6 +4,8 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::TileMask;
 use crate::components::attention_types::*;
+use crate::components::tile::RowVals;
+use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
@@ -14,7 +16,7 @@ pub struct AcceleratedAttentionMatmul;
 
 #[cube]
 impl<E: Float> PlaneLayout for cmma::Matrix<E> {
-    type E = E;
+    type RW = RowVals<E>;
 
     fn num_local_rows(&self) -> comptime_type!(u32) {
         todo!()
@@ -28,19 +30,19 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, _row: u32, _col: u32) -> E {
+    fn get_at_coor(&self, _row: u32, _col: u32) -> <Self::RW as RowWise>::E {
         todo!()
     }
 
-    fn scale(&mut self, _val: E) {
+    fn scale(&mut self, _val: &Self::RW) {
         todo!()
     }
 
-    fn scale_and_mask(&mut self, _scale: Self::E, _mask: TileMask) {
+    fn scale_and_mask(&mut self, _scale: &Self::RW, _mask: TileMask) {
         todo!()
     }
 
-    fn exp_m_diff(&mut self, _val: E) {
+    fn exp_m_diff(&mut self, _val: &Self::RW) {
         todo!()
     }
 }
@@ -206,33 +208,4 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
             cmma::MatrixLayout::RowMajor,
         );
     }
-
-    // fn tmp_fill_accumulator(
-    //     tile: &StridedTile<ACC<AP>>,
-    //     acc: &mut Self::Accumulator,
-    //     #[comptime] _config: Self::Config,
-    // ) {
-    //     let (slice, stride) = tile.as_unlined(1u32);
-    //     cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
-    // }
-    // fn tmp_fill_prob(
-    //     tile: &StridedTile<SM<AP>>,
-    //     prob: &mut Self::Softmax,
-    //     #[comptime] _config: Self::Config,
-    // ) {
-    //     let (slice, stride) = tile.as_unlined(1u32);
-    //     cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
-    // }
-    // fn tmp_write_softmax(
-    //     softmax: &Self::Softmax,
-    //     slice: &mut SliceMut<Line<SM<AP>>>,
-    //     #[comptime] config: Self::Config,
-    // ) {
-    //     cmma::store(
-    //         slice,
-    //         softmax,
-    //         config.attention_tile_size().seq_kv,
-    //         cmma::MatrixLayout::RowMajor,
-    //     );
-    // }
 }

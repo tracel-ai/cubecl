@@ -33,7 +33,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
     type PlaneLayout = AM::Softmax;
-    type RowWise = RowVals<SM<AP>>;
+    type RowWise = <Self::PlaneLayout as PlaneLayout>::RW;
 
     fn init_state(#[comptime] num_rows: u32) -> RunningState<Self::RowWise> {
         RunningState::<Self::RowWise>::init(num_rows)
@@ -47,7 +47,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         AM::zero_softmax(&mut self.fragment, self.config);
     }
 
-    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: &Self::RowWise, mask: TileMask) {
         self.fragment.scale_and_mask(scale, mask);
     }
 
@@ -69,7 +69,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     ) -> Self::RowWise {
         let new_m_val = new_m.index(0u32);
 
-        self.fragment.exp_m_diff(new_m_val);
+        self.fragment.exp_m_diff(new_m);
 
         Self::RowWise::row_sum::<Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
 
