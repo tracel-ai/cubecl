@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::attention_types::*;
+use crate::components::tile::dummy::dummy_register::InnerLayout;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
     tile::dummy::AttentionMatmulConfig,
@@ -17,6 +18,7 @@ pub struct DummyRegisterAttentionMatmulConfig {
     key_value_stage_line_size: u32,
     cast_query: bool,
     check_bounds: bool,
+    inner_layout: InnerLayout,
 }
 
 impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
@@ -60,6 +62,7 @@ impl DummyRegisterAttentionMatmulConfig {
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
         check_bounds: bool,
+        two_rows_in_array_tile: bool,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             plane_dim,
@@ -70,6 +73,11 @@ impl DummyRegisterAttentionMatmulConfig {
             cast_query: QG::<AP>::as_type_native_unchecked()
                 == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
+            inner_layout: if two_rows_in_array_tile {
+                InnerLayout::SplitRows
+            } else {
+                InnerLayout::Contiguous
+            },
         }
         .validate()
     }
@@ -85,9 +93,16 @@ impl DummyRegisterAttentionMatmulConfig {
             )));
         }
 
-        if softmax_num_rows > self.plane_dim {
+        if self.inner_layout == InnerLayout::Contiguous && softmax_num_rows > self.plane_dim {
             return Err(AttentionSetupError::InvalidConfig(Box::new(
-                "More than one row per unit not supported in this attention matmul",
+                "More than one row per unit not supported with this inner layout",
+            )));
+        }
+
+        if self.inner_layout == InnerLayout::SplitRows && softmax_total % (2 * self.plane_dim) != 0
+        {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "With split rows, units must have two elements each",
             )));
         }
 
@@ -97,5 +112,9 @@ impl DummyRegisterAttentionMatmulConfig {
             )));
         }
         Ok(self)
+    }
+
+    pub fn inner_layout(&self) -> InnerLayout {
+        self.inner_layout
     }
 }

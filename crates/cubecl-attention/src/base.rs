@@ -105,6 +105,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         },
         plane_dim: 32,
         reuse_key_value: false,
+        two_rows_in_array_tile: false,
     };
 
     let config = DummyRegisterAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;

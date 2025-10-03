@@ -26,22 +26,65 @@ pub struct ArrayTile<E: Float> {
     total_size: Coords2d,
     #[cube(comptime)]
     unit_size: Coords2d,
+    #[cube(comptime)]
+    num_units_per_row: u32,
+    #[cube(comptime)]
+    plane_dim: u32,
+}
+
+#[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum InnerLayout {
+    /// Each unit has all its elements contiguous inside the same row
+    ///
+    ///  0,  0,  1,  1,  2,  2,  3,  3,
+    ///  4,  4,  5,  5,  6,  6,  7,  7,
+    ///  8,  8,  9,  9, 10, 10, 11, 11,
+    /// 12, 12, 13, 13, 14, 14, 15, 15,
+    /// 16, 16, 17, 17, 18, 18, 19, 19,
+    /// 20, 20, 21, 21, 22, 22, 23, 23,
+    /// 24, 24, 25, 25, 26, 26, 27, 27,
+    /// 28, 28, 29, 29, 30, 30, 31, 31,
+
+    /// ...
+    Contiguous,
+    /// Each unit spreads its elements along two rows
+    ///
+    ///  0,  1,  2,  3,  4,  5,  6,  7,
+    ///  8,  9, 10, 11, 12, 13, 14, 15,
+    /// 16, 17, 18, 19, 20, 21, 22, 23,
+    /// 24, 25, 26, 27, 28, 29, 30, 31,
+    ///  0,  1,  2,  3,  4,  5,  6,  7,
+    ///  8,  9, 10, 11, 12, 13, 14, 15,
+    /// 16, 17, 18, 19, 20, 21, 22, 23,
+    /// 24, 25, 26, 27, 28, 29, 30, 31,
+    SplitRows,
 }
 
 #[cube]
 impl<E: Float> ArrayTile<E> {
-    pub fn new(#[comptime] total_size: Coords2d, #[comptime] plane_dim: u32) -> ArrayTile<E> {
+    pub fn new(
+        #[comptime] total_size: Coords2d,
+        #[comptime] plane_dim: u32,
+        #[comptime] inner_layout: InnerLayout,
+    ) -> ArrayTile<E> {
         let total_elements = total_size.0 * total_size.1;
-        let num_rows_per_unit = 1u32;
-        let num_cols_per_unit = total_elements.div_ceil(plane_dim);
+        let elements_per_unit = total_elements.div_ceil(plane_dim);
+
+        let (num_rows_per_unit, num_cols_per_unit) = match inner_layout {
+            InnerLayout::Contiguous => (1u32, elements_per_unit),
+            InnerLayout::SplitRows => (2u32, elements_per_unit / 2u32),
+        };
         let unit_size = (num_rows_per_unit, num_cols_per_unit);
 
         let array = Array::<E>::new(comptime!(unit_size.0 * unit_size.1));
+        let num_units_per_row = comptime!(total_size.1 / unit_size.1);
 
         ArrayTile::<E> {
             array,
             total_size,
             unit_size,
+            num_units_per_row,
+            plane_dim,
         }
     }
 
@@ -51,18 +94,22 @@ impl<E: Float> ArrayTile<E> {
         }
     }
 
-    fn abs_row_index(&self) -> u32 {
-        let num_units_per_col = self.total_size.1 / self.unit_size.1;
-        UNIT_POS_X / num_units_per_col
+    fn abs_row_index(&self, r: u32) -> u32 {
+        let row_0 = UNIT_POS_X / self.num_units_per_row;
+        let row_jump = comptime!(self.plane_dim / self.num_units_per_row);
+
+        r * row_jump + row_0
     }
 
     fn abs_col_index(&self, c: u32) -> u32 {
-        let num_units_per_col = self.total_size.1 / self.unit_size.1;
-        self.unit_size.1 * (UNIT_POS_X % num_units_per_col) + c
+        self.unit_size.1 * (UNIT_POS_X % self.num_units_per_row) + c
     }
 
     fn abs_pos(&self, local_pos: Coords2d) -> Coords2d {
-        (self.abs_row_index(), self.abs_col_index(local_pos.1))
+        (
+            self.abs_row_index(local_pos.0),
+            self.abs_col_index(local_pos.1),
+        )
     }
 }
 
@@ -143,11 +190,12 @@ fn array_tile_to_tmp_smem<E: Float>(
     }
     sync_cube();
 
-    // assume unit_size.0 = 1
-    for c in 0..array_tile.unit_size.1 {
-        let index =
-            array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c);
-        tmp_smem_slice[index] = array_tile.array[c];
+    for r in 0..array_tile.unit_size.0 {
+        for c in 0..array_tile.unit_size.1 {
+            let index =
+                array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
+            tmp_smem_slice[index] = array_tile.array[c];
+        }
     }
 
     tmp_smem_slice
@@ -155,10 +203,12 @@ fn array_tile_to_tmp_smem<E: Float>(
 
 #[cube]
 fn tmp_smem_to_array_tile<E: Float>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
-    // assume unit_size.0 = 1
-    for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = tmp_smem_slice
-            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)];
+    for r in 0..array_tile.unit_size.0 {
+        for c in 0..array_tile.unit_size.1 {
+            array_tile.array[c] = tmp_smem_slice[array_tile.abs_row_index(r)
+                * array_tile.total_size.1
+                + array_tile.abs_col_index(c)];
+        }
     }
 }
 
@@ -167,10 +217,12 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
     strided_tile: &StridedTile<E>,
     array_tile: &mut ArrayTile<E2>,
 ) {
-    for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = E2::cast_from(
-            strided_tile.get_line(array_tile.abs_row_index(), array_tile.abs_col_index(c)),
-        )
+    for r in 0..array_tile.unit_size.0 {
+        for c in 0..array_tile.unit_size.1 {
+            array_tile.array[c] = E2::cast_from(
+                strided_tile.get_line(array_tile.abs_row_index(r), array_tile.abs_col_index(c)),
+            )
+        }
     }
 }
 
@@ -179,11 +231,12 @@ fn array_tile_to_slice<E: Float, E2: Float>(
     array_tile: &ArrayTile<E>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
-    // assume unit_size.0 = 1
-    for c in 0..array_tile.unit_size.1 {
-        let index =
-            array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c);
-        slice[index] = Line::cast_from(array_tile.array[c]);
+    for r in 0..array_tile.unit_size.0 {
+        for c in 0..array_tile.unit_size.1 {
+            let index =
+                array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
+            slice[index] = Line::cast_from(array_tile.array[c]);
+        }
     }
 }
 
@@ -274,6 +327,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 )),
             ),
             config.plane_dim(),
+            config.inner_layout(),
         )
     }
 
@@ -284,6 +338,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 config.attention_tile_size().seq_kv,
             ),
             config.plane_dim(),
+            config.inner_layout(),
         )
     }
 
@@ -294,6 +349,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 config.attention_tile_size().val_dim,
             ),
             config.plane_dim(),
+            config.inner_layout(),
         )
     }
 
@@ -304,6 +360,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 config.attention_tile_size().seq_kv,
             ),
             config.plane_dim(),
+            config.inner_layout(),
         )
     }
 
@@ -314,6 +371,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
                 config.attention_tile_size().val_dim,
             ),
             config.plane_dim(),
+            config.inner_layout(),
         )
     }
 
@@ -324,7 +382,8 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         let seq_q = config.attention_tile_size().seq_q;
         let head_dim = config.attention_tile_size().head_dim;
 
-        let mut query = ArrayTile::new((seq_q, head_dim), config.plane_dim());
+        let mut query =
+            ArrayTile::new((seq_q, head_dim), config.plane_dim(), config.inner_layout());
 
         strided_tile_to_array_tile(tile, &mut query);
 
