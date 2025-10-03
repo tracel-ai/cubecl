@@ -61,7 +61,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ComptimeTagLaunch::new(array_arg, &"zero".to_string()),
+        ComptimeTagLaunch::new(array_arg, "zero".to_string()),
     );
 
     let actual = client.read_one(handle);
@@ -76,7 +76,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ComptimeTagLaunch::new(array_arg, &"not_zero".to_string()),
+        ComptimeTagLaunch::new(array_arg, "not_zero".to_string()),
     );
 
     let actual = client.read_one(handle);

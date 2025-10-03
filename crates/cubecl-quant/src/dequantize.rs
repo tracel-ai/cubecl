@@ -31,7 +31,7 @@ pub fn dequantize_symmetric_packed_values<F: Float, FS: CubePrimitive, QI: Int>(
     position: u32,
     values: &View<Line<QI>, u32>,
     scales: &View<FS, u32>,
-    #[comptime] scheme: &QuantScheme,
+    #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     dequantize_symmetric_packed_value_at::<F, FS, QI>(position, values[position], scales, scheme)
 }
@@ -45,7 +45,7 @@ pub fn dequantize_symmetric_packed_value_at<F: Float, FS: CubePrimitive, QI: Int
     position: u32,
     values: Line<QI>,
     scales: &View<FS, u32>,
-    #[comptime] scheme: &QuantScheme,
+    #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     dequantize_symmetric_packed_value::<F, FS, QI>(values, scales, position, scheme)
 }
@@ -59,7 +59,7 @@ pub fn dequantize_symmetric_packed_value<F: Float, FS: CubePrimitive, QS: Int>(
     values: Line<QS>,
     scales: &View<FS, u32>,
     position: u32,
-    #[comptime] scheme: &QuantScheme,
+    #[comptime] scheme: QuantScheme,
 ) -> Array<Line<F>> {
     let line_size_values = values.line_size();
     let num_quants = comptime!(scheme.num_quants() as u32);
@@ -120,7 +120,7 @@ fn dequantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
     input: &LinearView<Line<u32>>,
     scales: &ScalesView<FS>,
     output: &mut LinearView<Line<F>, ReadWrite>,
-    #[comptime] scheme: &QuantScheme,
+    #[comptime] scheme: QuantScheme,
 ) {
     if !input.is_in_bounds(ABSOLUTE_POS) {
         terminate!();
@@ -177,19 +177,19 @@ pub fn launch_ref<R: Runtime, F: Float>(
             ..
         } => match scheme.param {
             QuantParam::F32 => {
-                dequantize_packed::<R, F, f32>(client, values, scheme, params, output)
+                dequantize_packed::<R, F, f32>(client, values, *scheme, params, output)
             }
             QuantParam::F16 => {
-                dequantize_packed::<R, F, f16>(client, values, scheme, params, output)
+                dequantize_packed::<R, F, f16>(client, values, *scheme, params, output)
             }
             QuantParam::BF16 => {
-                dequantize_packed::<R, F, bf16>(client, values, scheme, params, output)
+                dequantize_packed::<R, F, bf16>(client, values, *scheme, params, output)
             }
             QuantParam::UE8M0 => {
-                dequantize_packed::<R, F, ue8m0>(client, values, scheme, params, output)
+                dequantize_packed::<R, F, ue8m0>(client, values, *scheme, params, output)
             }
             QuantParam::UE4M3 => {
-                dequantize_packed::<R, F, e4m3>(client, values, scheme, params, output)
+                dequantize_packed::<R, F, e4m3>(client, values, *scheme, params, output)
             }
         },
         QuantScheme {
@@ -211,19 +211,19 @@ pub fn launch_ref<R: Runtime, F: Float>(
 
             match scheme.param {
                 QuantParam::F32 => {
-                    dequantize_native::<R, F, f32>(client, values, scheme, params, output)
+                    dequantize_native::<R, F, f32>(client, values, *scheme, params, output)
                 }
                 QuantParam::F16 => {
-                    dequantize_native::<R, F, f16>(client, values, scheme, params, output)
+                    dequantize_native::<R, F, f16>(client, values, *scheme, params, output)
                 }
                 QuantParam::BF16 => {
-                    dequantize_native::<R, F, bf16>(client, values, scheme, params, output)
+                    dequantize_native::<R, F, bf16>(client, values, *scheme, params, output)
                 }
                 QuantParam::UE8M0 => {
-                    dequantize_native::<R, F, ue8m0>(client, values, scheme, params, output)
+                    dequantize_native::<R, F, ue8m0>(client, values, *scheme, params, output)
                 }
                 QuantParam::UE4M3 => {
-                    dequantize_native::<R, F, e4m3>(client, values, scheme, params, output)
+                    dequantize_native::<R, F, e4m3>(client, values, *scheme, params, output)
                 }
             }
         }
@@ -240,7 +240,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
 fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
-    scheme: &QuantScheme,
+    scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
 ) {
@@ -276,10 +276,10 @@ fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_view(client, input, &line_size_in),
-                    scales_view(client, input, scale, &1, scheme),
-                    linear_view(client, output, &line_size_out),
-                    scheme.clone(),
+                    linear_view(client, input, line_size_in),
+                    scales_view(client, input, scale, 1, &scheme),
+                    linear_view(client, output, line_size_out),
+                    scheme,
                 )
             };
         }
@@ -290,7 +290,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
 fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
     client: &ComputeClient<R::Server, R::Channel>,
     input: &TensorHandleRef<R>,
-    scheme: &QuantScheme,
+    scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<R>,
 ) {
@@ -333,9 +333,9 @@ fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_view(client, input, &line_size),
-                    scales_view(client, input, scale, &1, scheme),
-                    linear_view(client, output, &line_size),
+                    linear_view(client, input, line_size),
+                    scales_view(client, input, scale, 1, &scheme),
+                    linear_view(client, output, line_size),
                 )
             };
         }
