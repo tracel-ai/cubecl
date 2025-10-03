@@ -37,6 +37,7 @@ impl<E: Float> ArrayTile<E> {
         let unit_size = (num_rows_per_unit, num_cols_per_unit);
 
         let array = Array::<E>::new(comptime!(unit_size.0 * unit_size.1));
+
         ArrayTile::<E> {
             array,
             total_size,

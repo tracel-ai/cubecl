@@ -28,6 +28,7 @@ pub trait RowWise: CubeType {
 
     fn copy_from(this: &mut Self, other: &Self);
     fn index(&self, i: u32) -> Self::E;
+    fn fill(this: &mut Self, val: Self::E);
 
     fn row_sum<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,

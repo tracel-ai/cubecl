@@ -74,6 +74,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         Self::RowWise::row_sum::<Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
 
         let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
+
         let new_l = exp_m_diff * state.l.index(0u32) + rowsum_placeholder.index(0u32);
 
         state.update(new_m, &RowVals::new_filled(1u32, new_l));

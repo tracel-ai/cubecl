@@ -53,11 +53,23 @@ impl<E: Float> RowWise for RowVals<E> {
         self.vals.index(i).val
     }
 
+    fn fill(this: &mut Self, val: Self::E) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..this.num_rows {
+            let row_val = this.vals.index_mut(i);
+            row_val.val = val;
+
+            comptime![i += 1];
+        }
+    }
+
     fn row_sum<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,
         data: &PL,
         #[comptime] config: TC,
     ) {
+        Self::fill(placeholder, <RowSum as RowOp<PL>>::neutral_element());
         row_op::<PL, RowSum, TC>(&mut placeholder.vals, data, config)
     }
 
@@ -127,7 +139,8 @@ fn row_op<PL: PlaneLayout, RO: RowOp<PL>, TC: AttentionMatmulConfig>(
 
     #[unroll]
     for _ in 0..num_local_rows {
-        let mut local_val = RO::neutral_element();
+        // let mut local_val = RO::neutral_element();
+        let mut local_val = vals.index(0u32).val;
 
         #[unroll]
         for local_col in 0..num_local_cols {
