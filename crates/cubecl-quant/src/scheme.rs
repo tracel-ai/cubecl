@@ -213,7 +213,7 @@ impl BlockSize {
     pub fn new(values: impl AsRef<[u8]>) -> Self {
         let values = values.as_ref();
         debug_assert!(
-            values.len() < MAX_DIMS,
+            values.len() <= MAX_DIMS,
             "Tried creating a block size larger than the cap"
         );
         let len = values.len().min(MAX_DIMS);
