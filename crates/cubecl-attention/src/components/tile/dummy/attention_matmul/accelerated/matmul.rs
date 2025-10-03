@@ -4,7 +4,6 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::TileMask;
 use crate::components::attention_types::*;
-use crate::components::tile::RowVals;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
@@ -15,9 +14,7 @@ use crate::components::{AttentionIdent, AttentionPrecision};
 pub struct AcceleratedAttentionMatmul;
 
 #[cube]
-impl<E: Float> PlaneLayout for cmma::Matrix<E> {
-    type RW = RowVals<E>;
-
+impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
     fn num_local_rows(&self) -> comptime_type!(u32) {
         todo!()
     }
@@ -30,19 +27,19 @@ impl<E: Float> PlaneLayout for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, _row: u32, _col: u32) -> <Self::RW as RowWise>::E {
+    fn get_at_coor(&self, _row: u32, _col: u32) -> E {
         todo!()
     }
 
-    fn scale(&mut self, _val: &Self::RW) {
+    fn scale(&mut self, _val: &RowWise<E>) {
         todo!()
     }
 
-    fn scale_and_mask(&mut self, _scale: &Self::RW, _mask: TileMask) {
+    fn scale_and_mask(&mut self, _scale: &RowWise<E>, _mask: TileMask) {
         todo!()
     }
 
-    fn exp_m_diff(&mut self, _val: &Self::RW) {
+    fn exp_m_diff(&mut self, _val: &RowWise<E>) {
         todo!()
     }
 }

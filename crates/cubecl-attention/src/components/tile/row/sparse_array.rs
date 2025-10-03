@@ -1,13 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::PLElem;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
-use crate::components::tile::{RowWise, RowWiseExpand};
 
 #[derive(CubeType)]
-pub struct RowVals<E: Float> {
+pub struct RowWise<E: Float> {
     #[cube(comptime)]
     num_rows: u32,
     vals: Sequence<RowVal<E>>,
@@ -19,27 +17,25 @@ pub struct RowVal<E: Float> {
 }
 
 #[cube]
-impl<E: Float> RowWise for RowVals<E> {
-    type E = E;
-
-    fn new_filled(#[comptime] num_rows: u32, val: E) -> RowVals<E> {
+impl<E: Float> RowWise<E> {
+    pub fn new_filled(#[comptime] num_rows: u32, val: E) -> RowWise<E> {
         let mut vals = Sequence::new();
         #[unroll]
         for _ in 0..num_rows {
             vals.push(RowVal::<E> { val });
         }
-        RowVals::<E> { num_rows, vals }
+        RowWise::<E> { num_rows, vals }
     }
 
-    fn new_min_value(#[comptime] num_rows: u32) -> RowVals<E> {
+    pub fn new_min_value(#[comptime] num_rows: u32) -> RowWise<E> {
         Self::new_filled(num_rows, E::min_value())
     }
 
-    fn new_zero(#[comptime] num_rows: u32) -> RowVals<E> {
+    pub fn new_zero(#[comptime] num_rows: u32) -> RowWise<E> {
         Self::new_filled(num_rows, E::from_int(0))
     }
 
-    fn copy_from(this: &mut Self, other: &RowVals<E>) {
+    pub fn copy_from(this: &mut Self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..this.num_rows {
@@ -50,11 +46,11 @@ impl<E: Float> RowWise for RowVals<E> {
         }
     }
 
-    fn index(&self, i: u32) -> Self::E {
+    pub fn index(&self, i: u32) -> E {
         self.vals.index(i).val
     }
 
-    fn fill(this: &mut Self, val: Self::E) {
+    pub fn fill(this: &mut Self, val: E) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..this.num_rows {
@@ -65,7 +61,7 @@ impl<E: Float> RowWise for RowVals<E> {
         }
     }
 
-    fn row_sum<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
+    pub fn row_sum<PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,
         data: &PL,
         #[comptime] config: TC,
@@ -74,7 +70,7 @@ impl<E: Float> RowWise for RowVals<E> {
         row_op::<PL, RowSum, TC>(&mut placeholder.vals, data, config)
     }
 
-    fn row_max<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
+    pub fn row_max<PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
         placeholder: &mut Self,
         base: &Self,
         data: &PL,
@@ -86,10 +82,10 @@ impl<E: Float> RowWise for RowVals<E> {
 }
 
 #[cube]
-trait RowOp<PL: PlaneLayout> {
-    fn neutral_element() -> PLElem<PL>;
+trait RowOp<E: Float> {
+    fn neutral_element() -> RowWise<E>;
 
-    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL>;
+    fn update(acc: RowWise<E>, val: RowWise<E>, mask: bool) -> RowWise<E>;
 }
 
 #[derive(CubeType)]
@@ -99,12 +95,12 @@ struct RowMax {}
 struct RowSum {}
 
 #[cube]
-impl<PL: PlaneLayout> RowOp<PL> for RowMax {
-    fn neutral_element() -> PLElem<PL> {
-        PLElem::<PL>::min_value()
+impl<E: Float> RowOp<E> for RowMax {
+    fn neutral_element() -> RowWise<E> {
+        RowWise::new_min_value()
     }
 
-    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL> {
+    fn update(acc: RowWise<E>, val: RowWise<E>, mask: bool) -> RowWise<E> {
         Max::max(
             acc,
             val + PLElem::<PL>::cast_from(mask) * PLElem::<PL>::min_value(),
