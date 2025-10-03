@@ -7,8 +7,8 @@ use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 macro_rules! impl_tensor_map {
     ($dim: literal, $coords: ty, $($var: ident),*) => {
         paste::paste! {
-            impl<T: Numeric> ViewOperations<T, $coords> for TensorMap<T> {}
-            impl<T: Numeric> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T>> {
+            impl<T: CubePrimitive> ViewOperations<T, $coords> for TensorMap<T> {}
+            impl<T: CubePrimitive> ViewOperationsExpand<T, $coords> for ExpandElementTyped<TensorMap<T>> {
                 fn __expand_read_method(
                     &self,
                     _scope: &mut Scope,
@@ -78,8 +78,8 @@ macro_rules! impl_tensor_map {
                 }
             }
 
-            impl<T: Numeric> ViewOperationsMut<T, $coords> for TensorMap<T> {}
-            impl<T: Numeric> ViewOperationsMutExpand<T, $coords> for ExpandElementTyped<TensorMap<T>> {
+            impl<T: CubePrimitive> ViewOperationsMut<T, $coords> for TensorMap<T> {}
+            impl<T: CubePrimitive> ViewOperationsMutExpand<T, $coords> for ExpandElementTyped<TensorMap<T>> {
                 fn __expand_write_method(
                     &self,
                     _scope: &mut Scope,
