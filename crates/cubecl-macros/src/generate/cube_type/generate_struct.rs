@@ -375,7 +375,7 @@ impl TypeField {
         if !self.comptime.is_present() {
             quote![#vis #name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
         } else {
-            quote![#vis #name: &'a #ty]
+            quote![#vis #name: #ty]
         }
     }
 
@@ -387,7 +387,7 @@ impl TypeField {
         if !self.comptime.is_present() {
             quote![#name: <#ty as #launch_arg>::RuntimeArg<'a, R>]
         } else {
-            quote![#name: &'a #ty]
+            quote![#name: #ty]
         }
     }
 

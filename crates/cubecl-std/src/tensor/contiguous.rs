@@ -232,8 +232,8 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
             .unwrap_or(&1)
     };
 
-    let input = linear_view(client, input, &vectorization_factor);
-    let out_layout = LinearLayoutArgs::from_handle(client, output, &out_vec);
+    let input = linear_view(client, input, vectorization_factor);
+    let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
     let cube_dim = CubeDim::default();
     let cube_count =

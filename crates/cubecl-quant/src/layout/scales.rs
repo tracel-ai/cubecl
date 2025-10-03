@@ -106,9 +106,9 @@ pub struct BlockScaledLayout {
     tensor_len: u32,
     scales_strides: Sequence<u32>,
     #[cube(comptime)]
-    block_size: Vec<usize>,
+    block_size: Vec<u8>,
     #[cube(comptime)]
-    scales_line_size: u8,
+    scales_line_size: u32,
 }
 
 #[cube]
@@ -131,7 +131,7 @@ impl Layout for BlockScaledLayout {
             scale_offs += (offs_local / block_size_local) * *self.scales_strides.index(dim);
         }
 
-        scale_offs / comptime![self.scales_line_size as u32]
+        scale_offs / self.scales_line_size
     }
 
     fn shape(&self) -> Self::Coordinates {
@@ -188,13 +188,13 @@ pub fn scales_view<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
-    scales_line_size: &'a u8,
-    quant_scheme: &'a QuantScheme,
+    scales_line_size: u8,
+    quant_scheme: &QuantScheme,
 ) -> ScalesViewLaunch<'a, R> {
     let layout = scales_layout(client, values, scales, scales_line_size, quant_scheme);
     let len = scales.shape.iter().product::<usize>();
     let buffer = unsafe {
-        ArrayArg::from_raw_parts_and_size(scales.handle, len, *scales_line_size, scales.elem_size)
+        ArrayArg::from_raw_parts_and_size(scales.handle, len, scales_line_size, scales.elem_size)
     };
     ScalesViewLaunch::new(buffer, layout)
 }
@@ -203,8 +203,8 @@ pub fn scales_layout<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
-    scales_line_size: &'a u8,
-    scheme: &'a QuantScheme,
+    scales_line_size: u8,
+    scheme: &QuantScheme,
 ) -> ScalesLayoutArgs<'a, R> {
     let values_len = values.shape.iter().product::<usize>() * scheme.num_quants();
     let values_len = ScalarArg::new(values_len as u32);
@@ -218,8 +218,8 @@ pub fn scales_layout<'a, R: Runtime>(
                 tensor_shape,
                 values_len,
                 scales_strides,
-                block_size,
-                scales_line_size,
+                block_size.to_dim_vec(values.shape.len()),
+                scales_line_size as u32,
             ))
         }
     }

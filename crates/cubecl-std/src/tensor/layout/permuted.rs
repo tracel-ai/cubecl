@@ -17,7 +17,7 @@ pub struct PermutedLayout {
     strides: Sequence<u32>,
     len: u32,
     #[cube(comptime)]
-    line_size: u8,
+    line_size: u32,
 }
 
 impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
@@ -27,9 +27,9 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
         strides: &[usize],
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
-        let len = shape.iter().product::<usize>() / *line_size as usize;
+        let len = shape.iter().product::<usize>() / line_size as usize;
 
         let shape = SequenceArg {
             values: shape
@@ -44,7 +44,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
                 .collect(),
         };
 
-        Self::new(shape, strides, ScalarArg::new(len as u32), line_size)
+        Self::new(shape, strides, ScalarArg::new(len as u32), line_size as u32)
     }
 
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
@@ -54,7 +54,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         debug_assert!(
             shape.len() == reference_shape.len(),
@@ -81,7 +81,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
         reference_handle: &TensorHandleRef<'_, R>,
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         Self::from_shapes_strides_ref(
             client,
@@ -95,7 +95,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     pub fn from_handle(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'_, R>,
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }
@@ -111,7 +111,7 @@ impl Layout for PermutedLayout {
             pos,
             &self.shape,
             &self.strides,
-            comptime![self.line_size as u32],
+            comptime![self.line_size],
         )
     }
 

@@ -287,14 +287,14 @@ fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_view(client, input, &line_size),
+                    linear_view(client, input, line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
-                    scales_view(client, output, scale, &1, scheme),
+                    scales_view(client, output, scale, 1, scheme),
                     ScalarArg::new(F::from_int(range_min as i64)),
                     ScalarArg::new(F::from_int(range_max as i64)),
-                    linear_view(client, output, &line_size),
-                    scales_view(client, output, out_scale, &1, scheme),
-                    scales_layout(client, output, scale, &1, scheme),
+                    linear_view(client, output, line_size),
+                    scales_view(client, output, out_scale, 1, scheme),
+                    scales_layout(client, output, scale, 1, scheme),
                 )
             };
         }
@@ -333,15 +333,15 @@ fn quantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
                     client,
                     cube_count,
                     cube_dim,
-                    linear_view(client, input, &line_size),
+                    linear_view(client, input, line_size),
                     // scale is computed based on input float dtype, but stored based on qparams precision
-                    scales_view(client, output, scale, &1, scheme),
+                    scales_view(client, output, scale, 1, scheme),
                     ScalarArg::new(F::from_int(range_min as i64)),
                     ScalarArg::new(F::from_int(range_max as i64)),
-                    linear_view(client, output, &1),
-                    scales_view(client, output, out_scale, &1, scheme),
-                    scales_layout(client, output, scale, &1, scheme),
-                    scheme.clone(),
+                    linear_view(client, output, 1),
+                    scales_view(client, output, out_scale, 1, scheme),
+                    scales_layout(client, output, scale, 1, scheme),
+                    *scheme,
                 )
             };
         }

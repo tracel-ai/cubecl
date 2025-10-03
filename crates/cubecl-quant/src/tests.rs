@@ -157,7 +157,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
     let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
 
     let scheme = QuantScheme::default()
-        .with_level(QuantLevel::Block(vec![1, block_size]))
+        .with_level(QuantLevel::block([block_size as u8]))
         .with_mode(mode)
         .with_value(value)
         .with_store(QuantStore::U32)
