@@ -115,7 +115,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "Only 8x8x8x8 supported right now"]
             fn attention_9_9_9_9() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -154,7 +153,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "Only 8x8x8x8 supported right now"]
             fn attention_7_3_10_10() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {

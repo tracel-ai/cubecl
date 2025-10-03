@@ -75,6 +75,22 @@ impl DummyRegisterAttentionMatmulConfig {
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
+        let softmax_num_rows = self.attention_tile_size.seq_q;
+        let softmax_num_cols = self.attention_tile_size.seq_kv;
+        let softmax_total = softmax_num_rows * softmax_num_cols;
+
+        if softmax_total % self.plane_dim != 0 {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Softmax size should be divisible by plane dim",
+            )));
+        }
+
+        if softmax_num_rows > self.plane_dim {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "More than one row per unit not supported in this attention matmul",
+            )));
+        }
+
         if self.attention_tile_size.head_dim < self.attention_tile_size.val_dim {
             return Err(AttentionSetupError::InvalidConfig(Box::new(
                 "Can't have tile head_dim < tile val dim (not sure why)",
