@@ -235,7 +235,7 @@ impl BlockSize {
         self.storage[..self.len as usize].to_vec()
     }
 
-    /// Returns `N` dimensions, unsequeezing if necessary.
+    /// Returns `N` dimensions, unsqueezing if necessary.
     pub fn as_dim<const N: usize>(&self) -> [u8; N] {
         let data_len = N.min(self.len as usize);
         let data_start = N - data_len;
