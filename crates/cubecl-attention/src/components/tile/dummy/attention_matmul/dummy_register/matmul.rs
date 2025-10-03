@@ -124,43 +124,55 @@ impl<E: Float> PlaneLayout for ArrayTile<E> {
 }
 
 #[cube]
-fn array_tile_to_tmp_smem<E: Float>(array_tile: &ArrayTile<E>, wqt: bool) -> SharedMemory<E> {
-    let mut tmp_smem =
-        SharedMemory::<E>::new(comptime!(array_tile.total_size.0 * array_tile.total_size.1));
+fn array_tile_to_tmp_smem<E: Float>(
+    array_tile: &ArrayTile<E>,
+    #[comptime] num_planes: u32,
+) -> SharedMemory<E> {
+    let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
+    let mut tmp_smem = SharedMemory::<E>::new(comptime!(num_planes * tile_size));
+
+    let start = UNIT_POS_Y * tile_size;
+    let end = start + tile_size;
+    let mut tmp_smem_slice = tmp_smem.slice_mut(start, end);
+
     if UNIT_POS_X == 0 {
-        for i in 0..comptime!(array_tile.total_size.0 * array_tile.total_size.1) {
-            tmp_smem[i] = E::from_int(0);
+        for i in 0..tile_size {
+            tmp_smem_slice[i] = E::from_int(0);
         }
     }
     sync_cube();
 
-    if !wqt {
-        // assume unit_size.0 = 1
-        for c in 0..array_tile.unit_size.1 {
-            tmp_smem[array_tile.abs_row_index() * array_tile.total_size.1
-                + array_tile.abs_col_index(c)] = array_tile.array[c];
-        }
+    // assume unit_size.0 = 1
+    for c in 0..array_tile.unit_size.1 {
+        tmp_smem_slice
+            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
+            array_tile.array[c];
     }
 
     tmp_smem
 }
 
-#[cube]
-fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<E>) {
-    // assume unit_size.0 = 1
-    for c in 0..array_tile.unit_size.1 {
-        tmp_smem
-            [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
-            E::from_int(999);
-    }
-    sync_cube();
-}
+// #[cube]
+// fn change_smem<E: Float>(array_tile: &ArrayTile<E>, tmp_smem: &mut SharedMemory<E>) {
+//     // assume unit_size.0 = 1
+//     for c in 0..array_tile.unit_size.1 {
+//         tmp_smem
+//             [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)] =
+//             E::from_int(999);
+//     }
+//     sync_cube();
+// }
 
 #[cube]
 fn tmp_smem_to_array_tile<E: Float>(tmp_smem: &SharedMemory<E>, array_tile: &mut ArrayTile<E>) {
+    let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
+    let start = UNIT_POS_Y * tile_size;
+    let end = start + tile_size;
+    let tmp_smem_slice = tmp_smem.slice(start, end);
+
     // assume unit_size.0 = 1
     for c in 0..array_tile.unit_size.1 {
-        array_tile.array[c] = tmp_smem
+        array_tile.array[c] = tmp_smem_slice
             [array_tile.abs_row_index() * array_tile.total_size.1 + array_tile.abs_col_index(c)];
     }
 }
@@ -205,9 +217,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs, false);
-        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
-        let mut tmp_out_smem = array_tile_to_tmp_smem::<SM<AP>>(out, false);
+        let tmp_lhs_smem = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
+        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
+        let mut tmp_out_smem = array_tile_to_tmp_smem::<SM<AP>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {
@@ -238,9 +250,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         #[comptime] config: Self::Config,
     ) {
         sync_cube();
-        let tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs, false);
-        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, false);
-        let mut tmp_out_smem = array_tile_to_tmp_smem::<ACC<AP>>(out, true);
+        let tmp_lhs_smem = array_tile_to_tmp_smem::<SM<AP>>(lhs, config.num_planes());
+        let tmp_rhs_smem = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
+        let mut tmp_out_smem = array_tile_to_tmp_smem::<ACC<AP>>(out, config.num_planes());
         sync_cube();
 
         if UNIT_POS_X == 0 {

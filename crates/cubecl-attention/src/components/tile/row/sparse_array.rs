@@ -1,6 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 
@@ -52,13 +53,22 @@ impl<E: Float> RowWise for RowVals<E> {
         self.vals.index(i).val
     }
 
-    fn row_sum<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, data: &PL) {
-        row_op::<PL, RowSum>(&mut placeholder.vals, data)
+    fn row_sum<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+        placeholder: &mut Self,
+        data: &PL,
+        #[comptime] config: TC,
+    ) {
+        row_op::<PL, RowSum, TC>(&mut placeholder.vals, data, config)
     }
 
-    fn row_max<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, base: &Self, data: &PL) {
+    fn row_max<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+        placeholder: &mut Self,
+        base: &Self,
+        data: &PL,
+        #[comptime] config: TC,
+    ) {
         Self::copy_from(placeholder, base);
-        row_op::<PL, RowMax>(&mut placeholder.vals, data)
+        row_op::<PL, RowMax, TC>(&mut placeholder.vals, data, config)
     }
 }
 
@@ -98,7 +108,11 @@ impl<PL: PlaneLayout> RowOp<PL> for RowSum {
 }
 
 #[cube]
-fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Sequence<RowVal<PL::E>>, data: &PL) {
+fn row_op<PL: PlaneLayout, RO: RowOp<PL>, TC: AttentionMatmulConfig>(
+    vals: &mut Sequence<RowVal<PL::E>>,
+    data: &PL,
+    #[comptime] config: TC,
+) {
     let num_local_rows = data.num_local_rows();
     let num_local_cols = data.num_local_cols();
     let num_units_per_row = data.num_units_per_row();
@@ -107,7 +121,7 @@ fn row_op<PL: PlaneLayout, RO: RowOp<PL>>(vals: &mut Sequence<RowVal<PL::E>>, da
     let unit_pos = UNIT_POS_X;
     let unit_pos_in_row = unit_pos % num_units_per_row;
 
-    let mut fpb = FakePlaneBroadcast::<PL::E>::new(32u32, 1u32);
+    let mut fpb = FakePlaneBroadcast::<PL::E>::new(config.plane_dim(), config.num_planes());
 
     // Loop over the rows that this subgroup handles (2 rows per subgroup)
     let mut local_row = comptime![0];

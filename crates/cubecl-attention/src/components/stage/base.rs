@@ -6,9 +6,9 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::StageMask;
 use crate::components::attention_types::*;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
-use crate::components::{AttentionIdent, StageMask};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -122,6 +122,4 @@ pub trait StageAttentionConfig:
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;
-
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 }

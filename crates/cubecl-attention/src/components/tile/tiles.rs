@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;
+use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, RowWise, RunningState};
 
 #[cube]
@@ -33,15 +34,21 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
     fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask);
 
-    fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise);
+    fn row_max<TC: AttentionMatmulConfig>(
+        &self,
+        placeholder: &mut Self::RowWise,
+        base: &Self::RowWise,
+        #[comptime] config: TC,
+    );
 
     /// Converts scores → probabilities, updates running state,
     /// and returns the factor needed to scale the accumulator
-    fn to_prob(
+    fn to_prob<TC: AttentionMatmulConfig>(
         &mut self,
         state: &mut RunningState<Self::RowWise>,
         max: &Self::RowWise,
         placeholder: &mut Self::RowWise,
+        #[comptime] config: TC,
     ) -> Self::RowWise;
 }
 

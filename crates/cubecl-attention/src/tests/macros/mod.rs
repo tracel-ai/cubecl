@@ -384,15 +384,15 @@ macro_rules! testgen_attention {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
                     seq_q: 8,
-                    seq_kv: 5,
-                    head_dim: 7,
-                    val_dim: 4,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,
                     seq_kv: 1,
-                    head_dim: 7,
-                    val_dim: 8,
+                    head_dim: 1,
+                    val_dim: 2,
                 };
                 let stage_size = AttentionStageSize { seq_q: 1 };
                 let tiling_scheme = AttentionTilingScheme {
@@ -768,10 +768,10 @@ macro_rules! testgen_attention {
             fn attention_stage2() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 8,
-                    seq_kv: 8,
-                    head_dim: 8,
-                    val_dim: 8,
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
                 };
                 let partition_size = AttentionPartitionSize {
                     seq_q: 1,

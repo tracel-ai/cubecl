@@ -50,22 +50,6 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
-
-    fn num_units_per_row(&self, ident: AttentionIdent) -> u32 {
-        self.plane_dim / self.attention_tile_size.num_rows(ident)
-    }
-
-    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32 {
-        self.attention_tile_size
-            .num_cols(ident)
-            .div_ceil(self.num_units_per_row(ident))
-    }
-
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32 {
-        self.attention_tile_size
-            .num_rows(ident)
-            .div_ceil(self.plane_dim)
-    }
 }
 
 impl DummyRegisterAttentionMatmulConfig {

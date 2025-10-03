@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::RowVals;
+use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowWise, RowWiseExpand};
 use crate::components::{
@@ -50,21 +51,27 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         self.fragment.scale_and_mask(scale, mask);
     }
 
-    fn row_max(&self, placeholder: &mut Self::RowWise, base: &Self::RowWise) {
-        Self::RowWise::row_max::<Self::PlaneLayout>(placeholder, base, &self.fragment)
+    fn row_max<TC: AttentionMatmulConfig>(
+        &self,
+        placeholder: &mut Self::RowWise,
+        base: &Self::RowWise,
+        #[comptime] config: TC,
+    ) {
+        Self::RowWise::row_max::<Self::PlaneLayout, TC>(placeholder, base, &self.fragment, config)
     }
 
-    fn to_prob(
+    fn to_prob<TC: AttentionMatmulConfig>(
         &mut self,
         state: &mut RunningState<Self::RowWise>,
         new_m: &Self::RowWise,
         rowsum_placeholder: &mut Self::RowWise,
+        #[comptime] config: TC,
     ) -> Self::RowWise {
         let new_m_val = new_m.index(0u32);
 
         self.fragment.exp_m_diff(new_m_val);
 
-        Self::RowWise::row_sum::<Self::PlaneLayout>(rowsum_placeholder, &self.fragment);
+        Self::RowWise::row_sum::<Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
 
         let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
         let new_l = exp_m_diff * state.l.index(0u32) + rowsum_placeholder.index(0u32);

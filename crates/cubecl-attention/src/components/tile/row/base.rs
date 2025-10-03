@@ -2,6 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::TileMask;
+use crate::components::tile::dummy::AttentionMatmulConfig;
 
 #[cube]
 pub trait PlaneLayout: CubeType {
@@ -28,6 +29,15 @@ pub trait RowWise: CubeType {
     fn copy_from(this: &mut Self, other: &Self);
     fn index(&self, i: u32) -> Self::E;
 
-    fn row_sum<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, data: &PL);
-    fn row_max<PL: PlaneLayout<E = Self::E>>(placeholder: &mut Self, base: &Self, data: &PL);
+    fn row_sum<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+        placeholder: &mut Self,
+        data: &PL,
+        #[comptime] config: TC,
+    );
+    fn row_max<PL: PlaneLayout<E = Self::E>, TC: AttentionMatmulConfig>(
+        placeholder: &mut Self,
+        base: &Self,
+        data: &PL,
+        #[comptime] config: TC,
+    );
 }

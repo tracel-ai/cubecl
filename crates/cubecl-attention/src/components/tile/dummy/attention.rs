@@ -121,14 +121,15 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         max_placeholder: &mut Self::RowWise,
         sum_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::RowWise {
         let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
 
         softmax.scale_and_mask(inv_sqrt_dk, mask);
 
-        softmax.row_max(max_placeholder, &state.m);
+        softmax.row_max::<Self::Config>(max_placeholder, &state.m, config);
 
-        softmax.to_prob(state, &max_placeholder, sum_placeholder)
+        softmax.to_prob::<Self::Config>(state, &max_placeholder, sum_placeholder, config)
     }
 
     fn accumulate_value(

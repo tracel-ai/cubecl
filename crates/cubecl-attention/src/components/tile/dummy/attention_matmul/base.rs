@@ -92,10 +92,6 @@ pub trait AttentionMatmulConfig:
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
 
-    fn num_units_per_row(&self, ident: AttentionIdent) -> u32;
-    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32;
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
-
     fn check_bounds(&self) -> bool;
 }
 

@@ -110,6 +110,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         max_placeholder: &mut Self::RowWise,
         sum_placeholder: &mut Self::RowWise,
         #[comptime] dk: u32,
+        #[comptime] config: Self::Config,
     ) -> Self::RowWise;
 
     fn accumulate_value(

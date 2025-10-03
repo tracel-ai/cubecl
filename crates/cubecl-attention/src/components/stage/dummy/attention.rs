@@ -112,6 +112,7 @@ impl<
                     &mut max_placeholder,
                     &mut sum_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
+                    config.tile_config(),
                 ));
 
                 comptime![q += 1];
