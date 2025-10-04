@@ -1,5 +1,5 @@
 use super::*;
-use crate::tensor::layout::Coords1d;
+use crate::{CubeOption, CubeOptionExpand, tensor::layout::Coords1d};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, io::read_masked, prelude::barrier::BarrierExpand};
 
@@ -59,6 +59,10 @@ impl<T: CubePrimitive, IO: SliceVisibility> ViewOperationsExpand<T, Coords1d>
         // negative length.
         let start = Min::__expand_min(scope, pos, end.clone());
         <Self as SliceOperatorExpand<T>>::__expand_slice_method(self, scope, start, end)
+    }
+
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<T>> {
+        CubeOption::__expand_new_None(scope)
     }
 
     fn __expand_shape_method(&self, scope: &mut Scope) -> ExpandElementTyped<u32> {

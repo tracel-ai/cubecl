@@ -1,5 +1,5 @@
 use super::*;
-use crate::tensor::layout::*;
+use crate::{CubeOption, CubeOptionExpand, tensor::layout::*};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 
@@ -49,6 +49,13 @@ macro_rules! impl_tensor_map {
                     _end: <$coords as CubeType>::ExpandType,
                 ) -> SliceExpand<T, ReadOnly> {
                     unimplemented!("Can't read from tensor map");
+                }
+
+                fn __expand_as_tensor_map_method(
+                    &self,
+                    scope: &mut Scope,
+                ) -> CubeOptionExpand<TensorMap<T>> {
+                    CubeOption::__expand_new_Some(scope, self.clone())
                 }
 
                 fn __expand_shape_method(&self, _scope: &mut Scope) -> <$coords as CubeType>::ExpandType {

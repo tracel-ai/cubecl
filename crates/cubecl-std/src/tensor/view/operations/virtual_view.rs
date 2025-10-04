@@ -1,7 +1,10 @@
 use std::marker::PhantomData;
 
 use super::*;
-use crate::tensor::layout::{Coordinates, VirtualLayout, VirtualLayoutExpand};
+use crate::{
+    CubeOptionExpand,
+    tensor::layout::{Coordinates, VirtualLayout, VirtualLayoutExpand},
+};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 
@@ -175,6 +178,13 @@ macro_rules! impl_virtual_read {
                     .clone()
                     .__expand_to_source_pos_method(scope, end);
                 self.view.__expand_to_linear_slice_method(scope, pos, end)
+            }
+
+            fn __expand_as_tensor_map_method(
+                &self,
+                scope: &mut Scope,
+            ) -> CubeOptionExpand<TensorMap<T>> {
+                self.view.__expand_as_tensor_map_method(scope)
             }
 
             fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {

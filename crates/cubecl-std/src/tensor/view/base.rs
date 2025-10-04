@@ -7,10 +7,13 @@ use cubecl_core::{
     unexpanded,
 };
 
-use crate::tensor::{
-    ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
-    VirtualViewMut,
-    layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
+use crate::{
+    CubeOption, CubeOptionExpand,
+    tensor::{
+        ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand,
+        VirtualView, VirtualViewMut,
+        layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
+    },
 };
 
 /// A conceptual view of an underlying linear storage.
@@ -500,6 +503,12 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> View<E, C,
     ) -> View<E, C, ReadWrite> {
         unexpanded!()
     }
+
+    /// Fetches the underlying tensor map if present, to override the layout and apply a different
+    /// base dimensionality.
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E>> {
+        unexpanded!()
+    }
 }
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
@@ -513,6 +522,13 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner
             .read()
             .__expand_tensor_map_load_method(scope, barrier, shared_memory, pos)
+    }
+
+    pub fn __expand_as_tensor_map_method(
+        self,
+        scope: &mut Scope,
+    ) -> CubeOptionExpand<TensorMap<E>> {
+        self.inner.read().__expand_as_tensor_map_method(scope)
     }
 }
 

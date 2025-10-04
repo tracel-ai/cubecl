@@ -1,6 +1,6 @@
 use super::*;
-use crate::tensor::layout::Coordinates;
 use crate::tensor::{View, ViewExpand};
+use crate::{CubeOptionExpand, tensor::layout::Coordinates};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierExpand};
 
@@ -51,6 +51,10 @@ impl<T: CubePrimitive, C: Coordinates, IO: Clone> ViewOperationsExpand<T, C>
         end: <C>::ExpandType,
     ) -> SliceExpand<T, ReadOnly> {
         ViewExpand::__expand_to_linear_slice_inner_method(self.clone(), scope, pos, end)
+    }
+
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<T>> {
+        ViewExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 
     fn __expand_shape_method(&self, scope: &mut Scope) -> <C>::ExpandType {
