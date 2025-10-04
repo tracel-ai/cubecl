@@ -27,10 +27,6 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn get_at_coor(&self, _row: u32, _col: u32) -> E {
-        todo!()
-    }
-
     fn scale(&mut self, _val: &RowWise<E>) {
         todo!()
     }

@@ -1,5 +1,4 @@
 use std::cmp::max;
-use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -127,10 +126,6 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
 
     fn num_units_per_row(&self) -> comptime_type!(u32) {
         comptime!(self.total_size.1 / self.unit_size.1)
-    }
-
-    fn get_at_coor(&self, r: u32, c: u32) -> E {
-        self.array[r * self.unit_size.1 + c]
     }
 
     fn scale(&mut self, scale: &RowWise<E>) {

@@ -35,11 +35,11 @@ impl<E: Float> RowWise<E> {
         Self::new_filled(num_rows, E::from_int(0))
     }
 
-    pub fn copy_from(this: &mut Self, other: &RowWise<E>) {
+    pub fn copy_from(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..this.num_rows {
-            let row_val = this.vals.index_mut(i);
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
             row_val.val = other.index(i);
 
             comptime![i += 1];
@@ -50,42 +50,58 @@ impl<E: Float> RowWise<E> {
         self.vals.index(i).val
     }
 
-    pub fn fill(this: &mut Self, val: E) {
+    pub fn fill(&mut self, val: E) {
         let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..this.num_rows {
-            let row_val = this.vals.index_mut(i);
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
             row_val.val = val;
 
             comptime![i += 1];
         }
     }
 
-    pub fn row_sum<PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
-        placeholder: &mut Self,
-        data: &PL,
-        #[comptime] config: TC,
-    ) {
-        Self::fill(placeholder, <RowSum as RowOp<PL>>::neutral_element());
-        row_op::<PL, RowSum, TC>(&mut placeholder.vals, data, config)
+    pub fn add(&mut self, other: &RowWise<E>) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
+            row_val.val += other.index(i);
+
+            comptime![i += 1];
+        }
     }
 
-    pub fn row_max<PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
-        placeholder: &mut Self,
-        base: &Self,
-        data: &PL,
-        #[comptime] config: TC,
-    ) {
-        Self::copy_from(placeholder, base);
-        row_op::<PL, RowMax, TC>(&mut placeholder.vals, data, config)
+    pub fn mul(&mut self, other: &RowWise<E>) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
+            row_val.val *= other.index(i);
+
+            comptime![i += 1];
+        }
+    }
+
+    pub fn max(&mut self, other: &RowWise<E>) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
+            Max::max(row_val.val, other.index(i));
+
+            comptime![i += 1];
+        }
     }
 }
 
 #[cube]
 trait RowOp<E: Float> {
-    fn neutral_element() -> RowWise<E>;
+    // fn neutral_element() -> RowWise<E>;
 
-    fn update(acc: RowWise<E>, val: RowWise<E>, mask: bool) -> RowWise<E>;
+    fn reduce_local<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>);
+
+    fn reduce_one(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool);
 }
 
 #[derive(CubeType)]
@@ -96,77 +112,83 @@ struct RowSum {}
 
 #[cube]
 impl<E: Float> RowOp<E> for RowMax {
-    fn neutral_element() -> RowWise<E> {
-        RowWise::new_min_value()
+    fn reduce_local<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
+        acc.max(&data.rowwise_max())
     }
 
-    fn update(acc: RowWise<E>, val: RowWise<E>, mask: bool) -> RowWise<E> {
-        Max::max(
-            acc,
-            val + PLElem::<PL>::cast_from(mask) * PLElem::<PL>::min_value(),
-        )
-    }
-}
+    fn reduce_one(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
+        let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(mask) * E::min_value());
+        masked.add(&elem);
 
-#[cube]
-impl<PL: PlaneLayout> RowOp<PL> for RowSum {
-    fn neutral_element() -> PLElem<PL> {
-        PLElem::<PL>::from_int(0)
-    }
-
-    fn update(acc: PLElem<PL>, val: PLElem<PL>, mask: bool) -> PLElem<PL> {
-        acc + val * PLElem::<PL>::cast_from(!mask)
+        acc.max(&masked)
     }
 }
 
 #[cube]
-fn row_op<PL: PlaneLayout, RO: RowOp<PL>, TC: AttentionMatmulConfig>(
-    vals: &mut Sequence<RowVal<PLElem<PL>>>,
+impl<E: Float> RowOp<E> for RowSum {
+    fn reduce_local<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
+        acc.add(&data.rowwise_sum())
+    }
+
+    fn reduce_one(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
+        let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(!mask));
+        masked.mul(&elem);
+
+        acc.add(&masked)
+    }
+}
+
+#[cube]
+fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>, TC: AttentionMatmulConfig>(
+    vals: &mut RowWise<E>,
     data: &PL,
     #[comptime] config: TC,
 ) {
-    let num_local_rows = data.num_local_rows();
-    let num_local_cols = data.num_local_cols();
     let num_units_per_row = data.num_units_per_row();
     let num_shares_within_plane = comptime!((num_units_per_row as f32).log2().ceil() as u32);
 
     let unit_pos = UNIT_POS_X;
     let unit_pos_in_row = unit_pos % num_units_per_row;
 
-    let mut fpb = FakePlaneBroadcast::<PLElem<PL>>::new(config.plane_dim(), config.num_planes());
+    let mut fpb = FakePlaneBroadcast::<E>::new(config.plane_dim(), config.num_planes());
 
-    let mut local_row = comptime![0];
+    RO::reduce_local::<PL>(data, vals);
 
-    #[unroll]
-    for _ in 0..num_local_rows {
-        // let mut local_val = RO::neutral_element();
-        let mut local_val = vals.index(0u32).val;
+    for i in 0..num_shares_within_plane {
+        let offset = num_units_per_row >> (i + 1);
+        let source_unit = unit_pos + offset;
 
-        #[unroll]
-        for local_col in 0..num_local_cols {
-            local_val = RO::update(local_val, data.get_at_coor(local_row, local_col), false);
-        }
+        let value_from_source = fpb.plane_broadcast(&vals, source_unit);
 
-        let mut total_val = local_val;
-
-        for i in 0..num_shares_within_plane {
-            let offset = num_units_per_row >> (i + 1);
-            let source_unit = unit_pos + offset;
-
-            let value_from_source = fpb.plane_broadcast(total_val, source_unit);
-
-            // Mask if outside the row
-            let mask = unit_pos_in_row + offset >= num_units_per_row;
-            total_val = RO::update(total_val, value_from_source, mask);
-        }
-
-        // Broadcast back to subgroup
-        let row_result = fpb.plane_broadcast(total_val, unit_pos - unit_pos_in_row);
-        let row_val = vals.index_mut(local_row);
-        row_val.val = row_result;
-
-        comptime![local_row += 1];
+        // Mask if outside the row
+        let mask = unit_pos_in_row + offset >= num_units_per_row;
+        RO::reduce_one(vals, &value_from_source, mask);
     }
+
+    // Broadcast back to subgroup
+    let result = &fpb.plane_broadcast(&vals, unit_pos - unit_pos_in_row);
+    vals.copy_from(result);
+}
+
+#[cube]
+pub fn row_sum<E: Float, PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
+    vals: &mut RowWise<E>,
+    data: &PL,
+    #[comptime] config: TC,
+) {
+    vals.copy_from(&RowWise::new_zero(vals.num_rows));
+    row_op::<E, PL, RowSum, TC>(vals, data, config)
+}
+
+#[cube]
+pub fn row_max<E: Float, PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
+    vals: &mut RowWise<E>,
+    base: &RowWise<E>,
+    data: &PL,
+    #[comptime] config: TC,
+) {
+    vals.copy_from(base);
+    row_op::<E, PL, RowMax, TC>(vals, data, config)
 }
 
 #[derive(CubeType)]
@@ -185,13 +207,20 @@ impl<E: Float> FakePlaneBroadcast<E> {
         }
     }
 
-    pub fn plane_broadcast(&mut self, val: E, source_unit: u32) -> E {
-        self.slice[UNIT_POS_X] = val;
-        sync_cube();
+    pub fn plane_broadcast(&mut self, val: &RowWise<E>, source_unit: u32) -> RowWise<E> {
+        let mut result = Sequence::new();
+        for row in 0..val.num_rows {
+            self.slice[UNIT_POS_X] = val.index(row);
+            sync_cube();
 
-        let result = self.slice[source_unit];
-        sync_cube();
-
-        result
+            result.push(RowVal::<E> {
+                val: self.slice[source_unit],
+            });
+            sync_cube();
+        }
+        RowWise::<E> {
+            num_rows: val.num_rows,
+            vals: result,
+        }
     }
 }

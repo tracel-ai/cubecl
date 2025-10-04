@@ -10,7 +10,9 @@ pub trait PlaneLayout<E: Float>: CubeType {
     fn num_local_cols(&self) -> comptime_type!(u32);
     fn num_units_per_row(&self) -> comptime_type!(u32);
 
-    fn get_at_coor(&self, local_row: u32, local_col: u32) -> E;
+    fn rowwise_max(&self) -> RowWise<E>;
+    fn rowwise_sum(&self) -> RowWise<E>;
+
     fn scale(&mut self, val: &RowWise<E>);
     fn scale_and_mask(&mut self, scale: &RowWise<E>, mask: TileMask);
     fn exp_m_diff(&mut self, m: &RowWise<E>);

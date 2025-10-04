@@ -6,6 +6,7 @@ use crate::components::attention_types::*;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{row_max, row_sum};
 use crate::components::{
     TileMask,
     tile::{RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul},
@@ -55,7 +56,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<Self::PlaneLayout, TC>(placeholder, base, &self.fragment, config)
+        row_max::<SM<AP>, Self::PlaneLayout, TC>(placeholder, base, &self.fragment, config)
     }
 
     fn to_prob<TC: AttentionMatmulConfig>(
@@ -69,7 +70,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
         self.fragment.exp_m_diff(new_m);
 
-        RowWise::row_sum::<Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
+        row_sum::<SM<AP>, Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
 
         let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
 
