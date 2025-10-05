@@ -230,3 +230,100 @@ impl<
         }
     }
 }
+
+mod dynamic {
+    use crate::tensor::layout::{VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch};
+
+    use super::*;
+
+    pub struct ViewLaunch<'a, C: Coordinates, R: Runtime> {
+        _phantom_runtime: PhantomData<R>,
+        _phantom_a: PhantomData<&'a ()>,
+        buffer: ArrayArg<'a, R>,
+        layout: VirtualLayoutLaunch<'a, C, Coords1d, R>,
+    }
+    impl<'a, C: Coordinates, R: Runtime> ViewLaunch<'a, C, R> {
+        pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
+            buffer: ArrayArg<'a, R>,
+            layout: L::RuntimeArg<'a, R>,
+        ) -> Self {
+            Self {
+                _phantom_runtime: core::marker::PhantomData,
+                _phantom_a: core::marker::PhantomData,
+                buffer,
+                layout: VirtualLayoutLaunch::new::<L>(layout),
+            }
+        }
+    }
+    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewLaunch<'a, C, R> {
+        fn register(&self, launcher: &mut KernelLauncher<R>) {
+            self.buffer.register(launcher);
+            self.layout.register(launcher);
+        }
+    }
+    #[derive(Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(bound(serialize = "", deserialize = ""))]
+    pub struct ViewCompilationArg<C: Coordinates> {
+        buffer: ArrayCompilationArg,
+        layout: VirtualLayoutCompilationArg<C, Coords1d>,
+    }
+
+    impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
+    impl<C: Coordinates> Eq for ViewCompilationArg<C> {}
+    impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
+        fn eq(&self, other: &Self) -> bool {
+            self.buffer == other.buffer && self.layout == other.layout
+        }
+    }
+    impl<C: Coordinates> core::hash::Hash for ViewCompilationArg<C> {
+        fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
+            self.buffer.hash(ra_expand_state);
+            self.layout.hash(ra_expand_state);
+        }
+    }
+    impl<C: Coordinates> core::fmt::Debug for ViewCompilationArg<C> {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.debug_struct("ViewCompilationArg")
+                .field("buffer", &self.buffer)
+                .field("layout", &self.layout)
+                .finish()
+        }
+    }
+
+    impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
+        type RuntimeArg<'a, R: Runtime> = ViewLaunch<'a, C, R>;
+        type CompilationArg = ViewCompilationArg<C>;
+
+        fn compilation_arg<'a, R: Runtime>(
+            runtime_arg: &Self::RuntimeArg<'a, R>,
+        ) -> Self::CompilationArg {
+            let buffer = Array::<E>::compilation_arg(&runtime_arg.buffer);
+            let layout = VirtualLayout::<C, Coords1d>::compilation_arg(&runtime_arg.layout);
+            ViewCompilationArg { buffer, layout }
+        }
+        fn expand(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            let buffer = Array::<E>::expand(&arg.buffer, builder);
+            let layout = VirtualLayout::<C, Coords1d>::expand(&arg.layout, builder);
+            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+            ViewExpand::<E, C, IO> {
+                inner: ViewType::ReadWrite(Arc::new(view)),
+                _io: PhantomData,
+            }
+        }
+        fn expand_output(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            let buffer = Array::<E>::expand_output(&arg.buffer, builder);
+            let layout = VirtualLayout::<C, Coords1d>::expand_output(&arg.layout, builder);
+            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+            ViewExpand::<E, C, IO> {
+                inner: ViewType::ReadWrite(Arc::new(view)),
+                _io: PhantomData,
+            }
+        }
+    }
+}
