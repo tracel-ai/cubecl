@@ -72,14 +72,14 @@ impl<T: CubeType + Into<T::ExpandType>> From<CubeOption<T>> for CubeOptionExpand
     }
 }
 
-// Manually implement CubeLaunch as the macro is currently not permissive enough.
+// Manually implement LaunchArg as the macro is currently not permissive enough.
 
-pub enum CubeOptionArgs<'a, T: CubeLaunch, R: Runtime> {
+pub enum CubeOptionArgs<'a, T: LaunchArg, R: Runtime> {
     Some(<T as LaunchArg>::RuntimeArg<'a, R>),
     None,
 }
 
-impl<'a, T: CubeLaunch, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
+impl<'a, T: LaunchArg, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a, R>>>
     for CubeOptionArgs<'a, T, R>
 {
     fn from(value: Option<<T as LaunchArg>::RuntimeArg<'a, R>>) -> Self {
@@ -90,7 +90,7 @@ impl<'a, T: CubeLaunch, R: Runtime> From<Option<<T as LaunchArg>::RuntimeArg<'a,
     }
 }
 
-impl<T: CubeLaunch, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {
+impl<T: LaunchArg, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
         match self {
             CubeOptionArgs::Some(arg) => {
@@ -100,8 +100,9 @@ impl<T: CubeLaunch, R: Runtime> ArgSettings<R> for CubeOptionArgs<'_, T, R> {
         }
     }
 }
-impl<T: CubeLaunch> LaunchArg for CubeOption<T> {
+impl<T: LaunchArg> LaunchArg for CubeOption<T> {
     type RuntimeArg<'a, R: Runtime> = CubeOptionArgs<'a, T, R>;
+    type CompilationArg = CubeOptionCompilationArg<T>;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
@@ -111,65 +112,6 @@ impl<T: CubeLaunch> LaunchArg for CubeOption<T> {
             CubeOptionArgs::None => CubeOptionCompilationArg::None,
         }
     }
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound(serialize = "", deserialize = ""))]
-pub enum CubeOptionCompilationArg<T: CubeLaunch> {
-    Some(<T as LaunchArgExpand>::CompilationArg),
-    None,
-}
-
-impl<T: CubeLaunch> Clone for CubeOptionCompilationArg<T> {
-    fn clone(&self) -> Self {
-        match self {
-            CubeOptionCompilationArg::Some(arg) => CubeOptionCompilationArg::Some(arg.clone()),
-            CubeOptionCompilationArg::None => CubeOptionCompilationArg::None,
-        }
-    }
-}
-
-impl<T: CubeLaunch> PartialEq for CubeOptionCompilationArg<T> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (CubeOptionCompilationArg::Some(arg_0), CubeOptionCompilationArg::Some(arg_1)) => {
-                arg_0 == arg_1
-            }
-            (CubeOptionCompilationArg::None, CubeOptionCompilationArg::None) => true,
-            _ => false,
-        }
-    }
-}
-
-impl<T: CubeLaunch> Eq for CubeOptionCompilationArg<T> {}
-
-impl<T: CubeLaunch> core::hash::Hash for CubeOptionCompilationArg<T> {
-    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-        match self {
-            CubeOptionCompilationArg::Some(arg) => {
-                arg.hash(state);
-            }
-            CubeOptionCompilationArg::None => {}
-        };
-    }
-}
-
-impl<T: CubeLaunch> core::fmt::Debug for CubeOptionCompilationArg<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            CubeOptionCompilationArg::Some(arg) => f
-                .debug_tuple("CubeOptionCompilationArg :: Some")
-                .field(arg)
-                .finish(),
-            CubeOptionCompilationArg::None => write!(f, "CubeOptionCompilationArg :: None"),
-        }
-    }
-}
-
-impl<T: CubeLaunch> CompilationArg for CubeOptionCompilationArg<T> {}
-
-impl<T: CubeLaunch> LaunchArgExpand for CubeOption<T> {
-    type CompilationArg = CubeOptionCompilationArg<T>;
 
     fn expand(
         arg: &Self::CompilationArg,
@@ -193,3 +135,58 @@ impl<T: CubeLaunch> LaunchArgExpand for CubeOption<T> {
         }
     }
 }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(bound(serialize = "", deserialize = ""))]
+pub enum CubeOptionCompilationArg<T: LaunchArg> {
+    Some(<T as LaunchArg>::CompilationArg),
+    None,
+}
+
+impl<T: LaunchArg> Clone for CubeOptionCompilationArg<T> {
+    fn clone(&self) -> Self {
+        match self {
+            CubeOptionCompilationArg::Some(arg) => CubeOptionCompilationArg::Some(arg.clone()),
+            CubeOptionCompilationArg::None => CubeOptionCompilationArg::None,
+        }
+    }
+}
+
+impl<T: LaunchArg> PartialEq for CubeOptionCompilationArg<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (CubeOptionCompilationArg::Some(arg_0), CubeOptionCompilationArg::Some(arg_1)) => {
+                arg_0 == arg_1
+            }
+            (CubeOptionCompilationArg::None, CubeOptionCompilationArg::None) => true,
+            _ => false,
+        }
+    }
+}
+
+impl<T: LaunchArg> Eq for CubeOptionCompilationArg<T> {}
+
+impl<T: LaunchArg> core::hash::Hash for CubeOptionCompilationArg<T> {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            CubeOptionCompilationArg::Some(arg) => {
+                arg.hash(state);
+            }
+            CubeOptionCompilationArg::None => {}
+        };
+    }
+}
+
+impl<T: LaunchArg> core::fmt::Debug for CubeOptionCompilationArg<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CubeOptionCompilationArg::Some(arg) => f
+                .debug_tuple("CubeOptionCompilationArg :: Some")
+                .field(arg)
+                .finish(),
+            CubeOptionCompilationArg::None => write!(f, "CubeOptionCompilationArg :: None"),
+        }
+    }
+}
+
+impl<T: LaunchArg> CompilationArg for CubeOptionCompilationArg<T> {}

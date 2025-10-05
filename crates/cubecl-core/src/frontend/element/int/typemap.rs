@@ -9,11 +9,7 @@ use derive_more::derive::{
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
-use crate::{
-    Runtime,
-    compute::{KernelBuilder, KernelLauncher},
-    prelude::*,
-};
+use crate::{Runtime, compute::KernelLauncher, prelude::*};
 
 use super::{Int, into_mut_expand_element};
 
@@ -209,16 +205,6 @@ impl<const POS: u8> Int for IntExpand<POS> {
 
     fn new(val: i64) -> Self {
         IntExpand(val)
-    }
-}
-
-impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder
-            .scalar(IntExpand::<POS>::as_type(&builder.scope))
-            .into()
     }
 }
 

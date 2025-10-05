@@ -73,10 +73,6 @@ pub trait CubeDebug: Sized {
 pub trait CubeComptime: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
 impl<T> CubeComptime for T where T: core::fmt::Debug + core::hash::Hash + Eq + Clone + Copy {}
 
-/// A [CubeType] that can be used as a kernel argument such as [Array] or [Tensor].
-pub trait CubeLaunch: CubeType + LaunchArg + LaunchArgExpand {}
-impl<T: CubeType + LaunchArg + LaunchArgExpand> CubeLaunch for T {}
-
 /// Argument used during the compilation of kernels.
 pub trait CompilationArg:
     serde::Serialize
@@ -119,9 +115,13 @@ impl CompilationArg for () {}
 /// should expand the argument as an input while the mutable reference should expand the argument
 /// as an output.
 #[diagnostic::on_unimplemented(note = "Consider using `#[derive(CubeLaunch)]` on `{Self}`")]
-pub trait LaunchArgExpand: CubeType {
+pub trait LaunchArg: CubeType + Send + Sync + 'static {
+    /// The runtime argument for the kernel.
+    type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
     /// Compilation argument.
     type CompilationArg: CompilationArg;
+
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
 
     /// Register an input variable during compilation that fill the [KernelBuilder].
     fn expand(
@@ -138,19 +138,46 @@ pub trait LaunchArgExpand: CubeType {
     }
 }
 
-/// Defines a type that can be used as argument to a kernel.
-pub trait LaunchArg: LaunchArgExpand + Send + Sync + 'static {
-    /// The runtime argument for the kernel.
-    type RuntimeArg<'a, R: Runtime>: ArgSettings<R>;
-
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg;
-}
-
 /// Defines the argument settings used to launch a kernel.
-pub trait ArgSettings<R: Runtime>: Send + Sync {
+pub trait ArgSettings<R: Runtime>: Send {
     /// Register the information of an argument to the [KernelLauncher].
     fn register(&self, launcher: &mut KernelLauncher<R>);
 }
+
+macro_rules! launch_tuple {
+    ($(($T:ident, $t:ident)),*) => {
+        impl<$($T: LaunchArg),*> LaunchArg for ($($T),*) {
+            type RuntimeArg<'a, R: Runtime> = ($($T::RuntimeArg<'a, R>),*);
+            type CompilationArg = ($($T::CompilationArg),*);
+
+            fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+                let ($($t),*) = runtime_arg;
+                ($($T::compilation_arg($t)),*)
+            }
+
+            fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
+                let ($($t),*) = arg;
+                ($($T::expand($t, builder)),*)
+            }
+
+            fn expand_output(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> ($(<$T as CubeType>::ExpandType),*) {
+                let ($($t),*) = arg;
+                ($($T::expand_output($t, builder)),*)
+            }
+        }
+
+        impl<$($T: CompilationArg),*> CompilationArg for ($($T),*) {}
+
+        impl<R: Runtime, $($T: ArgSettings<R>),*> ArgSettings<R> for ($($T),*) {
+            fn register(&self, launcher: &mut KernelLauncher<R>) {
+                let ($($t),*) = self;
+                $($t.register(launcher);)*
+            }
+        }
+    };
+}
+
+all_tuples!(launch_tuple, 2, 12, T, t);
 
 /// Expand type associated with a type.
 #[derive(new)]
@@ -412,25 +439,22 @@ pub(crate) fn __expand_new<C: Numeric, Out: Numeric>(
 
 impl LaunchArg for () {
     type RuntimeArg<'a, R: Runtime> = ();
+    type CompilationArg = ();
 
     fn compilation_arg<'a, R: Runtime>(
         _runtime_arg: &'a Self::RuntimeArg<'a, R>,
     ) -> Self::CompilationArg {
+    }
+
+    fn expand(
+        _: &Self::CompilationArg,
+        _builder: &mut KernelBuilder,
+    ) -> <Self as CubeType>::ExpandType {
     }
 }
 
 impl<R: Runtime> ArgSettings<R> for () {
     fn register(&self, _launcher: &mut KernelLauncher<R>) {
         // nothing to do
-    }
-}
-
-impl LaunchArgExpand for () {
-    type CompilationArg = ();
-
-    fn expand(
-        _: &Self::CompilationArg,
-        _builder: &mut KernelBuilder,
-    ) -> <Self as CubeType>::ExpandType {
     }
 }

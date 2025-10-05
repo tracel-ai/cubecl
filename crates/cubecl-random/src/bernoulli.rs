@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use cubecl::{CubeLaunch, CubeType, Runtime};
+use cubecl::{CubeType, Runtime};
 use cubecl_std::tensor::View;
 
 use crate::RandomFamily;
