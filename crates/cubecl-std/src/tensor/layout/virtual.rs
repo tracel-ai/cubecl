@@ -211,16 +211,14 @@ mod launch {
             self.inner.register(launcher);
         }
     }
-    #[derive(Clone, serde::Serialize, serde::Deserialize)]
-    #[serde(bound(serialize = "", deserialize = ""))]
+
+    #[derive(Clone)]
     pub struct VirtualLayoutCompilationArg<C: Coordinates, S: Coordinates> {
         type_name: String,
         debug_string: String,
         hash: u64,
-        #[serde(skip)]
-        expand: Option<ExpandFn<C, S>>,
-        #[serde(skip)]
-        expand_output: Option<ExpandFn<C, S>>,
+        expand: ExpandFn<C, S>,
+        expand_output: ExpandFn<C, S>,
     }
 
     impl<C: Coordinates, S: Coordinates> VirtualLayoutCompilationArg<C, S> {
@@ -236,8 +234,8 @@ mod launch {
                 type_name: core::any::type_name::<L>().to_string(),
                 debug_string: format!("{arg:?}"),
                 hash,
-                expand: Some(expand),
-                expand_output: Some(expand_output),
+                expand,
+                expand_output,
             }
         }
     }
@@ -285,22 +283,14 @@ mod launch {
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let mut expand = arg
-                .expand
-                .as_ref()
-                .expect("Can't deserialize dynamic layout")
-                .lock();
+            let mut expand = arg.expand.as_ref().lock();
             expand(builder)
         }
         fn expand_output(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let mut expand = arg
-                .expand_output
-                .as_ref()
-                .expect("Can't deserialize dynamic layout")
-                .lock();
+            let mut expand = arg.expand_output.as_ref().lock();
             expand(builder)
         }
     }

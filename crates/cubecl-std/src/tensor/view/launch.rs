@@ -259,8 +259,7 @@ mod dynamic {
             self.layout.register(launcher);
         }
     }
-    #[derive(Clone, serde::Serialize, serde::Deserialize)]
-    #[serde(bound(serialize = "", deserialize = ""))]
+    #[derive(Clone)]
     pub struct ViewCompilationArg<C: Coordinates> {
         buffer: ArrayCompilationArg,
         layout: VirtualLayoutCompilationArg<C, Coords1d>,
