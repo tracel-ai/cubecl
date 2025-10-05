@@ -136,8 +136,6 @@ impl<T: LaunchArg> LaunchArg for CubeOption<T> {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound(serialize = "", deserialize = ""))]
 pub enum CubeOptionCompilationArg<T: LaunchArg> {
     Some(<T as LaunchArg>::CompilationArg),
     None,

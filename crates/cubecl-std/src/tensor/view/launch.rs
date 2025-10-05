@@ -54,8 +54,6 @@ impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> ArgSettings<
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound(serialize = "", deserialize = ""))]
 pub struct TypedViewCompilationArg<L: LaunchLayout<SourceCoordinates = Coords1d>> {
     buffer: ArrayCompilationArg,
     layout: L::CompilationArg,

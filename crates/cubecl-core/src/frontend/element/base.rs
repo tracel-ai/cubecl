@@ -7,10 +7,7 @@ use crate::{
 use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
 use cubecl_ir::ExpandElement;
 use half::{bf16, f16};
-use std::{
-    any::{Any, TypeId},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 use variadics_please::all_tuples;
 
 /// Types used in a cube function must implement this trait
@@ -75,16 +72,7 @@ impl<T> CubeComptime for T where T: core::fmt::Debug + core::hash::Hash + Eq + C
 
 /// Argument used during the compilation of kernels.
 pub trait CompilationArg:
-    serde::Serialize
-    + serde::de::DeserializeOwned
-    + Clone
-    + PartialEq
-    + Eq
-    + core::hash::Hash
-    + core::fmt::Debug
-    + Send
-    + Sync
-    + 'static
+    Clone + PartialEq + Eq + core::hash::Hash + core::fmt::Debug + Send + Sync + 'static
 {
     /// Compilation args should be the same even with different element types. However, it isn't
     /// possible to enforce it with the type system. So, we make the compilation args serializable
@@ -93,14 +81,11 @@ pub trait CompilationArg:
     /// Without this, the compilation time is unreasonable. The performance drop isn't a concern
     /// since this is only done once when compiling a kernel for the first time.
     fn dynamic_cast<Arg: CompilationArg>(&self) -> Arg {
-        if TypeId::of::<Arg>() == TypeId::of::<Self>() {
-            let tmp: Box<dyn Any> = Box::new(self.clone());
-            *tmp.downcast().unwrap()
-        } else {
-            let val = serde_json::to_string(self).unwrap();
-            serde_json::from_str(&val)
-                .expect("Compilation argument should be the same even with different element types")
-        }
+        // Dynamic cast, unlike transmute it does not require statically proving the types are the
+        // same size. We assert at runtime to avoid undefined behaviour and help the compiler optimize.
+        assert!(size_of::<Arg>() == size_of::<Self>());
+        let this = Box::new(self.clone());
+        unsafe { *Box::from_raw(Box::into_raw(this) as *mut Arg) }
     }
 }
 

@@ -200,8 +200,6 @@ impl CubeTypeStruct {
         });
 
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize)]
-            #[serde(bound(serialize = "", deserialize = ""))]
             #vis struct #name #generics {
                 #(#fields),*
             }
