@@ -1,9 +1,11 @@
-use core::default::Default;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::{default::Default, ops::Deref};
 use cubecl_common::{e4m3, e5m2};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct QuantScheme {
     /// The logical data type of quantized input values (e.g., QInt8).
     ///
@@ -80,12 +82,18 @@ impl QuantScheme {
 }
 
 /// Level or granularity of quantization.
-#[derive(Clone, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum QuantLevel {
     /// Quantize the whole tensor using a single tensor.
     Tensor,
     /// Quantize a tensor using multiple blocks.
-    Block(Vec<usize>),
+    Block(BlockSize),
+}
+
+impl QuantLevel {
+    pub fn block(values: impl AsRef<[u8]>) -> Self {
+        QuantLevel::Block(BlockSize::new(values))
+    }
 }
 
 /// Data type used to represent quantized values.
@@ -189,4 +197,81 @@ pub enum QuantParam {
     UE8M0,
     /// unsigned floating point, e4m3 format.
     UE4M3,
+}
+
+const MAX_DIMS: usize = 5;
+
+/// Copyable block size, specialized version of `SmallVec`.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct BlockSize {
+    storage: [u8; MAX_DIMS],
+    len: u8,
+}
+
+impl BlockSize {
+    /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
+    pub fn new(values: impl AsRef<[u8]>) -> Self {
+        let values = values.as_ref();
+        debug_assert!(
+            values.len() <= MAX_DIMS,
+            "Tried creating a block size larger than the cap"
+        );
+        let len = values.len().min(MAX_DIMS);
+        let mut storage = [1; MAX_DIMS];
+        storage[..len].copy_from_slice(&values[..len]);
+        Self {
+            storage,
+            len: len as u8,
+        }
+    }
+
+    /// Return a slice of only the initialized valeus
+    pub fn as_slice(&self) -> &[u8] {
+        &self.storage[..self.len as usize]
+    }
+
+    /// Return a vec of only the initialized values
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.storage[..self.len as usize].to_vec()
+    }
+
+    /// Returns `N` dimensions, unsqueezing if necessary.
+    pub fn as_dim<const N: usize>(&self) -> [u8; N] {
+        let data_len = N.min(self.len as usize);
+        let data_start = N - data_len;
+        let mut out = [1; N];
+        out[data_start..].copy_from_slice(&self.storage[..data_len]);
+        out
+    }
+
+    /// Returns a vector of `len` dimensions, unsqueezing if necessary.
+    pub fn to_dim_vec(&self, len: usize) -> Vec<u8> {
+        let data_len = len.min(self.len as usize);
+        let data_start = len - data_len;
+        let mut out = vec![1; len];
+        out[data_start..].copy_from_slice(&self.storage[..data_len]);
+        out
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &u8> {
+        self.as_slice().iter()
+    }
+
+    pub fn num_elements(&self) -> usize {
+        self.iter().map(|it| *it as usize).product()
+    }
+}
+
+impl Deref for BlockSize {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for BlockSize {
+    fn from(value: T) -> Self {
+        BlockSize::new(value)
+    }
 }
