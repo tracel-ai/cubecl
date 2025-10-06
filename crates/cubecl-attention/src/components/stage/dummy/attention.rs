@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::StageMask;
 use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::SoftmaxPartition;
@@ -16,6 +15,7 @@ use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{StageMask, tile::RunningState};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
@@ -36,7 +36,6 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type State = Sequence<TA::State>;
     type QueryPartition = Queries<AP, TA, Self::Config>;
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
@@ -50,7 +49,7 @@ impl<
         softmax_partition: &mut Self::SoftmaxPartition,
         mask: StageMask,
         accumulator_partition: &mut Self::AccumulatorPartition,
-        state: &mut Self::State,
+        state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
         let partition_mask = mask.to_partition(UNIT_POS_Y);
@@ -59,9 +58,8 @@ impl<
 
         let mut kv = comptime![0u32];
 
-        // TODO not hardcode to 1
-        let mut max_placeholder = TA::init_max_placeholder(1u32);
-        let mut sum_placeholder = TA::init_sum_placeholder(1u32);
+        let mut max_placeholder = TA::init_max_placeholder(config.num_rows_per_unit());
+        let mut sum_placeholder = TA::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
@@ -166,7 +164,7 @@ impl<
 
     fn rescale(
         acc: &mut Self::AccumulatorPartition,
-        state: Self::State,
+        state: Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
         let p = config.tiling_scheme().partition_size;
@@ -194,7 +192,7 @@ impl<
         }
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State {
+    fn init_state(#[comptime] config: Self::Config) -> Sequence<RunningState<SM<AP>>> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 

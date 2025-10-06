@@ -52,6 +52,13 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
+
+    fn num_rows_per_unit(&self) -> u32 {
+        match self.inner_layout {
+            InnerLayout::Contiguous => 1u32,
+            InnerLayout::SplitRows => 2u32,
+        }
+    }
 }
 
 impl DummyRegisterAttentionMatmulConfig {

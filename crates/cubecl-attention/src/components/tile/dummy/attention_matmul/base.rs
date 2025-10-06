@@ -76,6 +76,8 @@ pub trait AttentionMatmulConfig:
     fn cast_query(&self) -> bool;
 
     fn check_bounds(&self) -> bool;
+
+    fn num_rows_per_unit(&self) -> u32;
 }
 
 pub trait AttentionMatmulFamily: Send + Sync + 'static {

@@ -45,6 +45,10 @@ impl<FC: AttentionMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     fn reuse_key_value(&self) -> bool {
         self.reuse_key_value
     }
+
+    fn num_rows_per_unit(&self) -> u32 {
+        self.tile_config.num_rows_per_unit()
+    }
 }
 
 impl<FC: AttentionMatmulConfig> DummyStageConfig<FC> {

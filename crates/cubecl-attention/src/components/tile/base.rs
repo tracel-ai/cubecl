@@ -10,7 +10,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
-    tile::{KeyValueTile, QueryTile, RowWise, dummy::AttentionMatmulConfig},
+    tile::{KeyValueTile, QueryTile, RowWise, RunningState, dummy::AttentionMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use crate::components::{TileMask, tile::SoftmaxTile};
@@ -56,11 +56,9 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type SoftmaxTile: SoftmaxTile<AP>;
     type AccumulatorTile: AccumulatorTile<AP>;
 
-    type State: CubeType;
-
     fn rescale(
         acc: &mut Self::AccumulatorTile,
-        prev_state: &Self::State,
+        prev_state: &RunningState<SM<AP>>,
         #[comptime] config: Self::Config,
     );
 
@@ -80,7 +78,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
+    fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
 
     fn fill_key<E: Float>(
         tile: &StridedTile<E>,
@@ -106,7 +104,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &mut Self::State,
+        state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
         sum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,

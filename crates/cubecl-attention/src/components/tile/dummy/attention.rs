@@ -9,6 +9,7 @@ use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
+use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
@@ -32,11 +33,9 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     type SoftmaxTile = DummySoftmax<AP, AM>;
     type AccumulatorTile = DummyAccumulator<AP, AM>;
 
-    type State = RunningState<SM<AP>>;
-
     fn rescale(
         acc: &mut Self::AccumulatorTile,
-        prev_state: &Self::State,
+        prev_state: &RunningState<SM<AP>>,
         #[comptime] _config: Self::Config,
     ) {
         acc.scale_div(&prev_state.l);
@@ -74,9 +73,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         Self::SoftmaxTile::new(config)
     }
 
-    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
-        // TODO not hardcode to 1
-        Self::State::init(1u32)
+    fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>> {
+        RunningState::<SM<AP>>::init(config.num_rows_per_unit())
     }
 
     fn fill_key<E: Float>(
@@ -116,14 +114,13 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
-        state: &mut Self::State,
+        state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
         sum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,
         #[comptime] config: Self::Config,
     ) -> RowWise<SM<AP>> {
-        let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
-        softmax.scale_and_mask(inv_sqrt_dk, mask);
+        softmax.scale_and_mask(SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())), mask);
 
         // softmax.row_max::<Self::Config>(max_placeholder, &state.m, config);
 

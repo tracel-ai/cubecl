@@ -49,6 +49,10 @@ impl AttentionMatmulConfig for AcceleratedAttentionMatmulConfig {
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
+
+    fn num_rows_per_unit(&self) -> u32 {
+        todo!()
+    }
 }
 
 impl AcceleratedAttentionMatmulConfig {
