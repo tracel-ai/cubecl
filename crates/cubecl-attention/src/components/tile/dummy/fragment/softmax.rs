@@ -57,7 +57,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<SM<AP>, Self::PlaneLayout, DummyReducer, TC>(
+        row_max::<SM<AP>, Self::PlaneLayout, BroadcastReducer, TC>(
             placeholder,
             base,
             &self.fragment,

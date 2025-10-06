@@ -96,7 +96,7 @@ impl<E: Float> RowWise<E> {
         #[unroll]
         for _ in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
-            Max::max(row_val.val, other.index(i));
+            row_val.val = Max::max(row_val.val, other.index(i));
 
             comptime![i += 1];
         }
