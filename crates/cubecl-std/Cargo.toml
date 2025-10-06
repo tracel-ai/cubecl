@@ -26,5 +26,5 @@ serde = { workspace = true }
 variadics_please = { workspace = true }
 
 # no_std compat
-ahash = { version = "0.8", default-features = false }
+foldhash = { workspace = true }
 spin = { workspace = true }

@@ -158,7 +158,7 @@ impl<L: Layout + 'static> From<L> for VirtualLayout<L::Coordinates, L::SourceCoo
 }
 
 mod launch {
-    use core::hash::Hasher;
+    use core::hash::BuildHasher;
     use spin::Mutex;
 
     use super::*;
@@ -227,9 +227,10 @@ mod launch {
             expand: ExpandFn<C, S>,
             expand_output: ExpandFn<C, S>,
         ) -> Self {
-            let mut hasher = ahash::AHasher::default();
-            arg.hash(&mut hasher);
-            let hash = hasher.finish();
+            // Hash ahead of time so we don't need to store the actual data, which would be far
+            // more complex
+            let state = foldhash::fast::RandomState::default();
+            let hash = state.hash_one(arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
                 debug_string: format!("{arg:?}"),

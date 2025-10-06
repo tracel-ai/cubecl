@@ -18,6 +18,7 @@ pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     _ty: PhantomData<(E, IO)>,
 }
 
+// `View` is a dummy type so it's always send/sync
 unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Send for View<E, C, IO> {}
 unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Sync for View<E, C, IO> {}
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for View<E, C, IO> {}
