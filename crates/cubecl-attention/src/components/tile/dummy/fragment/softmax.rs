@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::BroadcastReducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{BroadcastReducer, DummyReducer};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{row_max, row_sum};
 use crate::components::{
