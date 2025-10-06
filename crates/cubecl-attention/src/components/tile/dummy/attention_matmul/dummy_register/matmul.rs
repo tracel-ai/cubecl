@@ -235,7 +235,7 @@ fn array_tile_to_tmp_smem<E: Float>(
         for c in 0..array_tile.unit_size.1 {
             let index =
                 array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
-            tmp_smem_slice[index] = array_tile.array[c];
+            tmp_smem_slice[index] = array_tile.array[r * array_tile.unit_size.1 + c];
         }
     }
 
@@ -246,9 +246,9 @@ fn array_tile_to_tmp_smem<E: Float>(
 fn tmp_smem_to_array_tile<E: Float>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
     for r in 0..array_tile.unit_size.0 {
         for c in 0..array_tile.unit_size.1 {
-            array_tile.array[c] = tmp_smem_slice[array_tile.abs_row_index(r)
-                * array_tile.total_size.1
-                + array_tile.abs_col_index(c)];
+            array_tile.array[r * array_tile.unit_size.1 + c] =
+                tmp_smem_slice[array_tile.abs_row_index(r) * array_tile.total_size.1
+                    + array_tile.abs_col_index(c)];
         }
     }
 }
@@ -260,7 +260,7 @@ fn strided_tile_to_array_tile<E: Float, E2: Float>(
 ) {
     for r in 0..array_tile.unit_size.0 {
         for c in 0..array_tile.unit_size.1 {
-            array_tile.array[c] = E2::cast_from(
+            array_tile.array[r * array_tile.unit_size.1 + c] = E2::cast_from(
                 strided_tile.get_line(array_tile.abs_row_index(r), array_tile.abs_col_index(c)),
             )
         }
@@ -276,7 +276,7 @@ fn array_tile_to_slice<E: Float, E2: Float>(
         for c in 0..array_tile.unit_size.1 {
             let index =
                 array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
-            slice[index] = Line::cast_from(array_tile.array[c]);
+            slice[index] = Line::cast_from(array_tile.array[r * array_tile.unit_size.1 + c]);
         }
     }
 }
