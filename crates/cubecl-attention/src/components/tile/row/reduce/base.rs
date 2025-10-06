@@ -1,31 +1,31 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::PlaneLayout;
 use crate::components::tile::RowMax;
 use crate::components::tile::RowSum;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 
 #[cube]
-pub fn row_sum<E: Float, PL: PlaneLayout<E>, PO: Reducer, TC: AttentionMatmulConfig>(
+pub fn row_sum<E: Float, PL: PlaneLayout<E>, R: Reducer, TC: AttentionMatmulConfig>(
     vals: &mut RowWise<E>,
     data: &PL,
     #[comptime] config: TC,
 ) {
     vals.copy_from(&RowWise::new_zero(vals.num_rows));
-    PO::reduce::<E, PL, RowSum, TC>(vals, data, config)
+    R::reduce::<E, PL, RowSum, TC>(vals, data, config)
 }
 
 #[cube]
-pub fn row_max<E: Float, PL: PlaneLayout<E>, PO: Reducer, TC: AttentionMatmulConfig>(
+pub fn row_max<E: Float, PL: PlaneLayout<E>, R: Reducer, TC: AttentionMatmulConfig>(
     vals: &mut RowWise<E>,
     base: &RowWise<E>,
     data: &PL,
     #[comptime] config: TC,
 ) {
     vals.copy_from(base);
-    PO::reduce::<E, PL, RowMax, TC>(vals, data, config)
+    R::reduce::<E, PL, RowMax, TC>(vals, data, config)
 }
 
 #[cube]
