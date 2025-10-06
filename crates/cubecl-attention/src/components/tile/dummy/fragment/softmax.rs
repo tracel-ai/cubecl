@@ -4,11 +4,10 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::DummyReducer;
-use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::row::PlaneOps;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{row_max, row_sum};
 use crate::components::{
     TileMask,
     tile::{RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul},
@@ -58,7 +57,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        DummyReducer::row_max::<SM<AP>, Self::PlaneLayout, TC>(
+        row_max::<SM<AP>, Self::PlaneLayout, DummyReducer, TC>(
             placeholder,
             base,
             &self.fragment,
@@ -75,7 +74,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     ) -> RowWise<SM<AP>> {
         self.fragment.exp_m_diff(new_m);
 
-        DummyReducer::row_sum::<SM<AP>, Self::PlaneLayout, TC>(
+        row_sum::<SM<AP>, Self::PlaneLayout, DummyReducer, TC>(
             rowsum_placeholder,
             &self.fragment,
             config,

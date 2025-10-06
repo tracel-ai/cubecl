@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 
 use crate::components::TileMask;
 use crate::components::tile::RowWise;
-use crate::components::tile::dummy::AttentionMatmulConfig;
 
 #[cube]
 pub trait PlaneLayout<E: Float>: CubeType {
@@ -17,20 +16,4 @@ pub trait PlaneLayout<E: Float>: CubeType {
     fn scale(&mut self, val: &RowWise<E>);
     fn scale_and_mask(&mut self, scale: E, mask: TileMask);
     fn exp_m_diff(&mut self, m: &RowWise<E>);
-}
-
-#[cube]
-pub trait PlaneOps: CubeType {
-    fn row_sum<E: Float, PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
-        vals: &mut RowWise<E>,
-        data: &PL,
-        #[comptime] config: TC,
-    );
-
-    fn row_max<E: Float, PL: PlaneLayout<E>, TC: AttentionMatmulConfig>(
-        vals: &mut RowWise<E>,
-        base: &RowWise<E>,
-        data: &PL,
-        #[comptime] config: TC,
-    );
 }
