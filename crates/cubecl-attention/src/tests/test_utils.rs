@@ -253,7 +253,7 @@ macro_rules! sample_float {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-50), Self::from_int(50), output.as_ref());
 
                     output
                 }
