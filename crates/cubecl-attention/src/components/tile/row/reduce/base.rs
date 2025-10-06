@@ -12,7 +12,7 @@ pub fn row_sum<E: Float, PL: PlaneLayout<E>, PO: Reducer, TC: AttentionMatmulCon
     #[comptime] config: TC,
 ) {
     vals.copy_from(&RowWise::new_zero(vals.num_rows));
-    PO::row_op::<E, PL, RowSum, TC>(vals, data, config)
+    PO::reduce::<E, PL, RowSum, TC>(vals, data, config)
 }
 
 #[cube]
@@ -23,12 +23,12 @@ pub fn row_max<E: Float, PL: PlaneLayout<E>, PO: Reducer, TC: AttentionMatmulCon
     #[comptime] config: TC,
 ) {
     vals.copy_from(base);
-    PO::row_op::<E, PL, RowMax, TC>(vals, data, config)
+    PO::reduce::<E, PL, RowMax, TC>(vals, data, config)
 }
 
 #[cube]
 pub trait Reducer: CubeType {
-    fn row_op<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
         data: &PL,
         #[comptime] config: TC,

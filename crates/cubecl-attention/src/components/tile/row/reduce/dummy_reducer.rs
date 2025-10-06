@@ -12,7 +12,7 @@ pub struct DummyReducer {}
 
 #[cube]
 impl Reducer for DummyReducer {
-    fn row_op<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
         data: &PL,
         #[comptime] config: TC,
