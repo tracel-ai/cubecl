@@ -27,9 +27,9 @@ pub(crate) mod utils {
             ..
         } = scheme
         {
-            let block_size = *block_size.last().unwrap();
+            let block_size = *block_size.as_slice().last().unwrap() as usize;
             assert!(
-                block_size % div == 0,
+                block_size.is_multiple_of(div),
                 "Block size must be divisible by {div}, got block_size={block_size}"
             );
         }

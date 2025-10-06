@@ -54,7 +54,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         client: &ComputeClient<R::Server, R::Channel>,
         shape: &[usize],
         strides: &[usize],
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         if is_contiguous(shape, strides) {
             Self::Plain(PlainLayoutLaunch::from_shape(shape, line_size))
@@ -75,7 +75,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         if shape != reference_shape {
             // Broadcast layouts are always treated as permuted
@@ -95,7 +95,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
     pub fn from_handle(
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'a, R>,
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }
@@ -105,7 +105,7 @@ impl<'a, R: Runtime> LinearLayoutArgs<'a, R> {
         client: &ComputeClient<R::Server, R::Channel>,
         handle: &TensorHandleRef<'a, R>,
         reference: &TensorHandleRef<'a, R>,
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         Self::from_shape_strides_with_reference(
             client,
@@ -149,12 +149,12 @@ pub type LinearViewLaunch<'a, R> = ViewLaunch<'a, Coords1d, R>;
 pub fn linear_view<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
-    line_size: &'a u8,
+    line_size: u8,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
     let buffer = unsafe {
-        ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
+        ArrayArg::from_raw_parts_and_size(handle.handle, len, line_size, handle.elem_size)
     };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
@@ -164,12 +164,12 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
     reference: &'a TensorHandleRef<'a, R>,
-    line_size: &'a u8,
+    line_size: u8,
 ) -> LinearViewLaunch<'a, R> {
     let len = handle.shape.iter().product::<usize>();
     let layout = LinearLayoutArgs::from_handle_with_reference(client, handle, reference, line_size);
     let buffer = unsafe {
-        ArrayArg::from_raw_parts_and_size(handle.handle, len, *line_size, handle.elem_size)
+        ArrayArg::from_raw_parts_and_size(handle.handle, len, line_size, handle.elem_size)
     };
     LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
@@ -177,7 +177,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
 pub fn linear_view_alias<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     handle: &'a TensorHandleRef<'a, R>,
-    line_size: &'a u8,
+    line_size: u8,
     pos: usize,
 ) -> LinearViewLaunch<'a, R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
