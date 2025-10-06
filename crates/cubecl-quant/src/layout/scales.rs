@@ -70,6 +70,13 @@ pub struct PerTensorLayout {
 }
 
 #[cube]
+impl PerTensorLayout {
+    pub fn new(tensor_len: u32) -> Self {
+        PerTensorLayout { tensor_len }
+    }
+}
+
+#[cube]
 impl Layout for PerTensorLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
@@ -112,6 +119,25 @@ pub struct BlockScaledLayout {
 }
 
 #[cube]
+impl BlockScaledLayout {
+    pub fn new(
+        tensor_shape: Sequence<FastDivmod>,
+        tensor_len: u32,
+        scales_strides: Sequence<u32>,
+        #[comptime] block_size: Vec<u8>,
+        #[comptime] scales_line_size: u32,
+    ) -> Self {
+        BlockScaledLayout {
+            tensor_shape,
+            tensor_len,
+            scales_strides,
+            block_size,
+            scales_line_size,
+        }
+    }
+}
+
+#[cube]
 impl Layout for BlockScaledLayout {
     type Coordinates = Coords1d;
     type SourceCoordinates = Coords1d;
@@ -127,6 +153,7 @@ impl Layout for BlockScaledLayout {
             let dim = comptime![rank - i - 1];
             let block_size_local = comptime![self.block_size[dim as usize] as u32];
             let (rem, offs_local) = self.tensor_shape.index(dim).div_mod(offs);
+
             offs = rem;
             scale_offs += (offs_local / block_size_local) * *self.scales_strides.index(dim);
         }
