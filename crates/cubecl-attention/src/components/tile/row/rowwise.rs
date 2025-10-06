@@ -240,6 +240,8 @@ impl<E: Float> FakePlaneBroadcast<E> {
         let mut result = Sequence::new();
 
         let mut row = comptime![0];
+
+        #[unroll]
         for _ in 0..val.num_rows {
             self.slice[UNIT_POS_X] = val.index(row);
             sync_cube();
