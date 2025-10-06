@@ -54,6 +54,7 @@ impl Optimizer {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
+            Operation::Free(_) => {}
         }
     }
 
@@ -125,6 +126,9 @@ impl Optimizer {
             | Comparison::Lower(binary_operator)
             | Comparison::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
+            }
+            Comparison::IsNan(unary_operator) | Comparison::IsInf(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read)
             }
         }
     }

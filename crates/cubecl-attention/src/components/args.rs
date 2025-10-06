@@ -1,6 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand};
+use cubecl_std::{
+    CubeOption, CubeOptionExpand,
+    tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
+};
 
 use crate::components::{
     line_size::AttentionLineSizes, problem::AttentionProblem, selection::AttentionSelection,
@@ -88,17 +91,17 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
     /// Reinterpret query as tensor map
     fn as_tensor_map_query<Q: Float, K: Float, V: Float, O: Float>(
         state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<Q>;
+    ) -> CubeOption<TensorMap<Q>>;
 
     /// Reinterpret key as tensor map
     fn as_tensor_map_key<Q: Float, K: Float, V: Float, O: Float>(
         state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<K>;
+    ) -> CubeOption<TensorMap<K>>;
 
     /// Reinterpret value as tensor map
     fn as_tensor_map_value<Q: Float, K: Float, V: Float, O: Float>(
         state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<V>;
+    ) -> CubeOption<TensorMap<V>>;
 
     /// Write the line to the output at the given coordinate using the state.
     fn write_out<Q: Float, K: Float, V: Float, O: Float>(
@@ -290,11 +293,8 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
         TensorOutputExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(
-        &self,
-        _scope: &mut Scope,
-    ) -> ExpandElementTyped<TensorMap<O>> {
-        unimplemented!("TensorOutputExpand can't be turned into a tensor map");
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<O>> {
+        CubeOption::__expand_new_None(scope)
     }
 }
 
@@ -367,7 +367,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
         TensorQueryExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> ExpandElementTyped<TensorMap<Q>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<Q>> {
         TensorQueryExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -441,7 +441,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
         TensorKeyExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> ExpandElementTyped<TensorMap<K>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<K>> {
         TensorKeyExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -515,7 +515,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
         TensorValueExpand::__expand_buffer_len_method(self.clone(), scope)
     }
 
-    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> ExpandElementTyped<TensorMap<V>> {
+    fn __expand_as_tensor_map_method(&self, scope: &mut Scope) -> CubeOptionExpand<TensorMap<V>> {
         TensorValueExpand::__expand_as_tensor_map_method(self.clone(), scope)
     }
 }
@@ -606,7 +606,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorQuery<Q, K
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<Q> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<Q>> {
         unsafe { MA::as_tensor_map_query(&(*self.state)) }
     }
 
@@ -660,7 +660,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorKey<Q, K, 
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<K> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<K>> {
         unsafe { MA::as_tensor_map_key(&(*self.state)) }
     }
 
@@ -714,7 +714,7 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorValue<Q, K
     }
 
     /// Get the buffer length of the tensor.
-    pub fn as_tensor_map(&self) -> TensorMap<V> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<V>> {
         unsafe { MA::as_tensor_map_value(&(*self.state)) }
     }
 
@@ -885,26 +885,20 @@ impl AttentionArgs for TensorArgs {
 
     fn as_tensor_map_query<Q: Float, K: Float, V: Float, O: Float>(
         _state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<Q> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<Q>> {
+        CubeOption::new_None()
     }
 
     fn as_tensor_map_key<Q: Float, K: Float, V: Float, O: Float>(
         _state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<K> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<K>> {
+        CubeOption::new_None()
     }
 
     fn as_tensor_map_value<Q: Float, K: Float, V: Float, O: Float>(
         _state: &Self::State<Q, K, V, O>,
-    ) -> TensorMap<V> {
-        comptime!(unimplemented!("Can't use `TensorArgs` as `TensorMap`"));
-        #[allow(unreachable_code)]
-        TensorMap::dummy()
+    ) -> CubeOption<TensorMap<V>> {
+        CubeOption::new_None()
     }
 
     fn shape_query<Q: Float, K: Float, V: Float, O: Float>(

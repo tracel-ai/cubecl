@@ -96,6 +96,17 @@ where
             rhs_reader.advance_view();
         }
 
+        // Frees input stages for reuse, so the output stage can be allocated into the same
+        // range. The `sync_cube` is required to ensure other planes are done reading from the stages.
+        //
+        // This is currently very unintuitive, because while the stage already exists, it actually
+        // isn't allocated until it's used (by writing to it). We should eventually separate the
+        // write call into a different function and defer creating the writer until after the stages
+        // are freed to make the order of operations more clear.
+        sync_cube();
+        lhs_reader.free_stage();
+        rhs_reader.free_stage();
+
         let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
         SMM::write_results::<Self::GlobalWriter, Self::Config>(

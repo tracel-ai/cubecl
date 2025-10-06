@@ -342,6 +342,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg_attr(miri, ignore)]
     fn test_cache_simple() {
         let key1 = || "key1".to_string();
         let key2 = || "key2".to_string();

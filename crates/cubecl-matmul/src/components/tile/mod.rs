@@ -3,6 +3,7 @@
 
 pub mod accelerated;
 pub mod io;
+pub mod mma;
 pub mod plane_vec_mat_inner_product;
 pub mod register;
 

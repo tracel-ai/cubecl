@@ -1,4 +1,7 @@
-use core::default::Default;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::{default::Default, ops::Deref};
+use cubecl_common::{e4m3, e5m2};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
@@ -63,7 +66,8 @@ impl QuantScheme {
 
     /// Returns the size of the quantization storage type in bits.
     pub fn size_bits_stored(&self) -> usize {
-        self.store.size_bits(&self.value)
+        // Assume native packing if store type is < 8 bits
+        self.store.size_bits(&self.value).max(8)
     }
 
     /// Returns the size of the quantization storage type in bits.
@@ -82,8 +86,14 @@ impl QuantScheme {
 pub enum QuantLevel {
     /// Quantize the whole tensor using a single tensor.
     Tensor,
-    /// Quantize a tensor using multiple 1D linear blocks.
-    Block(usize),
+    /// Quantize a tensor using multiple blocks.
+    Block(BlockSize),
+}
+
+impl QuantLevel {
+    pub fn block(values: impl AsRef<[u8]>) -> Self {
+        QuantLevel::Block(BlockSize::new(values))
+    }
 }
 
 /// Data type used to represent quantized values.
@@ -91,8 +101,14 @@ pub enum QuantLevel {
 pub enum QuantValue {
     /// 8-bit quantization with full range.
     Q8F,
+    /// 8-bit floating point, e5m2 format.
+    E5M2,
+    /// 8-bit floating point, e4m3 format.
+    E4M3,
     /// 4-bit quantization with full range.
     Q4F,
+    /// 4-bit floating point, e2m1 format.
+    E2M1,
     /// 2-bit quantization with full range.
     Q2F,
     /// 8-bit quantization with symmetric range.
@@ -107,8 +123,8 @@ impl QuantValue {
     /// Returns the size of the quantization input type in bits.
     pub fn size_bits(&self) -> usize {
         match self {
-            QuantValue::Q8F | QuantValue::Q8S => 8,
-            QuantValue::Q4F | QuantValue::Q4S => 4,
+            QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2 => 8,
+            QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 => 4,
             QuantValue::Q2F | QuantValue::Q2S => 2,
         }
     }
@@ -122,13 +138,16 @@ impl QuantValue {
             QuantValue::Q8S => (-i8::MAX as f32, i8::MAX as f32),
             QuantValue::Q4S => (-7.0, 7.0),
             QuantValue::Q2S => (-1.0, 1.0),
+            QuantValue::E4M3 => (e4m3::MIN as f32, e4m3::MAX as f32),
+            QuantValue::E5M2 => (e5m2::MIN as f32, e5m2::MAX as f32),
+            QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
         }
     }
 
     /// If the range of values is symmetric around zero.
     pub fn is_symmetric(&self) -> bool {
         match self {
-            Self::Q8F | Self::Q4F | Self::Q2F => false,
+            Self::Q8F | Self::Q4F | Self::Q2F | Self::E4M3 | Self::E5M2 | Self::E2M1 => false,
             Self::Q8S | Self::Q4S | Self::Q2S => true,
         }
     }
@@ -174,4 +193,85 @@ pub enum QuantParam {
     F16,
     /// bfloat16 precision.
     BF16,
+    /// unsigned floating point, e8m0 format.
+    UE8M0,
+    /// unsigned floating point, e4m3 format.
+    UE4M3,
+}
+
+const MAX_DIMS: usize = 5;
+
+/// Copyable block size, specialized version of `SmallVec`.
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct BlockSize {
+    storage: [u8; MAX_DIMS],
+    len: u8,
+}
+
+impl BlockSize {
+    /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
+    pub fn new(values: impl AsRef<[u8]>) -> Self {
+        let values = values.as_ref();
+        debug_assert!(
+            values.len() <= MAX_DIMS,
+            "Tried creating a block size larger than the cap"
+        );
+        let len = values.len().min(MAX_DIMS);
+        let mut storage = [1; MAX_DIMS];
+        storage[..len].copy_from_slice(&values[..len]);
+        Self {
+            storage,
+            len: len as u8,
+        }
+    }
+
+    /// Return a slice of only the initialized valeus
+    pub fn as_slice(&self) -> &[u8] {
+        &self.storage[..self.len as usize]
+    }
+
+    /// Return a vec of only the initialized values
+    pub fn to_vec(&self) -> Vec<u8> {
+        self.storage[..self.len as usize].to_vec()
+    }
+
+    /// Returns `N` dimensions, unsqueezing if necessary.
+    pub fn as_dim<const N: usize>(&self) -> [u8; N] {
+        let data_len = N.min(self.len as usize);
+        let data_start = N - data_len;
+        let mut out = [1; N];
+        out[data_start..].copy_from_slice(&self.storage[..data_len]);
+        out
+    }
+
+    /// Returns a vector of `len` dimensions, unsqueezing if necessary.
+    pub fn to_dim_vec(&self, len: usize) -> Vec<u8> {
+        let data_len = len.min(self.len as usize);
+        let data_start = len - data_len;
+        let mut out = vec![1; len];
+        out[data_start..].copy_from_slice(&self.storage[..data_len]);
+        out
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &u8> {
+        self.as_slice().iter()
+    }
+
+    pub fn num_elements(&self) -> usize {
+        self.iter().map(|it| *it as usize).product()
+    }
+}
+
+impl Deref for BlockSize {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<T: AsRef<[u8]>> From<T> for BlockSize {
+    fn from(value: T) -> Self {
+        BlockSize::new(value)
+    }
 }

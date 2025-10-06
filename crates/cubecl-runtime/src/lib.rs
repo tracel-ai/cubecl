@@ -54,6 +54,3 @@ pub mod tma;
 
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
-
-/// Utilities for data transfers between servers
-pub mod data_service;

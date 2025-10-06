@@ -244,7 +244,8 @@ impl Uniformity {
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::TensorMap(_) => true,
+            VariableKind::TensorMapInput(_) => true,
+            VariableKind::TensorMapOutput(_) => true,
         }
     }
 

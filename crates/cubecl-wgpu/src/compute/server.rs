@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{DataTransferService, ProfileError, ProfilingToken};
+use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
@@ -36,6 +36,10 @@ pub struct WgpuServer {
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
+}
+
+impl ServerCommunication for WgpuServer {
+    const SERVER_COMM_ENABLED: bool = false;
 }
 
 impl WgpuServer {
@@ -150,8 +154,6 @@ impl WgpuServer {
         pipeline
     }
 }
-
-impl DataTransferService for WgpuServer {}
 
 impl ComputeServer for WgpuServer {
     type Kernel = Box<dyn CubeTask<AutoCompiler>>;

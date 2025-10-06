@@ -318,3 +318,56 @@ impl<D: Dialect> Unary<D> for Assign {
         }
     }
 }
+
+fn elem_function_name<D: Dialect>(base_name: &'static str, elem: Elem<D>) -> String {
+    // Math functions prefix (no leading underscores)
+    let prefix = match elem {
+        Elem::F16 | Elem::BF16 => D::compile_instruction_half_function_name_prefix(),
+        Elem::F16x2 | Elem::BF16x2 => D::compile_instruction_half2_function_name_prefix(),
+        _ => "",
+    };
+    if prefix.is_empty() {
+        base_name.to_string()
+    } else if prefix == "h" || prefix == "h2" {
+        format!("__{prefix}{base_name}")
+    } else {
+        panic!("Unknown prefix '{prefix}'");
+    }
+}
+
+// `isnan` / `isinf` are defined for cuda/hip/metal with same prefixes for half/bf16 on cuda/hip
+pub struct IsNan;
+
+impl<D: Dialect> Unary<D> for IsNan {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        // Format unary function name based on *input* elem dtype
+        let elem = input.elem();
+        write!(f, "{}({input})", elem_function_name("isnan", elem))
+    }
+
+    fn can_optimize() -> bool {
+        true
+    }
+}
+
+pub struct IsInf;
+
+impl<D: Dialect> Unary<D> for IsInf {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        _elem: Elem<D>,
+    ) -> std::fmt::Result {
+        // Format unary function name based on *input* elem dtype
+        let elem = input.elem();
+        write!(f, "{}({input})", elem_function_name("isinf", elem))
+    }
+
+    fn can_optimize() -> bool {
+        true
+    }
+}

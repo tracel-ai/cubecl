@@ -12,6 +12,7 @@ use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
+use cubecl_opt::{Optimizer, SharedLiveness};
 use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
@@ -102,7 +103,6 @@ pub struct CppCompiler<D: Dialect> {
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     pipelines: Vec<PipelineOps<D>>,
-    shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
 }
@@ -140,10 +140,15 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, mut value: KernelDefinition) -> ComputeKernel<D> {
+    fn compile_ir(mut self, value: KernelDefinition) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
-        let instructions = self.compile_scope(&mut value.body);
+        let instructions = self.compile_scope(&mut value.body.clone());
+        let tensor_maps = value
+            .tensor_maps
+            .into_iter()
+            .map(|b| self.compile_binding(b))
+            .collect();
         let buffers = value
             .buffers
             .into_iter()
@@ -182,9 +187,23 @@ impl<D: Dialect> CppCompiler<D> {
             cluster_dim: value.options.cluster_dim,
         };
 
+        let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
+        let shared_allocs = opt.analysis::<SharedLiveness>();
+        let shared_memories = shared_allocs
+            .allocations
+            .values()
+            .map(|alloc| SharedMemory {
+                index: alloc.smem.id,
+                item: self.compile_type(alloc.smem.ty),
+                length: alloc.smem.length,
+                align: alloc.smem.align,
+                offset: alloc.offset,
+            })
+            .collect();
+
         let body = Body {
             instructions,
-            shared_memories: self.shared_memories,
+            shared_memories,
             pipelines: self.pipelines,
             barriers: self.barriers,
             const_arrays: self.const_arrays,
@@ -197,7 +216,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
 
         ComputeKernel {
-            tensor_maps: value.tensor_maps,
+            tensor_maps,
             buffers,
             scalars,
             meta_static_len: self.metadata.static_len() as usize,
@@ -217,8 +236,8 @@ impl<D: Dialect> CppCompiler<D> {
         let mut all_meta: Vec<_> = value
             .buffers
             .iter()
+            .chain(value.tensor_maps.iter())
             .map(|buf| (buf.id, buf.has_extended_meta))
-            .chain(value.tensor_maps.iter().map(|i| (*i, true)))
             .collect();
 
         all_meta.sort_by_key(|(id, _)| *id);
@@ -581,6 +600,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
+            gpu::Operation::Free(_) => {}
         }
     }
 
@@ -1042,6 +1062,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Comparison::NotEqual(op) => {
                 instructions.push(Instruction::NotEqual(self.compile_binary(op, out)))
             }
+            gpu::Comparison::IsNan(op) => {
+                instructions.push(Instruction::IsNan(self.compile_unary(op, out)))
+            }
+            gpu::Comparison::IsInf(op) => {
+                instructions.push(Instruction::IsInf(self.compile_unary(op, out)))
+            }
         };
     }
 
@@ -1240,7 +1266,11 @@ impl<D: Dialect> CppCompiler<D> {
                 elem: self.compile_storage_type(item.storage_type()),
                 in_struct: self.compilation_options.grid_constants,
             },
-            gpu::VariableKind::TensorMap(id) => {
+            gpu::VariableKind::TensorMapInput(id) => {
+                self.flags.inst_tma = true;
+                Variable::TensorMap(id)
+            }
+            gpu::VariableKind::TensorMapOutput(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
@@ -1262,21 +1292,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            gpu::VariableKind::SharedMemory {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => {
+            gpu::VariableKind::SharedMemory { id, length, .. } => {
                 let item = self.compile_type(item);
-                if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories.push(SharedMemory::new(
-                        id,
-                        item,
-                        length * unroll_factor,
-                        alignment,
-                    ));
-                }
                 Variable::SharedMemory(id, item, length)
             }
             gpu::VariableKind::ConstantArray {

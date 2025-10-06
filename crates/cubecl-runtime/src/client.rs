@@ -2,7 +2,6 @@ use crate::{
     DeviceProperties,
     channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
-    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
     memory_management::{MemoryAllocationMode, MemoryUsage},
@@ -331,21 +330,44 @@ where
     pub fn to_client(&self, src: Handle, dst_server: &Self) -> Allocation {
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Contiguous, &shape, 1);
 
-        self.data_transfer(src_descriptor, alloc_desc, dst_server)
+        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
+            self.to_client_tensor(src_descriptor, dst_server)
+        } else {
+            let alloc_desc = AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                src_descriptor.shape,
+                src_descriptor.elem_size,
+            );
+            self.change_client_sync(src_descriptor, alloc_desc, dst_server)
+        }
     }
 
     /// Transfer data from one client to another
+    ///
+    /// Make sure the source description can be read in a contiguous manner.
     pub fn to_client_tensor(
         &self,
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        let shape = src_descriptor.shape;
-        let elem_size = src_descriptor.elem_size;
-        let alloc_desc = AllocationDescriptor::new(AllocationKind::Optimized, shape, elem_size);
-        self.data_transfer(src_descriptor, alloc_desc, dst_server)
+        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
+            Channel::copy(
+                &self.channel,
+                &dst_server.channel,
+                src_descriptor,
+                self.stream_id(),
+                dst_server.stream_id(),
+            )
+            .unwrap()
+        } else {
+            let alloc_desc = AllocationDescriptor::new(
+                AllocationKind::Optimized,
+                src_descriptor.shape,
+                src_descriptor.elem_size,
+            );
+            self.change_client_sync(src_descriptor, alloc_desc, dst_server)
+        }
     }
 
     #[track_caller]
@@ -600,40 +622,7 @@ where
     }
 
     /// Transfer data from one client to another
-    fn data_transfer_async(
-        &self,
-        src_descriptor: CopyDescriptor<'_>,
-        alloc_descriptor: AllocationDescriptor<'_>,
-        dst_server: &Self,
-    ) -> Allocation {
-        let strides = src_descriptor.strides;
-        let shape = src_descriptor.shape;
-        let elem_size = src_descriptor.elem_size;
-        let stream_id = self.stream_id();
-
-        // Allocate destination
-        let alloc = dst_server
-            .channel
-            .create(vec![alloc_descriptor], self.stream_id())
-            .unwrap()
-            .remove(0);
-
-        // Unique id for this transaction
-        let id = DataTransferId::new();
-
-        // Send with source server
-        self.channel
-            .data_transfer_send(id, src_descriptor, stream_id);
-
-        // Recv with destination server
-        let desc = alloc.handle.copy_descriptor(shape, strides, elem_size);
-        dst_server.channel.data_transfer_recv(id, desc, stream_id);
-
-        alloc
-    }
-
-    /// Transfer data from one client to another
-    fn data_transfer_sync(
+    fn change_client_sync(
         &self,
         src_descriptor: CopyDescriptor<'_>,
         alloc_descriptor: AllocationDescriptor<'_>,
@@ -666,20 +655,6 @@ where
             .unwrap();
 
         alloc
-    }
-
-    /// Transfer data from one client to another
-    fn data_transfer(
-        &self,
-        src_descriptor: CopyDescriptor<'_>,
-        alloc_descriptor: AllocationDescriptor<'_>,
-        dst_server: &Self,
-    ) -> Allocation {
-        if self.properties().memory.data_transfer_async {
-            self.data_transfer_async(src_descriptor, alloc_descriptor, dst_server)
-        } else {
-            self.data_transfer_sync(src_descriptor, alloc_descriptor, dst_server)
-        }
     }
 
     #[cfg(not(multi_threading))]

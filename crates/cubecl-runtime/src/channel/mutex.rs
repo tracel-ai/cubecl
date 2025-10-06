@@ -1,5 +1,4 @@
 use super::ComputeChannel;
-use crate::data_service::DataTransferId;
 use crate::memory_management::MemoryAllocationMode;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
@@ -48,6 +47,8 @@ impl<Server> ComputeChannel<Server> for MutexComputeChannel<Server>
 where
     Server: ComputeServer,
 {
+    const SERVER_COMM_SUPPORTED: bool = true;
+
     fn logger(&self) -> Arc<ServerLogger> {
         self.server.lock().logger()
     }
@@ -78,14 +79,23 @@ where
         server.write(descriptors, stream_id)
     }
 
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>, stream_id: StreamId) {
-        let mut server = self.server.lock();
-        server.register_src(stream_id, id, src);
-    }
+    fn copy(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let mut server_src = server_src.server.lock();
+        let mut server_dst = server_dst.server.lock();
 
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>, stream_id: StreamId) {
-        let mut server = self.server.lock();
-        server.register_dest(stream_id, id, dst);
+        Server::copy(
+            &mut server_src,
+            &mut server_dst,
+            src,
+            stream_id_src,
+            stream_id_dst,
+        )
     }
 
     fn sync(&self, stream_id: StreamId) -> DynFut<()> {

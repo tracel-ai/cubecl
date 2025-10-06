@@ -4,7 +4,7 @@ use cubecl_cpp::{cuda::arch::CudaArchitecture, shared::CompilationOptions};
 
 use super::storage::gpu::GpuResource;
 use crate::install::{cccl_include_path, include_path};
-use crate::{CudaCompiler, WmmaCompiler, compute::stream::Stream};
+use crate::{CudaCompiler, compute::stream::Stream};
 use cubecl_core::prelude::*;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
@@ -163,8 +163,7 @@ impl CudaContext {
             cudarc::nvrtc::result::get_ptx(program).unwrap()
         };
 
-        let repr: cubecl_cpp::ComputeKernel<cubecl_cpp::cuda::CudaDialect<WmmaCompiler>> =
-            kernel_compiled.repr.unwrap();
+        let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
             cache

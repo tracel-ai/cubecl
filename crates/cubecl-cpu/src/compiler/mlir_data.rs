@@ -81,7 +81,7 @@ impl MlirData {
         };
 
         for b in buffers {
-            let handle = memory_management
+            let mut handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
             let ptr = handle.write();
@@ -94,7 +94,7 @@ impl MlirData {
             let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
             let handle = memory_management.reserve(length).unwrap();
             let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
-            let handle = memory_management
+            let mut handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
             let ptr = handle.write();

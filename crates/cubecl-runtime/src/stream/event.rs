@@ -5,6 +5,7 @@ use crate::{
     server::Binding,
     stream::{StreamFactory, StreamPool},
 };
+use core::any::Any;
 use cubecl_common::stream_id::StreamId;
 use hashbrown::HashMap;
 use std::sync::{Arc, mpsc::SyncSender};
@@ -71,13 +72,21 @@ pub struct ResolvedStreams<'a, B: EventStreamBackend> {
 }
 
 #[derive(Debug)]
-struct GcTask<B: EventStreamBackend> {
-    /// All the bindings shared in a single execution.
-    ///
-    /// We keep the binding alive so it won't be allocated in other concurrent streams.
-    ids: Vec<SliceId>,
+/// A task to be enqueue on the gc stream that will be clearned after an event is reached.
+pub struct GcTask<B: EventStreamBackend> {
+    to_drop: Box<dyn Any + Send + 'static>,
     /// The event to sync making sure the bindings in the batch are ready to be reused by other streams.
     event: B::Event,
+}
+
+impl<B: EventStreamBackend> GcTask<B> {
+    /// Creates a new task that will be clearned when the event is reached.
+    pub fn new<T: Send + 'static>(to_drop: T, event: B::Event) -> Self {
+        Self {
+            to_drop: Box::new(to_drop),
+            event,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -109,8 +118,7 @@ impl<B: EventStreamBackend> GcThread<B> {
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
                 B::wait_event_sync(event.event);
-                log::info!("Release memory: {:?}", event.ids);
-                core::mem::drop(event.ids);
+                core::mem::drop(event.to_drop);
             }
         });
 
@@ -158,7 +166,7 @@ impl<'a, B: EventStreamBackend> Drop for ResolvedStreams<'a, B> {
             .drain()
             .for_each(|item| ids.extend(item.1));
 
-        self.gc.register(GcTask { ids, event });
+        self.gc.register(GcTask::new(ids, event));
     }
 }
 
@@ -172,6 +180,11 @@ impl<B: EventStreamBackend> MultiStream<B> {
             max_streams: max_streams as usize,
             gc: GcThread::new(),
         }
+    }
+
+    /// Enqueue a task to be cleaned.
+    pub fn gc(&mut self, gc: GcTask<B>) {
+        self.gc.sender.send(gc).unwrap();
     }
 
     /// Resolves and returns a mutable reference to the stream for the given ID, performing any necessary

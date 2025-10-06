@@ -22,7 +22,7 @@ impl<E: Numeric> Im2colTmaReader<E> {
         spatial_offsets: Sequence<u32>,
         k_offset: u32,
     ) -> Im2colTmaReader<E> {
-        let map = tensor.as_tensor_map();
+        let map = tensor.as_tensor_map().unwrap();
 
         Im2colTmaReader::<E> {
             tensor: map,

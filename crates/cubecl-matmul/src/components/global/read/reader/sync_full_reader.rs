@@ -93,6 +93,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         self.stage_memory
     }
 
+    pub fn free_stage(self) {
+        unsafe { self.stage_memory.free() };
+    }
+
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(&mut self) {
         self.tensor_reader.advance();

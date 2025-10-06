@@ -5,10 +5,8 @@ pub(crate) mod storage;
 pub(crate) mod stream;
 pub(crate) mod sync;
 
-mod data_service;
 mod server;
 
-pub use data_service::*;
 pub use server::*;
 
 #[allow(clippy::uninit_vec)]

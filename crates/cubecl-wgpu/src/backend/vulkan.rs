@@ -166,6 +166,12 @@ fn register_features(
         comp_options.supports_fp_fast_math = true;
     }
 
+    if let Some(wg_explicit_layout) = &extended_feat.wg_explicit_layout
+        && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
+    {
+        comp_options.supports_explicit_smem = true;
+    }
+
     if extended_feat.cmma.is_some() {
         register_cmma(ash, adapter, props);
     }

@@ -386,27 +386,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 let id = self.state.const_arrays[id as usize].id;
                 Variable::ConstantArray(id, item, length)
             }
-            ir::VariableKind::SharedMemory {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => {
+            ir::VariableKind::SharedMemory { id, length, .. } => {
                 let item = self.compile_type(item);
-                let id = if let Some(arr) = self.state.shared_memories.get(&id) {
-                    arr.id
-                } else {
-                    let arr_id = self.id();
-                    let arr = Array {
-                        id: arr_id,
-                        item: item.clone(),
-                        len: length * unroll_factor,
-                        var: variable,
-                        alignment,
-                    };
-                    self.state.shared_memories.insert(id, arr);
-                    arr_id
-                };
+                let id = self.state.shared_memories[&id].id;
                 Variable::SharedMemory(id, item, length)
             }
             ir::VariableKind::LocalArray {
@@ -446,7 +428,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             }
             ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
             ir::VariableKind::Barrier { .. } => panic!("Barrier not supported."),
-            ir::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
+            ir::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
+            ir::VariableKind::TensorMapOutput(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -558,7 +541,11 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Variable::SharedMemory(id, item, _) => {
                 let ptr_ty =
                     Item::Pointer(StorageClass::Workgroup, Box::new(item.clone())).id(self);
-                let id = access_chain(self, ptr_ty, None, *id, vec![index_id]).unwrap();
+                let mut index = vec![index_id];
+                if self.compilation_options.supports_explicit_smem {
+                    index.insert(0, self.const_u32(0));
+                }
+                let id = access_chain(self, ptr_ty, None, *id, index).unwrap();
                 IndexedVariable::Pointer(id, item.clone())
             }
             Variable::ConstantArray(id, item, _) | Variable::LocalArray(id, item, _) => {

@@ -2,13 +2,14 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::AttentionIdent;
+use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
-use crate::components::{AttentionIdent, AttentionPrecision};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
@@ -78,7 +79,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Query));
+        let (slice, stride) = tile.as_unlined();
         let size = config.attention_tile_size().to_score_matmul_tile_size();
 
         if config.cast_query() {
@@ -156,9 +157,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     fn fill_key_value<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let (slice, stride) = tile.as_unlined(config.stage_line_size(AttentionIdent::Key));
+        let (slice, stride) = tile.as_unlined();
         cmma::load(rhs, &slice, stride);
     }
 

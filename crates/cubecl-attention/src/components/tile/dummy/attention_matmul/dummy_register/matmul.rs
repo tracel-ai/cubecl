@@ -458,7 +458,5 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         #[comptime] _config: Self::Config,
     ) {
         array_tile_to_slice(out, slice);
-
-        sync_cube();
     }
 }
