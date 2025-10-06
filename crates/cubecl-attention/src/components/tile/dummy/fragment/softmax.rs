@@ -46,7 +46,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         AM::zero_softmax(&mut self.fragment, self.config);
     }
 
-    fn scale_and_mask(&mut self, scale: &RowWise<SM<AP>>, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
         self.fragment.scale_and_mask(scale, mask);
     }
 
@@ -66,18 +66,16 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         rowsum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) -> RowWise<SM<AP>> {
-        let new_m_val = new_m.index(0u32);
-
         self.fragment.exp_m_diff(new_m);
 
         row_sum::<SM<AP>, Self::PlaneLayout, TC>(rowsum_placeholder, &self.fragment, config);
 
-        let exp_m_diff = Exp::exp(state.m.index(0u32) - new_m_val);
+        let exp_m_diff = state.m.exp_m_diff(new_m);
 
-        let new_l = exp_m_diff * state.l.index(0u32) + rowsum_placeholder.index(0u32);
+        let new_l = exp_m_diff.mul(&state.l).add(&rowsum_placeholder);
 
-        state.update(new_m, &RowWise::new_filled(1u32, new_l));
+        state.update(new_m, &new_l);
 
-        RowWise::<SM<AP>>::new_filled(1u32, exp_m_diff)
+        exp_m_diff
     }
 }

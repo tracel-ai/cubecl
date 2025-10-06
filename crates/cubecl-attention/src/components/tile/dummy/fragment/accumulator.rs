@@ -34,7 +34,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<AP>
 
     fn scale_div(&mut self, scale: &RowWise<SM<AP>>) {
         let mut scale = RowWise::<SM<AP>>::cast_from(scale);
-        scale.recip();
+        scale.recip_inplace();
         self.fragment.scale(&scale);
     }
 }

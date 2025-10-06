@@ -186,7 +186,7 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
         }
     }
 
-    fn scale_and_mask(&mut self, scale: &RowWise<E>, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: E, mask: TileMask) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;
@@ -194,7 +194,7 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
             for c in 0..self.unit_size.1 {
                 let index = row_offset + c;
                 self.array[index] =
-                    self.array[index] * scale.index(r) + mask.apply::<E>(self.abs_pos((r, c)));
+                    self.array[index] * scale + mask.apply::<E>(self.abs_pos((r, c)));
             }
         }
     }

@@ -61,7 +61,7 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    pub fn add(&mut self, other: &RowWise<E>) {
+    pub fn add_inplace(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
@@ -72,7 +72,7 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    pub fn mul(&mut self, other: &RowWise<E>) {
+    pub fn mul_inplace(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
@@ -83,7 +83,7 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    pub fn recip(&mut self) {
+    pub fn recip_inplace(&mut self) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
@@ -94,7 +94,7 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    pub fn max(&mut self, other: &RowWise<E>) {
+    pub fn max_inplace(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
         for _ in 0..self.num_rows {
@@ -122,6 +122,60 @@ impl<E: Float> RowWise<E> {
             vals,
         }
     }
+
+    pub fn exp_m_diff(&self, other: &RowWise<E>) -> RowWise<E> {
+        let mut vals = Sequence::new();
+        let mut i = comptime![0u32];
+
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let val = Exp::exp(self.index(i) - other.index(i));
+            vals.push(RowVal::<E> { val });
+
+            comptime![i += 1];
+        }
+
+        RowWise::<E> {
+            num_rows: self.num_rows,
+            vals,
+        }
+    }
+
+    pub fn mul(&self, other: &RowWise<E>) -> RowWise<E> {
+        let mut vals = Sequence::new();
+        let mut i = comptime![0u32];
+
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let val = self.index(i) * other.index(i);
+            vals.push(RowVal::<E> { val });
+
+            comptime![i += 1];
+        }
+
+        RowWise::<E> {
+            num_rows: self.num_rows,
+            vals,
+        }
+    }
+
+    pub fn add(&self, other: &RowWise<E>) -> RowWise<E> {
+        let mut vals = Sequence::new();
+        let mut i = comptime![0u32];
+
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let val = self.index(i) + other.index(i);
+            vals.push(RowVal::<E> { val });
+
+            comptime![i += 1];
+        }
+
+        RowWise::<E> {
+            num_rows: self.num_rows,
+            vals,
+        }
+    }
 }
 
 #[cube]
@@ -142,28 +196,28 @@ struct RowSum {}
 #[cube]
 impl<E: Float> RowOp<E> for RowMax {
     fn reduce_local<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
-        acc.max(&data.rowwise_max())
+        acc.max_inplace(&data.rowwise_max())
     }
 
     fn reduce_one(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
         let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(mask) * E::min_value());
-        masked.add(&elem);
+        masked.add_inplace(&elem);
 
-        acc.max(&masked)
+        acc.max_inplace(&masked)
     }
 }
 
 #[cube]
 impl<E: Float> RowOp<E> for RowSum {
     fn reduce_local<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
-        acc.add(&data.rowwise_sum())
+        acc.add_inplace(&data.rowwise_sum())
     }
 
     fn reduce_one(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
         let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(!mask));
-        masked.mul(&elem);
+        masked.mul_inplace(&elem);
 
-        acc.add(&masked)
+        acc.add_inplace(&masked)
     }
 }
 
@@ -196,7 +250,7 @@ fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>, TC: AttentionMatmulConfig>
 
     // Broadcast back to subgroup
     let result = &fpb.plane_broadcast(&vals, unit_pos - unit_pos_in_row);
-    vals.copy_from(result);
+    vals.copy_from(&result);
 }
 
 #[cube]

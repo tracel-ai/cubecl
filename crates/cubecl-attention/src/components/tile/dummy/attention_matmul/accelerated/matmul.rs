@@ -39,7 +39,7 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_and_mask(&mut self, _scale: &RowWise<E>, _mask: TileMask) {
+    fn scale_and_mask(&mut self, _scale: E, _mask: TileMask) {
         todo!()
     }
 

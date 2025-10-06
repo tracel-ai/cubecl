@@ -14,6 +14,6 @@ pub trait PlaneLayout<E: Float>: CubeType {
     fn rowwise_sum(&self) -> RowWise<E>;
 
     fn scale(&mut self, val: &RowWise<E>);
-    fn scale_and_mask(&mut self, scale: &RowWise<E>, mask: TileMask);
+    fn scale_and_mask(&mut self, scale: E, mask: TileMask);
     fn exp_m_diff(&mut self, m: &RowWise<E>);
 }
