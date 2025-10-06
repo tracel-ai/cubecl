@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::PlaneOps;
-use crate::components::tile::RowOp;
+use crate::components::tile::Reducer;
+use crate::components::tile::ReduceOp;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
@@ -11,8 +11,8 @@ use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 pub struct DummyReducer {}
 
 #[cube]
-impl PlaneOps for DummyReducer {
-    fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>, TC: AttentionMatmulConfig>(
+impl Reducer for DummyReducer {
+    fn row_op<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
         data: &PL,
         #[comptime] config: TC,
@@ -52,7 +52,7 @@ impl PlaneOps for DummyReducer {
                     (UNIT_POS_X / data.num_units_per_row()) * data.num_units_per_row();
                 let offset = plane_offset + row_offset + unit_offset;
 
-                val = RO::reduce_scalar(val, smem[offset + c]);
+                val = RO::reduce_step_scalar(val, smem[offset + c]);
             }
 
             vals.replace_at(r, val);

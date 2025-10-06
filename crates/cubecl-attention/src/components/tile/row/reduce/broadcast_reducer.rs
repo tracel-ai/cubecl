@@ -1,18 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::PlaneOps;
-use crate::components::tile::RowOp;
+use crate::components::tile::ReduceOp;
+use crate::components::tile::Reducer;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 #[derive(CubeType)]
-pub struct Reducer {}
+pub struct BroadcastReducer {}
 
 #[cube]
-impl PlaneOps for Reducer {
-    fn row_op<E: Float, PL: PlaneLayout<E>, RO: RowOp<E>, TC: AttentionMatmulConfig>(
+impl Reducer for BroadcastReducer {
+    fn row_op<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
         data: &PL,
         #[comptime] config: TC,
@@ -35,7 +35,7 @@ impl PlaneOps for Reducer {
 
             // Mask if outside the row
             let mask = unit_pos_in_row + offset >= num_units_per_row;
-            RO::reduce_one(vals, &value_from_source, mask);
+            RO::reduce_step_rowwise(vals, &value_from_source, mask);
         }
 
         // Broadcast back to subgroup
