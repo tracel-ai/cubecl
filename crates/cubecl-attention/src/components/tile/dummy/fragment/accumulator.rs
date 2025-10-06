@@ -29,13 +29,12 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<AP>
     for DummyAccumulator<AP, AM>
 {
     fn scale_mul(&mut self, scale: &RowWise<SM<AP>>) {
-        // TODO RowWise cast
-        self.fragment.scale(ACC::<AP>::cast_from(scale.index(0u32)));
+        self.fragment.scale(&RowWise::<SM<AP>>::cast_from(scale));
     }
 
     fn scale_div(&mut self, scale: &RowWise<SM<AP>>) {
-        // TODO RowWise cast
-        self.fragment
-            .scale(Recip::recip(ACC::<AP>::cast_from(scale.index(0u32))));
+        let mut scale = RowWise::<SM<AP>>::cast_from(scale);
+        scale.recip();
+        self.fragment.scale(&scale);
     }
 }

@@ -27,6 +27,14 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
+    fn rowwise_max(&self) -> RowWise<E> {
+        todo!()
+    }
+
+    fn rowwise_sum(&self) -> RowWise<E> {
+        todo!()
+    }
+
     fn scale(&mut self, _val: &RowWise<E>) {
         todo!()
     }

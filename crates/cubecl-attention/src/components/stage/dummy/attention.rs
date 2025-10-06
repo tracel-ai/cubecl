@@ -13,6 +13,7 @@ use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::SoftmaxPartition;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 
@@ -82,7 +83,7 @@ impl<
             }
 
             let mut q = comptime![0u32];
-            let mut scales = Sequence::<TA::RowWise>::new();
+            let mut scales = Sequence::<RowWise<SM<AP>>>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]

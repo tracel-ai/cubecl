@@ -17,28 +17,3 @@ pub trait PlaneLayout<E: Float>: CubeType {
     fn scale_and_mask(&mut self, scale: &RowWise<E>, mask: TileMask);
     fn exp_m_diff(&mut self, m: &RowWise<E>);
 }
-
-// #[cube]
-// pub trait RowWise: CubeType {
-//     type E: Float;
-
-//     fn new_filled(#[comptime] num_rows: u32, val: Self::E) -> Self;
-//     fn new_min_value(#[comptime] num_rows: u32) -> Self;
-//     fn new_zero(#[comptime] num_rows: u32) -> Self;
-
-//     fn copy_from(this: &mut Self, other: &Self);
-//     fn index(&self, i: u32) -> Self::E;
-//     fn fill(this: &mut Self, val: Self::E);
-
-//     fn row_sum<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
-//         placeholder: &mut Self,
-//         data: &PL,
-//         #[comptime] config: TC,
-//     );
-//     fn row_max<PL: PlaneLayout<RW = Self>, TC: AttentionMatmulConfig>(
-//         placeholder: &mut Self,
-//         base: &Self,
-//         data: &PL,
-//         #[comptime] config: TC,
-//     );
-// }

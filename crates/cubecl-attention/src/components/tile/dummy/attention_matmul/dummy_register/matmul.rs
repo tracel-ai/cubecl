@@ -7,7 +7,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::RowWise;
+use crate::components::tile::{RowVal, RowWise};
 
 use crate::components::TileMask;
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
@@ -126,6 +126,52 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
 
     fn num_units_per_row(&self) -> comptime_type!(u32) {
         comptime!(self.total_size.1 / self.unit_size.1)
+    }
+
+    fn rowwise_max(&self) -> RowWise<E> {
+        let mut vals = Sequence::new();
+
+        #[unroll]
+        for r in 0..self.unit_size.0 {
+            let row_offset = r * self.unit_size.1;
+            let mut val = E::min_value();
+
+            #[unroll]
+            for c in 0..self.unit_size.1 {
+                let index = row_offset + c;
+                val = Max::max(val, self.array[index]);
+            }
+
+            vals.push(RowVal::<E> { val });
+        }
+
+        RowWise::<E> {
+            num_rows: self.unit_size.0,
+            vals,
+        }
+    }
+
+    fn rowwise_sum(&self) -> RowWise<E> {
+        let mut vals = Sequence::new();
+
+        #[unroll]
+        for r in 0..self.unit_size.0 {
+            let row_offset = r * self.unit_size.1;
+            let mut val = E::from_int(0);
+
+            #[unroll]
+            for c in 0..self.unit_size.1 {
+                let index = row_offset + c;
+                val += self.array[index];
+            }
+
+            vals.push(RowVal::<E> { val });
+        }
+
+        RowWise::<E> {
+            num_rows: self.unit_size.0,
+            vals,
+        }
     }
 
     fn scale(&mut self, scale: &RowWise<E>) {

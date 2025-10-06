@@ -7,13 +7,13 @@ use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 #[derive(CubeType)]
 pub struct RowWise<E: Float> {
     #[cube(comptime)]
-    num_rows: u32,
-    vals: Sequence<RowVal<E>>,
+    pub num_rows: u32,
+    pub vals: Sequence<RowVal<E>>,
 }
 
 #[derive(CubeType)]
 pub struct RowVal<E: Float> {
-    val: E,
+    pub val: E,
 }
 
 #[cube]
@@ -83,6 +83,17 @@ impl<E: Float> RowWise<E> {
         }
     }
 
+    pub fn recip(&mut self) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
+            row_val.val = Recip::recip(row_val.val);
+
+            comptime![i += 1];
+        }
+    }
+
     pub fn max(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
@@ -91,6 +102,24 @@ impl<E: Float> RowWise<E> {
             Max::max(row_val.val, other.index(i));
 
             comptime![i += 1];
+        }
+    }
+
+    pub fn cast_from<E2: Float>(&self) -> RowWise<E2> {
+        let mut vals = Sequence::new();
+        let mut i = comptime![0u32];
+
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let val = E2::cast_from(self.index(i));
+            vals.push(RowVal::<E2> { val });
+
+            comptime![i += 1];
+        }
+
+        RowWise::<E2> {
+            num_rows: self.num_rows,
+            vals,
         }
     }
 }
@@ -209,7 +238,9 @@ impl<E: Float> FakePlaneBroadcast<E> {
 
     pub fn plane_broadcast(&mut self, val: &RowWise<E>, source_unit: u32) -> RowWise<E> {
         let mut result = Sequence::new();
-        for row in 0..val.num_rows {
+
+        let mut row = comptime![0];
+        for _ in 0..val.num_rows {
             self.slice[UNIT_POS_X] = val.index(row);
             sync_cube();
 
@@ -217,7 +248,10 @@ impl<E: Float> FakePlaneBroadcast<E> {
                 val: self.slice[source_unit],
             });
             sync_cube();
+
+            comptime![row += 1];
         }
+
         RowWise::<E> {
             num_rows: val.num_rows,
             vals: result,
