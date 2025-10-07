@@ -20,6 +20,12 @@ impl PersistentPool {
             alignment,
         }
     }
+
+    pub fn has_size(&mut self, size: u64) -> bool {
+        let padding = calculate_padding(size, self.alignment);
+        let size_reserve = size + padding;
+        self.sizes.contains_key(&size_reserve)
+    }
 }
 
 impl MemoryPool for PersistentPool {

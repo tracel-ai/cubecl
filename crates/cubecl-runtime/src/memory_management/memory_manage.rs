@@ -356,7 +356,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             return Ok(val);
         }
 
-        if let MemoryAllocationMode::Persistent = self.mode {
+        if matches!(self.mode, MemoryAllocationMode::Persistent) || self.persistent.has_size(size) {
             let allocated = self.persistent.alloc(&mut self.storage, size);
 
             self.logger.log_memory(
