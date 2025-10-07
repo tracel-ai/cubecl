@@ -8,7 +8,6 @@ use std::{fmt::Debug, hash::Hash};
 
 use crate::components::attention_types::*;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
-use crate::components::{AttentionIdent, StageMask};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
@@ -16,6 +15,7 @@ use crate::components::{
     tile::{AttentionTilingLayout, dummy::AttentionMatmulConfig},
 };
 use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
+use crate::components::{StageMask, tile::RunningState};
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -62,14 +62,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
 
-    type State: CubeType;
-
     type QueryPartition: CubeType;
     type KeyValuePartition: CubeType;
     type SoftmaxPartition: CubeType;
     type AccumulatorPartition: CubeType;
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State;
+    fn init_state(#[comptime] config: Self::Config) -> Sequence<RunningState<SM<AP>>>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -79,13 +77,13 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         score: &mut Self::SoftmaxPartition,
         mask: StageMask,
         accumulator: &mut Self::AccumulatorPartition,
-        prev_state: &mut Self::State,
+        prev_state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
         acc: &mut Self::AccumulatorPartition,
-        state: Self::State,
+        state: Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 
@@ -123,5 +121,5 @@ pub trait StageAttentionConfig:
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;
 
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
+    fn num_rows_per_unit(&self) -> u32;
 }

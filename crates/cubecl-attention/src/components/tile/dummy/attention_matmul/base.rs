@@ -4,6 +4,7 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
+use crate::components::tile::PlaneLayout;
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
@@ -16,8 +17,8 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: AttentionMatmulConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Softmax: CubeType;
-    type Accumulator: CubeType;
+    type Softmax: PlaneLayout<SM<AP>>;
+    type Accumulator: PlaneLayout<ACC<AP>>;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -33,7 +34,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_fill_query<EI: Numeric>(
+    fn allocate_fill_query<EI: Float>(
         tile: &StridedTile<EI>,
         #[comptime] config: Self::Config,
     ) -> Self::Query;
@@ -42,7 +43,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
-    fn fill_key_value<E: Numeric>(
+    fn fill_key_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
@@ -52,28 +53,11 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] config: Self::Config);
+    fn zero_accumulator(acc: &mut Self::Accumulator);
 
-    fn write_results<E: Numeric>(
+    fn write_results<E: Float>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<E>>,
-        #[comptime] config: Self::Config,
-    );
-
-    // These methods should be deletable when we have proper control over fragments
-    fn tmp_fill_accumulator(
-        tile: &StridedTile<ACC<AP>>,
-        acc: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    );
-    fn tmp_fill_prob(
-        tile: &StridedTile<SM<AP>>,
-        prob: &mut Self::Softmax,
-        #[comptime] config: Self::Config,
-    );
-    fn tmp_write_softmax(
-        softmax: &Self::Softmax,
-        slice: &mut SliceMut<Line<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 }
@@ -91,11 +75,9 @@ pub trait AttentionMatmulConfig:
     // If AP::EI != FP::Q
     fn cast_query(&self) -> bool;
 
-    fn num_units_per_row(&self, ident: AttentionIdent) -> u32;
-    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32;
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
-
     fn check_bounds(&self) -> bool;
+
+    fn num_rows_per_unit(&self) -> u32;
 }
 
 pub trait AttentionMatmulFamily: Send + Sync + 'static {
@@ -119,6 +101,7 @@ pub trait AttentionMatmulFamily: Send + Sync + 'static {
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.

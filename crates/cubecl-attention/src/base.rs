@@ -9,7 +9,7 @@ use crate::{
         AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
         batch::HypercubeSelection,
     },
-    kernels::{Algorithm, dummy::DummyAlgorithm},
+    kernels::{Algorithm, dummy::DummyRegisterAlgorithm},
 };
 
 use crate::components::batch::BatchAttentionConfig;
@@ -66,7 +66,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         &MSK::<AP>::as_type_native_unchecked(),
         &OG::<AP>::as_type_native_unchecked(),
     );
-    let line_sizes = DummyAlgorithm::filter_line_sizes(line_sizes)
+    let line_sizes = DummyRegisterAlgorithm::filter_line_sizes(line_sizes)
         .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
         .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
         .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
@@ -105,16 +105,17 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         },
         plane_dim: 32,
         reuse_key_value: false,
+        two_rows_in_array_tile: false,
     };
 
-    let config = DummyAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config = DummyRegisterAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
     unsafe {
-        <DummyAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
+        <DummyRegisterAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),

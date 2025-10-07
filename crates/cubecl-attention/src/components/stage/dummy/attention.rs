@@ -7,16 +7,15 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::StageMask;
 use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::SoftmaxPartition;
-use crate::components::stage::dummy::StageState;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{StageMask, tile::RunningState};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
@@ -37,7 +36,6 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type State = StageState<AP>;
     type QueryPartition = Queries<AP, TA, Self::Config>;
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
@@ -51,7 +49,7 @@ impl<
         softmax_partition: &mut Self::SoftmaxPartition,
         mask: StageMask,
         accumulator_partition: &mut Self::AccumulatorPartition,
-        state: &mut Self::State,
+        state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
         let partition_mask = mask.to_partition(UNIT_POS_Y);
@@ -59,6 +57,9 @@ impl<
         let p = config.tiling_scheme().partition_size;
 
         let mut kv = comptime![0u32];
+
+        let mut max_placeholder = TA::init_max_placeholder(config.num_rows_per_unit());
+        let mut sum_placeholder = TA::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
@@ -80,7 +81,7 @@ impl<
             }
 
             let mut q = comptime![0u32];
-            let mut scales = Sequence::<RowWise<ACC<AP>>>::new();
+            let mut scales = Sequence::<RowWise<SM<AP>>>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
@@ -101,16 +102,17 @@ impl<
                     comptime![hd += 1];
                 }
 
-                let state_q = state.get_at_mut(q);
+                let state_q = state.index_mut(q);
 
-                let accumulator_scale = TA::softmax(
+                scales.push(TA::softmax(
                     softmax_tile,
                     partition_mask.to_tile(q, kv),
                     state_q,
+                    &mut max_placeholder,
+                    &mut sum_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
-                );
-
-                scales.push(accumulator_scale);
+                    config.tile_config(),
+                ));
 
                 comptime![q += 1];
             }
@@ -162,7 +164,7 @@ impl<
 
     fn rescale(
         acc: &mut Self::AccumulatorPartition,
-        state: Self::State,
+        state: Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
         let p = config.tiling_scheme().partition_size;
@@ -179,7 +181,7 @@ impl<
             for _ in 0..p.val_dim {
                 TA::rescale(
                     Self::AccumulatorPartition::get_at_mut(acc, q, vd, config),
-                    state.get_at(q),
+                    state.index(q),
                     config.tile_config(),
                 );
 
@@ -190,8 +192,16 @@ impl<
         }
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Self::State {
-        StageState::<AP>::init::<Self::Config>(config)
+    fn init_state(#[comptime] config: Self::Config) -> Sequence<RunningState<SM<AP>>> {
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        #[unroll]
+        for _ in 0..comptime!(p.seq_q) {
+            sequence.push(TA::init_state(config.tile_config()));
+        }
+
+        sequence
     }
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
