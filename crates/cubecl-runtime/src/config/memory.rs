@@ -1,7 +1,7 @@
 use super::logger::{LogLevel, LoggerConfig};
 
 /// Configuration for memory settings in CubeCL.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 pub struct MemoryConfig {
     /// Logger configuration for memory-related logs, using specific log levels.
     #[serde(default)]
@@ -25,15 +25,6 @@ pub enum PersistentMemory {
     ///
     /// Enforcing persistent memory may cause out-of-memory errors if tensors of varying sizes are used.
     Enforced,
-}
-
-impl Default for MemoryConfig {
-    fn default() -> Self {
-        Self {
-            logger: LoggerConfig::default(),
-            persistent_memory: PersistentMemory::default(),
-        }
-    }
 }
 
 /// Log levels for memory-related events in CubeCL.

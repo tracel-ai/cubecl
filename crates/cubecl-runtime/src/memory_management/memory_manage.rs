@@ -3,7 +3,10 @@ use super::{
     memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
-    config::memory::MemoryLogLevel,
+    config::{
+        GlobalConfig,
+        memory::{MemoryLogLevel, PersistentMemory},
+    },
     logging::ServerLogger,
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
@@ -95,6 +98,7 @@ pub struct MemoryManagement<Storage> {
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
+    config: PersistentMemory,
     logger: Arc<ServerLogger>,
 }
 
@@ -259,12 +263,20 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
+        let config = GlobalConfig::get().memory.persistent_memory.clone();
+
+        let mode = match config {
+            PersistentMemory::Enabled => MemoryAllocationMode::Auto,
+            PersistentMemory::Disabled => MemoryAllocationMode::Auto,
+            PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+        };
         Self {
             persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
             pools,
             storage,
             alloc_reserve_count: 0,
-            mode: MemoryAllocationMode::Auto,
+            mode,
+            config,
             logger,
         }
     }
@@ -275,6 +287,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             |level| !matches!(level, MemoryLogLevel::Disabled),
             || format!("Setting memory allocation mode: {mode:?}"),
         );
+        // We override the mode based on the cubecl config.
+        let mode = match self.config {
+            PersistentMemory::Enabled => mode,
+            PersistentMemory::Disabled => MemoryAllocationMode::Auto,
+            PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+        };
         self.mode = mode;
     }
 
@@ -282,7 +300,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn cleanup(&mut self, explicit: bool) {
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
-            || format!("Manual memory cleanup ..."),
+            || "Manual memory cleanup ...".to_string(),
         );
 
         self.persistent
