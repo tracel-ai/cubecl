@@ -229,7 +229,7 @@ mod launch {
         ) -> Self {
             // Hash ahead of time so we don't need to store the actual data, which would be far
             // more complex
-            let state = foldhash::fast::RandomState::default();
+            let state = foldhash::fast::FixedState::default();
             let hash = state.hash_one(arg);
             Self {
                 type_name: core::any::type_name::<L>().to_string(),
