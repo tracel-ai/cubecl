@@ -136,17 +136,6 @@ macro_rules! impl_float {
                 $new(val)
             }
         }
-
-        impl LaunchArgExpand for $primitive {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_type(&builder.scope)).into()
-            }
-        }
     };
 }
 

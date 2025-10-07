@@ -35,6 +35,7 @@ serde_json = { version = "1.0.119", default-features = false }
 toml = "0.9.1"
 variadics_please = "1"
 
+# no_std compatiblity
 dashmap = "6.1.0"
 foldhash = { version = "0.1.2", default-features = false }
 hashbrown = "0.15.5"
@@ -86,11 +87,10 @@ tracy-client = { version = "0.18.0" }
 strum = { version = "0.27.1", features = ["derive"] }
 tracel-xtask = { version = "=2.1.8" }
 
-
-portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
 ] }
+portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async

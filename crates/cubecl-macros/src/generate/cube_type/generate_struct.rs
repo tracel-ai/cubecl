@@ -200,8 +200,6 @@ impl CubeTypeStruct {
         });
 
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize)]
-            #[serde(bound(serialize = "", deserialize = ""))]
             #vis struct #name #generics {
                 #(#fields),*
             }
@@ -243,7 +241,7 @@ impl CubeTypeStruct {
     }
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
-        let launch_arg_expand = prelude_type("LaunchArgExpand");
+        let launch_arg = prelude_type("LaunchArg");
         let body_input =
             self.fields
                 .iter()
@@ -252,18 +250,20 @@ impl CubeTypeStruct {
                     if is_comptime {
                         quote![#name: arg.#name.clone()]
                     } else {
-                        quote![#name: <#ty as #launch_arg_expand>::expand(&arg.#name, builder)]
+                        quote![#name: <#ty as #launch_arg>::expand(&arg.#name, builder)]
                     }
                 });
-        let body_output = self.fields.iter().map(TypeField::split).map(
-            |(_vis, name, ty, is_comptime)| {
-                if is_comptime {
-                    quote![#name: arg.#name.clone()]
-                } else {
-                    quote![#name: <#ty as #launch_arg_expand>::expand_output(&arg.#name, builder)]
-                }
-            },
-        );
+        let body_output =
+            self.fields
+                .iter()
+                .map(TypeField::split)
+                .map(|(_vis, name, ty, is_comptime)| {
+                    if is_comptime {
+                        quote![#name: arg.#name.clone()]
+                    } else {
+                        quote![#name: <#ty as #launch_arg>::expand_output(&arg.#name, builder)]
+                    }
+                });
 
         let name = &self.ident;
         let name_launch = &self.name_launch;
@@ -283,18 +283,15 @@ impl CubeTypeStruct {
         quote! {
             #compilation_arg
 
-            impl #type_generics LaunchArg for #name #type_generic_names #where_clause {
+            impl #type_generics #launch_arg for #name #type_generic_names #where_clause {
                 type RuntimeArg #assoc_generics = #name_launch #all_generic_names;
+                type CompilationArg = #compilation_ident #compilation_generics;
 
                 fn compilation_arg<'a, R: Runtime>(
                     runtime_arg: &Self::RuntimeArg<'a, R>,
                 ) -> Self::CompilationArg {
                     #compilation_arg_impl
                 }
-            }
-
-            impl #type_generics LaunchArgExpand for #name #type_generic_names #where_clause {
-                type CompilationArg = #compilation_ident #compilation_generics;
 
                 fn expand(
                     arg: &Self::CompilationArg,
@@ -392,7 +389,7 @@ impl TypeField {
     }
 
     pub fn compilation_arg_field(&self) -> TokenStream {
-        let launch_arg = prelude_type("LaunchArgExpand");
+        let launch_arg = prelude_type("LaunchArg");
         let vis = &self.vis;
         let name = self.ident.as_ref().unwrap();
         let ty = &self.ty;

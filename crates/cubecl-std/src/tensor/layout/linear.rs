@@ -2,8 +2,8 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
-    is_contiguous, is_contiguous_pitched,
-    launch::{TypedView, TypedViewLaunch},
+    View, is_contiguous, is_contiguous_pitched,
+    launch::ViewLaunch,
     layout::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutLaunch},
@@ -141,9 +141,9 @@ impl Layout for LinearLayout {
 
 /// [TensorView] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
-pub type LinearView<E, IO = ReadOnly> = TypedView<E, LinearLayout, IO>;
+pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
 /// Launch type for [LinearTensorView].
-pub type LinearViewLaunch<'a, R> = TypedViewLaunch<'a, LinearLayout, R>;
+pub type LinearViewLaunch<'a, R> = ViewLaunch<'a, Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size
 pub fn linear_view<'a, R: Runtime>(
@@ -156,7 +156,7 @@ pub fn linear_view<'a, R: Runtime>(
     let buffer = unsafe {
         ArrayArg::from_raw_parts_and_size(handle.handle, len, line_size, handle.elem_size)
     };
-    LinearViewLaunch::new(buffer, layout)
+    LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
 
 /// Create a possibly broadcast linear tensor view from a handle, reference handle and line size
@@ -171,7 +171,7 @@ pub fn linear_view_with_reference<'a, R: Runtime>(
     let buffer = unsafe {
         ArrayArg::from_raw_parts_and_size(handle.handle, len, line_size, handle.elem_size)
     };
-    LinearViewLaunch::new(buffer, layout)
+    LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
 
 pub fn linear_view_alias<'a, R: Runtime>(
@@ -182,5 +182,5 @@ pub fn linear_view_alias<'a, R: Runtime>(
 ) -> LinearViewLaunch<'a, R> {
     let layout = LinearLayoutArgs::from_handle(client, handle, line_size);
     let buffer = ArrayArg::Alias { input_pos: pos };
-    LinearViewLaunch::new(buffer, layout)
+    LinearViewLaunch::new::<LinearLayout>(buffer, layout)
 }
