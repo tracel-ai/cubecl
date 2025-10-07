@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::KVT;
-use crate::components::tile::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::dummy::AttentionMatmul;
+use crate::components::tile::{KeyValueTile, KeyValueTileExpand};
 
 #[derive(CubeType)]
 pub enum KeyValueFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
