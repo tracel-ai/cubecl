@@ -124,7 +124,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
 
         softmax.row_max::<Self::Config>(max_placeholder, &state.m, config);
 
-        softmax.to_prob::<Self::Config>(state, &max_placeholder, sum_placeholder, config)
+        softmax.to_prob::<Self::Config>(state, max_placeholder, sum_placeholder, config)
     }
 
     fn accumulate_value(
