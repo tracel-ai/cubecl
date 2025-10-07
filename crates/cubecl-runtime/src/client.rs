@@ -528,7 +528,7 @@ where
         let stream_id = self.profile_acquire();
 
         self.channel
-            .allocation_mode(MemoryAllocationMode::Static, self.stream_id());
+            .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
         let output = func(input);
         self.channel
             .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());

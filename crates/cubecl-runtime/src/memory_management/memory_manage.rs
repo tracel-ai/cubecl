@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
     server::IoError,
@@ -80,14 +80,14 @@ pub enum MemoryAllocationMode {
     /// Use the automatic memory management strategy for allocation.
     #[default]
     Auto,
-    /// Use a static memory management strategy, meaning that all allocations are for data that is
-    /// never going to be freed.
-    Static,
+    /// Use a persistent memory management strategy, meaning that all allocations are for data that is
+    /// likely never going to be freed.
+    Persistent,
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
-    static_pool: StaticPool,
+    persistent: PersistentPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
@@ -248,7 +248,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             .collect();
 
         Self {
-            static_pool: StaticPool::new(properties.max_page_size),
+            persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
             pools,
             storage,
             alloc_reserve_count: 0,
@@ -263,7 +263,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
-        self.static_pool
+        self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
@@ -273,7 +273,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
-        if let Some(val) = self.static_pool.get(&binding) {
+        if let Some(val) = self.persistent.get(&binding) {
             return Some(val.clone());
         }
 
@@ -304,13 +304,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
-        if let MemoryAllocationMode::Static = self.mode {
-            return self.static_pool.alloc(&mut self.storage, size);
-        }
-
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
+
+        if let Some(val) = self.persistent.try_reserve(size) {
+            return Ok(val);
+        }
+
+        if let MemoryAllocationMode::Persistent = self.mode {
+            return self.persistent.alloc(&mut self.storage, size);
+        }
 
         // Find first pool that fits this allocation
         let pool = self
@@ -351,7 +355,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
             |m1, m2| m1.combine(m2),
         );
-        memory_usage.combine(self.static_pool.get_memory_usage())
+        memory_usage.combine(self.persistent.get_memory_usage())
     }
 
     /// Print out a report of the current memory usage.

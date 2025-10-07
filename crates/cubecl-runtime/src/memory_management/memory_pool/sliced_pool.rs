@@ -1,4 +1,3 @@
-use super::index::SearchIndex;
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
 use crate::memory_management::MemoryUsage;
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
@@ -13,7 +12,6 @@ use hashbrown::HashMap;
 pub(crate) struct SlicedPool {
     pages: HashMap<StorageId, MemoryPage>,
     slices: HashMap<SliceId, Slice>,
-    storage_index: SearchIndex<StorageId>,
     ring: RingBuffer,
     recently_added_pages: Vec<StorageId>,
     recently_allocated_size: u64,
@@ -186,7 +184,6 @@ impl SlicedPool {
         Self {
             pages: HashMap::new(),
             slices: HashMap::new(),
-            storage_index: SearchIndex::new(),
             ring: RingBuffer::new(alignment),
             recently_added_pages: Vec::new(),
             recently_allocated_size: 0,
@@ -227,7 +224,6 @@ impl SlicedPool {
         self.ring.push_page(id);
 
         self.pages.insert(id, MemoryPage::new(HashMap::new()));
-        self.storage_index.insert(id, self.page_size);
 
         Ok(id)
     }
