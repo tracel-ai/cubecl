@@ -253,6 +253,17 @@ impl_binary_func!(
     f64
 );
 impl_binary_func!(
+    ArcTan2,
+    atan2,
+    Arithmetic::ArcTan2,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_binary_func!(
     Max,
     max,
     Arithmetic::Max,
