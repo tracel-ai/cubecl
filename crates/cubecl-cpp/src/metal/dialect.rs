@@ -322,7 +322,6 @@ struct alignas({alignment}) {item} {{"
         shared: &SharedMemory<Self>,
     ) -> std::fmt::Result {
         let item = shared.item;
-        let item_size = item.size();
         let index = shared.index;
         let offset = shared.offset;
         let size = shared.length;
