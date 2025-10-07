@@ -1,12 +1,19 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, unexpanded};
+use cubecl_core::{
+    self as cubecl,
+    prelude::barrier::{Barrier, BarrierExpand},
+    unexpanded,
+};
 
-use crate::tensor::{
-    ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
-    VirtualViewMut,
-    layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
+use crate::{
+    CubeOption, CubeOptionExpand,
+    tensor::{
+        ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand,
+        VirtualView, VirtualViewMut,
+        layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
+    },
 };
 
 /// A conceptual view of an underlying linear storage.
@@ -18,6 +25,9 @@ pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     _ty: PhantomData<(E, IO)>,
 }
 
+// `View` is a dummy type so it's always send/sync
+unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Send for View<E, C, IO> {}
+unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Sync for View<E, C, IO> {}
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for View<E, C, IO> {}
 
 #[derive(Clone)]
@@ -482,5 +492,66 @@ impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
         let size = C::__expand_min(scope, size, max_size);
         let layout = SliceLayout::__expand_new(scope, pos, size, true);
         self.clone().__expand_view_mut_method(scope, layout.into())
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> View<E, C, IO> {
+    ///.Execute a TMA load into shared memory, if the underlying storage supports it.
+    /// Panics if it's unsupported.
+    pub fn tensor_map_load(
+        &self,
+        _barrier: &Barrier,
+        _shared_memory: &mut Slice<E, ReadWrite>,
+        _pos: C,
+    ) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+
+    /// Fetches the underlying tensor map if present, to override the layout and apply a different
+    /// base dimensionality.
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E>> {
+        unexpanded!()
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
+    pub fn __expand_tensor_map_load_method(
+        self,
+        scope: &mut Scope,
+        barrier: BarrierExpand,
+        shared_memory: SliceExpand<E, ReadWrite>,
+        pos: C::ExpandType,
+    ) {
+        self.inner
+            .read()
+            .__expand_tensor_map_load_method(scope, barrier, shared_memory, pos)
+    }
+
+    pub fn __expand_as_tensor_map_method(
+        self,
+        scope: &mut Scope,
+    ) -> CubeOptionExpand<TensorMap<E>> {
+        self.inner.read().__expand_as_tensor_map_method(scope)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
+    ///.Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Panics if it's unsupported.
+    pub fn tensor_map_store(&self, _shared_memory: &Slice<E>, _pos: C) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
+    pub fn __expand_tensor_map_store_method(
+        self,
+        scope: &mut Scope,
+        shared_memory: SliceExpand<E, ReadOnly>,
+        pos: C::ExpandType,
+    ) {
+        self.inner
+            .write()
+            .__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }

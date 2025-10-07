@@ -3,11 +3,10 @@ use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::{
     Runtime,
-    compute::{KernelBuilder, KernelLauncher},
+    compute::KernelLauncher,
     prelude::{
-        CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-        LaunchArgExpand, Numeric, ScalarArgSettings, into_mut_expand_element,
-        into_runtime_expand_element,
+        CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, Numeric,
+        ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
     },
 };
 
@@ -46,14 +45,6 @@ impl ExpandElementIntoMut for e4m3 {
 
 impl ScalarArgSettings for e4m3 {
     fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
-    }
-}
-
-impl LaunchArgExpand for e4m3 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, _builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         todo!("Not yet supported for scalars")
     }
 }
@@ -97,14 +88,6 @@ impl ScalarArgSettings for e5m2 {
     }
 }
 
-impl LaunchArgExpand for e5m2 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, _builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        todo!("Not yet supported for scalars")
-    }
-}
-
 impl CubeType for ue8m0 {
     type ExpandType = ExpandElementTyped<ue8m0>;
 }
@@ -140,14 +123,6 @@ impl ExpandElementIntoMut for ue8m0 {
 
 impl ScalarArgSettings for ue8m0 {
     fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
-    }
-}
-
-impl LaunchArgExpand for ue8m0 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, _builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         todo!("Not yet supported for scalars")
     }
 }

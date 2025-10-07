@@ -382,16 +382,6 @@ impl<const POS: u8> Not for ElemExpand<POS> {
     }
 }
 
-impl<const POS: u8> LaunchArgExpand for ElemExpand<POS> {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder
-            .scalar(ElemExpand::<POS>::as_type(&builder.scope))
-            .into()
-    }
-}
-
 impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_f32(self.0);

@@ -49,7 +49,7 @@ pub struct SyncPartialStageGlobalReader<
     G: GlobalConfig,
     L: SyncPartialLoadingStrategy,
 > {
-    global_iter: GlobalIterator<IP::Global>,
+    global_iter: GlobalIterator<Line<IP::Global>>,
     stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]

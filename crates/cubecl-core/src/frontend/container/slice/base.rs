@@ -48,7 +48,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     }
 }
 
-pub trait SliceVisibility: Clone + Copy {}
+pub trait SliceVisibility: Clone + Copy + Send + Sync + 'static {}
 
 impl SliceVisibility for ReadOnly {}
 

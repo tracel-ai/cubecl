@@ -6,9 +6,7 @@ use crate::{
     Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
-    prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
-    },
+    prelude::{ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg},
 };
 
 use super::Tensor;
@@ -73,8 +71,22 @@ pub struct TensorCompilationArg {
 
 impl CompilationArg for TensorCompilationArg {}
 
-impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
+impl<C: CubePrimitive> LaunchArg for Tensor<C> {
+    type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
     type CompilationArg = TensorCompilationArg;
+
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+        match runtime_arg {
+            TensorArg::Handle { line_size, .. } => TensorCompilationArg {
+                inplace: None,
+                line_size: *line_size as u32,
+            },
+            TensorArg::Alias { input_pos } => TensorCompilationArg {
+                inplace: Some(*input_pos as Id),
+                line_size: 0,
+            },
+        }
+    }
 
     fn expand(
         arg: &Self::CompilationArg,
@@ -93,23 +105,6 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
             None => builder
                 .output_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
                 .into(),
-        }
-    }
-}
-
-impl<C: CubePrimitive> LaunchArg for Tensor<C> {
-    type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
-
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
-        match runtime_arg {
-            TensorArg::Handle { line_size, .. } => TensorCompilationArg {
-                inplace: None,
-                line_size: *line_size as u32,
-            },
-            TensorArg::Alias { input_pos } => TensorCompilationArg {
-                inplace: Some(*input_pos as Id),
-                line_size: 0,
-            },
         }
     }
 }

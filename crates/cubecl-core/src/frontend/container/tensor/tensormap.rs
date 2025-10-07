@@ -119,8 +119,13 @@ pub struct TensorMapCompilationArg;
 
 impl CompilationArg for TensorMapCompilationArg {}
 
-impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
+impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
+    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
     type CompilationArg = TensorMapCompilationArg;
+
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+        TensorMapCompilationArg
+    }
 
     fn expand(
         _arg: &Self::CompilationArg,
@@ -135,14 +140,6 @@ impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
     ) -> ExpandElementTyped<TensorMap<E>> {
         let tensor = builder.output_tensor_map(Type::new(E::as_type(&builder.scope)));
         tensor.into()
-    }
-}
-
-impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
-
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
-        TensorMapCompilationArg
     }
 }
 

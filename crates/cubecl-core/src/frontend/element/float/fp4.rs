@@ -3,10 +3,10 @@ use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::{
     Runtime,
-    compute::{KernelBuilder, KernelLauncher},
+    compute::KernelLauncher,
     prelude::{
         CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-        LaunchArgExpand, ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
+        ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
     },
 };
 
@@ -60,14 +60,6 @@ impl ExpandElementIntoMut for e2m1x2 {
 
 impl ScalarArgSettings for e2m1x2 {
     fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
-    }
-}
-
-impl LaunchArgExpand for e2m1x2 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, _builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         todo!("Not yet supported for scalars")
     }
 }

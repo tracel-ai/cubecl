@@ -15,7 +15,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+    tensor::{AsTensorView, AsTensorViewExpand, layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -27,6 +27,7 @@ use crate::{
             read::{
                 bias::{BiasGlobalReader, BiasStage},
                 im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
+                layout::TmaWeightLayout,
                 weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
             },
         },
@@ -69,7 +70,7 @@ where
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs, Self::Config>;
-    type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs, SMM::Config>;
+    type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs>;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
     type GlobalWriter = PlaneWriter<MP::Acc>;
 
@@ -121,12 +122,12 @@ where
             let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
             lhs_reader.fill_stage(&barrier, stage);
-            rhs_reader.fill_stage(&barrier, stage, stage_config);
+            rhs_reader.fill_stage(&barrier, stage);
 
             arrive_tma(&barrier, stages_bytes);
 
             lhs_reader.advance_view(k_step);
-            rhs_reader.advance_view(k_step);
+            rhs_reader.advance_view();
 
             barriers.push(barrier);
 
@@ -168,12 +169,12 @@ where
 
                         // Refill stage and advance view
                         lhs_reader.fill_stage(barrier, stage);
-                        rhs_reader.fill_stage(barrier, stage, stage_config);
+                        rhs_reader.fill_stage(barrier, stage);
 
                         arrive_tma(barrier, stages_bytes);
 
                         lhs_reader.advance_view(k_step);
-                        rhs_reader.advance_view(k_step);
+                        rhs_reader.advance_view();
                     }
                 }
 
@@ -216,16 +217,15 @@ where
     fn init_rhs_global_reader(
         rhs: VirtualTensor<RhsG<MP>>,
         offset: Coords2d,
-        _slice_size: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        let (x_offset, y_offset) = offset;
+        let layout = TmaWeightLayout::new(runtime_args.padded_channels);
+        let rhs = rhs.as_tensor_map().unwrap().view_3d(layout);
         Self::RhsGlobalReader::new(
-            rhs.as_tensor_map().unwrap(),
-            x_offset,
-            y_offset,
-            runtime_args,
+            rhs.slice(offset, slice_size),
+            config.k_step,
             config.num_stages(MatmulIdent::Rhs),
             config.stage_memory_config(MatmulIdent::Rhs),
         )
