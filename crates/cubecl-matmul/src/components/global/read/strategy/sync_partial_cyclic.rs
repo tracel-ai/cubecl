@@ -136,7 +136,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -144,10 +144,10 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
             }
         }
     }
@@ -161,7 +161,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<IP::Global>,
+    global_iter: &GlobalIterator<Line<IP::Global>>,
     stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {

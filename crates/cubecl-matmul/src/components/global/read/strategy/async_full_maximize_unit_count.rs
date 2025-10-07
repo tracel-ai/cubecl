@@ -112,7 +112,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         _task_id: u32,
-        global_iter: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
