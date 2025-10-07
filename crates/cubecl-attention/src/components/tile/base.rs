@@ -10,7 +10,7 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
-    tile::{RowWise, RunningState, dummy::AttentionMatmulConfig},
+    tile::{KeyValueTile, QueryTile, RowWise, RunningState, dummy::AttentionMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use crate::components::{TileMask, tile::SoftmaxTile};
@@ -33,6 +33,7 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.
@@ -50,10 +51,10 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: AttentionMatmulConfig;
 
-    type QueryTile: CubeType;
-    type KeyValueTile: CubeType;
+    type QueryTile: QueryTile<QT<AP>>;
+    type KeyValueTile: KeyValueTile<KVT<AP>>;
     type SoftmaxTile: SoftmaxTile<AP>;
-    type AccumulatorTile: AccumulatorTile<ACC<AP>>;
+    type AccumulatorTile: AccumulatorTile<AP>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
@@ -77,13 +78,15 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile;
 
-    fn fill_key<E: Numeric>(
+    fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
+
+    fn fill_key<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
-    fn fill_value<E: Numeric>(
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
@@ -102,14 +105,20 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         softmax: &mut Self::SoftmaxTile,
         mask: TileMask,
         state: &mut RunningState<SM<AP>>,
+        max_placeholder: &mut RowWise<SM<AP>>,
+        sum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,
-    ) -> RowWise<ACC<AP>>;
+        #[comptime] config: Self::Config,
+    ) -> RowWise<SM<AP>>;
 
     fn accumulate_value(
         softmax: &Self::SoftmaxTile,
         key_value: &Self::KeyValueTile,
         accumulator: &mut Self::AccumulatorTile,
-        scale: &RowWise<ACC<AP>>,
+        scale: &RowWise<SM<AP>>,
         #[comptime] config: Self::Config,
     );
+
+    fn init_max_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>>;
+    fn init_sum_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>>;
 }

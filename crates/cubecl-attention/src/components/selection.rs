@@ -8,4 +8,5 @@ pub struct AttentionSelection {
     pub plane_dim: u32,
 
     pub reuse_key_value: bool,
+    pub two_rows_in_array_tile: bool,
 }

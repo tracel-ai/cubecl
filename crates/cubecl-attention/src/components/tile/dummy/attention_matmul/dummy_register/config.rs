@@ -1,8 +1,8 @@
-use cubecl_matmul::components::{MatrixLayout, StageIdent, TileSize, tile::TileConfig};
 use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::attention_types::*;
+use crate::components::tile::dummy::dummy_register::InnerLayout;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
     tile::dummy::AttentionMatmulConfig,
@@ -18,75 +18,7 @@ pub struct DummyRegisterAttentionMatmulConfig {
     key_value_stage_line_size: u32,
     cast_query: bool,
     check_bounds: bool,
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ScoreConfig {
-    plane_dim: u32,
-    tile_size: TileSize,
-    query_stage_line_size: u32,
-    key_value_stage_line_size: u32,
-}
-
-impl TileConfig for ScoreConfig {
-    fn plane_dim(&self) -> u32 {
-        self.plane_dim
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => self.query_stage_line_size,
-            StageIdent::Rhs => self.key_value_stage_line_size,
-            StageIdent::Acc => todo!(),
-            StageIdent::Out => todo!(),
-        }
-    }
-
-    fn global_line_size(&self, _ident: StageIdent) -> u32 {
-        panic!()
-    }
-
-    fn tile_size(&self) -> &TileSize {
-        &self.tile_size
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct ValueConfig {
-    plane_dim: u32,
-    tile_size: TileSize,
-    key_value_stage_line_size: u32,
-}
-
-impl TileConfig for ValueConfig {
-    fn plane_dim(&self) -> u32 {
-        self.plane_dim
-    }
-
-    fn matrix_layout(&self, _ident: StageIdent) -> MatrixLayout {
-        MatrixLayout::RowMajor
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        match ident {
-            StageIdent::Lhs => todo!(),
-            StageIdent::Rhs => self.key_value_stage_line_size,
-            StageIdent::Acc => todo!(),
-            StageIdent::Out => todo!(),
-        }
-    }
-
-    fn global_line_size(&self, _ident: StageIdent) -> u32 {
-        panic!()
-    }
-
-    fn tile_size(&self) -> &TileSize {
-        &self.tile_size
-    }
+    inner_layout: InnerLayout,
 }
 
 impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
@@ -117,24 +49,15 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
         self.cast_query
     }
 
-    fn num_units_per_row(&self, ident: AttentionIdent) -> u32 {
-        self.plane_dim / self.attention_tile_size.num_rows(ident)
-    }
-
-    fn num_cols_per_unit(&self, ident: AttentionIdent) -> u32 {
-        self.attention_tile_size
-            .num_cols(ident)
-            .div_ceil(self.num_units_per_row(ident))
-    }
-
-    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32 {
-        self.attention_tile_size
-            .num_rows(ident)
-            .div_ceil(self.plane_dim)
-    }
-
     fn check_bounds(&self) -> bool {
         self.check_bounds
+    }
+
+    fn num_rows_per_unit(&self) -> u32 {
+        match self.inner_layout {
+            InnerLayout::Contiguous => 1u32,
+            InnerLayout::SplitRows => 2u32,
+        }
     }
 }
 
@@ -146,6 +69,7 @@ impl DummyRegisterAttentionMatmulConfig {
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
         check_bounds: bool,
+        two_rows_in_array_tile: bool,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             plane_dim,
@@ -156,16 +80,48 @@ impl DummyRegisterAttentionMatmulConfig {
             cast_query: QG::<AP>::as_type_native_unchecked()
                 == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
+            inner_layout: if two_rows_in_array_tile {
+                InnerLayout::SplitRows
+            } else {
+                InnerLayout::Contiguous
+            },
         }
         .validate()
     }
 
     pub fn validate(self) -> Result<Self, AttentionSetupError> {
+        let softmax_num_rows = self.attention_tile_size.seq_q;
+        let softmax_num_cols = self.attention_tile_size.seq_kv;
+        let softmax_total = softmax_num_rows * softmax_num_cols;
+
+        if softmax_total % self.plane_dim != 0 {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Softmax size should be divisible by plane dim",
+            )));
+        }
+
+        if self.inner_layout == InnerLayout::Contiguous && softmax_num_rows > self.plane_dim {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "More than one row per unit not supported with this inner layout",
+            )));
+        }
+
+        if self.inner_layout == InnerLayout::SplitRows && softmax_total % (2 * self.plane_dim) != 0
+        {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "With split rows, units must have two elements each",
+            )));
+        }
+
         if self.attention_tile_size.head_dim < self.attention_tile_size.val_dim {
             return Err(AttentionSetupError::InvalidConfig(Box::new(
                 "Can't have tile head_dim < tile val dim (not sure why)",
             )));
         }
         Ok(self)
+    }
+
+    pub fn inner_layout(&self) -> InnerLayout {
+        self.inner_layout
     }
 }
