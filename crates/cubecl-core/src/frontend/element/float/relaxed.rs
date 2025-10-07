@@ -5,8 +5,7 @@ use crate::prelude::{Numeric, into_runtime_expand_element};
 
 use super::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, Float, IntoRuntime,
-    KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
-    into_mut_expand_element,
+    KernelLauncher, Runtime, ScalarArgSettings, into_mut_expand_element,
 };
 
 impl CubeType for flex32 {
@@ -71,14 +70,6 @@ impl Float for flex32 {
 
     fn new(val: f32) -> Self {
         flex32::from_f32(val)
-    }
-}
-
-impl LaunchArgExpand for flex32 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(flex32::as_type(&builder.scope)).into()
     }
 }
 

@@ -139,14 +139,14 @@ impl Launch {
     pub fn compilation_args_def(&self) -> (Vec<TokenStream>, Vec<Ident>) {
         let mut tokens = Vec::new();
         let mut args = Vec::new();
-        let launch_arg_expand = prelude_type("LaunchArgExpand");
+        let launch_arg = prelude_type("LaunchArg");
 
         self.runtime_inputs().for_each(|input| {
             let ty = &input.ty_owned();
             let name = &input.name;
 
             tokens.push(quote! {
-                #name: <#ty as #launch_arg_expand>::CompilationArg
+                #name: <#ty as #launch_arg>::CompilationArg
             });
             args.push(name.clone());
         });
@@ -156,7 +156,7 @@ impl Launch {
             let name = &output.name;
 
             tokens.push(quote! {
-                #name: <#ty as #launch_arg_expand>::CompilationArg
+                #name: <#ty as #launch_arg>::CompilationArg
             });
             args.push(name.clone());
         });
@@ -199,14 +199,14 @@ impl Launch {
     }
 
     pub fn io_mappings(&self) -> TokenStream {
-        let launch_arg_expand = prelude_type("LaunchArgExpand");
+        let launch_arg = prelude_type("LaunchArg");
         let mut define = quote! {};
 
         let expand_fn = |ident, expand_name, ty| {
             let ty = self.analysis.process_ty(&ty);
 
             quote! {
-                let #ident =  <#ty as #launch_arg_expand>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
+                let #ident =  <#ty as #launch_arg>::#expand_name(&self.#ident.dynamic_cast(), &mut builder);
             }
         };
         for param in self.runtime_params() {

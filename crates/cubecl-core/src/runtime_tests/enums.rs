@@ -3,7 +3,7 @@ use cubecl::prelude::*;
 
 #[derive_cube_comptime]
 #[derive(CubeLaunch, CubeType)]
-pub enum TestEnum<T: CubeLaunch> {
+pub enum TestEnum<T: LaunchArg> {
     A(i32, u32),
     B(BStruct),
     C(T),
@@ -125,7 +125,7 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
 }
 
 #[derive(CubeLaunch, CubeType)]
-pub enum SimpleEnum<T: CubeLaunch> {
+pub enum SimpleEnum<T: LaunchArg> {
     Variant(T),
 }
 

@@ -6,8 +6,7 @@ use crate::prelude::{Numeric, into_runtime_expand_element};
 
 use super::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, Float, IntoRuntime,
-    KernelBuilder, KernelLauncher, LaunchArgExpand, Runtime, ScalarArgSettings,
-    into_mut_expand_element,
+    KernelLauncher, Runtime, ScalarArgSettings, into_mut_expand_element,
 };
 
 impl CubeType for tf32 {
@@ -79,13 +78,5 @@ impl Float for tf32 {
 impl ScalarArgSettings for tf32 {
     fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
         settings.register_f32((*self).to_f32());
-    }
-}
-
-impl LaunchArgExpand for tf32 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(tf32::as_type(&builder.scope)).into()
     }
 }

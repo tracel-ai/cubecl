@@ -1,5 +1,5 @@
 use cubecl_core as cubecl;
-use cubecl_core::{CubeLaunch, CubeType, prelude::*};
+use cubecl_core::{CubeType, prelude::*};
 use cubecl_std::FastDivmod;
 
 #[derive(CubeType, CubeLaunch, Clone)]
