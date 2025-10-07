@@ -41,10 +41,11 @@ impl Default for ServerLogger {
         ) && matches!(
             logger.config.profiling.logger.level,
             ProfilingLogLevel::Disabled
-        ) && matches!(
-            logger.config.streaming.logger.level,
-            StreamingLogLevel::Disabled
-        );
+        ) && matches!(logger.config.memory.logger.level, MemoryLogLevel::Disabled)
+            && matches!(
+                logger.config.streaming.logger.level,
+                StreamingLogLevel::Disabled
+            );
 
         if disabled {
             return Self {
