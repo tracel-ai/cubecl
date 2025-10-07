@@ -3,7 +3,7 @@ use tracel_llvm::mlir_rs::{
     dialect::{
         arith::{self},
         llvm,
-        ods::{llvm as llvm_ods, vector},
+        ods::{llvm as llvm_ods, math as math_ods, vector},
     },
     ir::Attribute,
 };
@@ -29,110 +29,68 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::ArcCos(acos) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(acos.input);
-                let abs = self.get_absolute_val(acos.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(acos.input);
                 let result = self.append_operation_with_result(math_ods::acos(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcSin(asin) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(asin.input);
-                let abs = self.get_absolute_val(asin.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(asin.input);
                 let result = self.append_operation_with_result(math_ods::asin(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcTan(atan) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(atan.input);
-                let abs = self.get_absolute_val(atan.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(atan.input);
                 let result = self.append_operation_with_result(math_ods::atan(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcSinh(asinh) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(asinh.input);
-                let abs = self.get_absolute_val(asinh.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(asinh.input);
                 let result = self.append_operation_with_result(math_ods::asinh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcCosh(acosh) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(acosh.input);
-                let abs = self.get_absolute_val(acosh.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(acosh.input);
                 let result = self.append_operation_with_result(math_ods::acosh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcTanh(atanh) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(atanh.input);
-                let abs = self.get_absolute_val(atanh.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(atanh.input);
                 let result = self.append_operation_with_result(math_ods::atanh(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::ArcTan2(atan2) => {
-                // Arc operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
-                let value = self.get_variable(atan2.lhs);
-                let abs = self.get_absolute_val(atan2.lhs.ty, value);
-                self.insert_variable(out, abs);
-                /*let (lhs, rhs) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
+                let (lhs, rhs) = self.get_binary_op_variable(atan2.lhs, atan2.rhs);
                 let result = self.append_operation_with_result(math_ods::atan_2(
                     self.context,
                     lhs,
                     rhs,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::SaturatingAdd(_) => {
                 unreachable!("Should be removed by preprocessor")
@@ -559,19 +517,13 @@ impl<'a> Visitor<'a> {
                 self.insert_variable(out, result);
             }
             Arithmetic::Tan(tan) => {
-                // Tan operations are only available through the ods::math module,
-                // which can not be properly loaded at the moment.
-                // Using dummy for now to satisfy compilation of other tests
                 let value = self.get_variable(tan.input);
-                let abs = self.get_absolute_val(tan.input.ty, value);
-                self.insert_variable(out, abs);
-                /*let value = self.get_variable(tan.input);
                 let result = self.append_operation_with_result(math_ods::tan(
                     self.context,
                     value,
                     self.location,
                 ));
-                self.insert_variable(out, result);*/
+                self.insert_variable(out, result);
             }
             Arithmetic::SaturatingSub(_) => {
                 unreachable!("Should be removed by preprocessor")
