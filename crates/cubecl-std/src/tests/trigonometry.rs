@@ -120,3 +120,31 @@ pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
         );
     }
 }
+
+#[macro_export]
+macro_rules! testgen_trigonometry {
+    () => {
+        mod trigonometry {
+            use super::*;
+            use $crate::tests::trigonometry::*;
+
+            #[test]
+            fn test_to_degrees_conversion() {
+                let client = TestRuntime::client(&Default::default());
+                test_to_degrees::<TestRuntime>(client);
+            }
+
+            #[test]
+            fn test_to_radians_conversion() {
+                let client = TestRuntime::client(&Default::default());
+                test_to_radians::<TestRuntime>(client);
+            }
+
+            #[test]
+            fn test_hypot_computation() {
+                let client = TestRuntime::client(&Default::default());
+                test_hypot::<TestRuntime>(client);
+            }
+        }
+    };
+}

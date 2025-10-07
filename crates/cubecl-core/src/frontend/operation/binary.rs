@@ -255,8 +255,6 @@ impl_binary_func!(
 impl_binary_func!(
     ArcTan2,
     atan2,
-    __expand_atan2,
-    __expand_atan2_method,
     Arithmetic::ArcTan2,
     f16,
     bf16,
