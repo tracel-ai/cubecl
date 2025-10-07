@@ -7,10 +7,14 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::AsyncFullLoadingStrategy, single_stage::barrier::SimpleBarrierMatmulFamily,
+            PlaneWriterFamily, read::AsyncFullLoadingStrategy,
+            single_stage::barrier::SimpleBarrierMatmulFamily,
         },
-        stage::{FullReaderFamily, PlaneMatmulFamily},
-        tile,
+        stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
+        tile::{
+            self,
+            io::{Filled, Strided},
+        },
     },
     kernels::layered::{Algorithm, selector::plane_matmul_selection},
 };
@@ -23,13 +27,23 @@ pub struct SimpleBarrierAlgorithm<TMM, L: AsyncFullLoadingStrategy> {
 
 impl<TMM, L> Algorithm for SimpleBarrierAlgorithm<TMM, L>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
     L: AsyncFullLoadingStrategy,
 {
     type SelectionArgs = ();
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
-    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
+    type GlobalMatmul = SimpleBarrierMatmulFamily<Self::StageMatmul, L, L, PlaneWriterFamily>;
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

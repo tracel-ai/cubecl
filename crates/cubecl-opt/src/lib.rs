@@ -70,6 +70,8 @@ pub use petgraph::graph::{EdgeIndex, NodeIndex};
 pub use transformers::*;
 pub use version::PhiInstruction;
 
+pub use crate::analyses::liveness::shared::SharedLiveness;
+
 /// An atomic counter with a simplified interface.
 #[derive(Clone, Debug, Default)]
 pub struct AtomicCounter {
@@ -189,6 +191,22 @@ impl Optimizer {
         opt
     }
 
+    /// Create a new optimizer with the scope, `CubeDim` and execution mode passed into the compiler.
+    /// Parses the scope and runs several optimization and analysis loops.
+    pub fn shared_only(expand: Scope, cube_dim: CubeDim) -> Self {
+        let mut opt = Self {
+            root_scope: expand.clone(),
+            cube_dim,
+            allocator: expand.allocator.clone(),
+            transformers: Vec::new(),
+            processors: Rc::new(Vec::new()),
+            ..Default::default()
+        };
+        opt.run_shared_only();
+
+        opt
+    }
+
     /// Run all optimizations
     fn run_opt(&mut self) {
         self.parse_graph(self.root_scope.clone());
@@ -218,7 +236,20 @@ impl Optimizer {
             self.apply_post_ssa_passes();
         }
 
+        self.split_free();
+        self.analysis::<SharedLiveness>();
+
         MergeBlocks.apply_post_ssa(self, AtomicCounter::new(0));
+    }
+
+    /// Run only the shared memory analysis
+    fn run_shared_only(&mut self) {
+        self.parse_graph(self.root_scope.clone());
+        self.split_critical_edges();
+        self.exempt_index_assign_locals();
+        self.ssa_transform();
+        self.split_free();
+        self.analysis::<SharedLiveness>();
     }
 
     /// The entry block of the program

@@ -1,5 +1,13 @@
-use std::{ffi::CStr, mem::MaybeUninit};
-
+use crate::{
+    HipWmmaCompiler,
+    compute::{HipServer, context::HipContext, contiguous_strides},
+    device::AmdDevice,
+};
+use cubecl_common::profile::TimingMethod;
+use cubecl_core::{
+    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel,
+    ir::{MatrixLayout, MmaProperties, TargetProperties},
+};
 use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
@@ -8,28 +16,13 @@ use cubecl_cpp::{
         register_scaled_mma_features, register_wmma_features,
     },
 };
-
-use cubecl_common::profile::TimingMethod;
-use cubecl_core::{
-    AtomicFeature, CubeCount, CubeDim, Feature, MemoryConfiguration, Runtime,
-    ir::{
-        ElemType, FloatKind, IntKind, MatrixLayout, MmaProperties, StorageType, TargetProperties,
-        UIntKind,
-    },
-};
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
-    channel::MutexComputeChannel,
+    ComputeRuntime, DeviceProperties, Plane,
     client::ComputeClient,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-
-use crate::{
-    HipWmmaCompiler,
-    compute::{HipContext, HipServer, HipStorage, contiguous_strides},
-    device::AmdDevice,
-};
+use std::{ffi::CStr, mem::MaybeUninit};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -41,13 +34,13 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct HipRuntime;
 
-static RUNTIME: ComputeRuntime<AmdDevice, Server, MutexComputeChannel<Server>> =
-    ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<AmdDevice, Server, Channel> = ComputeRuntime::new();
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
-type Channel = MutexComputeChannel<Server>;
+type Channel = channel::MutexComputeChannel<Server>;
+// type Channel = channel::MpscComputeChannel<Server>;
 
 fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &AmdDevice,
@@ -104,13 +97,6 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
     }
 
-    let stream = unsafe {
-        let mut stream: cubecl_hip_sys::hipStream_t = std::ptr::null_mut();
-        let stream_status = cubecl_hip_sys::hipStreamCreate(&mut stream);
-        assert_eq!(stream_status, HIP_SUCCESS, "Should create a stream");
-        stream
-    };
-
     let max_memory = unsafe {
         let free: usize = 0;
         let total: usize = 0;
@@ -124,11 +110,9 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         );
         total
     };
-    let storage = HipStorage::new(mem_alignment, stream);
     let mem_properties = MemoryDeviceProperties {
         max_page_size: max_memory as u64 / 4,
         alignment: mem_alignment as u64,
-        data_transfer_async: false,
     };
 
     let supported_wmma_combinations = M::supported_wmma_combinations(&arch);
@@ -138,9 +122,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     let topology = HardwareProperties {
         plane_size_min: prop_warp_size as u32,
         plane_size_max: prop_warp_size as u32,
-        // This is a guess - not clear if ROCM has a limit on the number of bindings,
-        // but it's dubious it's more than this.
-        max_bindings: 1024,
+        max_bindings: crate::device::AMD_MAX_BINDINGS,
         max_shared_memory_size: prop_max_shared_memory_size,
         max_cube_count,
         max_units_per_cube: prop_max_threads,
@@ -153,40 +135,21 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
             Some(16)
         },
     };
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+
     let mut device_props = DeviceProperties::new(
-        &[Feature::Plane],
-        mem_properties,
+        Default::default(),
+        mem_properties.clone(),
         topology,
         TimingMethod::System,
     );
     register_supported_types(&mut device_props);
-    // Not sure if there's a good way to check for support on HIP
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Float(
-        FloatKind::F32,
-    ))));
+
     // TODO look into unsafeAtomicAdd (https://github.com/ROCm/HIP/issues/3573120)
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::F16)));
     // device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
 
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-
-    // Supported by all architectures
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::Int(
-        IntKind::I32,
-    ))));
-    device_props.register_feature(Feature::Type(StorageType::Atomic(ElemType::UInt(
-        UIntKind::U32,
-    ))));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicInt(AtomicFeature::Add));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::LoadStore));
-    device_props.register_feature(Feature::AtomicUInt(AtomicFeature::Add));
-
-    device_props.register_feature(Feature::DynamicLineSize);
-    device_props.register_feature(Feature::PlaneOps);
+    device_props.features.dynamic_line_size = true;
+    device_props.features.plane.insert(Plane::Ops);
 
     register_wmma_features(supported_wmma_combinations, &mut device_props);
     register_mma_features(supported_mma_combinations, &mut device_props);
@@ -197,15 +160,20 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         grid_constants: false,
         supports_clusters: false,
     };
-    let hip_ctx = HipContext::new(memory_management, comp_opts, stream);
-    let server = HipServer::new(mem_alignment, hip_ctx);
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    let hip_ctx = HipContext::new(comp_opts);
+    let server = HipServer::new(
+        hip_ctx,
+        mem_properties,
+        options.memory_config,
+        mem_alignment,
+    );
+    ComputeClient::new(Channel::new(server), device_props, ())
 }
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
     type Server = HipServer;
-    type Channel = MutexComputeChannel<HipServer>;
+    type Channel = Channel;
     type Device = AmdDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
@@ -223,7 +191,7 @@ impl Runtime for HipRuntime {
     }
 
     fn supported_line_sizes() -> &'static [u8] {
-        &[8, 4, 2, 1]
+        &[16, 8, 4, 2, 1]
     }
 
     fn max_cube_count() -> (u32, u32, u32) {

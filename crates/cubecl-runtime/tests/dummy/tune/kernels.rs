@@ -14,7 +14,7 @@ pub struct DummyElementwiseMultiplication;
 pub struct DummyElementwiseMultiplicationSlowWrong;
 
 impl DummyKernel for DummyElementwiseAdditionSlowWrong {
-    fn compute(&self, inputs: &mut [&BytesResource]) {
+    fn compute(&self, inputs: &mut [&mut BytesResource]) {
         // Slow and wrong on purpose, for tests
         let lhs = &inputs[0].read();
         let out = &mut inputs[2].write();
@@ -33,7 +33,7 @@ impl DummyKernel for DummyElementwiseAdditionSlowWrong {
 }
 
 impl DummyKernel for DummyElementwiseMultiplication {
-    fn compute(&self, inputs: &mut [&BytesResource]) {
+    fn compute(&self, inputs: &mut [&mut BytesResource]) {
         let lhs = &inputs[0].read();
         let rhs = &inputs[1].read();
         let out = &mut inputs[2].write();
@@ -51,7 +51,7 @@ impl DummyKernel for DummyElementwiseMultiplication {
 }
 
 impl DummyKernel for DummyElementwiseMultiplicationSlowWrong {
-    fn compute(&self, inputs: &mut [&BytesResource]) {
+    fn compute(&self, inputs: &mut [&mut BytesResource]) {
         // Slow and wrong on purpose, for tests
         let lhs = &inputs[0].read();
         let out = &mut inputs[2].write();

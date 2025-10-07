@@ -6,22 +6,22 @@ use std::{
 };
 
 use crate::tensor::{
-    View, ViewExpand, VirtualViewExpand, VirtualViewMutExpand,
-    layout::{Coords1d, Layout, VirtualLayoutExpand},
+    View, ViewExpand, ViewOperationsMut, VirtualViewMut, VirtualViewMutExpand,
+    layout::{Coordinates, Coords1d, Layout, VirtualLayoutExpand, VirtualLayoutOperationsExpand},
     view::ViewType,
 };
 
 /// Launchable tensor view for ease of use.
 #[derive(Clone)]
-pub struct TypedView<E: CubePrimitive, L: Layout, IO: Clone = ReadOnly> {
+pub struct TypedView<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility = ReadOnly> {
     _ty: PhantomData<(E, L, IO)>,
 }
 
-impl<E: CubePrimitive, L: Layout, IO: Clone> CubeType for TypedView<E, L, IO> {
+impl<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility> CubeType for TypedView<E, L, IO> {
     type ExpandType = ViewExpand<E, L::Coordinates, IO>;
 }
 
-impl<E: CubePrimitive, L: Layout, IO: Clone> Deref for TypedView<E, L, IO> {
+impl<E: CubePrimitive, L: LaunchLayout, IO: SliceVisibility> Deref for TypedView<E, L, IO> {
     type Target = View<E, L::Coordinates, IO>;
 
     fn deref(&self) -> &Self::Target {
@@ -29,25 +29,23 @@ impl<E: CubePrimitive, L: Layout, IO: Clone> Deref for TypedView<E, L, IO> {
     }
 }
 
-impl<E: CubePrimitive, L: Layout> DerefMut for TypedView<E, L, ReadWrite> {
+impl<E: CubePrimitive, L: LaunchLayout> DerefMut for TypedView<E, L, ReadWrite> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unexpanded!()
     }
 }
 
-pub struct TypedViewLaunch<'a, L: Layout<SourceCoordinates = Coords1d> + CubeLaunch, R: Runtime> {
+pub struct TypedViewLaunch<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> {
     buffer: ArrayArg<'a, R>,
     layout: L::RuntimeArg<'a, R>,
 }
-impl<'a, L: Layout<SourceCoordinates = Coords1d> + CubeLaunch, R: Runtime>
-    TypedViewLaunch<'a, L, R>
-{
+impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> TypedViewLaunch<'a, L, R> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(buffer: ArrayArg<'a, R>, layout: L::RuntimeArg<'a, R>) -> Self {
         Self { buffer, layout }
     }
 }
-impl<'a, L: Layout<SourceCoordinates = Coords1d> + CubeLaunch, R: Runtime> ArgSettings<R>
+impl<'a, L: LaunchLayout<SourceCoordinates = Coords1d>, R: Runtime> ArgSettings<R>
     for TypedViewLaunch<'a, L, R>
 {
     fn register(&self, launcher: &mut KernelLauncher<R>) {
@@ -56,13 +54,11 @@ impl<'a, L: Layout<SourceCoordinates = Coords1d> + CubeLaunch, R: Runtime> ArgSe
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(bound(serialize = "", deserialize = ""))]
-pub struct TypedViewCompilationArg<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> {
+pub struct TypedViewCompilationArg<L: LaunchLayout<SourceCoordinates = Coords1d>> {
     buffer: ArrayCompilationArg,
     layout: L::CompilationArg,
 }
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> Clone for TypedViewCompilationArg<L> {
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> Clone for TypedViewCompilationArg<L> {
     fn clone(&self) -> Self {
         Self {
             buffer: self.buffer.clone(),
@@ -70,12 +66,9 @@ impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> Clone for TypedViewCo
         }
     }
 }
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> CompilationArg
-    for TypedViewCompilationArg<L>
-{
-}
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> CompilationArg for TypedViewCompilationArg<L> {}
 
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> core::hash::Hash
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> core::hash::Hash
     for TypedViewCompilationArg<L>
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -83,14 +76,12 @@ impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> core::hash::Hash
         self.layout.hash(state);
     }
 }
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> PartialEq
-    for TypedViewCompilationArg<L>
-{
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> PartialEq for TypedViewCompilationArg<L> {
     fn eq(&self, other: &Self) -> bool {
         self.buffer.eq(&other.buffer) && self.layout.eq(&other.layout)
     }
 }
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> core::fmt::Debug
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> core::fmt::Debug
     for TypedViewCompilationArg<L>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -100,15 +91,13 @@ impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> core::fmt::Debug
             .finish()
     }
 }
-impl<L: Layout<SourceCoordinates = Coords1d> + CubeLaunch> Eq for TypedViewCompilationArg<L> {}
+impl<L: LaunchLayout<SourceCoordinates = Coords1d>> Eq for TypedViewCompilationArg<L> {}
 
-impl<
-    E: CubePrimitive,
-    L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
-    IO: Clone + Send + Sync + 'static,
-> LaunchArg for TypedView<E, L, IO>
+impl<E: CubePrimitive, L: LaunchLayout<SourceCoordinates = Coords1d>, IO: SliceVisibility> LaunchArg
+    for TypedView<E, L, IO>
 {
     type RuntimeArg<'a, R: Runtime> = TypedViewLaunch<'a, L, R>;
+    type CompilationArg = TypedViewCompilationArg<L>;
 
     fn compilation_arg<'a, R: Runtime>(
         runtime_arg: &Self::RuntimeArg<'a, R>,
@@ -118,38 +107,222 @@ impl<
             layout: L::compilation_arg(&runtime_arg.layout),
         }
     }
-}
-impl<
-    E: CubePrimitive,
-    L: Layout<SourceCoordinates = Coords1d> + CubeLaunch,
-    IO: Clone + Send + Sync + 'static,
-> LaunchArgExpand for TypedView<E, L, IO>
-{
-    type CompilationArg = TypedViewCompilationArg<L>;
+
     fn expand(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let buffer = <Array<E> as LaunchArgExpand>::expand(&arg.buffer, builder);
-        let layout = VirtualLayoutExpand::new::<L::ExpandType>(L::expand(&arg.layout, builder));
-        let view = VirtualViewExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
-        ViewExpand::<E, L::Coordinates, IO> {
-            inner: ViewType::Read(Arc::new(view)),
-            _io: PhantomData,
-        }
+        let buffer = <Array<E> as LaunchArg>::expand(&arg.buffer, builder);
+        L::apply::<E, Array<E>, IO>(L::expand(&arg.layout, builder), buffer)
     }
     fn expand_output(
         arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> <Self as CubeType>::ExpandType {
-        let buffer = <Array<E> as LaunchArgExpand>::expand_output(&arg.buffer, builder);
-        let layout =
-            VirtualLayoutExpand::new::<L::ExpandType>(L::expand_output(&arg.layout, builder));
+        let buffer = <Array<E> as LaunchArg>::expand_output(&arg.buffer, builder);
+        L::apply::<E, Array<E>, IO>(L::expand_output(&arg.layout, builder), buffer)
+    }
+}
+
+mod seal {
+    pub trait Sealed {}
+}
+
+pub trait LaunchLayout: LaunchArg + seal::Sealed {
+    type SourceCoordinates: Coordinates;
+    type Coordinates: Coordinates;
+
+    fn apply<
+        E: CubePrimitive,
+        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
+        IO: SliceVisibility,
+    >(
+        value: <Self as CubeType>::ExpandType,
+        view: V::ExpandType,
+    ) -> ViewExpand<E, Self::Coordinates, IO>;
+}
+
+// These unfortunately need to be manually implemented due to the dependencies of each layout on
+// the coordinates of the next. Just stick with two layouts for now and add more implementations as
+// needed.
+
+impl<
+    L: Layout
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>>
+        + LaunchArg,
+> seal::Sealed for L
+{
+}
+impl<
+    L: Layout
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L::Coordinates, L::SourceCoordinates>>
+        + LaunchArg,
+> LaunchLayout for L
+{
+    type SourceCoordinates = L::SourceCoordinates;
+    type Coordinates = L::Coordinates;
+
+    fn apply<
+        E: CubePrimitive,
+        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
+        IO: SliceVisibility,
+    >(
+        value: L::ExpandType,
+        view: V::ExpandType,
+    ) -> ViewExpand<E, Self::Coordinates, IO> {
+        let l0 = value;
+        let l0 = VirtualLayoutExpand::new::<L::ExpandType>(l0);
         let view =
-            VirtualViewMutExpand::<E, L::Coordinates, Coords1d, Array<E>>::new(buffer, layout);
+            VirtualViewMutExpand::<E, L::Coordinates, L::SourceCoordinates, V>::new(view, l0);
         ViewExpand::<E, L::Coordinates, IO> {
             inner: ViewType::ReadWrite(Arc::new(view)),
             _io: PhantomData,
         }
     }
 }
+
+impl<
+    L0: Layout
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L0::Coordinates, L0::SourceCoordinates>>
+        + LaunchArg,
+    L1: Layout<SourceCoordinates = L0::Coordinates>
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L1::Coordinates, L1::SourceCoordinates>>
+        + LaunchArg,
+> seal::Sealed for (L0, L1)
+{
+}
+impl<
+    L0: Layout
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L0::Coordinates, L0::SourceCoordinates>>
+        + LaunchArg,
+    L1: Layout<SourceCoordinates = L0::Coordinates>
+        + CubeType<ExpandType: VirtualLayoutOperationsExpand<L1::Coordinates, L1::SourceCoordinates>>
+        + LaunchArg,
+> LaunchLayout for (L0, L1)
+{
+    type SourceCoordinates = L0::SourceCoordinates;
+    type Coordinates = L1::Coordinates;
+
+    fn apply<
+        E: CubePrimitive,
+        V: ViewOperationsMut<E, Self::SourceCoordinates> + 'static,
+        IO: SliceVisibility,
+    >(
+        value: (L0::ExpandType, L1::ExpandType),
+        view: V::ExpandType,
+    ) -> ViewExpand<E, Self::Coordinates, IO> {
+        let (l0, l1) = value;
+        let l0 = VirtualLayoutExpand::new::<L0::ExpandType>(l0);
+        let view =
+            VirtualViewMutExpand::<E, L0::Coordinates, L0::SourceCoordinates, V>::new(view, l0);
+        let l1 = VirtualLayoutExpand::new::<L1::ExpandType>(l1);
+        let view = VirtualViewMutExpand::<
+            E,
+            L1::Coordinates,
+            L1::SourceCoordinates,
+            VirtualViewMut<E, L0::Coordinates, L0::SourceCoordinates, V>,
+        >::new(view, l1);
+        ViewExpand::<E, L1::Coordinates, IO> {
+            inner: ViewType::ReadWrite(Arc::new(view)),
+            _io: PhantomData,
+        }
+    }
+}
+
+mod dynamic {
+    use crate::tensor::layout::{VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch};
+
+    use super::*;
+
+    pub struct ViewLaunch<'a, C: Coordinates, R: Runtime> {
+        _phantom_runtime: PhantomData<R>,
+        _phantom_a: PhantomData<&'a ()>,
+        buffer: ArrayArg<'a, R>,
+        layout: VirtualLayoutLaunch<'a, C, Coords1d, R>,
+    }
+    impl<'a, C: Coordinates, R: Runtime> ViewLaunch<'a, C, R> {
+        pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
+            buffer: ArrayArg<'a, R>,
+            layout: L::RuntimeArg<'a, R>,
+        ) -> Self {
+            Self {
+                _phantom_runtime: core::marker::PhantomData,
+                _phantom_a: core::marker::PhantomData,
+                buffer,
+                layout: VirtualLayoutLaunch::new::<L>(layout),
+            }
+        }
+    }
+    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewLaunch<'a, C, R> {
+        fn register(&self, launcher: &mut KernelLauncher<R>) {
+            self.buffer.register(launcher);
+            self.layout.register(launcher);
+        }
+    }
+    #[derive(Clone)]
+    pub struct ViewCompilationArg<C: Coordinates> {
+        buffer: ArrayCompilationArg,
+        layout: VirtualLayoutCompilationArg<C, Coords1d>,
+    }
+
+    impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
+    impl<C: Coordinates> Eq for ViewCompilationArg<C> {}
+    impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
+        fn eq(&self, other: &Self) -> bool {
+            self.buffer == other.buffer && self.layout == other.layout
+        }
+    }
+    impl<C: Coordinates> core::hash::Hash for ViewCompilationArg<C> {
+        fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
+            self.buffer.hash(ra_expand_state);
+            self.layout.hash(ra_expand_state);
+        }
+    }
+    impl<C: Coordinates> core::fmt::Debug for ViewCompilationArg<C> {
+        fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+            f.debug_struct("ViewCompilationArg")
+                .field("buffer", &self.buffer)
+                .field("layout", &self.layout)
+                .finish()
+        }
+    }
+
+    impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
+        type RuntimeArg<'a, R: Runtime> = ViewLaunch<'a, C, R>;
+        type CompilationArg = ViewCompilationArg<C>;
+
+        fn compilation_arg<'a, R: Runtime>(
+            runtime_arg: &Self::RuntimeArg<'a, R>,
+        ) -> Self::CompilationArg {
+            let buffer = Array::<E>::compilation_arg(&runtime_arg.buffer);
+            let layout = VirtualLayout::<C, Coords1d>::compilation_arg(&runtime_arg.layout);
+            ViewCompilationArg { buffer, layout }
+        }
+        fn expand(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            let buffer = Array::<E>::expand(&arg.buffer, builder);
+            let layout = VirtualLayout::<C, Coords1d>::expand(&arg.layout, builder);
+            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+            ViewExpand::<E, C, IO> {
+                inner: ViewType::ReadWrite(Arc::new(view)),
+                _io: PhantomData,
+            }
+        }
+        fn expand_output(
+            arg: &Self::CompilationArg,
+            builder: &mut KernelBuilder,
+        ) -> <Self as CubeType>::ExpandType {
+            let buffer = Array::<E>::expand_output(&arg.buffer, builder);
+            let layout = VirtualLayout::<C, Coords1d>::expand_output(&arg.layout, builder);
+            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+            ViewExpand::<E, C, IO> {
+                inner: ViewType::ReadWrite(Arc::new(view)),
+                _io: PhantomData,
+            }
+        }
+    }
+}
+
+pub use dynamic::*;

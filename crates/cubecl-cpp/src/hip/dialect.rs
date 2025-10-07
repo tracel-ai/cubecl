@@ -2,7 +2,7 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
 
 use crate::shared::DialectWarpReduceCompiler;
 use crate::{
@@ -15,8 +15,8 @@ use crate::{
 use crate::{
     hip::processors::HipMmaProcessor,
     shared::{
-        Component, DialectInstructions, DialectProcessors, Elem, Instruction, SharedMemory,
-        Variable, unary, variable_to_frag,
+        Component, DialectInstructions, DialectProcessors, Elem, Instruction, Variable, unary,
+        variable_to_frag,
     },
 };
 
@@ -301,23 +301,6 @@ impl<M: DialectWmmaCompiler<Self>> DialectTypes<Self> for HipDialect<M> {
     fn compile_local_memory_qualifier(_f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         Ok(())
     }
-
-    fn compile_shared_memory_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        shared: &SharedMemory<Self>,
-    ) -> std::fmt::Result {
-        let item = shared.item;
-        let index = shared.index;
-        let size = shared.size;
-        let alignment = shared
-            .align
-            .map(|align| format!("alignas({align})"))
-            .unwrap_or_default();
-        writeln!(
-            f,
-            "__shared__ {alignment} {item} shared_memory_{index}[{size}];",
-        )
-    }
 }
 
 // Kernel argument bindings
@@ -326,7 +309,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
@@ -343,6 +326,27 @@ extern \"C\" __global__ void __launch_bounds__({}) {kernel_name}(
         shared::compile_scalars_dynamic::<Self>(f, scalars)?;
         f.write_str("\n)")?;
 
+        Ok(())
+    }
+
+    fn compile_bindings_body(
+        f: &mut std::fmt::Formatter<'_>,
+        body: &shared::Body<Self>,
+    ) -> std::fmt::Result {
+        if !body.shared_memories.is_empty() {
+            let max_align = body
+                .shared_memories
+                .iter()
+                .map(|smem| smem.align)
+                .max()
+                .unwrap();
+            // The `__align__` instead of `alignas` is on purpose - the compiler is currently bugged
+            // with `extern __shared__ alignas` and doesn't properly parse it.
+            writeln!(
+                f,
+                "extern __shared__ __align__({max_align}) uchar dynamic_shared_mem[];"
+            )?;
+        }
         Ok(())
     }
 }
@@ -398,6 +402,24 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
             ),
         }?;
         write!(f, ")")
+    }
+
+    fn compile_saturating_add(
+        _f: &mut std::fmt::Formatter<'_>,
+        _lhs: impl Display,
+        _rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
+    }
+
+    fn compile_saturating_sub(
+        _f: &mut std::fmt::Formatter<'_>,
+        _lhs: impl Display,
+        _rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
     }
 
     // others
@@ -548,7 +570,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
     fn supported_wmma_combinations(
         arch: &AMDArchitecture,
-    ) -> crate::shared::SupportedWmmaCombinations {
+    ) -> crate::shared::SupportedMmaCombinations {
         M::supported_wmma_combinations(arch)
     }
 
@@ -569,6 +591,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectWmmaCompiler<Self> for HipDialect<M> {
 
 impl<M: DialectWmmaCompiler<Self>> DialectProcessors<Self> for HipDialect<M> {
     fn processors() -> Vec<Box<dyn Processor>> {
-        vec![Box::new(HipMmaProcessor)]
+        vec![
+            Box::new(HipMmaProcessor),
+            Box::new(SaturatingArithmeticProcessor::new(true)),
+        ]
     }
 }

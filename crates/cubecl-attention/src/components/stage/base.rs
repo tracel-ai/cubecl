@@ -1,16 +1,21 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::stage::{ReaderFamily, StageMemoryConfig};
-use cubecl_std::CubeOption;
-use cubecl_std::tensor::{View, layout::Coords3d};
+use cubecl_matmul::components::{
+    global::{WriteEventListener, WriteTiling},
+    stage::StageFamily,
+};
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::attention_types::*;
+use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::{AttentionIdent, StageMask};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
-    global::{GlobalAttentionConfig, dummy::QueryRegisterReader},
-    tile::{AttentionTilingLayout, dummy::FlashMatmulConfig},
+    global::GlobalAttentionConfig,
+    tile::{AttentionTilingLayout, dummy::AttentionMatmulConfig},
 };
+use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -18,18 +23,17 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
     type Attention<AP: AttentionPrecision>: StageAttention<
             AP,
             Config = Self::Config,
-            KeyReader = <Self::KeyReader as ReaderFamily>::Reader<AP::ES, AttentionTilingLayout>,
-            ValueReader = <Self::ValueReader as ReaderFamily>::Reader<
-                AP::ES,
-                AttentionTilingLayout,
-            >,
+            KeyStage = <Self::KeyStage as StageFamily>::Stage<KS<AP>, AttentionTilingLayout>,
+            ValueStage = <Self::ValueStage as StageFamily>::Stage<VS<AP>, AttentionTilingLayout>,
+            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<OS<AP>, WriteTiling>,
         >;
 
     /// The configuration type associated with this Attention family.
     type Config: StageAttentionConfig;
 
-    type KeyReader: ReaderFamily;
-    type ValueReader: ReaderFamily;
+    type KeyStage: StageFamily;
+    type ValueStage: StageFamily;
+    type OutStage: StageFamily<ReadWrite>;
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
@@ -51,68 +55,73 @@ pub trait StageAttentionFamily: Send + Sync + 'static {
 
 #[cube]
 pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    type KeyReader: CubeType;
-    type ValueReader: CubeType;
+    type KeyStage: CubeType;
+    type ValueStage: CubeType;
+    type OutStage: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
 
     type State: CubeType;
 
-    type Query: CubeType;
-    type KeyValue: CubeType;
-    type Score: CubeType;
-    type Accumulator: CubeType;
-
-    type Writer: CubeType;
+    type QueryPartition: CubeType;
+    type KeyValuePartition: CubeType;
+    type SoftmaxPartition: CubeType;
+    type AccumulatorPartition: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> Self::State;
 
     fn execute(
-        key_reader: &Self::KeyReader,
-        value_reader: &Self::ValueReader,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score: &mut Self::Score,
-        accumulator: &mut Self::Accumulator,
+        key_reader: &Self::KeyStage,
+        value_reader: &Self::ValueStage,
+        query: &Self::QueryPartition,
+        key_value: &mut Self::KeyValuePartition,
+        score: &mut Self::SoftmaxPartition,
+        mask: StageMask,
+        accumulator: &mut Self::AccumulatorPartition,
         prev_state: &mut Self::State,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
-        acc: &mut Self::Accumulator,
-        prev_state: Self::State,
+        acc: &mut Self::AccumulatorPartition,
+        state: Self::State,
         #[comptime] config: Self::Config,
     );
 
-    fn write<G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
+    fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
+        acc: &Self::AccumulatorPartition,
+        stage: &mut Self::OutStage,
+        writer: &mut W,
         #[comptime] tile_config: Self::Config,
-        #[comptime] global_config: G,
     );
 
-    fn init_writer(q_offset: u32, tensor: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer;
-
-    fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
+    fn init_partitions(
+        query_loader: QueryReader<AP>,
         #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator);
+    ) -> (
+        Self::QueryPartition,
+        Self::KeyValuePartition,
+        Self::SoftmaxPartition,
+        Self::AccumulatorPartition,
+    );
 }
 
 /// Configuration for the Tile Attention level
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FlashMatmulConfig: FlashMatmulConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
+    type AttentionMatmulConfig: AttentionMatmulConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
-    fn tile_config(&self) -> Self::FlashMatmulConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn tile_config(&self) -> Self::AttentionMatmulConfig;
+    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
+    fn reuse_key_value(&self) -> bool;
+
+    fn num_rows_per_unit(&self, ident: AttentionIdent) -> u32;
 }

@@ -1,17 +1,20 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::global::memory::SimpleGlobalLayout;
-use cubecl_matmul::components::stage::FullStageToTileReader;
+use cubecl_matmul::components::{global::PartitionedStage, stage::StridedStage};
 use cubecl_std::tensor::r#virtual::VirtualTensor;
-use cubecl_std::{CubeOption, div_ceil};
 use std::marker::PhantomData;
 
-use crate::components::FlashIdent;
+use crate::components::GlobalMask;
+use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::load::{DummyKeyLoader, DummyQueryLoader, DummyValueLoader};
-use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::global::dummy::writer::DummyWriter;
+use crate::components::global::{
+    AttentionGlobalLayout,
+    dummy::{DummyKeyReader, DummyValueReader},
+};
+use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::tile::dummy::FlashMatmulConfig;
+use crate::components::{AttentionIdent, global::dummy::QueryReader};
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
@@ -25,123 +28,134 @@ pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> 
 impl<
     SA: StageAttention<
             AP,
-            KeyReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
-            ValueReader = FullStageToTileReader<AP::ES, AttentionTilingLayout>,
+            KeyStage = StridedStage<KS<AP>, AttentionTilingLayout>,
+            ValueStage = StridedStage<VS<AP>, AttentionTilingLayout>,
+            OutStage = PartitionedStage<OS<AP>>,
         >,
     AP: AttentionPrecision,
 > GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
 {
-    type KeyLoader = DummyKeyLoader<AP, Self::Config>;
-    type ValueLoader = DummyValueLoader<AP, Self::Config>;
+    type KeyReader = DummyKeyReader<AP, Self::Config>;
+    type ValueReader = DummyValueReader<AP, Self::Config>;
 
-    type Writer = SA::Writer;
+    type Writer = DummyWriter<(OG<AP>, OS<AP>)>;
 
     type Config = DummyGlobalConfig<SA::Config>;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
-        mut key_loader: Self::KeyLoader,
-        mut value_loader: Self::ValueLoader,
+        query_reader: QueryReader<AP>,
+        mut key_reader: Self::KeyReader,
+        mut value_reader: Self::ValueReader,
         mut writer: Self::Writer,
+        seq_q: u32,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Global: Execute");
-
-        let query_reader = query_loader.reader(config);
-        let key_reader = key_loader.reader();
-        let value_reader = value_loader.reader();
+        let key_stage = key_reader.stage();
+        let value_stage = value_reader.stage();
 
         let mut stage_state = SA::init_state(config.stage_config());
 
-        let (query, mut key_value, mut score_prob, mut accumulator) =
-            SA::init_fragments(query_reader, config.stage_config());
+        let (query, mut key_value, mut softmax, mut accumulator) =
+            SA::init_partitions(query_reader, config.stage_config());
 
-        let seq_kv_tile = config
-            .stage_config()
-            .tile_config()
-            .attention_tile_size()
-            .seq_kv;
+        let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
 
-        let seq_q_tile = config
-            .stage_config()
-            .tile_config()
-            .attention_tile_size()
-            .seq_q;
-
-        let num_stage_iterations = div_ceil(seq_kv, seq_kv_tile);
+        let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
+        let mask = GlobalMask::new(seq_q, seq_kv, config.tiling_scheme());
 
         for i in 0..num_stage_iterations {
-            let out_of_bounds_mask = if config.stage_config().tile_config().check_bounds() {
-                CubeOption::new_Some((seq_q_tile, seq_kv - i * seq_kv_tile))
-            } else {
-                CubeOption::new_None()
-            };
-
-            key_loader.load_transposed(config);
-            value_loader.load(config);
+            key_reader.read_transposed(config);
+            value_reader.read(config);
             sync_cube();
 
             SA::execute(
-                &key_reader,
-                &value_reader,
+                &key_stage,
+                &value_stage,
                 &query,
                 &mut key_value,
-                &mut score_prob,
+                &mut softmax,
+                mask.to_stage(CUBE_POS, i),
                 &mut accumulator,
                 &mut stage_state,
-                out_of_bounds_mask,
                 config.stage_config(),
             );
 
             sync_cube();
-            comment!("Advance view");
-            key_loader.advance_view(seq_kv_tile);
-            value_loader.advance_view(seq_kv_tile);
+            key_reader.advance_view();
+            value_reader.advance_view();
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
 
-        SA::write::<Self::Config>(&accumulator, &mut writer, config.stage_config(), config)
+        let mut out_stage = writer.stage();
+
+        SA::write::<Self::Writer, Self::Config>(
+            &accumulator,
+            &mut out_stage,
+            &mut writer,
+            config.stage_config(),
+        )
     }
 
-    fn init_query_loader(
+    fn init_query_reader(
         q_offset: u32,
-        query: VirtualTensor<AP::EI>,
+        query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config> {
-        comment!("Global: Init Query Loader");
-        let layout =
-            SimpleGlobalLayout::new(&query, config.global_memory_config(FlashIdent::Query));
-        DummyQueryLoader::<AP, Self::Config>::new(q_offset, query.view(layout), config)
+    ) -> QueryReader<AP> {
+        let layout = AttentionGlobalLayout::new(
+            &query,
+            0,
+            config.global_memory_config(AttentionIdent::Query),
+        );
+
+        QueryReader::<AP>::new(q_offset, query.view(layout))
     }
 
-    fn init_key_loader(
-        key: VirtualTensor<AP::EI>,
+    fn init_key_reader(
+        key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> Self::KeyLoader {
-        comment!("Global: Init Key Loader");
-        let layout = SimpleGlobalLayout::new(&key, config.global_memory_config(FlashIdent::Key));
-        DummyKeyLoader::new(key.view(layout), config)
+    ) -> Self::KeyReader {
+        let step = reduction_step::<Self::Config>(config);
+        let layout =
+            AttentionGlobalLayout::new(&key, 0, config.global_memory_config(AttentionIdent::Key));
+        DummyKeyReader::new(key.view(layout), step, config)
     }
 
-    fn init_value_loader(
-        value: VirtualTensor<AP::EI>,
+    fn init_value_reader(
+        value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> Self::ValueLoader {
-        comment!("Global: Init Value Loader");
-        let layout =
-            SimpleGlobalLayout::new(&value, config.global_memory_config(FlashIdent::Value));
-        DummyValueLoader::new(value.view(layout), config)
+    ) -> Self::ValueReader {
+        let step = reduction_step::<Self::Config>(config);
+        let layout = AttentionGlobalLayout::new(
+            &value,
+            0,
+            config.global_memory_config(AttentionIdent::Value),
+        );
+        DummyValueReader::new(value.view(layout), step, config)
     }
 
     fn init_writer(
         q_offset: u32,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        comment!("Global: Init Writer");
-        let layout = SimpleGlobalLayout::new(&out, config.global_memory_config(FlashIdent::Out));
-        SA::init_writer(q_offset, out.view_mut(layout))
+        let conf = config.global_memory_config(AttentionIdent::Out);
+        let layout = AttentionGlobalLayout::new(&out, 0, conf);
+        let out = out.view_mut(layout);
+
+        Self::Writer::new::<SA::Config>(
+            out.slice_mut_unchecked((q_offset, 0), out.shape()),
+            conf,
+            config.stage_config(),
+        )
     }
+}
+
+#[cube]
+fn reduction_step<C: GlobalAttentionConfig>(#[comptime] config: C) -> u32 {
+    config
+        .tiling_scheme()
+        .elements_in_partition_seq_kv()
+        .runtime()
 }

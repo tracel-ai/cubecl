@@ -54,6 +54,7 @@ impl Optimizer {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
+            Operation::Free(_) => {}
         }
     }
 
@@ -71,7 +72,9 @@ impl Optimizer {
                 visit_read(self, &mut fma_operator.c);
             }
             Arithmetic::Add(binary_operator)
+            | Arithmetic::SaturatingAdd(binary_operator)
             | Arithmetic::Sub(binary_operator)
+            | Arithmetic::SaturatingSub(binary_operator)
             | Arithmetic::Mul(binary_operator)
             | Arithmetic::Div(binary_operator)
             | Arithmetic::Powf(binary_operator)
@@ -135,6 +138,9 @@ impl Optimizer {
             | Comparison::Lower(binary_operator)
             | Comparison::GreaterEqual(binary_operator) => {
                 self.visit_binop(binary_operator, visit_read)
+            }
+            Comparison::IsNan(unary_operator) | Comparison::IsInf(unary_operator) => {
+                self.visit_unop(unary_operator, visit_read)
             }
         }
     }

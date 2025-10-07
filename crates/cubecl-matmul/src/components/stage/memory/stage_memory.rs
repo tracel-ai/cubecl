@@ -1,86 +1,113 @@
 use std::marker::PhantomData;
 
-use crate::components::global::load::StageBuffer;
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::base::StageConfig;
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
-use crate::components::tile::Tile;
+use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
+use crate::components::{global::read::StageBuffer, stage::StageFamily};
+use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
+
+pub struct StridedStageFamily;
+
+impl StageFamily for StridedStageFamily {
+    type TileKind = Strided;
+
+    type Stage<ES: Numeric, T: TilingLayout> = StridedStage<ES, T>;
+}
 
 #[derive(CubeType, Clone, Copy)]
 /// Wrapper over the shared memory used for staging,
 /// abstracting its layout
-pub struct StageMemory<ES: Numeric, T: TilingLayout> {
+pub struct StridedStage<ES: Numeric, T: TilingLayout> {
     /// Underlying shared memory
-    smem: SharedMemory<Line<ES>>,
+    pub smem: SharedMemory<Line<ES>>,
+    buffer_index: u32,
 
     #[cube(comptime)]
-    /// Number of stages (buffers for global double buffering)
-    num_stages: u32,
+    ident: StageIdent,
+
+    #[cube(comptime)]
+    config: StageMemoryConfig,
 
     #[cube(comptime)]
     _phantom: PhantomData<T>,
 }
 
 #[cube]
-impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
+impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
     /// Instantiate a new stage memory for the given identifier
-    pub fn new<S: StageMemoryConfig>(
-        #[comptime] num_stages: u32,
+    pub fn new(
         #[comptime] ident: StageIdent,
-        #[comptime] config: S,
-    ) -> StageMemory<ES, T> {
-        let line_size = config.stage_line_size(ident);
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedStage<ES, T> {
+        let line_size = config.stage_line_size;
 
         let smem = SharedMemory::new_lined(
-            comptime!(num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size),
+            comptime!(config.num_stages * config.elements_in_stage() / line_size),
             line_size,
         );
 
-        Self::new_with_smem(smem, num_stages)
+        Self::new_with_smem(smem, ident, config)
     }
 
     /// Instantiate a new stage memory for the given identifier, with shared memory alignment
-    pub fn new_aligned<S: StageMemoryConfig>(
+    pub fn new_aligned(
         #[comptime] ident: StageIdent,
         #[comptime] alignment: u32,
-        #[comptime] config: S,
-    ) -> StageMemory<ES, T> {
-        let line_size = config.stage_line_size(ident);
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedStage<ES, T> {
+        let line_size = config.stage_line_size;
 
         let smem = SharedMemory::new_aligned(
-            comptime!(config.tiling_scheme().elements_in_stage(ident) / line_size),
+            comptime!(config.elements_in_stage() / line_size),
             line_size,
             alignment,
         );
 
-        Self::new_with_smem(smem, 1u32)
+        Self::new_with_smem(smem, ident, config)
     }
 
     /// Instantiate with a custom shared memory
     pub fn new_with_smem(
         smem: SharedMemory<Line<ES>>,
-        #[comptime] num_stages: u32,
-    ) -> StageMemory<ES, T> {
-        StageMemory::<ES, T> {
+        #[comptime] ident: StageIdent,
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedStage<ES, T> {
+        StridedStage::<ES, T> {
             smem,
-            num_stages,
+            ident,
+            config,
+            buffer_index: 0u32,
+            _phantom: PhantomData::<T>,
+        }
+    }
+
+    pub fn with_buffer_index(&self, buffer_idx: u32) -> Self {
+        StridedStage::<ES, T> {
+            smem: self.smem,
+            ident: self.ident,
+            config: self.config,
+            buffer_index: buffer_idx,
             _phantom: PhantomData::<T>,
         }
     }
 
     /// Get the tile at position (row, col)
-    pub fn get_tile<S: StageMemoryConfig>(
-        &self,
-        row: u32,
-        col: u32,
-        #[comptime] buffer_index: u32,
-        #[comptime] ident: StageIdent,
-        #[comptime] config: S,
-    ) -> Tile<ES> {
-        T::get_tile::<ES, S>(self, row, col, buffer_index, ident, config)
+    pub fn get_tile(&self, tile: Coords2d) -> StridedTile<ES> {
+        T::get_tile::<ES>(self, tile, self.buffer_index, self.ident, self.config)
+    }
+
+    /// Get the tile at position (row, col)
+    pub fn get_tile_mut(&self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        let tile = self.get_tile(tile);
+        StridedTile::<ES, ReadWrite> {
+            slice: tile.slice.as_mut_unchecked(),
+            stride: tile.stride,
+            layout: tile.layout,
+        }
     }
 
     /// Return the whole stage as a slice, for reading
@@ -101,10 +128,8 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         #[comptime] config: G,
     ) {
         // TODO: this assumes the stage was created with new
-        let stage_config = config.stage_config();
         let smem_length = comptime!(
-            self.num_stages * config.tiling_scheme().elements_in_stage(ident)
-                / stage_config.stage_line_size(ident.into())
+            self.config.num_stages * self.config.elements_in_stage() / self.config.stage_line_size
         );
 
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
@@ -140,10 +165,9 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
         // TODO: this assumes the stage was created with new
         // Also assumes two buffers
         let tiling_scheme = config.tiling_scheme();
-        let line_size = config.stage_config().stage_line_size(ident.into());
-        let smem_length = comptime!(
-            self.num_stages * config.tiling_scheme().elements_in_stage(ident) / line_size
-        );
+        let line_size = comptime![self.config.stage_line_size];
+        let smem_length =
+            comptime!(self.config.num_stages * self.config.elements_in_stage() / line_size);
         let buffer_length = smem_length / 2;
 
         let matrix_layout = config.matrix_layout(ident);
@@ -188,5 +212,32 @@ impl<ES: Numeric, T: TilingLayout> StageMemory<ES, T> {
                 }
             }
         }
+    }
+
+    /// Frees the shared memory for reuse, if possible on the target runtime.
+    ///
+    /// # Safety
+    /// *Must* be used in uniform control flow
+    /// *Must not* have any dangling references to this shared memory
+    pub unsafe fn free(self) {
+        unsafe { self.smem.free() };
+    }
+}
+
+#[cube]
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadOnly> for StridedStage<ES, T> {
+    type TileKind = Strided;
+
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES> {
+        this.get_tile(tile)
+    }
+}
+
+#[cube]
+impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadWrite> for StridedStage<ES, T> {
+    type TileKind = Strided;
+
+    fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        this.get_tile_mut(tile)
     }
 }

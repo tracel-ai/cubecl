@@ -1,4 +1,5 @@
-use cubecl_core::{Feature, Runtime, client::ComputeClient};
+use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_runtime::MmaConfig;
 use std::marker::PhantomData;
 
 use crate::{
@@ -10,14 +11,18 @@ use crate::{
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
         },
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            PlaneWriterFamily,
+            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
-            ColMajorTilingOrder, FullReaderFamily, PartitionBuffering, PlaneMatmulFamily,
-            RowMajorTilingOrder,
+            ColMajorTilingOrder, FilledStageFamily, PartitionBuffering, PlaneMatmulFamily,
+            RowMajorTilingOrder, StridedStageFamily,
         },
-        tile::TileMatmulFamily,
+        tile::{
+            TileMatmulFamily,
+            io::{Filled, Strided},
+        },
     },
     kernels::layered::{
         Algorithm,
@@ -25,7 +30,7 @@ use crate::{
     },
 };
 
-/// Plane accelerated single stage matmul with configurable loaders (default to cyclic)
+/// Plane accelerated single stage matmul with configurable readers (default to cyclic)
 pub struct SimpleAlgorithm<
     TMM,
     LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
@@ -44,14 +49,20 @@ pub struct SimpleArgs {
 
 impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
-    TMM: TileMatmulFamily,
+    TMM:
+        TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
     LL: SyncFullLoadingStrategy,
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
-    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
+    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL, PlaneWriterFamily>;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
@@ -87,11 +98,11 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     plane_dim: u32,
     elems: MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    let supported = |m: u8, n: u8, k: u8| {
-        client.properties().feature_enabled(Feature::Cmma {
-            a: elems.lhs_register,
-            b: elems.rhs_register,
-            c: elems.acc,
+    let supported = |m: u32, n: u32, k: u32| {
+        client.properties().features.cmma.contains(&MmaConfig {
+            a_type: elems.lhs_register,
+            b_type: elems.rhs_register,
+            cd_type: elems.acc_register,
             m,
             n,
             k,

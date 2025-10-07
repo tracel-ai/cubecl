@@ -1,5 +1,4 @@
 use crate::{
-    data_service::DataTransferId,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -15,7 +14,9 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
-use cubecl_common::{ExecutionMode, future::DynFut, profile::ProfileDuration};
+use cubecl_common::{
+    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+};
 use cubecl_ir::StorageType;
 use thiserror::Error;
 
@@ -32,7 +33,7 @@ pub enum ProfileError {
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: DataTransferService + Send + core::fmt::Debug
+pub trait ComputeServer: Send + core::fmt::Debug + ServerCommunication
 where
     Self: Sized,
 {
@@ -42,33 +43,41 @@ where
     type Info: Debug + Send + Sync;
     /// The [storage](ComputeStorage) type defines how data is stored and accessed.
     type Storage: ComputeStorage;
-    /// The type of the features supported by the server.
-    type Feature: Ord + Copy + Debug + Send + Sync;
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Retrieve the server logger.
+    fn logger(&self) -> Arc<ServerLogger>;
+
     /// Utility to create a new buffer and immediately copy contiguous data into it
-    fn create_with_data(&mut self, data: &[u8]) -> Result<Handle, IoError> {
+    fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
-            .create(vec![AllocationDescriptor::new(
-                AllocationKind::Contiguous,
-                &[data.len()],
-                1,
-            )])?
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
             .remove(0);
-        self.write(vec![(
-            CopyDescriptor::new(
-                alloc.handle.clone().binding(),
-                &[data.len()],
-                &alloc.strides,
-                1,
-            ),
-            data,
-        )])?;
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                data,
+            )],
+            stream_id,
+        )?;
         Ok(alloc.handle)
     }
 
@@ -76,18 +85,24 @@ where
     fn read<'a>(
         &mut self,
         descriptors: Vec<CopyDescriptor<'a>>,
-    ) -> DynFut<Result<Vec<Vec<u8>>, IoError>>;
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>>;
 
     /// Writes the specified bytes into the buffers given
-    fn write(&mut self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError>;
+    fn write(
+        &mut self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError>;
 
     /// Wait for the completion of every task in the server.
-    fn sync(&mut self) -> DynFut<()>;
+    fn sync(&mut self, stream_id: StreamId) -> DynFut<()>;
 
     /// Given a resource handle, returns the storage resource.
     fn get_resource(
         &mut self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource>;
 
     /// Executes the `kernel` over the given memory `handles`.
@@ -104,55 +119,71 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     );
 
     /// Flush all outstanding tasks in the server.
-    fn flush(&mut self);
+    fn flush(&mut self, stream_id: StreamId);
 
     /// The current memory usage of the server.
-    fn memory_usage(&self) -> MemoryUsage;
+    fn memory_usage(&mut self, stream_id: StreamId) -> MemoryUsage;
 
     /// Ask the server to release memory that it can release.
-    fn memory_cleanup(&mut self);
+    fn memory_cleanup(&mut self, stream_id: StreamId);
 
     /// Enable collecting timestamps.
-    fn start_profile(&mut self) -> ProfilingToken;
+    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken;
 
     /// Disable collecting timestamps.
-    fn end_profile(&mut self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError>;
+    fn end_profile(
+        &mut self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError>;
 
     /// Update the memory mode of allocation in the server.
-    fn allocation_mode(&mut self, mode: MemoryAllocationMode);
+    fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// Defines a way to move data from one compute server to another.
-///
-/// # Notes
-///
-/// This is an optional trait to be implemented and methods will only be called if the
-/// memory device property 'data_service_async' is set to 'true'.
-pub trait DataTransferService {
-    /// Send data to another server. Should be called with [register_dest](DataTransferService::register_dest)
-    ///
-    /// # Arguments
-    ///
-    /// - `id`: A unique id for the transaction
-    /// - `src`: The source for the read operation.
-    #[allow(unused_variables)]
-    fn register_src(&mut self, id: DataTransferId, src: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
-    }
+/// Defines functions for optimized data transfer between servers, supporting custom communication
+/// mechanisms such as peer-to-peer communication or specialized implementations.
+pub trait ServerCommunication {
+    /// Indicates whether server-to-server communication is enabled for this implementation.
+    const SERVER_COMM_ENABLED: bool;
 
-    /// Receive data from another server. Should be called with [register_src](DataTransferService::register_src)
+    /// Copies data from a source server to a destination server.
     ///
     /// # Arguments
     ///
-    /// - `id`: A unique id for the transaction
-    /// - `dst`: The destination for the write operation.
+    /// * `server_src` - A mutable reference to the source server from which data is copied.
+    /// * `server_dst` - A mutable reference to the destination server receiving the data.
+    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
+    /// * `stream_id_src` - The stream ID associated with the source server's operation.
+    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if server communication is not enabled (`SERVER_COMM_ENABLED` is `false`) or if the
+    /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
-    fn register_dest(&mut self, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
+    fn copy(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        if !Self::SERVER_COMM_ENABLED {
+            panic!("Server-to-server communication is not supported by this server.");
+        } else {
+            panic!(
+                "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
+            );
+        }
     }
 }
 
@@ -172,6 +203,10 @@ pub struct Handle {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Length of the underlying buffer ignoring offsets
     size: u64,
 }
@@ -231,6 +266,9 @@ pub enum IoError {
     /// Handle wasn't found in the memory pool
     #[error("couldn't find resource for that handle")]
     InvalidHandle,
+    /// Unknown error happened during execution
+    #[error("Unknown error happened during execution")]
+    Unknown(String),
 }
 
 impl Handle {
@@ -356,6 +394,10 @@ pub struct Binding {
     pub offset_start: Option<u64>,
     /// Memory offset in bytes.
     pub offset_end: Option<u64>,
+    /// The stream where the data was created.
+    pub stream: cubecl_common::stream_id::StreamId,
+    /// The stream position when the tensor became available.
+    pub cursor: u64,
     /// Size in bytes
     size: u64,
 }
@@ -418,7 +460,7 @@ pub struct TensorMapMeta {
 impl Handle {
     /// If the tensor handle can be reused inplace.
     pub fn can_mut(&self) -> bool {
-        self.memory.can_mut()
+        self.memory.can_mut() && self.stream == StreamId::current()
     }
 }
 
@@ -430,6 +472,8 @@ impl Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 
@@ -456,6 +500,8 @@ impl Clone for Handle {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }
@@ -467,6 +513,8 @@ impl Clone for Binding {
             offset_start: self.offset_start,
             offset_end: self.offset_end,
             size: self.size,
+            stream: self.stream,
+            cursor: self.cursor,
         }
     }
 }

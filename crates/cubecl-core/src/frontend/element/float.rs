@@ -49,6 +49,8 @@ pub trait Float:
     + Magnitude
     + Normalize
     + Dot
+    + IsNan
+    + IsInf
     + Into<Self::ExpandType>
     + core::ops::Neg<Output = Self>
     + core::ops::Add<Output = Self>
@@ -144,17 +146,6 @@ macro_rules! impl_float {
 
             fn new(val: f32) -> Self {
                 $new(val)
-            }
-        }
-
-        impl LaunchArgExpand for $primitive {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_type(&builder.scope)).into()
             }
         }
     };

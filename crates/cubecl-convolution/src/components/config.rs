@@ -4,10 +4,10 @@ use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
     MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, load::LoaderMode,
-        multi_stage::EventLoadingMode,
+        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
+        read::ReaderMode,
     },
-    stage::StageConfig,
+    stage::{StageConfig, StageMemoryConfig},
 };
 
 use super::*;
@@ -50,10 +50,9 @@ impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
 
 impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
     type StageConfig = M::StageConfig;
-    type StageMemoryConfig = <M::StageConfig as StageConfig>::StageMemoryConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-        self.stage_config().stage_memory_config()
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config().stage_memory_config(ident.into_stage())
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -96,8 +95,8 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         self.num_stages
     }
 
-    fn loader_mode(&self) -> LoaderMode {
-        self.matmul.loader_mode()
+    fn reader_mode(&self) -> ReaderMode {
+        self.matmul.reader_mode()
     }
 
     fn tiling_scheme(&self) -> TilingScheme {

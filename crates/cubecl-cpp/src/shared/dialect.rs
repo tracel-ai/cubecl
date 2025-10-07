@@ -1,7 +1,7 @@
-use std::hash::Hash;
 use std::{collections::HashSet, fmt::Debug};
+use std::{fmt::Display, hash::Hash};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::ir::Processor;
 
 use crate::shared::{
     FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
@@ -10,8 +10,8 @@ use crate::shared::{
 
 use super::{
     Architecture, AtomicKind, Binding, Body, Component, CubeIndexFlags, Elem, Flags, Fragment,
-    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, SupportedWmmaCombinations,
-    Variable, WarpInstruction, WmmaInstruction,
+    FragmentIdent, FragmentLayout, Instruction, Item, SharedMemory, Variable, WarpInstruction,
+    WmmaInstruction,
 };
 
 // Base dialect
@@ -102,7 +102,18 @@ pub trait DialectTypes<D: Dialect> {
     fn compile_shared_memory_declaration(
         f: &mut std::fmt::Formatter<'_>,
         shared: &SharedMemory<D>,
-    ) -> std::fmt::Result;
+    ) -> std::fmt::Result {
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        let size = shared.length;
+        let size_bytes = size * shared.item.size() as u32;
+        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "{item} *shared_memory_{index} = reinterpret_cast<{item}*>(&dynamic_shared_mem[{offset}]);"
+        )
+    }
     fn compile_polyfills(_f: &mut std::fmt::Formatter<'_>, _flags: &Flags) -> std::fmt::Result {
         Ok(())
     }
@@ -118,7 +129,7 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<D>],
         buffers: &[Binding<D>],
         scalars: &[(Elem<D>, usize)],
         flags: &Flags,
@@ -488,6 +499,20 @@ pub trait DialectInstructions<D: Dialect> {
         writeln!(f, "{out} = atomicXor({lhs}, {rhs});")
     }
 
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<D>,
+    ) -> std::fmt::Result;
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        item: Item<D>,
+    ) -> std::fmt::Result;
+
     // debug
     fn compile_instruction_printf(
         f: &mut std::fmt::Formatter<'_>,
@@ -798,7 +823,7 @@ pub trait DialectWmmaCompiler<D: Dialect>:
         scales_b: Variable<D>,
         scales_factor: u32,
     ) -> std::fmt::Result;
-    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedWmmaCombinations;
+    fn supported_wmma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
     fn supported_mma_combinations(arch: &D::Architecture) -> SupportedMmaCombinations;
     fn supported_scaled_mma_combinations(
         _arch: &D::Architecture,

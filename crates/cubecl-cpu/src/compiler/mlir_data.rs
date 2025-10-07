@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use cubecl_common::stream_id::StreamId;
 use cubecl_core::server::{Bindings, Handle, ScalarBinding};
 use cubecl_runtime::{memory_management::MemoryManagement, storage::BytesStorage};
 
@@ -80,7 +81,7 @@ impl MlirData {
         };
 
         for b in buffers {
-            let handle = memory_management
+            let mut handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
             let ptr = handle.write();
@@ -88,11 +89,12 @@ impl MlirData {
             push_undirected(line_memref);
         }
 
+        let stream_id = StreamId::current();
         for shared_memory in shared_memories.0.iter() {
             let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
             let handle = memory_management.reserve(length).unwrap();
-            let b = Handle::new(handle, None, None, length).binding();
-            let handle = memory_management
+            let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
+            let mut handle = memory_management
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
             let ptr = handle.write();

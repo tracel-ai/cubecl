@@ -5,6 +5,7 @@ use cubecl_std::tensor::r#virtual::VirtualTensor;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionSpec, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    attention_types::*,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     global::GlobalAttentionConfig,
 };
@@ -57,10 +58,10 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Config: BatchAttentionConfig;
 
     fn execute(
-        query: VirtualTensor<AP::EI>,
-        key: VirtualTensor<AP::EI>,
-        value: VirtualTensor<AP::EI>,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        query: VirtualTensor<QG<AP>>,
+        key: VirtualTensor<KG<AP>>,
+        value: VirtualTensor<VG<AP>>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );
@@ -76,6 +77,4 @@ pub trait BatchAttentionConfig:
 
     fn hypercube_config(&self) -> HypercubeConfig;
     fn cube_dim(&self) -> CubeDim;
-    // TMP, seq_k=seq_q=N
-    fn seq_k(&self) -> u32;
 }

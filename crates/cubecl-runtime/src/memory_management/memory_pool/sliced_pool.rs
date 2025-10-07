@@ -252,7 +252,7 @@ impl Slice {
             size: offset_slice,
         };
 
-        if offset_new % buffer_alignment != 0 {
+        if !offset_new.is_multiple_of(buffer_alignment) {
             panic!("slice with offset {offset_new} needs to be a multiple of {buffer_alignment}");
         }
         let handle = SliceHandle::new();

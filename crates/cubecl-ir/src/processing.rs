@@ -62,12 +62,20 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
+                    Arithmetic::SaturatingAdd(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
                     Arithmetic::Fma(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.a, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.b, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.c, &inst.out.unwrap());
                     }
                     Arithmetic::Sub(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
+                        sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
+                    }
+                    Arithmetic::SaturatingSub(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &inst.out.unwrap());
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &inst.out.unwrap());
                     }
@@ -225,6 +233,9 @@ impl ScopeProcessing {
                     Comparison::Lower(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.lhs, &op.rhs);
                         sanitize_constant_scalar_ref_var(&mut op.rhs, &op.lhs);
+                    }
+                    Comparison::IsNan(_op) | Comparison::IsInf(_op) => {
+                        // Nothing to do
                     }
                 },
                 Operation::Bitwise(op) => match op {
@@ -435,6 +446,9 @@ impl ScopeProcessing {
                     // Nothing to do
                 }
                 Operation::Tma(_) => {
+                    // Nothing to do
+                }
+                Operation::Free(_) => {
                     // Nothing to do
                 }
             });

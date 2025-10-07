@@ -4,7 +4,9 @@ use super::{Item, LocalArray, SharedMemory};
 use crate::compiler::wgsl;
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
+use cubecl_core::post_processing::{
+    checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{
     Metadata, WgpuCompilationOptions, compute,
@@ -381,7 +383,8 @@ impl WgslCompiler {
             cube::VariableKind::Barrier { .. } => {
                 panic!("Barrier not supported.")
             }
-            cube::VariableKind::TensorMap(_) => panic!("Tensor map not supported."),
+            cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
+            cube::VariableKind::TensorMapOutput(_) => panic!("Tensor map not supported."),
         }
     }
 
@@ -410,7 +413,8 @@ impl WgslCompiler {
 
         let checked_io: Box<dyn Processor> = Box::new(CheckedIoProcessor::new(self.strategy));
         let unroll = Box::new(UnrollProcessor::new(MAX_LINE_SIZE));
-        let processing = scope.process([&*unroll, &*checked_io]);
+        let saturating = Box::new(SaturatingArithmeticProcessor::new(true));
+        let processing = scope.process([&*unroll, &*checked_io, &*saturating]);
 
         for mut var in processing.variables {
             if var.ty.line_size() > MAX_LINE_SIZE {
@@ -465,6 +469,7 @@ impl WgslCompiler {
                 panic!("Barrier isn't supported on wgpu.")
             }
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
+            cube::Operation::Free(_) => {}
         }
     }
 
@@ -698,6 +703,9 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::SaturatingAdd(_) => {
+                unreachable!("Saturating add should be removed by processor");
+            }
             cube::Arithmetic::Fma(op) => instructions.push(wgsl::Instruction::Fma {
                 a: self.compile_variable(op.a),
                 b: self.compile_variable(op.b),
@@ -714,6 +722,9 @@ impl WgslCompiler {
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::SaturatingSub(_) => {
+                unreachable!("Saturating sub should be removed by processor");
+            }
             cube::Arithmetic::Mul(op) => instructions.push(wgsl::Instruction::Mul {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
@@ -911,6 +922,14 @@ impl WgslCompiler {
             cube::Comparison::NotEqual(op) => instructions.push(wgsl::Instruction::NotEqual {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
+            cube::Comparison::IsNan(op) => instructions.push(wgsl::Instruction::IsNan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Comparison::IsInf(op) => instructions.push(wgsl::Instruction::IsInf {
+                input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
         }
@@ -1148,6 +1167,14 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             wgsl::Instruction::Tanh { input, out: _ } => {
                 register_extension(wgsl::Extension::SafeTanhPrimitive(input.elem()));
                 register_extension(wgsl::Extension::SafeTanh(input.item()));
+            }
+            wgsl::Instruction::IsNan { input, out } => {
+                register_extension(wgsl::Extension::IsNanPrimitive(input.elem()));
+                register_extension(wgsl::Extension::IsNan(input.item(), out.item()));
+            }
+            wgsl::Instruction::IsInf { input, out } => {
+                register_extension(wgsl::Extension::IsInfPrimitive(input.elem()));
+                register_extension(wgsl::Extension::IsInf(input.item(), out.item()));
             }
             wgsl::Instruction::If { instructions, .. } => {
                 for extension in register_extensions(instructions) {

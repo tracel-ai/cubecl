@@ -36,6 +36,7 @@ cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features
 cubecl-ir = { path = "../cubecl-ir", version = "0.7.0", default-features = false }
 derive-new = { workspace = true }
 dirs = { workspace = true, optional = true }
+enumset = { workspace = true }
 foldhash = { workspace = true }
 hashbrown = { workspace = true }
 log = { workspace = true }
@@ -75,7 +76,7 @@ rand = { workspace = true, features = ["thread_rng"] }
 serial_test = { workspace = true }
 
 [build-dependencies]
-cfg_aliases = "0.2.1"
+cfg_aliases = { workspace = true }
 
 [[bench]]
 harness = false

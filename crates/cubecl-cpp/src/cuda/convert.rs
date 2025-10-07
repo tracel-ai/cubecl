@@ -35,9 +35,12 @@ pub(crate) fn special_cast<D: Dialect>(
 ) -> fmt::Result {
     let mut current_in = *input;
 
-    if matches!(input.elem(), Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)) {
+    if matches!(
+        input.elem().unpacked(),
+        Elem::FP4(_) | Elem::FP6(_) | Elem::FP8(_)
+    ) {
         let mut item = out.item();
-        item.elem = match input.elem() {
+        item.elem = match input.elem().unpacked() {
             Elem::FP8(FP8Kind::UE8M0) => Elem::BF16,
             _ => Elem::F16,
         };
@@ -52,6 +55,21 @@ pub(crate) fn special_cast<D: Dialect>(
             cast_scale_to_bfloat(f, current_in, out_var)?;
         }
         current_in = out_var;
+    }
+
+    // Broadcast scalars to packing factor
+    if out.item().packing_factor() > 1 && input.item().vectorization == 1 {
+        let tmp = Variable::tmp(Item {
+            elem: input.item().elem,
+            vectorization: out.item().packing_factor(),
+            native: input.item().native,
+        });
+        let assign = Instruction::Assign(UnaryInstruction {
+            input: current_in,
+            out: tmp,
+        });
+        writeln!(f, "{assign}")?;
+        current_in = tmp;
     }
 
     if matches!(
@@ -69,8 +87,8 @@ pub(crate) fn special_cast<D: Dialect>(
         // Precision is irrelevant for int, so use bf16 for the range
         let tmp = Variable::tmp(Item {
             elem: Elem::BF16,
-            vectorization: input.item().vectorization,
-            native: input.item().native,
+            vectorization: current_in.item().vectorization,
+            native: current_in.item().native,
         });
         let assign = Instruction::Assign(UnaryInstruction {
             input: current_in,
@@ -80,11 +98,11 @@ pub(crate) fn special_cast<D: Dialect>(
         current_in = tmp;
     }
 
-    if matches!(out.elem(), Elem::FP4(_) | Elem::FP6(_)) {
+    if matches!(out.elem().unpacked(), Elem::FP4(_) | Elem::FP6(_)) {
         return cast_to_fp4_fp6(f, current_in, *out);
     }
 
-    if matches!(out.elem(), Elem::FP8(FP8Kind::UE8M0)) {
+    if matches!(out.elem().unpacked(), Elem::FP8(FP8Kind::UE8M0)) {
         // Scale can't be converted from half...
         if matches!(current_in.elem(), Elem::F16) {
             let mut item = current_in.item();
@@ -100,7 +118,7 @@ pub(crate) fn special_cast<D: Dialect>(
         return cast_to_scale(f, current_in, *out);
     }
 
-    if matches!(out.elem(), Elem::FP8(_)) {
+    if matches!(out.elem().unpacked(), Elem::FP8(_)) {
         return cast_to_fp8(f, current_in, *out);
     }
 
@@ -122,8 +140,8 @@ fn cast_to_fp4_fp6<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
-    let packed = packing > 1;
+    let packing = out_opt.item().packing_factor();
+    let packed = packing == 2;
     let pack_suffix = if packed { "2" } else { "" };
 
     let (out_ty, interpretation) = match out_opt.elem() {
@@ -134,7 +152,7 @@ fn cast_to_fp4_fp6<D: Dialect>(
         _ => unreachable!("Must be fp4 or fp6"),
     };
 
-    let in_ty = match input.elem() {
+    let in_ty = match input.elem().unpacked() {
         Elem::F64 => format!("double{pack_suffix}"),
         Elem::TF32 | Elem::F32 => format!("float{pack_suffix}"),
         Elem::F16 => format!("halfraw{pack_suffix}"),
@@ -161,7 +179,7 @@ fn cast_to_scale<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
+    let packing = out_opt.item().packing_factor();
     let packed = packing > 1;
     let pack_suffix = if packed { "2" } else { "" };
 
@@ -197,7 +215,7 @@ fn cast_to_fp8<D: Dialect>(
     out: Variable<D>,
 ) -> fmt::Result {
     let out_opt = out.optimized();
-    let packing = out.item().vectorization / out_opt.item().vectorization;
+    let packing = out_opt.item().packing_factor();
     let packed = packing > 1;
     let pack_suffix = if packed { "2" } else { "" };
 

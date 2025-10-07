@@ -82,8 +82,6 @@ pub struct MemoryDeviceProperties {
     pub max_page_size: u64,
     /// The required memory offset alignment in bytes.
     pub alignment: u64,
-    /// Defines if memory can be transfered async between multiple devices of the same kind.
-    pub data_transfer_async: bool,
 }
 
 /// Properties of the device related to the accelerator hardware.

@@ -2,7 +2,10 @@ use cubecl_ir::{Bitwise, ElemType, Instruction, Type, UIntKind, UnaryOperator};
 use cubecl_macros::{cube, intrinsic};
 use num_traits::{NumCast, ToPrimitive};
 
-use crate::{self as cubecl, prelude::Powi};
+use crate::{
+    self as cubecl,
+    prelude::{IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub},
+};
 use crate::{
     frontend::{
         Abs, Ceil, Clamp, Cos, CubePrimitive, Erf, Exp, ExpandElementTyped, Floor, Log, Log1p, Max,
@@ -254,6 +257,10 @@ impl<P: CubePrimitive + Floor> Floor for Line<P> {}
 impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
 impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
 impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
+impl<P: CubePrimitive + SaturatingAdd> SaturatingAdd for Line<P> {}
+impl<P: CubePrimitive + SaturatingSub> SaturatingSub for Line<P> {}
+impl<P: CubePrimitive + IsNan> IsNan for Line<P> {}
+impl<P: CubePrimitive + IsInf> IsInf for Line<P> {}
 
 #[cube]
 impl<P: CountOnes> Line<P> {

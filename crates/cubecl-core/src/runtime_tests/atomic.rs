@@ -1,7 +1,8 @@
-use crate::{self as cubecl, AtomicFeature, Feature, ir::ElemType};
+use crate::{self as cubecl};
 
 use cubecl::prelude::*;
 use cubecl_ir::StorageType;
+use cubecl_runtime::TypeUsage;
 
 #[cube(launch)]
 pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
@@ -12,41 +13,16 @@ pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
 
 fn supports_feature<R: Runtime, F: Numeric>(
     client: &ComputeClient<R::Server, R::Channel>,
-    feat: AtomicFeature,
+    feat: TypeUsage,
 ) -> bool {
-    match F::as_type_native_unchecked().elem_type() {
-        ElemType::Float(kind) => {
-            client
-                .properties()
-                .feature_enabled(Feature::AtomicFloat(feat))
-                && client
-                    .properties()
-                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::Float(kind))))
-        }
-        ElemType::Int(kind) => {
-            client
-                .properties()
-                .feature_enabled(Feature::AtomicInt(feat))
-                && client
-                    .properties()
-                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::Int(kind))))
-        }
-        ElemType::UInt(kind) => {
-            client
-                .properties()
-                .feature_enabled(Feature::AtomicUInt(feat))
-                && client
-                    .properties()
-                    .feature_enabled(Feature::Type(StorageType::Atomic(ElemType::UInt(kind))))
-        }
-        _ => unreachable!(),
-    }
+    let ty = StorageType::Atomic(F::as_type_native_unchecked().elem_type());
+    client.properties().type_usage(ty).contains(feat)
 }
 
 pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    if !supports_feature::<R, F>(&client, AtomicFeature::Add) {
+    if !supports_feature::<R, F>(&client, TypeUsage::AtomicAdd) {
         println!(
             "{} Add not supported - skipped",
             Atomic::<F>::as_type_native_unchecked()
@@ -78,7 +54,7 @@ pub fn kernel_atomic_min<I: Numeric>(output: &mut Array<Atomic<I>>) {
 pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
+    if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
             "{} Min not supported - skipped",
             Atomic::<F>::as_type_native_unchecked()
@@ -110,7 +86,7 @@ pub fn kernel_atomic_max<I: Numeric>(output: &mut Array<Atomic<I>>) {
 pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
     client: ComputeClient<R::Server, R::Channel>,
 ) {
-    if !supports_feature::<R, F>(&client, AtomicFeature::MinMax) {
+    if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
             "{} Max not supported - skipped",
             Atomic::<F>::as_type_native_unchecked()

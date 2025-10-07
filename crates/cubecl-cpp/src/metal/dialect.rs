@@ -7,15 +7,15 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
-        SupportedMmaCombinations, SupportedWmmaCombinations, Variable, WarpInstruction,
-        WmmaInstruction, wmma_api_base,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SupportedMmaCombinations,
+        Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
     compute::{Location, Visibility},
-    ir::{self as gpu, Id},
+    ir::{self as gpu},
 };
+use cubecl_runtime::MmaConfig;
 
 use super::{
     AddressSpace, Extension,
@@ -316,23 +316,6 @@ struct alignas({alignment}) {item} {{"
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "thread")
     }
-
-    fn compile_shared_memory_declaration(
-        f: &mut std::fmt::Formatter<'_>,
-        shared: &SharedMemory<Self>,
-    ) -> std::fmt::Result {
-        let item = shared.item;
-        let index = shared.index;
-        let size = shared.size;
-        let alignment = shared
-            .align
-            .map(|align| format!("alignas({align})"))
-            .unwrap_or_default();
-        writeln!(
-            f,
-            "threadgroup {alignment} {item} shared_memory_{index}[{size}];",
-        )
-    }
 }
 
 // Kernel argument bindings
@@ -341,7 +324,7 @@ impl DialectBindings<Self> for MslDialect {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
@@ -417,6 +400,31 @@ void {kernel_name}("
             .filter(|(cond, _)| *cond)
             .try_for_each(|(_, var)| format_metal_builtin_binding_arg(f, var, comma))?;
         f.write_str("\n)")
+    }
+
+    fn compile_bindings_body(
+        f: &mut std::fmt::Formatter<'_>,
+        body: &shared::Body<Self>,
+    ) -> std::fmt::Result {
+        if !body.shared_memories.is_empty() {
+            let size = body
+                .shared_memories
+                .iter()
+                .map(|it| it.offset + it.size())
+                .max()
+                .unwrap();
+            let max_align = body
+                .shared_memories
+                .iter()
+                .map(|smem| smem.align)
+                .max()
+                .unwrap();
+            writeln!(
+                f,
+                "threadgroup alignas({max_align}) uchar dynamic_shared_mem[{size}];",
+            )?;
+        }
+        Ok(())
     }
 }
 
@@ -749,6 +757,24 @@ impl DialectInstructions<Self> for MslDialect {
             f,
             "{out} = atomic_fetch_xor_explicit({lhs}, {rhs}, memory_order_relaxed);"
         )
+    }
+
+    fn compile_saturating_add(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "addsat({lhs}, {rhs})")
+    }
+
+    fn compile_saturating_sub(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: impl Display,
+        rhs: impl Display,
+        _item: Item<Self>,
+    ) -> std::fmt::Result {
+        write!(f, "subsat({lhs}, {rhs})")
     }
 
     // debug
@@ -1153,33 +1179,40 @@ impl DialectWmmaCompiler<Self> for MslDialect {
         unimplemented!("Not supported")
     }
 
-    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedWmmaCombinations {
-        vec![
+    fn supported_wmma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {
+        let types = vec![
             (
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
                 gpu::ElemType::Float(gpu::FloatKind::BF16).into(),
-                vec![(8, 8, 8)],
             ),
             (
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
                 gpu::ElemType::Float(gpu::FloatKind::F32).into(),
-                vec![(8, 8, 8)],
             ),
-        ]
+        ];
+        types
+            .into_iter()
+            .map(|(a_type, b_type, cd_type)| MmaConfig {
+                a_type,
+                b_type,
+                cd_type,
+                m: 8,
+                n: 8,
+                k: 8,
+            })
+            .collect()
     }
 
     fn supported_mma_combinations(_arch: &MetalArchitecture) -> SupportedMmaCombinations {

@@ -3,19 +3,22 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
-    global::{load::NoLoadingValidation, single_stage::tma::SimpleTmaConfig},
-    stage::{FullReaderFamily, StageConfig as _, StageMatmulFamily},
+    global::{
+        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
+        single_stage::tma::SimpleTmaConfig,
+    },
+    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::tensor::layout::Coords3d;
 
 use crate::{
     components::{
         ConvolutionConfig, ConvolutionProblem,
         global::{
             GlobalConvolutionFamily,
-            load::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
             multi_stage::tma::{MultiStageTmaConvolution, num_stages},
+            read::{im2col_tma::TmaIm2colTiling, weight_tma::TmaWeightTiling},
         },
+        stage::reader::BiasTilingLayout,
     },
     kernels::layered::algorithm::simple_tma::check_problem_tma,
 };
@@ -27,13 +30,16 @@ pub struct MultiStageTmaConvolutionFamily<SMM: StageMatmulFamily> {
 impl<SMM> GlobalConvolutionFamily for MultiStageTmaConvolutionFamily<SMM>
 where
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            WriteCoords = Coords3d,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = Option<StridedStageFamily>,
+            OutStage = PartitionedStageFamily,
         >,
 {
-    type Convolution<MP: MatmulPrecision> =
-        MultiStageTmaConvolution<MP, SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling>>;
+    type Convolution<MP: MatmulPrecision> = MultiStageTmaConvolution<
+        MP,
+        SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout, WriteTiling>,
+    >;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
@@ -86,7 +92,7 @@ where
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
-                selection.loader_mode,
+                selection.reader_mode,
             )?,
             &problem.kernel_size,
             &problem.stride,

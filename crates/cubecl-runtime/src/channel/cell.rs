@@ -1,5 +1,4 @@
 use super::ComputeChannel;
-use crate::data_service::DataTransferId;
 use crate::server::{
     Binding, Bindings, ComputeServer, CopyDescriptor, CubeCount, ProfileError, ProfilingToken,
 };
@@ -11,8 +10,10 @@ use crate::{
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::ExecutionMode;
+use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
+use cubecl_common::stream_id::StreamId;
 
 /// A channel using a [ref cell](core::cell::RefCell) to access the server with mutability.
 ///
@@ -52,44 +53,50 @@ impl<Server> ComputeChannel<Server> for RefCellComputeChannel<Server>
 where
     Server: ComputeServer + Send,
 {
+    const SERVER_COMM_SUPPORTED: bool = true;
+
+    fn logger(&self) -> Arc<ServerLogger> {
+        todo!();
+    }
+
     fn create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
+        stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut server = self.server.borrow_mut();
-        server.create(descriptors)
+        server.create(descriptors, stream_id)
     }
 
-    fn read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Vec<u8>>, IoError>> {
+    fn read(
+        &self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+        stream_id: StreamId,
+    ) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let mut server = self.server.borrow_mut();
-        server.read(descriptors)
+        server.read(descriptors, stream_id)
     }
 
-    fn write(&self, descriptors: Vec<(CopyDescriptor<'_>, &[u8])>) -> Result<(), IoError> {
+    fn write(
+        &self,
+        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        stream_id: StreamId,
+    ) -> Result<(), IoError> {
         let mut server = self.server.borrow_mut();
-        server.write(descriptors)
+        server.write(descriptors, stream_id)
     }
 
-    fn data_transfer_send(&self, id: DataTransferId, src: CopyDescriptor<'_>) {
+    fn sync(&self, stream_id: StreamId) -> DynFut<()> {
         let mut server = self.server.borrow_mut();
-        server.register_src(id, src);
-    }
-
-    fn data_transfer_recv(&self, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        let mut server = self.server.borrow_mut();
-        server.register_dest(id, dst);
-    }
-
-    fn sync(&self) -> DynFut<()> {
-        let mut server = self.server.borrow_mut();
-        server.sync()
+        server.sync(stream_id)
     }
 
     fn get_resource(
         &self,
         binding: Binding,
+        stream_id: StreamId,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
-        self.server.borrow_mut().get_resource(binding)
+        self.server.borrow_mut().get_resource(binding, stream_id)
     }
 
     unsafe fn execute(
@@ -98,37 +105,64 @@ where
         count: CubeCount,
         bindings: Bindings,
         kind: ExecutionMode,
-        logger: Arc<ServerLogger>,
+        stream_id: StreamId,
     ) {
         unsafe {
             self.server
                 .borrow_mut()
-                .execute(kernel_description, count, bindings, kind, logger)
+                .execute(kernel_description, count, bindings, kind, stream_id)
         }
     }
 
-    fn flush(&self) {
-        self.server.borrow_mut().flush()
+    fn flush(&self, stream_id: StreamId) {
+        self.server.borrow_mut().flush(stream_id)
     }
 
-    fn memory_usage(&self) -> crate::memory_management::MemoryUsage {
-        self.server.borrow_mut().memory_usage()
+    fn memory_usage(&self, stream_id: StreamId) -> crate::memory_management::MemoryUsage {
+        self.server.borrow_mut().memory_usage(stream_id)
     }
 
-    fn memory_cleanup(&self) {
-        self.server.borrow_mut().memory_cleanup();
+    fn memory_cleanup(&self, stream_id: StreamId) {
+        self.server.borrow_mut().memory_cleanup(stream_id);
     }
 
-    fn start_profile(&self) -> ProfilingToken {
-        self.server.borrow_mut().start_profile()
+    fn start_profile(&self, stream_id: StreamId) -> ProfilingToken {
+        self.server.borrow_mut().start_profile(stream_id)
     }
 
-    fn end_profile(&self, token: ProfilingToken) -> Result<ProfileDuration, ProfileError> {
-        self.server.borrow_mut().end_profile(token)
+    fn end_profile(
+        &self,
+        stream_id: StreamId,
+        token: ProfilingToken,
+    ) -> Result<ProfileDuration, ProfileError> {
+        self.server.borrow_mut().end_profile(stream_id, token)
     }
 
-    fn allocation_mode(&self, mode: crate::memory_management::MemoryAllocationMode) {
-        self.server.borrow_mut().allocation_mode(mode)
+    fn allocation_mode(
+        &self,
+        mode: crate::memory_management::MemoryAllocationMode,
+        stream_id: StreamId,
+    ) {
+        self.server.borrow_mut().allocation_mode(mode, stream_id)
+    }
+
+    fn copy(
+        server_src: &Self,
+        server_dst: &Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let mut server_src = server_src.server.borrow_mut();
+        let mut server_dst = server_dst.server.borrow_mut();
+
+        Server::copy(
+            &mut server_src,
+            &mut server_dst,
+            src,
+            stream_id_src,
+            stream_id_dst,
+        )
     }
 }
 

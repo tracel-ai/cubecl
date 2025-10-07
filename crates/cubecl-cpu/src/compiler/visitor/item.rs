@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self, ConstantScalarValue, VariableKind};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     Context,
     dialect::{arith, ods::vector},
     ir::{

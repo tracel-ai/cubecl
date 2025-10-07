@@ -370,6 +370,13 @@ macro_rules! testgen_binary_untyped {
                         cubecl_core::runtime_tests::binary::$test_name::<TestRuntime>(client);
                     }
                 };
+                ($test_name:ident, $ty:ty) => {
+                    #[test]
+                    fn $test_name() {
+                        let client = TestRuntime::client(&Default::default());
+                        cubecl_core::runtime_tests::binary::$test_name::<TestRuntime, $ty>(client);
+                    }
+                };
             }
 
             add_test!(test_mulhi);

@@ -14,6 +14,10 @@ pub mod id;
 /// Kernel related traits.
 pub mod kernel;
 
+/// Stream related utilities.
+#[cfg(feature = "std")]
+pub mod stream;
+
 /// Compute channel module.
 pub mod channel;
 /// Compute client module.
@@ -33,12 +37,15 @@ pub mod storage;
 pub mod config;
 
 mod feature_set;
+/// Runtime features and associated types
+pub mod features;
 
 mod base;
 pub use base::*;
 pub use cubecl_common::benchmark;
 
 pub use feature_set::*;
+pub use features::*;
 /// Logging utilities to be used by a compute server.
 pub mod logging;
 
@@ -47,6 +54,3 @@ pub mod tma;
 
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
-
-/// Utilities for data transfers between servers
-pub mod data_service;

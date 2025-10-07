@@ -5,6 +5,7 @@ use cudarc::driver::sys::{CUevent_flags, CUevent_st, CUevent_wait_flags, CUstrea
 ///
 /// This is useful for doing synchronization outside of the compute server, which is normally
 /// locked by a mutex or a channel. This allows the server to continue accepting other tasks.
+#[derive(Debug)]
 pub struct Fence {
     event: *mut CUevent_st,
 }

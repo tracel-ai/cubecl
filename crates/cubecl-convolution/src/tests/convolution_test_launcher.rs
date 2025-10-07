@@ -53,7 +53,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
-        out: R::line_size_type(&P::EG::as_type_native_unchecked()).collect(),
+        out: R::io_optimized_line_sizes_unchecked(&P::EG::as_type_native_unchecked()).collect(),
     }
     .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
@@ -61,7 +61,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .pick_max()
     .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::EG, P::ES, P::ES, f32, P::EG)>(
+    let config = match A::setup::<R, (P::EG, P::EG, P::EG, P::ES, P::ES, f32)>(
         &client,
         &problem,
         &selection,
@@ -121,7 +121,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<
-            ((P::EG, P::EG, P::ES, P::ES, P::EA, P::EG), Args),
+            ((P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), Args),
             R,
         >(
             &client,

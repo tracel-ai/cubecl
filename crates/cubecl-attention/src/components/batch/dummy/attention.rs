@@ -5,12 +5,11 @@ use std::marker::PhantomData;
 
 use crate::components::{
     AttentionPrecision,
+    attention_types::*,
     batch::{
         BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
     },
     global::{GlobalAttention, GlobalAttentionConfig as _},
-    stage::StageAttentionConfig as _,
-    tile::dummy::FlashMatmulConfig as _,
 };
 
 pub struct DummyBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {
@@ -24,33 +23,31 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     type Config = DummyBatchConfig<GA::Config>;
 
     fn execute(
-        query: VirtualTensor<AP::EI>,
-        key: VirtualTensor<AP::EI>,
-        value: VirtualTensor<AP::EI>,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        query: VirtualTensor<QG<AP>>,
+        key: VirtualTensor<KG<AP>>,
+        value: VirtualTensor<VG<AP>>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         _cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Batch: Execute");
-
         let q_index = CUBE_POS;
 
         let q_offset = q_index
             * config
                 .global_config()
-                .stage_config()
-                .tile_config()
-                .attention_tile_size()
-                .seq_q;
+                .tiling_scheme()
+                .elements_in_stage_seq_q();
 
-        let seq_kv = value.shape(1);
+        let seq_q = query.shape(1);
+        let seq_kv = key.shape(1);
 
         let global_config = config.global_config();
         GA::execute(
-            GA::init_query_loader(q_offset, query, global_config),
-            GA::init_key_loader(key, global_config),
-            GA::init_value_loader(value, global_config),
+            GA::init_query_reader(q_offset, query, global_config),
+            GA::init_key_reader(key, global_config),
+            GA::init_value_reader(value, global_config),
             GA::init_writer(q_offset, out, global_config),
+            seq_q,
             seq_kv,
             config.global_config(),
         )

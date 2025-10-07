@@ -2,9 +2,7 @@ use crate::components::{
     MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{
-        NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig, StageMemoryConfig,
-    },
+    stage::{NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig},
     tile::TileConfig,
 };
 
@@ -22,14 +20,9 @@ pub struct UnitPartitionedStageConfig<T: TileConfig> {
 
 impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     type TileConfig = T;
-    type StageMemoryConfig = Self;
 
     fn tile_config(self) -> Self::TileConfig {
         self.tile_config
-    }
-
-    fn stage_memory_config(self) -> Self::StageMemoryConfig {
-        self
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {
@@ -89,36 +82,13 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
     fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme {
         PartitionSchedulerScheme::Naive
     }
-}
-
-impl<T: TileConfig> StageMemoryConfig for UnitPartitionedStageConfig<T> {
-    type TileConfig = T;
-
-    fn tile_config(self) -> Self::TileConfig {
-        <Self as StageConfig>::tile_config(self)
-    }
-
-    fn num_main_flow_planes(&self) -> u32 {
-        <Self as StageConfig>::num_main_flow_planes(self)
-    }
-
-    fn tiling_scheme(&self) -> TilingScheme {
-        <Self as StageConfig>::tiling_scheme(self)
-    }
-
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        <Self as StageConfig>::stage_line_size(self, ident)
-    }
-
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        <Self as StageConfig>::matrix_layout(self, ident)
-    }
 
     fn num_stages(&self, ident: StageIdent) -> u32 {
         match ident {
             StageIdent::Lhs => self.num_stages.lhs,
             StageIdent::Rhs => self.num_stages.rhs,
-            StageIdent::Acc => unreachable!(),
+            StageIdent::Acc => 1,
+            StageIdent::Out => 1,
         }
     }
 }

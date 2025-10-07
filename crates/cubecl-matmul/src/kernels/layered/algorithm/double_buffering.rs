@@ -3,30 +3,36 @@ use std::marker::PhantomData;
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 
-use crate::components::batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul};
-use crate::components::global::load::sync_partial_cyclic::SyncPartialCyclicLoading;
-use crate::components::global::load::sync_partial_tilewise::SyncPartialTilewiseLoading;
-use crate::components::global::multi_stage::double_buffering::DoubleBufferingMatmulFamily;
-use crate::components::stage::{
-    ColMajorTilingOrder, PartialReaderFamily, PlaneMatmulFamily, RowMajorTilingOrder,
+use crate::components::global::read::sync_partial_cyclic::SyncPartialCyclicLoading;
+use crate::components::global::{
+    PlaneWriterFamily, read::sync_partial_tilewise::SyncPartialTilewiseLoading,
 };
+use crate::components::stage::{ColMajorTilingOrder, PlaneMatmulFamily, RowMajorTilingOrder};
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatmulSetupError};
 use crate::components::{MatmulProblem, MultiRowStrategy, tile};
+use crate::components::{
+    batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
+    tile::io::{Filled, Strided},
+};
+use crate::components::{
+    global::multi_stage::double_buffering::DoubleBufferingMatmulFamily,
+    stage::{FilledStageFamily, StridedStageFamily},
+};
 use crate::kernels::layered::Algorithm;
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
-/// Plane accelerated double buffered matmul with cyclic loaders
+/// Plane accelerated double buffered matmul with cyclic readers
 pub struct CyclicDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
-/// Plane accelerated double buffered matmul with tilewise loaders
+/// Plane accelerated double buffered matmul with tilewise readers
 pub struct TilewiseDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
 
-/// Plane accelerated double buffered matmul with tilewise loader on Lhs and cyclic on Rhs
+/// Plane accelerated double buffered matmul with tilewise reader on Lhs and cyclic on Rhs
 pub struct HybridDoubleBufferingAlgorithm<TMM> {
     pub _phantom: PhantomData<TMM>,
 }
@@ -38,16 +44,26 @@ pub struct DoubleBufferingArgs {
 
 impl<TMM> base::Algorithm for CyclicDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul =
-        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -78,17 +94,27 @@ where
 
 impl<TMM> Algorithm for TilewiseDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul =
-        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         // Other tiling orders are not supported
         SyncPartialTilewiseLoading<RowMajorTilingOrder>,
         SyncPartialTilewiseLoading<ColMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
@@ -119,16 +145,26 @@ where
 
 impl<TMM> base::Algorithm for HybridDoubleBufferingAlgorithm<TMM>
 where
-    TMM: tile::TileMatmulFamily,
+    TMM: tile::TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = Filled,
+            OutTile = Strided,
+        >,
 {
     type SelectionArgs = DoubleBufferingArgs;
     type TileMatmul = TMM;
-    type StageMatmul =
-        PlaneMatmulFamily<Self::TileMatmul, PartialReaderFamily, PartialReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        FilledStageFamily,
+    >;
     type GlobalMatmul = DoubleBufferingMatmulFamily<
         Self::StageMatmul,
         SyncPartialTilewiseLoading<RowMajorTilingOrder>,
         SyncPartialCyclicLoading<RowMajorTilingOrder>,
+        PlaneWriterFamily,
     >;
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

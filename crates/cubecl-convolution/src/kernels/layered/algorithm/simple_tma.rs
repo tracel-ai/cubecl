@@ -5,17 +5,20 @@ use cubecl_core::{
     client::ComputeClient,
     prelude::{Numeric, TensorHandleRef},
 };
-use cubecl_matmul::components::{MatmulElems, MatmulSelection, MatmulSetupError};
+use cubecl_matmul::components::{
+    MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
+};
 
 use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
-    InvalidConfigError, MatmulIdent,
-    global::args::TensorMapArgs,
-    stage::{FullReaderFamily, PlaneMatmulFamily},
+    InvalidConfigError, MatmulIdent, global::args::TensorMapArgs, stage::PlaneMatmulFamily,
     tile::TileMatmulFamily,
 };
 
-use cubecl_std::tensor::{TensorHandle, into_contiguous_pitched};
+use cubecl_std::{
+    CubeOption,
+    tensor::{TensorHandle, into_contiguous_pitched},
+};
 
 use crate::components::{
     ConvolutionProblem, Dimensionality, convolution_matmul_selection,
@@ -31,9 +34,22 @@ pub struct SimpleTmaConvAlgorithm<TMM: TileMatmulFamily> {
     _tmm: PhantomData<TMM>,
 }
 
-impl<TMM: TileMatmulFamily> Algorithm for SimpleTmaConvAlgorithm<TMM> {
+impl<
+    TMM: TileMatmulFamily<
+            LhsTile = Strided,
+            RhsTile = Strided,
+            AccTile = CubeOption<Strided>,
+            OutTile = Strided,
+        >,
+> Algorithm for SimpleTmaConvAlgorithm<TMM>
+{
     type TileMatmul = TMM;
-    type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, FullReaderFamily, FullReaderFamily>;
+    type StageMatmul = PlaneMatmulFamily<
+        Self::TileMatmul,
+        StridedStageFamily,
+        StridedStageFamily,
+        Option<StridedStageFamily>,
+    >;
     type GlobalConvolution = SimpleTmaConvolutionFamily<Self::StageMatmul>;
 
     type Args = TensorMapArgs;

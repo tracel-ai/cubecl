@@ -45,7 +45,7 @@ pub(crate) fn find_stage_size_m_n(
     let total_tiles = total_tiles_m * total_tiles_n;
 
     let mut stage_num_tiles = dim_num_tiles_m * dim_num_tiles_n;
-    let mut num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
+    let mut num_cubes_expected = total_tiles.div_ceil(stage_num_tiles);
 
     // We keep track of two configurations to select the closest to `num_sm`, whether it's a bit over or under
     let mut previous_dim_num_tiles = dim_num_tiles_m;
@@ -57,11 +57,11 @@ pub(crate) fn find_stage_size_m_n(
         previous_num_cubes = num_cubes_expected;
 
         // Reduce tensor core usage
-        dim_num_tiles_m = (dim_num_tiles_m + 1) / 2;
+        dim_num_tiles_m = dim_num_tiles_m.div_ceil(2);
         stage_num_tiles = dim_num_tiles_m * dim_num_tiles_n;
 
         // Number of cubes grows as a consequence of smaller stage
-        num_cubes_expected = (total_tiles + stage_num_tiles - 1) / stage_num_tiles;
+        num_cubes_expected = total_tiles.div_ceil(stage_num_tiles);
     }
 
     // Compare previous and current values to determine the closest to `num_sm`
@@ -91,7 +91,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
                 (
                     matmul_elems.lhs_register,
                     matmul_elems.rhs_register,
-                    matmul_elems.acc,
+                    matmul_elems.acc_register,
                 ),
             ))
         } else {

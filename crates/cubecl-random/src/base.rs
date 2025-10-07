@@ -43,7 +43,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     //     output.strides.len() - 1,
     // );
 
-    let output = linear_view(client, &output, &output_line_size);
+    let output = linear_view(client, &output, output_line_size);
 
     prng_kernel::launch::<F, E, R>(
         client,

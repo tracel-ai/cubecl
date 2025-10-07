@@ -16,10 +16,11 @@ version.workspace = true
 [features]
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]
+fp4 = ["float4"]
+fp8 = ["float8"]
 serde = ["serde_bytes"]
 std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
-fp4 = ["float4"]
-fp8 = ["float8", "float4"]
+
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -48,8 +49,8 @@ cfg-if = { workspace = true }
 dirs = { workspace = true, optional = true }
 hashbrown = { workspace = true }
 sanitize-filename = { workspace = true, optional = true }
-serde_json = { workspace = true, features = ["alloc"], optional = true }
 serde_bytes = { workspace = true, features = ["alloc"], optional = true }
+serde_json = { workspace = true, features = ["alloc"], optional = true }
 
 # Only activate futures for std env
 embassy-futures = { version = "0.1.1" }
@@ -61,6 +62,7 @@ futures-lite = { workspace = true, features = [
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
+portable-atomic-util = { workspace = true }
 portable-atomic = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",
@@ -79,6 +81,9 @@ web-time = { workspace = true }
 [target.'cfg(target_os = "none")'.dependencies]
 embassy-time = { workspace = true }
 
+[build-dependencies]
+cfg_aliases = { workspace = true }
+
 [dev-dependencies]
-dashmap = { workspace = true }
 bincode = { workspace = true }
+dashmap = { workspace = true }

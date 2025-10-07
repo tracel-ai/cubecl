@@ -1,12 +1,17 @@
-use crate::memory_management::{HardwareProperties, MemoryDeviceProperties};
-use alloc::collections::BTreeSet;
+use crate::{
+    Features, TypeUsage,
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
+};
 use cubecl_common::profile::TimingMethod;
+use cubecl_ir::{SemanticType, StorageType, Type};
+use enumset::EnumSet;
 
 /// Properties of what the device can do, like what `Feature` are
 /// supported by it and what its memory properties are.
 #[derive(Debug)]
-pub struct DeviceProperties<Feature: Ord + Copy> {
-    set: alloc::collections::BTreeSet<Feature>,
+pub struct DeviceProperties {
+    /// The features supported by the runtime.
+    pub features: Features,
     /// The memory properties of this client.
     pub memory: MemoryDeviceProperties,
     /// The topology properties of this client.
@@ -15,43 +20,43 @@ pub struct DeviceProperties<Feature: Ord + Copy> {
     pub timing_method: TimingMethod,
 }
 
-impl<Feature: Ord + Copy> DeviceProperties<Feature> {
+impl DeviceProperties {
     /// Create a new feature set with the given features and memory properties.
     pub fn new(
-        features: &[Feature],
+        features: Features,
         memory_props: MemoryDeviceProperties,
         hardware: HardwareProperties,
         timing_method: TimingMethod,
     ) -> Self {
-        let mut set = BTreeSet::new();
-        for feature in features {
-            set.insert(*feature);
-        }
-
         DeviceProperties {
-            set,
+            features,
             memory: memory_props,
             hardware,
             timing_method,
         }
     }
 
-    /// Check if the provided `Feature` is supported by the runtime.
-    pub fn feature_enabled(&self, feature: Feature) -> bool {
-        self.set.contains(&feature)
+    /// Get the usages for a type
+    pub fn type_usage(&self, ty: StorageType) -> EnumSet<TypeUsage> {
+        self.features.type_usage(ty)
     }
 
-    /// Register a `Feature` supported by the compute server.
-    ///
-    /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
-    pub fn register_feature(&mut self, feature: Feature) -> bool {
-        self.set.insert(feature)
+    /// Whether the type is supported in any way
+    pub fn supports_type(&self, ty: impl Into<Type>) -> bool {
+        self.features.supports_type(ty)
     }
 
-    /// Removes a `Feature` from the compute server.
-    ///
-    /// This should only be used by a [runtime](cubecl_core::Runtime) when initializing a device.
-    pub fn remove_feature(&mut self, feature: Feature) {
-        self.set.remove(&feature);
+    /// Register a storage type to the features
+    pub fn register_type_usage(
+        &mut self,
+        ty: impl Into<StorageType>,
+        uses: impl Into<EnumSet<TypeUsage>>,
+    ) {
+        *self.features.storage_types.entry(ty.into()).or_default() |= uses.into();
+    }
+
+    /// Register a semantic type to the features
+    pub fn register_semantic_type(&mut self, ty: SemanticType) {
+        self.features.semantic_types.insert(ty);
     }
 }

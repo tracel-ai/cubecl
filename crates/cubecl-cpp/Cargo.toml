@@ -11,23 +11,26 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cpp"
 version.workspace = true
 
 [features]
+cuda = []
 default = [
     "cubecl-runtime/default",
     "cubecl-common/default",
     "cubecl-core/default",
     "metal",
 ]
-std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-cuda = []
 hip = []
 metal = []
+std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 [dependencies]
 cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
+# For shared allocation
+cubecl-opt = { path = "../cubecl-opt", version = "0.7.0", default-features = false }
 cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false, features = [
     "channel-mutex",
 ] }
+itertools = { version = "0.14.0", default-features = false }
 
 bytemuck = { workspace = true }
 derive-new = { workspace = true }

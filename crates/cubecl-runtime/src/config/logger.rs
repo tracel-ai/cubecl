@@ -1,6 +1,7 @@
 use super::GlobalConfig;
 use crate::config::{
     autotune::AutotuneLogLevel, compilation::CompilationLogLevel, profiling::ProfilingLogLevel,
+    streaming::StreamingLogLevel,
 };
 use alloc::{string::ToString, sync::Arc, vec::Vec};
 use core::fmt::Display;
@@ -114,6 +115,9 @@ pub struct Logger {
     /// Indices of loggers used for autotuning logging.
     autotune_index: Vec<usize>,
 
+    /// Indices of loggers used for streaming logging.
+    streaming_index: Vec<usize>,
+
     /// Global configuration for logging settings.
     pub config: Arc<GlobalConfig>,
 }
@@ -137,6 +141,7 @@ impl Logger {
         let mut compilation_index = Vec::new();
         let mut profiling_index = Vec::new();
         let mut autotune_index = Vec::new();
+        let mut streaming_index = Vec::new();
 
         #[derive(Hash, PartialEq, Eq)]
         enum LoggerId {
@@ -264,12 +269,39 @@ impl Logger {
             )
         }
 
+        if let StreamingLogLevel::Disabled = config.streaming.logger.level {
+        } else {
+            register_logger(
+                &config.streaming.logger,
+                config.streaming.logger.append,
+                config.streaming.logger.log,
+                &mut streaming_index,
+                &mut loggers,
+                &mut logger2index,
+            )
+        }
+
         Self {
             loggers,
             compilation_index,
             profiling_index,
             autotune_index,
+            streaming_index,
             config,
+        }
+    }
+
+    /// Logs a message for streaming, directing it to all configured streaming loggers.
+    pub fn log_streaming<S: Display>(&mut self, msg: &S) {
+        let length = self.streaming_index.len();
+        if length > 1 {
+            let msg = msg.to_string();
+            for i in 0..length {
+                let index = self.streaming_index[i];
+                self.log(&msg, index)
+            }
+        } else if let Some(index) = self.streaming_index.first() {
+            self.log(&msg, *index)
         }
     }
 
@@ -315,6 +347,11 @@ impl Logger {
         }
     }
 
+    /// Returns the current streaming log level from the global configuration.
+    pub fn log_level_streaming(&self) -> StreamingLogLevel {
+        self.config.streaming.logger.level
+    }
+
     /// Returns the current autotune log level from the global configuration.
     pub fn log_level_autotune(&self) -> AutotuneLogLevel {
         self.config.autotune.logger.level
@@ -335,23 +372,6 @@ impl Logger {
         logger.log(msg);
     }
 }
-
-/// Binary log level for enabling or disabling logging.
-///
-/// This enum provides a simple on/off toggle for logging.
-#[derive(Default, Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub enum BinaryLogLevel {
-    /// Logging is disabled.
-    #[default]
-    #[serde(rename = "disabled")]
-    Disabled,
-
-    /// Logging is fully enabled.
-    #[serde(rename = "full")]
-    Full,
-}
-
-impl LogLevel for BinaryLogLevel {}
 
 /// Represents different types of loggers.
 #[derive(Debug)]

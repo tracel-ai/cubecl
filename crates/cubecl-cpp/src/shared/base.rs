@@ -5,14 +5,15 @@ use cubecl_core::CubeDim;
 use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
-    Compiler, Feature,
+    Compiler,
     ir::{self as gpu},
 };
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
-use cubecl_runtime::DeviceProperties;
+use cubecl_opt::{Optimizer, SharedLiveness};
+use cubecl_runtime::{DeviceProperties, TypeUsage};
 
 use crate::shared::MmaShape;
 
@@ -102,7 +103,6 @@ pub struct CppCompiler<D: Dialect> {
     local_arrays: Vec<LocalArray<D>>,
     metadata: cubecl_core::Metadata,
     pipelines: Vec<PipelineOps<D>>,
-    shared_memories: Vec<SharedMemory<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
 }
@@ -140,10 +140,15 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
 }
 
 impl<D: Dialect> CppCompiler<D> {
-    fn compile_ir(mut self, mut value: KernelDefinition) -> ComputeKernel<D> {
+    fn compile_ir(mut self, value: KernelDefinition) -> ComputeKernel<D> {
         self.build_metadata(&value);
 
-        let instructions = self.compile_scope(&mut value.body);
+        let instructions = self.compile_scope(&mut value.body.clone());
+        let tensor_maps = value
+            .tensor_maps
+            .into_iter()
+            .map(|b| self.compile_binding(b))
+            .collect();
         let buffers = value
             .buffers
             .into_iter()
@@ -182,9 +187,23 @@ impl<D: Dialect> CppCompiler<D> {
             cluster_dim: value.options.cluster_dim,
         };
 
+        let mut opt = Optimizer::shared_only(value.body, value.cube_dim);
+        let shared_allocs = opt.analysis::<SharedLiveness>();
+        let shared_memories = shared_allocs
+            .allocations
+            .values()
+            .map(|alloc| SharedMemory {
+                index: alloc.smem.id,
+                item: self.compile_type(alloc.smem.ty),
+                length: alloc.smem.length,
+                align: alloc.smem.align,
+                offset: alloc.offset,
+            })
+            .collect();
+
         let body = Body {
             instructions,
-            shared_memories: self.shared_memories,
+            shared_memories,
             pipelines: self.pipelines,
             barriers: self.barriers,
             const_arrays: self.const_arrays,
@@ -197,7 +216,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
 
         ComputeKernel {
-            tensor_maps: value.tensor_maps,
+            tensor_maps,
             buffers,
             scalars,
             meta_static_len: self.metadata.static_len() as usize,
@@ -217,8 +236,8 @@ impl<D: Dialect> CppCompiler<D> {
         let mut all_meta: Vec<_> = value
             .buffers
             .iter()
+            .chain(value.tensor_maps.iter())
             .map(|buf| (buf.id, buf.has_extended_meta))
-            .chain(value.tensor_maps.iter().map(|i| (*i, true)))
             .collect();
 
         all_meta.sort_by_key(|(id, _)| *id);
@@ -581,6 +600,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
+            gpu::Operation::Free(_) => {}
         }
     }
 
@@ -892,6 +912,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Add(op) => {
                 instructions.push(Instruction::Add(self.compile_binary(op, out)))
             }
+            gpu::Arithmetic::SaturatingAdd(op) => {
+                instructions.push(Instruction::SaturatingAdd(self.compile_binary(op, out)))
+            }
             gpu::Arithmetic::Mul(op) => {
                 instructions.push(Instruction::Mul(self.compile_binary(op, out)))
             }
@@ -900,6 +923,9 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::SaturatingSub(op) => {
+                instructions.push(Instruction::SaturatingSub(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::MulHi(op) => {
                 let instruction = Instruction::HiMul(self.compile_binary(op, out));
@@ -1094,6 +1120,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Comparison::NotEqual(op) => {
                 instructions.push(Instruction::NotEqual(self.compile_binary(op, out)))
             }
+            gpu::Comparison::IsNan(op) => {
+                instructions.push(Instruction::IsNan(self.compile_unary(op, out)))
+            }
+            gpu::Comparison::IsInf(op) => {
+                instructions.push(Instruction::IsInf(self.compile_unary(op, out)))
+            }
         };
     }
 
@@ -1194,18 +1226,26 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operator::Cast(op)
                 if is_fp4_fp6_fp8(op.input.elem_type()) || is_fp4_fp6_fp8(out.elem_type()) =>
             {
-                let inst = self.compile_unary(op, out);
-
                 // We may need these for intermediates
                 self.flags.elem_f16 = true;
                 self.flags.elem_bf16 = true;
-                let vec = inst.input.item().vectorization as u32;
+                let vec_in = op.input.ty.line_size();
+                let packing = out.storage_type().packing_factor();
+                self.compile_type(op.input.ty.line(packing));
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(vec_in),
                 );
                 self.compile_type(
-                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec),
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(vec_in),
                 );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::F16)).line(packing),
+                );
+                self.compile_type(
+                    gpu::Type::scalar(gpu::ElemType::Float(FloatKind::BF16)).line(packing),
+                );
+
+                let inst = self.compile_unary(op, out);
 
                 instructions.push(Instruction::SpecialCast(inst));
             }
@@ -1284,7 +1324,11 @@ impl<D: Dialect> CppCompiler<D> {
                 elem: self.compile_storage_type(item.storage_type()),
                 in_struct: self.compilation_options.grid_constants,
             },
-            gpu::VariableKind::TensorMap(id) => {
+            gpu::VariableKind::TensorMapInput(id) => {
+                self.flags.inst_tma = true;
+                Variable::TensorMap(id)
+            }
+            gpu::VariableKind::TensorMapOutput(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
@@ -1306,21 +1350,8 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::ConstantScalar(value) => {
                 Variable::ConstantScalar(value, self.compile_elem(value.elem_type()))
             }
-            gpu::VariableKind::SharedMemory {
-                id,
-                length,
-                unroll_factor,
-                alignment,
-            } => {
+            gpu::VariableKind::SharedMemory { id, length, .. } => {
                 let item = self.compile_type(item);
-                if !self.shared_memories.iter().any(|s| s.index == id) {
-                    self.shared_memories.push(SharedMemory::new(
-                        id,
-                        item,
-                        length * unroll_factor,
-                        alignment,
-                    ));
-                }
                 Variable::SharedMemory(id, item, length)
             }
             gpu::VariableKind::ConstantArray {
@@ -1671,7 +1702,7 @@ fn const_u32<D: Dialect>(value: u32) -> Variable<D> {
     )
 }
 
-pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
+pub fn register_supported_types(props: &mut DeviceProperties) {
     let supported_types = [
         gpu::ElemType::UInt(gpu::UIntKind::U8),
         gpu::ElemType::UInt(gpu::UIntKind::U16),
@@ -1699,10 +1730,13 @@ pub fn register_supported_types(props: &mut DeviceProperties<Feature>) {
     ];
 
     for ty in supported_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Scalar(ty)));
+        props.register_type_usage(ty, TypeUsage::all_scalar());
     }
 
     for ty in supported_atomic_types {
-        props.register_feature(Feature::Type(gpu::StorageType::Atomic(ty)));
+        props.register_type_usage(
+            gpu::StorageType::Atomic(ty),
+            TypeUsage::AtomicAdd | TypeUsage::AtomicLoadStore,
+        );
     }
 }

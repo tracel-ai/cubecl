@@ -1,7 +1,8 @@
+use cubecl_core::Runtime;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
-use cubecl_core::{Feature, Runtime};
 use cubecl_core::{client::ComputeClient, ir::StorageType};
+use cubecl_runtime::{Plane, TypeUsage};
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -31,6 +32,7 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
+            StageIdent::Out => MatrixLayout::RowMajor,
         }
     }
 
@@ -39,6 +41,7 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => 1,
+            StageIdent::Out => 1,
         }
     }
 
@@ -47,6 +50,7 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -139,7 +143,7 @@ impl PlaneVecMatInnerProductConfig {
             ))));
         }
 
-        if n % out_line != 0 {
+        if !n.is_multiple_of(out_line) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                 "n must be divisible by out line size, got n={n:?}, out_line_size={out_line:?}",
             ))));
@@ -152,7 +156,7 @@ impl PlaneVecMatInnerProductConfig {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        if !client.properties().feature_enabled(Feature::PlaneOps) {
+        if !client.properties().features.plane.contains(Plane::Ops) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::PlaneOpsUnavailable,
             ));
@@ -182,7 +186,10 @@ impl PlaneVecMatInnerProductConfig {
             _ => acc,
         };
 
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
+        if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
+        {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));

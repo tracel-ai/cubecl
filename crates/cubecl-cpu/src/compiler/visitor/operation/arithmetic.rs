@@ -1,5 +1,5 @@
 use cubecl_core::ir::{self, Arithmetic};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{
         arith::{self},
         llvm,
@@ -133,6 +133,9 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
                 self.insert_variable(out, result);*/
+            }
+            Arithmetic::SaturatingAdd(_) => {
+                unreachable!("Should be removed by preprocessor")
             }
             Arithmetic::Ceil(ceil) => {
                 let value = self.get_variable(ceil.input);
@@ -569,6 +572,9 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
                 self.insert_variable(out, result);*/
+            }
+            Arithmetic::SaturatingSub(_) => {
+                unreachable!("Should be removed by preprocessor")
             }
             Arithmetic::Tanh(tanh) => {
                 let input = self.get_variable(tanh.input);

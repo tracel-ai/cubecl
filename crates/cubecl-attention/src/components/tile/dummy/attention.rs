@@ -1,159 +1,140 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::tile::Tile;
-use cubecl_std::tensor::View;
-use cubecl_std::tensor::layout::Coords3d;
-use cubecl_std::{CubeOption, CubeOptionExpand};
+use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
-use crate::components::global::dummy::QueryRegisterReader;
-use crate::components::tile::TileAttention;
-use crate::components::tile::dummy::{
-    FlashMatmul, FlashMatmulConfig, FlashPrecision, ScoreFragment,
-};
+use crate::components::TileMask;
+use crate::components::attention_types::*;
+use crate::components::tile::AccumulatorTile as _;
+use crate::components::tile::AccumulatorTileExpand;
+use crate::components::tile::ScaleMode;
+use crate::components::tile::SoftmaxTileExpand;
+use crate::components::tile::dummy::DummyAccumulator;
+use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
+use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
-    global::GlobalAttentionConfig,
-    tile::dummy::{AccumulatorFragment, DummyWriter, KeyValueFragment, QueryFragment},
+    tile::dummy::{KeyValueFragment, QueryFragment},
 };
 
-pub struct DummyTileAttention<FP: FlashPrecision, FM: FlashMatmul<FP>> {
-    _phantom: PhantomData<(FP, FM)>,
+pub struct DummyTileAttention<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    _phantom: PhantomData<(AP, AM)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FM: FlashMatmul<AP::FlashPrecision>> TileAttention<AP>
-    for DummyTileAttention<AP::FlashPrecision, FM>
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
+    for DummyTileAttention<AP, AM>
 {
-    type Config = FM::Config;
+    type Config = AM::Config;
 
-    type Writer = DummyWriter<AP::EO>;
+    type QueryTile = QueryFragment<AP, AM>;
+    type KeyValueTile = KeyValueFragment<AP, AM>;
+    type SoftmaxTile = DummySoftmax<AP, AM>;
+    type AccumulatorTile = DummyAccumulator<AP, AM>;
 
-    type State = RunningState<AP::EA>;
+    fn rescale(
+        acc: &mut Self::AccumulatorTile,
+        prev_state: &RunningState<SM<AP>>,
+        #[comptime] _config: Self::Config,
+    ) {
+        acc.scale(&prev_state.l.cast::<ACC<AP>>(), ScaleMode::Divide);
+    }
 
-    type Query = QueryFragment<AP::FlashPrecision, FM>;
-    type KeyValue = KeyValueFragment<AP::FlashPrecision, FM>;
-    type Score = ScoreFragment<AP::FlashPrecision, FM>;
-    type Accumulator = AccumulatorFragment<AP::FlashPrecision, FM>;
+    fn write_results(
+        tile: &mut StridedTile<OS<AP>, ReadWrite>,
+        acc: &Self::AccumulatorTile,
+        #[comptime] tile_config: Self::Config,
+    ) {
+        AM::write_results(&acc.fragment, &mut tile.slice, tile_config)
+    }
 
-    type OutOfBoundMask = (u32, u32);
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile {
+        Self::AccumulatorTile::new(config)
+    }
 
-    fn execute(
-        key_tile: &Tile<AP::ES>,
-        value_tile: &Tile<AP::ES>,
-        query: &Self::Query,
-        key_value: &mut Self::KeyValue,
-        score_prob: &mut Self::Score,
-        accumulator: &mut Self::Accumulator,
-        state: &mut Self::State,
-        out_of_bound_mask: CubeOption<(u32, u32)>,
+    fn init_query(tile: &StridedTile<QG<AP>>, #[comptime] config: Self::Config) -> Self::QueryTile {
+        Self::QueryTile::new(tile, config)
+    }
+
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile {
+        Self::KeyValueTile::new_key_value(config)
+    }
+
+    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValueTile {
+        Self::KeyValueTile::new_key(config)
+    }
+
+    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValueTile {
+        Self::KeyValueTile::new_value(config)
+    }
+
+    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile {
+        Self::SoftmaxTile::new(config)
+    }
+
+    fn fill_key<E: Numeric>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     ) {
-        comment!("Tile: Execute");
-        let inv_sqrt_dk = AP::EA::new(comptime!(
-            1.0 / (config.attention_tile_size().head_dim as f32).sqrt()
-        ));
+        AM::fill_key_value(tile, rhs.key_mut(), config);
+    }
 
-        let prev_m = state.m;
-        let prev_l = state.l;
+    fn fill_value<E: Numeric>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::KeyValueTile,
+        #[comptime] config: Self::Config,
+    ) {
+        AM::fill_key_value(tile, rhs.value_mut(), config);
+    }
 
-        FM::fill_key_value(key_tile, key_value.key_mut(), config);
-        FM::zero_score_prob(&mut score_prob.fragment, config);
+    fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config) {
+        AM::zero_softmax(&mut score.fragment, config);
+    }
 
-        FM::score_matmul(
+    fn accumulate_score(
+        query: &Self::QueryTile,
+        key_value: &Self::KeyValueTile,
+        softmax: &mut Self::SoftmaxTile,
+        #[comptime] config: Self::Config,
+    ) {
+        AM::score_matmul(
             &query.fragment,
             key_value.key(),
-            &mut score_prob.fragment,
+            &mut softmax.fragment,
             config,
         );
-        score_prob.multiply_score(inv_sqrt_dk);
+    }
 
-        match out_of_bound_mask {
-            CubeOption::Some(out_of_bound_mask) => score_prob.apply_mask(out_of_bound_mask),
-            CubeOption::None => {}
-        }
+    fn softmax(
+        softmax: &mut Self::SoftmaxTile,
+        mask: TileMask,
+        state: &mut RunningState<SM<AP>>,
+        #[comptime] dk: u32,
+    ) -> RowWise<ACC<AP>> {
+        let inv_sqrt_dk = SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt()));
 
-        let new_m = score_prob.row_max(prev_m);
+        softmax.scale_and_mask(inv_sqrt_dk, mask);
 
-        score_prob.to_prob(new_m);
-        let row_sum = score_prob.row_sum();
+        let score_max = softmax.row_max(state.m.copy());
 
-        let exp_m_diff = Exp::exp(prev_m - new_m);
-        let new_l = exp_m_diff * prev_l + row_sum;
+        softmax.to_prob(state, &score_max)
+    }
 
-        FM::fill_key_value(value_tile, key_value.value_mut(), config);
+    fn accumulate_value(
+        softmax: &Self::SoftmaxTile,
+        key_value: &Self::KeyValueTile,
+        accumulator: &mut Self::AccumulatorTile,
+        scale: &RowWise<ACC<AP>>,
+        #[comptime] config: Self::Config,
+    ) {
+        accumulator.scale(scale, ScaleMode::Multiply);
 
-        accumulator.scale(exp_m_diff);
-
-        FM::value_matmul(
-            &score_prob.fragment,
+        AM::value_matmul(
+            &softmax.fragment,
             key_value.value(),
             &mut accumulator.fragment,
             config,
         );
-
-        state.m = new_m;
-        state.l = new_l;
     }
-
-    fn rescale(acc: &mut Self::Accumulator, state: Self::State, #[comptime] _config: Self::Config) {
-        acc.scale(AP::EA::recip(state.l));
-    }
-
-    fn init_state(#[comptime] _config: Self::Config) -> Self::State {
-        comment!("Tile: Init Stage");
-
-        RunningState::<AP::EA> {
-            // TODO Neg infinity
-            m: AP::EA::from_int(-99999999999),
-            l: AP::EA::from_int(0),
-        }
-    }
-
-    fn write<G: GlobalAttentionConfig>(
-        acc: &Self::Accumulator,
-        writer: &mut Self::Writer,
-        #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
-    ) {
-        comment!("Tile: Write");
-        let mut out_smem =
-            SharedMemory::<AP::EA>::new(stage_config.attention_tile_size().accumulator_size());
-
-        FM::write_results::<AP::EA>(
-            &acc.fragment,
-            &mut out_smem.to_slice_mut().try_cast_unchecked(),
-            stage_config,
-        );
-
-        DummyWriter::<AP::EO>::write::<G>(
-            writer,
-            out_smem.to_slice().try_cast_unchecked(),
-            0,
-            0,
-            global_config,
-        )
-    }
-
-    fn init_writer(q_offset: u32, out: View<Line<AP::EO>, Coords3d, ReadWrite>) -> Self::Writer {
-        DummyWriter::new(out, q_offset, 0, 0)
-    }
-
-    fn init_fragments(
-        query_reader: QueryRegisterReader<AP::EI>,
-        #[comptime] config: Self::Config,
-    ) -> (Self::Query, Self::KeyValue, Self::Score, Self::Accumulator) {
-        (
-            Self::Query::new(query_reader, config),
-            Self::KeyValue::new(config),
-            Self::Score::new(config),
-            Self::Accumulator::new(config),
-        )
-    }
-}
-
-#[derive(CubeType)]
-pub struct RunningState<E: Float> {
-    m: E,
-    l: E,
 }

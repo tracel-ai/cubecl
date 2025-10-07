@@ -1,39 +1,43 @@
-use crate::components::AvailableLineSizes;
-use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
-use crate::components::MatmulSelection;
-use crate::components::error::MatmulSetupError;
-use crate::components::global::load::NoLoadingValidation;
-use crate::components::global::load::TmaTiling;
+use crate::components::global::read::NoLoadingValidation;
+use crate::components::global::read::TmaTiling;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
+use crate::components::{AvailableLineSizes, stage::NoTilingLayout};
+use crate::components::{
+    MatmulLineSizes,
+    stage::{FilledStageFamily, StridedStageFamily},
+};
+use crate::components::{MatmulSelection, global::WriteTiling};
+use crate::components::{error::MatmulSetupError, global::GlobalWriterFamily};
 use std::marker::PhantomData;
 
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_std::tensor::layout::Coords3d;
 
-use crate::components::{
-    MatmulProblem,
-    global::GlobalMatmulFamily,
-    stage::{self, FullReaderFamily},
-};
+use crate::components::{MatmulProblem, global::GlobalMatmulFamily, stage};
 
 /// Simple TMA matmul family for any precision
-pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily> {
-    _stage_matmul: PhantomData<SMM>,
+pub struct SimpleTmaMatmulFamily<SMM: stage::StageMatmulFamily, GW: GlobalWriterFamily> {
+    _stage_matmul: PhantomData<(SMM, GW)>,
 }
 
-impl<SMM> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM>
+impl<SMM, GW> GlobalMatmulFamily for SimpleTmaMatmulFamily<SMM, GW>
 where
     SMM: stage::StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            WriteCoords = Coords3d,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = FilledStageFamily,
+            OutStage = GW::Stage,
         >,
+    GW: GlobalWriterFamily,
 {
-    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<MP, SMM::Matmul<MP, TmaTiling, TmaTiling>>;
+    type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
+        MP,
+        SMM::Matmul<MP, TmaTiling, TmaTiling, NoTilingLayout, WriteTiling>,
+        GW::Writer<MP::Acc>,
+    >;
     type Config = SimpleTmaConfig<SMM::Config>;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
@@ -71,12 +75,12 @@ where
             client,
             stage_config,
             num_planes,
-            problem.m as u32 % stage_shape_m != 0,
-            problem.n as u32 % stage_shape_n != 0,
-            problem.k as u32 % stage_shape_k != 0,
+            !(problem.m as u32).is_multiple_of(stage_shape_m),
+            !(problem.n as u32).is_multiple_of(stage_shape_n),
+            !(problem.k as u32).is_multiple_of(stage_shape_k),
             stage_shape_k,
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
         )
     }
 

@@ -13,7 +13,10 @@ pub use visitor::elem::register_supported_types;
 use cubecl_core::{
     Compiler, ExecutionMode,
     ir::{self},
-    post_processing::checked_io::CheckedIoProcessor,
+    post_processing::{
+        checked_io::CheckedIoProcessor, predicate::PredicateProcessor,
+        saturating::SaturatingArithmeticProcessor,
+    },
     prelude::KernelDefinition,
 };
 use cubecl_opt::OptimizerBuilder;
@@ -43,6 +46,8 @@ impl Compiler for MlirCompiler {
         let opt = OptimizerBuilder::default()
             .with_transformer(ErfTransform)
             .with_processor(CheckedIoProcessor::new(mode))
+            .with_processor(SaturatingArithmeticProcessor::new(true))
+            .with_processor(PredicateProcessor)
             .optimize(kernel.body.clone(), kernel.cube_dim);
 
         let mut shared_memories = SharedMemories::default();

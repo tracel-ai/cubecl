@@ -1,8 +1,8 @@
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub enum FlashIdent {
+pub enum AttentionIdent {
     Query,
     Key,
-    ScoreProb,
+    Softmax,
     Value,
     Mask,
     Out,

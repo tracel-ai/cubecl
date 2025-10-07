@@ -87,7 +87,7 @@ impl ReduceConfig {
         axis: usize,
     ) -> Self {
         let elem = In::as_type_native_unchecked();
-        let supported_line_sizes = R::line_size_type(&elem);
+        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(&elem);
         self.line_size_input = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)
@@ -160,7 +160,7 @@ impl ReduceConfig {
                     && output.strides[rank - 1] == 1;
             let shape = output.shape.get(axis + 1).cloned().unwrap_or(1) as u32;
 
-            if is_contiguous && shape % self.line_size_input == 0 {
+            if is_contiguous && shape.is_multiple_of(self.line_size_input) {
                 self.line_size_output = self.line_size_input;
             }
         }

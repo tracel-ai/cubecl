@@ -19,22 +19,23 @@ derive-new = { version = "0.7.0", default-features = false }
 derive_more = { version = "2", default-features = false }
 log = { default-features = false, version = "0.4.22" }
 
+bincode = { version = "2.0.1", features = [
+    "alloc",
+    "serde",
+], default-features = false }
 fnv = "1"
 serde = { version = "1.0.204", default-features = false, features = [
     "derive",
     "alloc",
 ] } # alloc is for no_std, derive is needed
-serde_json = { version = "1.0.119", default-features = false }
 serde_bytes = { version = "0.11.17", default-features = false, features = [
     "alloc",
 ] } # alloc for no_std
-bincode = { version = "2.0.1", features = [
-    "alloc",
-    "serde",
-], default-features = false }
+serde_json = { version = "1.0.119", default-features = false }
 toml = "0.9.1"
 variadics_please = "1"
 
+# no_std compatiblity
 dashmap = "6.1.0"
 foldhash = { version = "0.1.2", default-features = false }
 hashbrown = "0.15.5"
@@ -60,7 +61,7 @@ serial_test = "3.1.1"
 
 bytemuck = "1.16.1"
 float4 = "0.1"
-float8 = "0.4"
+float8 = { version = "0.4", default-features = false }
 half = { version = "2.5", features = [
     "alloc",
     "num-traits",
@@ -72,6 +73,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 
 cfg-if = "1.0.0"
 darling = "0.21.0"
+enumset = "1.1.10"
 ident_case = "1"
 paste = "1"
 proc-macro2 = "1"
@@ -83,11 +85,12 @@ tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.27.1", features = ["derive"] }
-tracel-xtask = { version = "=1.1.9" }
+tracel-xtask = { version = "=2.1.8" }
 
-portable-atomic = { version = "1.10", default-features = false, features = [
+portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
 ] }
+portable-atomic-util = { version = "0.2.4", features = ["alloc"] }
 pretty_assertions = "1.4"
 
 # Async
@@ -96,6 +99,9 @@ futures-lite = { version = "2.3.0", default-features = false }
 
 # CubeCL-CPU
 sysinfo = "0.36.1"
+tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
+# tracel-llvm = { git = "https://github.com/tracel-ai/tracel-llvm.git", branch = "fix/linux", package = "tracel-llvm", features = ["mlir-helpers"] }
+# tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
 # CubeCL-CUDA
 cudarc = { version = "0.17.2", features = [
@@ -112,6 +118,12 @@ rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "9b4037
 ash = "0.38"
 tracel-ash = { git = "https://github.com/tracel-ai/tracel-ash.git", rev = "cedd894bbdb03f0635900e7c0d317020fdd38263" }
 
+# Build deps
+cfg_aliases = "0.2.1"
+
 [profile.dev]
 debug = 0     # Speed up compilation time and not necessary.
 opt-level = 0
+
+[profile.dev.build-override]
+opt-level = 3

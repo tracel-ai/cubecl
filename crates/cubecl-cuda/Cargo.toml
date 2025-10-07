@@ -11,7 +11,6 @@ repository = "https://github.com/tracel-ai/cubecl/tree/main/crates/cubecl-cuda"
 version.workspace = true
 
 [features]
-compilation-cache = ["cubecl-common/cache"]
 default = [
     "std",
     "cubecl-runtime/default",
@@ -23,9 +22,10 @@ default = [
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
-cuda-12080 = ["cudarc/cuda-12080"]
 cuda-12050 = ["cudarc/cuda-12050"]
+cuda-12080 = ["cudarc/cuda-12080"]
 
+attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
     "matmul_tests_unit",
@@ -80,7 +80,9 @@ matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false, features = [
+    "cache",
+] }
 cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
 cubecl-cpp = { path = "../cubecl-cpp", version = "0.7.0", default-features = false, features = [
     "cuda",
@@ -98,6 +100,9 @@ log = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
+cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
+    "export_tests",
+] }
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
     "export_tests",
 ] }

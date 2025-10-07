@@ -4,9 +4,9 @@ use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::Stage
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, FlashIdent, global::dummy::DummyQueryLoader,
-    stage::StageAttentionConfig,
+    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, attention_types::*,
+    global::dummy::QueryReader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -42,41 +42,42 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// Loads to SMEM transposed
-    type KeyLoader: CubeType;
+    type KeyReader: CubeType;
     /// Loads to SMEM as is
-    type ValueLoader: CubeType;
+    type ValueReader: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: GlobalAttentionConfig;
 
     fn execute(
-        query_loader: DummyQueryLoader<AP, Self::Config>,
-        key_loader: Self::KeyLoader,
-        value_loader: Self::ValueLoader,
+        query_reader: QueryReader<AP>,
+        key_reader: Self::KeyReader,
+        value_reader: Self::ValueReader,
         writer: Self::Writer,
+        seq_q: u32,
         seq_kv: u32,
         #[comptime] config: Self::Config,
     );
 
-    fn init_query_loader(
+    fn init_query_reader(
         q_offset: u32,
-        query: VirtualTensor<AP::EI>,
+        query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> DummyQueryLoader<AP, Self::Config>;
+    ) -> QueryReader<AP>;
 
-    fn init_key_loader(
-        key: VirtualTensor<AP::EI>,
+    fn init_key_reader(
+        key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> Self::KeyLoader;
+    ) -> Self::KeyReader;
 
-    fn init_value_loader(
-        value: VirtualTensor<AP::EI>,
+    fn init_value_reader(
+        value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
-    ) -> Self::ValueLoader;
+    ) -> Self::ValueReader;
 
     fn init_writer(
         q_offset: u32,
-        out: VirtualTensor<AP::EO, ReadWrite>,
+        out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer;
 }
@@ -86,15 +87,14 @@ pub trait GlobalAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     type StageConfig: StageAttentionConfig;
-    type ScoreStageMemoryConfig: StageMemoryConfig;
-    type ValueStageMemoryConfig: StageMemoryConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn score_stage_memory_config(&self) -> Self::ScoreStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> Self::ValueStageMemoryConfig;
+    fn score_stage_memory_config(&self) -> StageMemoryConfig;
+    fn value_stage_memory_config(&self) -> StageMemoryConfig;
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
-    fn num_stage_iterations(&self) -> u32;
-    fn global_memory_config(&self, ident: FlashIdent) -> GlobalMemoryConfig;
+    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig;
+
+    fn tiling_scheme(&self) -> AttentionTilingScheme;
 }

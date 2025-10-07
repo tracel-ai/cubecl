@@ -7,11 +7,12 @@ use crate::{
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
         FragmentIdent, FragmentLayout, Item, ManualMma, MmaShape, SupportedMmaCombinations,
-        SupportedWmmaCombinations, Variable, WmmaInstruction, frag_as_ptr, frag_ident_str,
-        frag_layout_str, variable_to_frag, wmma_api_base,
+        Variable, WmmaInstruction, frag_as_ptr, frag_ident_str, frag_layout_str, variable_to_frag,
+        wmma_api_base,
     },
 };
 use cubecl_core::ir::{self as gpu};
+use cubecl_runtime::MmaConfig;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct WmmaIntrinsicCompiler {}
@@ -464,9 +465,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         unimplemented!("Not supported in HIP")
     }
 
-    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedWmmaCombinations {
+    fn supported_wmma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
         // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
-        let mut result: SupportedWmmaCombinations = vec![];
+        let mut result: SupportedMmaCombinations = vec![];
         if arch.is_wmma_capable() {
             // Types fully supported.
             let types = vec![
@@ -486,9 +487,16 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                     gpu::ElemType::Float(gpu::FloatKind::F32),
                 ),
             ];
-            let combinations: SupportedWmmaCombinations = types
+            let combinations: SupportedMmaCombinations = types
                 .into_iter()
-                .map(|(m, n, k)| (m.into(), n.into(), k.into(), vec![(16, 16, 16)]))
+                .map(|(a, b, c)| MmaConfig {
+                    a_type: a.into(),
+                    b_type: b.into(),
+                    cd_type: c.into(),
+                    m: 16,
+                    n: 16,
+                    k: 16,
+                })
                 .collect();
             result.extend(combinations);
         }
@@ -591,9 +599,14 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
                 gpu::ElemType::Float(gpu::FloatKind::F32),
             ),
         ];
-        let combinations = types
-            .into_iter()
-            .map(|(ab_elem, cd_elem)| (ab_elem.into(), ab_elem.into(), cd_elem.into(), 16, 16, 16));
+        let combinations = types.into_iter().map(|(ab_elem, cd_elem)| MmaConfig {
+            a_type: ab_elem.into(),
+            b_type: ab_elem.into(),
+            cd_type: cd_elem.into(),
+            m: 16,
+            n: 16,
+            k: 16,
+        });
         result.extend(combinations);
     }
     result

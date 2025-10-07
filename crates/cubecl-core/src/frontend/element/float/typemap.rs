@@ -262,6 +262,8 @@ impl<const POS: u8> Sqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}
 impl<const POS: u8> Floor for ElemExpand<POS> {}
 impl<const POS: u8> Ceil for ElemExpand<POS> {}
+impl<const POS: u8> IsNan for ElemExpand<POS> {}
+impl<const POS: u8> IsInf for ElemExpand<POS> {}
 
 impl<const POS: u8> Float for ElemExpand<POS> {
     const DIGITS: u32 = 32;
@@ -307,6 +309,8 @@ impl<const POS: u8> CountOnes for ElemExpand<POS> {}
 impl<const POS: u8> BitwiseNot for ElemExpand<POS> {}
 impl<const POS: u8> LeadingZeros for ElemExpand<POS> {}
 impl<const POS: u8> FindFirstSet for ElemExpand<POS> {}
+impl<const POS: u8> SaturatingAdd for ElemExpand<POS> {}
+impl<const POS: u8> SaturatingSub for ElemExpand<POS> {}
 
 impl<const POS: u8> BitOr for ElemExpand<POS> {
     type Output = Self;
@@ -387,16 +391,6 @@ impl<const POS: u8> Not for ElemExpand<POS> {
 
     fn not(self) -> Self::Output {
         Self(Not::not(self.0 as i32) as f32)
-    }
-}
-
-impl<const POS: u8> LaunchArgExpand for ElemExpand<POS> {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder
-            .scalar(ElemExpand::<POS>::as_type(&builder.scope))
-            .into()
     }
 }
 

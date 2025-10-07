@@ -1,7 +1,9 @@
+#![allow(clippy::needless_range_loop)]
+
 use std::fmt::Display;
 
 use cubecl_core::{
-    CubeElement, Feature, Runtime,
+    CubeElement, Runtime,
     client::ComputeClient,
     flex32,
     prelude::{CubePrimitive, Exp, Float, Numeric},
@@ -9,10 +11,11 @@ use cubecl_core::{
     tf32,
 };
 
+use cubecl_runtime::MmaConfig;
 use cubecl_std::tensor::TensorHandle;
 
 use crate::{
-    components::{AttentionPrecision, AttentionProblem, FlashIdent},
+    components::{AttentionIdent, AttentionPrecision, AttentionProblem},
     tests::attention_test_launcher::{strides, tensor_size},
 };
 
@@ -21,7 +24,7 @@ pub trait TestPrecision {
     type ES: Float + Display + CastInto<Self::EA>;
     type EA: Float + Display + CastInto<Self::EG> + Exp;
     type EM: Numeric + CubeElement + Display + Sampleable;
-    type MP: AttentionPrecision;
+    type AP: AttentionPrecision;
 
     #[allow(clippy::too_many_arguments)]
     fn assert_result<R: Runtime>(
@@ -47,7 +50,7 @@ where
     type ES = ES;
     type EA = f32;
     type EM = u8;
-    type MP = EG;
+    type AP = EG;
 
     fn assert_result<R: Runtime>(
         query: &[EG],
@@ -60,18 +63,18 @@ where
         shape: &[usize],
         strides: &[usize],
     ) {
-        let maybe_f16 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_type_native().expect("To be a native type"),
-            b: ES::as_type_native().expect("To be a native type"),
-            c: EG::as_type_native().expect("To be a native type"),
+        let maybe_f16 = client.properties().features.cmma.contains(&MmaConfig {
+            a_type: ES::as_type_native().expect("To be a native type"),
+            b_type: ES::as_type_native().expect("To be a native type"),
+            cd_type: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 16,
             n: 16,
         });
-        let maybe_tf32 = client.properties().feature_enabled(Feature::Cmma {
-            a: ES::as_type_native().expect("To be a native type"),
-            b: ES::as_type_native().expect("To be a native type"),
-            c: EG::as_type_native().expect("To be a native type"),
+        let maybe_tf32 = client.properties().features.cmma.contains(&MmaConfig {
+            a_type: ES::as_type_native().expect("To be a native type"),
+            b_type: ES::as_type_native().expect("To be a native type"),
+            cd_type: EG::as_type_native().expect("To be a native type"),
             m: 16,
             k: 8,
             n: 16,
@@ -112,6 +115,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
+        // println!("{:?}: {:?}, {:?}", i, a, e);
         let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
 
         if f32::is_nan(a.to_f32().unwrap())
@@ -129,6 +133,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     }
 
     Ok(())
+    // Err("".to_string())
 }
 
 pub trait CastInto<E> {
@@ -332,16 +337,17 @@ where
     let seq_k = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
+    let val_dim = problem.val_dim;
     let masked = mask.is_some();
 
     // Precompute strides for indexing
-    let query_strides = strides(problem, FlashIdent::Query);
-    let key_strides = strides(problem, FlashIdent::Key);
-    let value_strides = strides(problem, FlashIdent::Value);
-    let mask_strides = strides(problem, FlashIdent::Mask);
-    let out_strides = strides(problem, FlashIdent::Out);
+    let query_strides = strides(problem, AttentionIdent::Query);
+    let key_strides = strides(problem, AttentionIdent::Key);
+    let value_strides = strides(problem, AttentionIdent::Value);
+    let mask_strides = strides(problem, AttentionIdent::Mask);
+    let out_strides = strides(problem, AttentionIdent::Out);
 
-    let out_size = tensor_size(problem, FlashIdent::Out);
+    let out_size = tensor_size(problem, AttentionIdent::Out);
     let mut out = vec![P::EG::from_int(0); out_size];
 
     // scaling factor 1/sqrt(dk)
@@ -354,7 +360,7 @@ where
                 // m = -inf, l = 0, accumulator O (unnormalized numerator) = 0
                 let mut m = P::EA::new(f32::NEG_INFINITY);
                 let mut l = P::EA::from_int(0);
-                let mut acc_row = vec![P::EA::from_int(0); head_dim];
+                let mut acc_row = vec![P::EA::from_int(0); val_dim];
 
                 // For each K/V block
                 let mut k_block_start = 0usize;
@@ -378,6 +384,7 @@ where
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
+
                             dot += (q_val * k_val).cast_into();
                         }
                         // apply scale (1/sqrt(dk))
@@ -434,15 +441,13 @@ where
                     // Step E: update numerator accumulator:
                     // acc = exp(m - m_new) * acc + Ptilde @ V_block
                     // First scale old accumulator by epm
-                    #[allow(clippy::needless_range_loop)]
-                    for d in 0..head_dim {
+                    for d in 0..val_dim {
                         acc_row[d] = epm * acc_row[d];
                     }
                     // Add Ptilde @ V_block
                     for (bj, j) in (k_block_start..k_block_end).enumerate() {
                         let p_val = p_tilde[bj];
-                        #[allow(clippy::needless_range_loop)]
-                        for d in 0..head_dim {
+                        for d in 0..val_dim {
                             let v_idx = b * value_strides[0]
                                 + j * value_strides[1]
                                 + h * value_strides[2]
@@ -468,8 +473,7 @@ where
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);
                 let denom = if l > eps { l } else { eps };
-                #[allow(clippy::needless_range_loop)]
-                for d in 0..head_dim {
+                for d in 0..val_dim {
                     let out_idx = out_base + d * out_strides[3];
                     out[out_idx] = (acc_row[d] / denom).cast_into();
                 }

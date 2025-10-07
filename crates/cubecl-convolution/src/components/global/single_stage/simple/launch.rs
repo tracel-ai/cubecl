@@ -1,9 +1,10 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
-    EA, EO, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
-    stage::{FullReaderFamily, StageMatmulFamily},
+    AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
+    global::PartitionedStageFamily,
+    stage::{StageMatmulFamily, StridedStageFamily},
 };
-use cubecl_std::{FastDivmodArgs, tensor::layout::Coords3d};
+use cubecl_std::FastDivmodArgs;
 
 use crate::{
     components::{
@@ -19,9 +20,10 @@ use crate::{
 
 impl<
     SMM: StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = FullReaderFamily,
-            WriteCoords = Coords3d,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = Option<StridedStageFamily>,
+            OutStage = PartitionedStageFamily,
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleConvolutionFamily<SMM>
 {
@@ -50,10 +52,10 @@ impl<
                 MS::Args,
                 LhsG<MS>,
                 RhsG<MS>,
+                AccG<MS>,
                 LhsS<MS>,
                 RhsS<MS>,
-                EA<MS>,
-                EO<MS>,
+                AccS<MS>,
                 Self,
                 R,
             >(

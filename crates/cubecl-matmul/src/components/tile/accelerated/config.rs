@@ -1,7 +1,7 @@
-use cubecl_core::ir::{ElemType, FloatKind};
+use cubecl_core::Runtime;
+use cubecl_core::client::ComputeClient;
 use cubecl_core::prelude::Numeric;
-use cubecl_core::{Feature, Runtime};
-use cubecl_core::{client::ComputeClient, ir::StorageType};
+use cubecl_runtime::MmaConfig;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -31,6 +31,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
+            StageIdent::Out => MatrixLayout::RowMajor,
         }
     }
 
@@ -39,6 +40,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -47,6 +49,7 @@ impl TileConfig for AcceleratedConfig {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -96,51 +99,21 @@ impl AcceleratedConfig {
         let rhs = Rhs::as_type_native_unchecked();
         let acc = Acc::as_type_native_unchecked();
 
-        let lhs = match lhs {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => lhs,
-        };
-        let rhs = match rhs {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => rhs,
-        };
-
-        let ea = match acc {
-            StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
-                ElemType::Float(FloatKind::F32).into()
-            }
-            _ => acc,
-        };
-
         let size = self.tile_size();
-        if !client.properties().feature_enabled(Feature::Cmma {
-            a: lhs,
-            b: rhs,
-            c: ea,
-            m: size.m() as u8,
-            k: size.k() as u8,
-            n: size.n() as u8,
+        if !client.properties().features.cmma.contains(&MmaConfig {
+            a_type: lhs,
+            b_type: rhs,
+            cd_type: acc,
+            m: size.m(),
+            k: size.k(),
+            n: size.n(),
         }) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::CmmaInstructionUnavailable {
                     lhs,
                     rhs,
-                    output: ea,
+                    output: acc,
                     size: Some(TileSize::new(size.m(), size.n(), size.k())),
-                },
-            ));
-        }
-
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable {
-                    lhs,
-                    rhs,
-                    output: ea,
                 },
             ));
         }

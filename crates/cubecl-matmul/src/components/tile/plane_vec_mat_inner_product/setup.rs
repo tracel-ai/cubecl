@@ -1,14 +1,25 @@
-use crate::components::error::MatmulSetupError;
-use crate::components::resource::ComputeResources;
-use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
+use crate::components::tile::{TileMatmulFamily, io::Strided};
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{error::MatmulSetupError, tile::io::TileKind};
+use crate::components::{
+    resource::ComputeResources,
+    tile::plane_vec_mat_inner_product::reader::{MatrixFragmentReader, MatrixStageReader},
+};
 use cubecl_core::prelude::*;
 
-impl TileMatmulFamily for PlaneVecMatInnerProduct {
-    type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct;
+impl<Kind: TileKind> TileMatmulFamily for PlaneVecMatInnerProduct<Kind>
+where
+    MatrixStageReader<Kind>: MatrixFragmentReader<TileKind = Kind>,
+{
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = PlaneVecMatInnerProduct<Kind>;
     type Config = PlaneVecMatInnerProductConfig;
+
+    type LhsTile = Strided;
+    type RhsTile = Strided;
+    type AccTile = Kind;
+    type OutTile = Strided;
 
     fn requires_accelerator() -> bool {
         false

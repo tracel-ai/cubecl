@@ -7,8 +7,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
-        TensorHandleRef,
+        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, TensorHandleRef,
     },
 };
 
@@ -28,30 +27,6 @@ pub struct ArrayHandleRef<'a, R: Runtime> {
     pub(crate) length: [usize; 1],
     pub elem_size: usize,
     runtime: PhantomData<R>,
-}
-
-impl<C: CubePrimitive> LaunchArgExpand for Array<C> {
-    type CompilationArg = ArrayCompilationArg;
-
-    fn expand(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Array<C>> {
-        builder
-            .input_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-            .into()
-    }
-    fn expand_output(
-        arg: &Self::CompilationArg,
-        builder: &mut KernelBuilder,
-    ) -> ExpandElementTyped<Array<C>> {
-        match arg.inplace {
-            Some(id) => builder.inplace_output(id).into(),
-            None => builder
-                .output_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
-                .into(),
-        }
-    }
 }
 
 pub enum ArrayArg<'a, R: Runtime> {
@@ -153,6 +128,7 @@ impl<'a, R: Runtime> ArrayHandleRef<'a, R> {
 
 impl<C: CubePrimitive> LaunchArg for Array<C> {
     type RuntimeArg<'a, R: Runtime> = ArrayArg<'a, R>;
+    type CompilationArg = ArrayCompilationArg;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
@@ -164,6 +140,26 @@ impl<C: CubePrimitive> LaunchArg for Array<C> {
                 inplace: Some(*input_pos as Id),
                 line_size: 0,
             },
+        }
+    }
+
+    fn expand(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> ExpandElementTyped<Array<C>> {
+        builder
+            .input_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
+            .into()
+    }
+    fn expand_output(
+        arg: &Self::CompilationArg,
+        builder: &mut KernelBuilder,
+    ) -> ExpandElementTyped<Array<C>> {
+        match arg.inplace {
+            Some(id) => builder.inplace_output(id).into(),
+            None => builder
+                .output_array(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
+                .into(),
         }
     }
 }

@@ -51,7 +51,7 @@ impl<D: Dialect> Item<D> {
     }
 
     pub fn optimized(&self) -> Item<D> {
-        if !self.can_be_optimized() || self.vectorization % 2 != 0 {
+        if !self.can_be_optimized() || !self.vectorization.is_multiple_of(2) {
             return *self;
         }
 
@@ -83,6 +83,11 @@ impl<D: Dialect> Item<D> {
             },
             _ => *self,
         }
+    }
+
+    /// Get the number of values packed into a single storage element. (i.e. `f16x2 -> 2`)
+    pub fn packing_factor(&self) -> usize {
+        self.elem.packing_factor()
     }
 
     pub fn de_optimized(&self) -> Self {

@@ -29,13 +29,15 @@ CubeCL also comes with optimized runtimes managing memory management and lazy ex
 
 ### Supported Platforms
 
-| Platform | Runtime | Compiler    | Hardware                     |
-| -------- | ------- | ----------- | ---------------------------- |
-| WebGPU   | wgpu    | WGSL        | Most GPUs                    |
-| CUDA     | CUDA    | C++ (CUDA)  | NVIDIA GPUs                  |
-| ROCm     | HIP     | C++ (HIP)   | AMD GPUs                     |
-| Metal    | wgpu    | C++ (Metal) | Apple GPUs                   |
-| Vulkan   | wgpu    | SPIR-V      | Most GPUs on Linux & Windows |
+| Platform | Runtime | Compiler    | Hardware                      |
+| -------- | ------- | ----------- | ----------------------------- |
+| WebGPU   | wgpu    | WGSL        | Most GPUs                     |
+| CUDA     | CUDA    | C++ (CUDA)  | NVIDIA GPUs                   |
+| ROCm     | HIP     | C++ (HIP)   | AMD GPUs                      |
+| Metal    | wgpu    | C++ (Metal) | Apple GPUs                    |
+| Vulkan   | wgpu    | SPIR-V      | Most GPUs on Linux & Windows  |
+| CPU      | cpu     | Rust        | All Cpus, SIMD with most CPUs |
+
 
 Not all platforms support the same features. 
 For instance Tensor Cores acceleration isn't supported on WebGPU yet.
@@ -88,17 +90,18 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         )
     };
 
-    let bytes = client.read_one(output_handle.binding());
+    let bytes = client.read_one(output_handle);
     let output = f32::from_bytes(&bytes);
 
     // Should be [-0.1587,  0.0000,  0.8413,  5.0000]
-    println!("Executed gelu with runtime {:?} => {output:?}", R::name());
+    println!("Executed gelu with runtime {:?} => {output:?}", R::name(&client));
 }
 ```
 
 To see it in action, run the working GELU example with the following command:
 
 ```bash
+cargo run --example gelu --features cpu  # cpu/simd runtime
 cargo run --example gelu --features cuda # cuda runtime
 cargo run --example gelu --features wgpu # wgpu runtime
 ```

@@ -1,11 +1,9 @@
 use std::{cell::RefCell, rc::Rc};
 
-use serde::{Deserialize, Serialize};
-
 use crate::{
     Runtime,
     compute::KernelBuilder,
-    prelude::{ArgSettings, CompilationArg, LaunchArg, LaunchArgExpand},
+    prelude::{ArgSettings, CompilationArg, LaunchArg},
 };
 
 use super::{Sequence, SequenceExpand};
@@ -29,7 +27,6 @@ impl<'a, R: Runtime, T: LaunchArg> SequenceArg<'a, R, T> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
 pub struct SequenceCompilationArg<C: LaunchArg> {
     pub values: Vec<C::CompilationArg>,
 }
@@ -65,6 +62,7 @@ impl<C: LaunchArg> core::cmp::Eq for SequenceCompilationArg<C> {}
 
 impl<C: LaunchArg> LaunchArg for Sequence<C> {
     type RuntimeArg<'a, R: Runtime> = SequenceArg<'a, R, C>;
+    type CompilationArg = SequenceCompilationArg<C>;
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         SequenceCompilationArg {
@@ -75,16 +73,6 @@ impl<C: LaunchArg> LaunchArg for Sequence<C> {
                 .collect(),
         }
     }
-}
-
-impl<R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'_, R, T> {
-    fn register(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
-        self.values.iter().for_each(|arg| arg.register(launcher));
-    }
-}
-
-impl<C: LaunchArg> LaunchArgExpand for Sequence<C> {
-    type CompilationArg = SequenceCompilationArg<C>;
 
     fn expand(arg: &Self::CompilationArg, builder: &mut KernelBuilder) -> SequenceExpand<C> {
         let values = arg
@@ -108,5 +96,11 @@ impl<C: LaunchArg> LaunchArgExpand for Sequence<C> {
         SequenceExpand {
             values: Rc::new(RefCell::new(values)),
         }
+    }
+}
+
+impl<R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'_, R, T> {
+    fn register(&self, launcher: &mut crate::prelude::KernelLauncher<R>) {
+        self.values.iter().for_each(|arg| arg.register(launcher));
     }
 }

@@ -8,7 +8,9 @@ macro_rules! testgen_conv2d_accelerated {
         #[allow(non_snake_case)]
         mod conv2d_accelerated {
             use super::*;
-            type TMM = cubecl_matmul::components::tile::accelerated::AcceleratedMatmul;
+            use cubecl_std::CubeOption;
+            use cubecl_matmul::components::tile::io::Strided;
+            type TMM = cubecl_matmul::components::tile::accelerated::AcceleratedMatmul<CubeOption<Strided>>;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {

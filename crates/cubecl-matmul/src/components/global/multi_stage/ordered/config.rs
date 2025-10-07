@@ -5,11 +5,11 @@ use crate::components::{
     error::MatmulSetupError,
     global::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
-        load::{LoaderMode, LoadingValidation},
         multi_stage::EventLoadingMode,
+        read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage::{self},
+    stage::{self, StageMemoryConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -21,16 +21,15 @@ pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
     pub check_n_bounds: bool,
     pub check_k_bounds: bool,
     precompute_job: LoadingPrecomputeStrategy,
-    loader_mode: LoaderMode,
+    reader_mode: ReaderMode,
     specialized_loading_sides: SpecializedLoadingSides,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
     type StageConfig = S;
-    type StageMemoryConfig = S::StageMemoryConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-        self.stage_config.stage_memory_config()
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config.stage_memory_config(ident.into_stage())
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -81,8 +80,8 @@ impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<
         }
     }
 
-    fn loader_mode(&self) -> LoaderMode {
-        self.loader_mode
+    fn reader_mode(&self) -> ReaderMode {
+        self.reader_mode
     }
 
     fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
@@ -119,7 +118,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     /// Create a new config for double buffering global matmul
     ///
     /// May return an error if:
-    /// - a loader is invalid
+    /// - a reader is invalid
     /// - CubeDim is too big
     /// - There is more than one stage partition in n
     /// - Lhs is not loaded exclusively by main flow planes
@@ -131,7 +130,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         check_n_bounds: bool,
         check_k_bounds: bool,
         precompute_job: LoadingPrecomputeStrategy,
-        loader_mode: LoaderMode,
+        reader_mode: ReaderMode,
         specialized_loading_sides: SpecializedLoadingSides,
     ) -> Result<Self, MatmulSetupError> {
         Self {
@@ -141,7 +140,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             check_n_bounds,
             check_k_bounds,
             precompute_job,
-            loader_mode,
+            reader_mode,
             specialized_loading_sides,
         }
         .validate::<LL, RL>()

@@ -1,5 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_runtime::TypeUsage;
 
 use crate::ReduceError;
 
@@ -61,12 +62,8 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     let atomic_elem = Atomic::<N>::as_type_native_unchecked();
     if !client
         .properties()
-        .feature_enabled(cubecl_core::Feature::Type(atomic_elem))
-        || !client
-            .properties()
-            .feature_enabled(cubecl_core::Feature::AtomicFloat(
-                cubecl_core::AtomicFeature::Add,
-            ))
+        .type_usage(atomic_elem)
+        .contains(TypeUsage::AtomicAdd)
     {
         return Err(ReduceError::MissingAtomicAdd(N::as_type_native_unchecked()));
     }
@@ -75,7 +72,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
 
     // Compute the optimal line size.
     let elem = N::as_type_native_unchecked();
-    let line_size = R::line_size_type(&elem)
+    let line_size = R::io_optimized_line_sizes_unchecked(&elem)
         .filter(|line_size| input_len % *line_size as u32 == 0)
         .max()
         .unwrap_or(1) as u32;

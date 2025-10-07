@@ -20,7 +20,7 @@ impl MatmulIdent {
         match self {
             MatmulIdent::Lhs => ViewDirection::Col,
             MatmulIdent::Rhs => ViewDirection::Row,
-            MatmulIdent::Out => panic!("Should not advance view on out"),
+            MatmulIdent::Out => ViewDirection::None,
         }
     }
 }
@@ -30,6 +30,7 @@ pub enum StageIdent {
     Lhs,
     Rhs,
     Acc,
+    Out,
 }
 
 impl From<MatmulIdent> for StageIdent {

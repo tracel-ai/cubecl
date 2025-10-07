@@ -1,11 +1,11 @@
 use cubecl_core::{
-    AtomicFeature, ExecutionMode, Feature, WgpuCompilationOptions,
+    ExecutionMode, WgpuCompilationOptions,
     compute::Visibility,
     ir::{ElemType, FloatKind, IntKind, UIntKind},
     prelude::CompiledKernel,
     server::ComputeServer,
 };
-use cubecl_runtime::DeviceProperties;
+use cubecl_runtime::{DeviceProperties, EnumSet, MmaConfig, Plane, TypeUsage};
 use cubecl_spirv::{GLCompute, SpirvCompiler, SpirvKernel};
 use features::ExtendedFeatures;
 use tracel_ash::{
@@ -49,7 +49,7 @@ pub async fn request_vulkan_device(adapter: &wgpu::Adapter) -> (wgpu::Device, wg
 
 pub fn register_vulkan_features(
     adapter: &wgpu::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    props: &mut cubecl_runtime::DeviceProperties,
     comp_options: &mut WgpuCompilationOptions,
 ) {
     let features = adapter.features();
@@ -147,7 +147,7 @@ fn request_device(
 /// Request device's supported features
 fn register_features(
     adapter: &vulkan::Adapter,
-    props: &mut cubecl_runtime::DeviceProperties<cubecl_core::Feature>,
+    props: &mut cubecl_runtime::DeviceProperties,
     features: Features,
     comp_options: &mut WgpuCompilationOptions,
 ) {
@@ -158,35 +158,18 @@ fn register_features(
 
     register_types(props, &extended_feat);
     comp_options.supports_u64 = true;
-    props.register_feature(Feature::SyncPlane);
+    props.features.plane.insert(Plane::Sync);
 
-    if let Some(atomic_float) = &extended_feat.atomic_float {
-        if atomic_float.shader_buffer_float32_atomics == TRUE {
-            props.register_feature(Feature::AtomicFloat(AtomicFeature::LoadStore));
-        }
-        if atomic_float.shader_buffer_float32_atomic_add == TRUE {
-            props.register_feature(Feature::AtomicFloat(AtomicFeature::Add));
-        }
+    if let Some(float_controls2) = &extended_feat.float_controls2
+        && float_controls2.shader_float_controls2 == TRUE
+    {
+        comp_options.supports_fp_fast_math = true;
     }
 
-    #[allow(
-        clippy::collapsible_if,
-        reason = "if let chain only supported in newest Rust"
-    )]
-    if let Some(atomic_float2) = &extended_feat.atomic_float2 {
-        if atomic_float2.shader_buffer_float32_atomic_min_max == TRUE {
-            props.register_feature(Feature::AtomicFloat(AtomicFeature::MinMax));
-        }
-    }
-
-    #[allow(
-        clippy::collapsible_if,
-        reason = "if let chain only supported in newest Rust"
-    )]
-    if let Some(float_controls2) = &extended_feat.float_controls2 {
-        if float_controls2.shader_float_controls2 == TRUE {
-            comp_options.supports_fp_fast_math = true;
-        }
+    if let Some(wg_explicit_layout) = &extended_feat.wg_explicit_layout
+        && wg_explicit_layout.workgroup_memory_explicit_layout == TRUE
+    {
+        comp_options.supports_explicit_smem = true;
     }
 
     if extended_feat.cmma.is_some() {
@@ -194,11 +177,11 @@ fn register_features(
     }
 }
 
-fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeatures<'_>) {
+fn register_types(props: &mut DeviceProperties, ext_feat: &ExtendedFeatures<'_>) {
     use cubecl_core::ir::{ElemType, FloatKind, IntKind, StorageType};
 
-    let mut register = |elem: StorageType| {
-        props.register_feature(Feature::Type(elem));
+    let mut register = |elem: StorageType, usage: EnumSet<TypeUsage>| {
+        props.register_type_usage(elem, usage);
     };
 
     let default_types = [
@@ -221,61 +204,114 @@ fn register_types(props: &mut DeviceProperties<Feature>, ext_feat: &ExtendedFeat
     ];
 
     for ty in default_types {
-        register(ty.into());
+        register(ty.into(), TypeUsage::all_scalar());
     }
 
     for ty in default_atomic_types {
-        register(StorageType::Atomic(ty))
+        register(StorageType::Atomic(ty), TypeUsage::all_atomic())
     }
 
     if ext_feat.float16_int8.shader_float16 == TRUE {
-        register(ElemType::Float(FloatKind::F16).into());
+        register(
+            ElemType::Float(FloatKind::F16).into(),
+            TypeUsage::all_scalar(),
+        );
     }
     if ext_feat.float16_int8.shader_int8 == TRUE {
-        register(ElemType::Int(IntKind::I8).into());
-        register(ElemType::UInt(UIntKind::U8).into());
+        register(ElemType::Int(IntKind::I8).into(), TypeUsage::all_scalar());
+        register(ElemType::UInt(UIntKind::U8).into(), TypeUsage::all_scalar());
     }
 
-    #[allow(
-        clippy::collapsible_if,
-        reason = "if let chain only supported in newest Rust"
-    )]
-    if let Some(float8) = ext_feat.float8 {
-        if float8.shader_float8 == TRUE {
-            // Only supported for conversion/CMMA, but that's the same as CUDA so just register
-            // them normally for now. Maybe we should add a feature-set flags enum to the supported
-            // types? (i.e `Arithmetic | Atomic`)
-            register(ElemType::Float(FloatKind::E4M3).into());
-            register(ElemType::Float(FloatKind::E5M2).into());
+    if let Some(bfloat16) = ext_feat.bfloat16 {
+        if bfloat16.shader_b_float16_type == TRUE {
+            register(
+                ElemType::Float(FloatKind::BF16).into(),
+                TypeUsage::Conversion | TypeUsage::Buffer,
+            );
+        }
+        if bfloat16.shader_b_float16_dot_product == TRUE {
+            register(
+                ElemType::Float(FloatKind::BF16).into(),
+                TypeUsage::DotProduct.into(),
+            );
         }
     }
 
-    #[allow(
-        clippy::collapsible_if,
-        reason = "if let chain only supported in newest Rust"
-    )]
+    if let Some(float8) = ext_feat.float8
+        && float8.shader_float8 == TRUE
+    {
+        register(
+            ElemType::Float(FloatKind::E4M3).into(),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+        register(
+            ElemType::Float(FloatKind::E5M2).into(),
+            TypeUsage::Conversion | TypeUsage::Buffer,
+        );
+    }
+
     if let Some(atomic_float) = ext_feat.atomic_float {
         if atomic_float.shader_buffer_float32_atomics == TRUE {
-            register(StorageType::Atomic(ElemType::Float(FloatKind::F32)));
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
+                TypeUsage::AtomicLoadStore.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float32_atomic_add == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
+                TypeUsage::AtomicAdd.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float64_atomics == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
+                TypeUsage::AtomicLoadStore.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float64_atomic_add == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
+                TypeUsage::AtomicAdd.into(),
+            );
         }
     }
 
-    #[allow(
-        clippy::collapsible_if,
-        reason = "if let chain only supported in newest Rust"
-    )]
     if let Some(atomic_float) = ext_feat.atomic_float2 {
         if atomic_float.shader_buffer_float16_atomics == TRUE {
-            register(StorageType::Atomic(ElemType::Float(FloatKind::F16)));
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
+                TypeUsage::AtomicLoadStore.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float16_atomic_add == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
+                TypeUsage::AtomicAdd.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float16_atomic_min_max == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F16)),
+                TypeUsage::AtomicMinMax.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float32_atomic_min_max == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F32)),
+                TypeUsage::AtomicMinMax.into(),
+            );
+        }
+        if atomic_float.shader_buffer_float64_atomic_min_max == TRUE {
+            register(
+                StorageType::Atomic(ElemType::Float(FloatKind::F64)),
+                TypeUsage::AtomicMinMax.into(),
+            );
         }
     }
 }
 
-fn register_cmma(
-    ash: &InstanceShared,
-    adapter: &vulkan::Adapter,
-    props: &mut DeviceProperties<Feature>,
-) {
+fn register_cmma(ash: &InstanceShared, adapter: &vulkan::Adapter, props: &mut DeviceProperties) {
     let cmma = cooperative_matrix::Instance::new(ash.entry(), ash.raw_instance());
     let num_elems = unsafe {
         cmma.get_physical_device_cooperative_matrix_properties_len(
@@ -305,20 +341,20 @@ fn register_cmma(
             min_current = u32::min(min_current, it.k_size);
             props.hardware.min_tensor_cores_dim = Some(min_current);
 
-            Some(Feature::Cmma {
-                a: convert_type(it.a_type)?.into(),
-                b: convert_type(it.b_type)?.into(),
-                c: convert_type(it.c_type)?.into(),
-                m: it.m_size as u8,
-                k: it.k_size as u8,
-                n: it.n_size as u8,
+            Some(MmaConfig {
+                a_type: convert_type(it.a_type)?.into(),
+                b_type: convert_type(it.b_type)?.into(),
+                cd_type: convert_type(it.c_type)?.into(),
+                m: it.m_size,
+                k: it.k_size,
+                n: it.n_size,
             })
         })
         .collect::<Vec<_>>();
     log::debug!("Supported CMMA sizes: {sizes:#?}");
 
     for size in sizes {
-        props.register_feature(size);
+        props.features.cmma.insert(size);
     }
 }
 

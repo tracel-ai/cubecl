@@ -28,11 +28,15 @@ pub struct StorageHandle {
 
 impl StorageHandle {
     /// Returns the size the handle is pointing to in memory.
+    ///
+    /// # Notes
+    ///
+    /// The result considers the offset.
     pub fn size(&self) -> u64 {
         self.utilization.size
     }
 
-    /// Returns the size the handle is pointing to in memory.
+    /// Returns the offset of the handle.
     pub fn offset(&self) -> u64 {
         self.utilization.offset
     }
@@ -101,9 +105,9 @@ pub struct BindingResource<Resource: Send> {
 
 impl<Resource: Send> BindingResource<Resource> {
     /// access the underlying resource. Note: The resource might be bigger
-    /// than just the original allocation for the binding. Only the part
-    /// for the original binding is guaranteed to remain, other parts
-    /// of the resource *will* be re-used.
+    /// than the part required by the binding (e.g. a big buffer where the binding only
+    /// refers to a slice of it). Only the part required by the binding is guaranteed to remain,
+    /// other parts of this resource *will* be re-used.
     pub fn resource(&self) -> &Resource {
         &self.resource
     }

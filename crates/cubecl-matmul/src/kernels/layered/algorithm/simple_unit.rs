@@ -7,11 +7,15 @@ use crate::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
-            load::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            UnitWriterFamily,
+            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
-        stage::{ColMajorTilingOrder, FullReaderFamily, RowMajorTilingOrder, UnitMatmulFamily},
-        tile::register::RegisterMatmul,
+        stage::{
+            ColMajorTilingOrder, FilledStageFamily, RowMajorTilingOrder, StridedStageFamily,
+            UnitMatmulFamily,
+        },
+        tile::{io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -23,7 +27,7 @@ use crate::{
 
 use super::Algorithm;
 
-/// Unit single stage matmul with configurable loaders (default to cyclic)
+/// Unit single stage matmul with configurable readers (default to cyclic)
 pub struct SimpleUnitAlgorithm<
     LL = SyncFullCyclicLoading<ColMajorTilingOrder>,
     RL = SyncFullCyclicLoading<RowMajorTilingOrder>,
@@ -43,9 +47,9 @@ where
     RL: SyncFullLoadingStrategy,
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
-    type TileMatmul = RegisterMatmul;
-    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, FullReaderFamily>;
-    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL>;
+    type TileMatmul = RegisterMatmul<Filled>;
+    type StageMatmul = UnitMatmulFamily<Self::TileMatmul, StridedStageFamily, FilledStageFamily>;
+    type GlobalMatmul = SimpleMatmulFamily<Self::StageMatmul, LL, RL, UnitWriterFamily>;
 
     type BatchMatmul =
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;

@@ -2,6 +2,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::StorageType};
+use cubecl_runtime::TypeUsage;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
@@ -12,19 +13,19 @@ pub enum ProductType {
     /// Computes the Tile Matmul as m*n inner products of length k.
     ///
     /// Needs Lhs to be row major and Rhs to be col major
-    /// If not the case, tile will be transposed during fill
+    /// If not the case, tile will be transposed during load
     Inner,
     /// Computes the Stage Matmul as the sum of k outer products of size m*n.
     ///
     /// Needs Lhs to be col major and Rhs to be row major
-    /// If not the case, tile will be transposed during fill
+    /// If not the case, tile will be transposed during load
     Outer,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
 pub struct RegisterConfig {
-    tile_size: TileSize,
+    pub tile_size: TileSize,
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
@@ -45,6 +46,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_layout,
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
+            StageIdent::Out => MatrixLayout::RowMajor,
         }
     }
 
@@ -53,6 +55,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_stage_line_size,
             StageIdent::Rhs => self.rhs_stage_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -61,6 +64,7 @@ impl TileConfig for RegisterConfig {
             StageIdent::Lhs => self.lhs_global_line_size,
             StageIdent::Rhs => self.rhs_global_line_size,
             StageIdent::Acc => self.out_global_line_size,
+            StageIdent::Out => self.out_global_line_size,
         }
     }
 
@@ -119,14 +123,14 @@ impl RegisterConfig {
 
         match self.matrix_layout(StageIdent::Lhs) {
             MatrixLayout::RowMajor => {
-                if k % lhs != 0 {
+                if !k.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {k:?} should be divisible by line size {lhs:?}"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
-                if m % lhs != 0 {
+                if !m.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {m:?} should be divisible by line size {lhs:?}"
                     ))));
@@ -135,14 +139,14 @@ impl RegisterConfig {
         }
         match self.matrix_layout(StageIdent::Rhs) {
             MatrixLayout::RowMajor => {
-                if n % rhs != 0 {
+                if !n.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
-                if k % rhs != 0 {
+                if !k.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                         "Tile shape in lined axis {k:?} should be divisible by line size {rhs:?}"
                     ))));
@@ -150,7 +154,7 @@ impl RegisterConfig {
             }
         }
 
-        if n % out != 0 {
+        if !n.is_multiple_of(out) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
                 "Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
             ))));
@@ -187,7 +191,10 @@ impl RegisterConfig {
             _ => acc,
         };
 
-        if !(Lhs::is_supported(client) && Rhs::is_supported(client) && Acc::is_supported(client)) {
+        if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+            && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
+        {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
             ));

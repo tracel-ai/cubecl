@@ -240,6 +240,7 @@ macro_rules! tensor_map_load_im2col {
     };
 }
 
+tensor_map_load!(1, x);
 tensor_map_load!(2, y, x);
 tensor_map_load!(3, z, y, x);
 tensor_map_load!(4, w, z, y, x);

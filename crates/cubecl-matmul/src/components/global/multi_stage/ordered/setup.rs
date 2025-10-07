@@ -1,14 +1,18 @@
-use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxLoaderPlanes;
-use crate::components::global::load::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy};
-use crate::components::global::multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul};
-use crate::components::stage::FullReaderFamily;
+use crate::components::global::{
+    GlobalWriterFamily,
+    read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy},
+};
+use crate::components::global::{
+    WriteTiling,
+    multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
-use crate::components::{global::GlobalMatmulFamily, stage::PartialReaderFamily};
+use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
+use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
+use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords3d;
 use std::marker::PhantomData;
 
 use super::OrderedDoubleBufferingGlobalConfig;
@@ -17,24 +21,35 @@ use super::OrderedDoubleBufferingGlobalConfig;
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
     _rhs_loading: PhantomData<RL>,
+    _writer: PhantomData<GW>,
 }
 
-impl<SMM, RL> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL>
+impl<SMM, RL, GW> GlobalMatmulFamily for OrderedDoubleBufferingMatmulFamily<SMM, RL, GW>
 where
     SMM: stage::StageMatmulFamily<
-            LhsReader = FullReaderFamily,
-            RhsReader = PartialReaderFamily,
-            WriteCoords = Coords3d,
+            LhsStage = StridedStageFamily,
+            RhsStage = StridedStageFamily,
+            AccStage = FilledStageFamily,
+            OutStage = GW::Stage,
         >,
     RL: SyncPartialLoadingStrategy,
+    GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,
-        SMM::Matmul<MP, <LL as SyncFullLoadingStrategy>::TilingLayout, RL::TilingLayout>,
+        SMM::Matmul<
+            MP,
+            <LL as SyncFullLoadingStrategy>::TilingLayout,
+            RL::TilingLayout,
+            NoTilingLayout,
+            WriteTiling,
+        >,
         RL,
+        GW::Writer<MP::Acc>,
     >;
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
 
@@ -44,11 +59,11 @@ where
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let max_loaders = selection
+        let max_global_readers = selection
             .load_specialization_config
             .has_specialization()
             .then(|| {
-                MaxLoaderPlanes::new::<LL, RL>(
+                MaxGlobalReaderPlanes::new::<LL, RL>(
                     &selection.tiling_scheme,
                     line_sizes,
                     selection.plane_dim,
@@ -61,7 +76,7 @@ where
             selection,
             line_sizes,
             (1, 2).into(),
-            max_loaders,
+            max_global_readers,
             true,
         )?;
 
@@ -75,11 +90,11 @@ where
             client,
             stage_config,
             num_planes,
-            problem.m as u32 % stage_shape_m != 0,
-            problem.n as u32 % stage_shape_n != 0,
-            problem.k as u32 % (2 * stage_shape_k) != 0,
+            !(problem.m as u32).is_multiple_of(stage_shape_m),
+            !(problem.n as u32).is_multiple_of(stage_shape_n),
+            !(problem.k as u32).is_multiple_of(2 * stage_shape_k),
             selection.loading_precompute_strategy,
-            selection.loader_mode,
+            selection.reader_mode,
             selection.load_specialization_config.into(),
         )
     }

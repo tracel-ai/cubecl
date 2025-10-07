@@ -4,9 +4,10 @@ mod plane_partitioned;
 mod scheduler;
 mod unit_partitioned;
 
-pub use plane_partitioned::PlaneMatmulFamily;
+pub use partitioned_matmul::StagePartitioner;
+pub use plane_partitioned::{PlaneMatmulFamily, PlanePartitioner};
 pub use scheduler::{PartitionScheduler, PartitionSchedulerScheme};
-pub use unit_partitioned::UnitMatmulFamily;
+pub use unit_partitioned::{UnitMatmulFamily, UnitPartitioner};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Number of stages in one shared memory, i.e. buffers for double buffering

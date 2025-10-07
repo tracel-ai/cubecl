@@ -70,6 +70,7 @@ pub enum Instruction<D: Dialect> {
     Modulo(BinaryInstruction<D>),
     Remainder(BinaryInstruction<D>),
     Add(BinaryInstruction<D>),
+    SaturatingAdd(BinaryInstruction<D>),
     Fma {
         a: Variable<D>,
         b: Variable<D>,
@@ -79,6 +80,7 @@ pub enum Instruction<D: Dialect> {
     Div(BinaryInstruction<D>),
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
+    SaturatingSub(BinaryInstruction<D>),
     HiMul(BinaryInstruction<D>),
     Index(IndexInstruction<D>),
     IndexAssign(IndexAssignInstruction<D>),
@@ -189,6 +191,8 @@ pub enum Instruction<D: Dialect> {
         max_value: Variable<D>,
         out: Variable<D>,
     },
+    IsNan(UnaryInstruction<D>),
+    IsInf(UnaryInstruction<D>),
     SyncThreads,
     SyncWarp,
     ThreadFence,
@@ -199,6 +203,12 @@ pub enum Instruction<D: Dialect> {
     },
     BulkWaitGroupRead {
         max_pending: u32,
+    },
+    TmaReplacePointer {
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        tensor_map: Variable<D>,
+        out: Variable<D>,
     },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
@@ -273,6 +283,7 @@ impl<D: Dialect> Display for Instruction<D> {
                 }
             },
             Instruction::Add(it) => Add::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::SaturatingAdd(it) => SaturatingAdd::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Slice {
                 input,
                 start,
@@ -313,6 +324,7 @@ impl<D: Dialect> Display for Instruction<D> {
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Modulo(inst) => Modulo::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::BitwiseOr(it) => BitwiseOr::format(f, &it.lhs, &it.rhs, &it.out),
@@ -479,7 +491,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             } => {
                 let out = out.fmt_left();
                 match *split_meta {
-                    true => writeln!(f, "{out} = static_info.x[{info_offset}];"),
+                    true => writeln!(f, "{out} = {STATIC_INFO_NAME}.x[{info_offset}];"),
                     false => writeln!(f, "{out} = {INFO_NAME}[{info_offset}];"),
                 }
             }
@@ -543,6 +555,8 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 max_value,
                 out,
             } => Clamp::format(f, input, min_value, max_value, out),
+            Instruction::IsNan(it) => IsNan::format(f, &it.input, &it.out),
+            Instruction::IsInf(it) => IsInf::format(f, &it.input, &it.out),
             Instruction::SyncThreads => D::compile_instruction_sync_threads(f),
             Instruction::SyncWarp => D::compile_instruction_sync_warp(f),
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
@@ -663,6 +677,24 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
+            Instruction::TmaReplacePointer {
+                buffer,
+                offset,
+                tensor_map,
+                out,
+            } => {
+                let pos = Variable::<D>::UnitPos;
+                writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
+                writeln!(
+                    f,
+                    "
+if({pos} == 0) {{
+    {out} = {tensor_map};
+    tensormap_replace_global_address({out}, &{buffer}[{offset}]);
+}}"
+                )?;
+                writeln!(f, "__syncthreads();")
+            }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
                 smem_offset,

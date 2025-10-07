@@ -48,7 +48,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> Iterator for Slice<E, IO> {
     }
 }
 
-pub trait SliceVisibility: Clone + Copy {}
+pub trait SliceVisibility: Clone + Copy + Send + Sync + 'static {}
 
 impl SliceVisibility for ReadOnly {}
 
@@ -150,6 +150,21 @@ impl<E: CubePrimitive, IO: SliceVisibility> Slice<E, IO> {
             SliceExpand::<T, IO> {
                 origin: self.origin.cast_unchecked(),
                 io: self.io.clone(),
+                offset: self.offset.clone(),
+                length: self.length.clone(),
+                line_size: self.line_size.clone(),
+            }
+        })
+    }
+}
+
+#[cube]
+impl<E: CubePrimitive> Slice<E, ReadOnly> {
+    pub fn as_mut_unchecked(&self) -> Slice<E, ReadWrite> {
+        intrinsic!(|scope| {
+            SliceExpand::<E, ReadWrite> {
+                origin: self.origin,
+                io: PhantomData,
                 offset: self.offset.clone(),
                 length: self.length.clone(),
                 line_size: self.line_size.clone(),
@@ -284,7 +299,7 @@ impl<E: CubePrimitive> Iterable<E> for SliceExpand<E, ReadOnly> {
         unimplemented!("Can't unroll slice iterator")
     }
 }
-impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
+impl<E: CubePrimitive, IO: SliceVisibility> CubeIndex for Slice<E, IO> {
     type Output = E;
     type Idx = u32;
 
@@ -297,7 +312,7 @@ impl<E: CubePrimitive> CubeIndex for Slice<E, ReadOnly> {
     }
 }
 
-impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadOnly> {
+impl<E: CubePrimitive, IO: SliceVisibility> CubeIndexExpand for SliceExpand<E, IO> {
     type Output = E::ExpandType;
     type Idx = ExpandElementTyped<u32>;
 
@@ -353,35 +368,6 @@ impl<E: CubePrimitive, IO: SliceVisibility> Lined for Slice<E, IO> {}
 impl<E: CubePrimitive, IO: SliceVisibility> LinedExpand for SliceExpand<E, IO> {
     fn line_size(&self) -> u32 {
         self.line_size.unwrap_or_else(|| self.origin.line_size())
-    }
-}
-
-impl<E: CubePrimitive> CubeIndex for Slice<E, ReadWrite> {
-    type Output = E;
-    type Idx = u32;
-
-    fn expand_index(
-        scope: &mut Scope,
-        array: Self::ExpandType,
-        index: ExpandElementTyped<u32>,
-    ) -> <Self::Output as CubeType>::ExpandType {
-        array.__expand_read_method(scope, index)
-    }
-}
-
-impl<E: CubePrimitive> CubeIndexExpand for SliceExpand<E, ReadWrite> {
-    type Output = E::ExpandType;
-    type Idx = ExpandElementTyped<u32>;
-
-    fn expand_index(self, scope: &mut Scope, index: ExpandElementTyped<u32>) -> Self::Output {
-        self.__expand_read_method(scope, index)
-    }
-    fn expand_index_unchecked(
-        self,
-        scope: &mut Scope,
-        index: ExpandElementTyped<u32>,
-    ) -> Self::Output {
-        self.__expand_read_unchecked_method(scope, index)
     }
 }
 

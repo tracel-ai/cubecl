@@ -6,7 +6,7 @@ pub(super) mod operator;
 pub(super) mod synchronization;
 
 use cubecl_core::ir::{NonSemantic, Operation};
-use tracel_llvm::melior::{
+use tracel_llvm::mlir_rs::{
     dialect::{llvm, ods::llvm as llvm_ods},
     ir::{
         attribute::{FlatSymbolRefAttribute, TypeAttribute},
@@ -98,7 +98,7 @@ impl<'a> Visitor<'a> {
             Operation::Branch(_) => {
                 unreachable!("Branch operation are removed in SSA form");
             }
-            Operation::Synchronization(_) | Operation::NonSemantic(_) => {
+            Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Free(_) => {
                 unreachable!("{operation} doesn't have an out");
             }
         }

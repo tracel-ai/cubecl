@@ -2,7 +2,7 @@ use cubecl_runtime::{id::KernelId, storage::BytesResource};
 
 /// The DummyKernel trait should be implemented for every supported operation
 pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
-    fn compute(&self, resources: &mut [&BytesResource]);
+    fn compute(&self, resources: &mut [&mut BytesResource]);
 
     fn id(&self) -> KernelId;
 
@@ -16,7 +16,7 @@ pub trait DummyKernel: Sync + Send + 'static + core::fmt::Debug {
 pub struct DummyElementwiseAddition;
 
 impl DummyKernel for DummyElementwiseAddition {
-    fn compute(&self, inputs: &mut [&BytesResource]) {
+    fn compute(&self, inputs: &mut [&mut BytesResource]) {
         // Notice how the kernel is responsible for determining which inputs
         // are read-only and which are writable.
         let lhs = &inputs[0].read();

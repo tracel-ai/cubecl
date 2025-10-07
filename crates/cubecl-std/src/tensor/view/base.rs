@@ -1,12 +1,19 @@
 use std::{marker::PhantomData, sync::Arc};
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, unexpanded};
+use cubecl_core::{
+    self as cubecl,
+    prelude::barrier::{Barrier, BarrierExpand},
+    unexpanded,
+};
 
-use crate::tensor::{
-    ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand, VirtualView,
-    VirtualViewMut,
-    layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand},
+use crate::{
+    CubeOption, CubeOptionExpand,
+    tensor::{
+        ViewOperations, ViewOperationsExpand, ViewOperationsMut, ViewOperationsMutExpand,
+        VirtualView, VirtualViewMut,
+        layout::{Coordinates, Layout, VirtualLayout, VirtualLayoutExpand, slice::SliceLayout},
+    },
 };
 
 /// A conceptual view of an underlying linear storage.
@@ -18,6 +25,9 @@ pub struct View<E: CubePrimitive, C: Coordinates, IO: Clone = ReadOnly> {
     _ty: PhantomData<(E, IO)>,
 }
 
+// `View` is a dummy type so it's always send/sync
+unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Send for View<E, C, IO> {}
+unsafe impl<E: CubePrimitive, C: Coordinates, IO: Clone> Sync for View<E, C, IO> {}
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> Copy for View<E, C, IO> {}
 
 #[derive(Clone)]
@@ -197,12 +207,12 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
 }
 
 impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
-    pub fn __expand_shape_method(self, scope: &mut Scope) -> C::ExpandType {
+    pub fn __expand_shape_method(&self, scope: &mut Scope) -> C::ExpandType {
         self.inner.read().__expand_shape_method(scope)
     }
 
     pub fn __expand_is_in_bounds_method(
-        self,
+        &self,
         scope: &mut Scope,
         pos: C::ExpandType,
     ) -> ExpandElementTyped<bool> {
@@ -228,9 +238,17 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> View<E, C, IO> {
         unexpanded!()
     }
 
-    /// Create a slice starting from `pos`, with `size`.
-    /// The layout handles translation into concrete indices.
-    pub fn slice(&self, pos: C, size: u32) -> Slice<E, ReadOnly> {
+    /// Read a line at `pos` if it's in bounds, returning `mask_value` otherwise. The layout handles translation into a concrete index.
+    pub fn read_masked(&self, pos: C, mask_value: E) -> E {
+        unexpanded!()
+    }
+
+    /// Interpret this view as a linear slice encompassing the entire view.
+    ///
+    /// # Safety
+    ///
+    /// No checking is done on whether the slice is contiguous in memory.
+    pub fn to_linear_slice(&self) -> Slice<E, ReadOnly> {
         unexpanded!()
     }
 
@@ -267,14 +285,16 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
         self.inner.read().__expand_read_checked_method(scope, pos)
     }
 
-    /// Expand method for [TensorView::slice]
-    pub fn __expand_slice_method(
+    /// Expand method for [TensorView::read_masked]
+    pub fn __expand_read_masked_method(
         self,
         scope: &mut Scope,
         pos: C::ExpandType,
-        size: ExpandElementTyped<u32>,
-    ) -> SliceExpand<E, ReadOnly> {
-        self.inner.read().__expand_slice_method(scope, pos, size)
+        mask_value: E::ExpandType,
+    ) -> ExpandElementTyped<E> {
+        self.inner
+            .read()
+            .__expand_read_masked_method(scope, pos, mask_value)
     }
 
     /// Expand method for [TensorView::line_size]
@@ -284,6 +304,75 @@ impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
 
     pub fn line_size(&self) -> u32 {
         self.inner.read().line_size()
+    }
+
+    pub fn __expand_to_linear_slice_method(self, scope: &mut Scope) -> SliceExpand<E, ReadOnly> {
+        let shape = self.inner.read().__expand_shape_method(scope);
+        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        // Inclusive end so clamping works correctly
+        let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone());
+        let end = C::__expand_sub(scope, shape, one);
+        self.inner
+            .read()
+            .__expand_to_linear_slice_method(scope, origin, end)
+    }
+
+    pub(super) fn __expand_to_linear_slice_inner_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        end: C::ExpandType,
+    ) -> SliceExpand<E, ReadOnly> {
+        self.inner
+            .read()
+            .__expand_to_linear_slice_method(scope, pos, end)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {
+    /// Create a slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    /// Size will be clamped to the current layout size.
+    pub fn slice(&self, _pos: C, _size: C) -> View<E, C, ReadOnly> {
+        unexpanded!()
+    }
+
+    pub fn __expand_slice(
+        scope: &mut Scope,
+        this: ViewExpand<E, C, IO>,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadOnly> {
+        this.__expand_slice_method(scope, pos, size)
+    }
+}
+
+#[cube]
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {
+    /// Create a slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    /// #Safety
+    /// Size is not checked and may exceed bounds!
+    pub fn slice_unchecked(&self, pos: C, size: C) -> View<E, C, ReadOnly> {
+        let layout = SliceLayout::new(pos, size, false);
+        self.view(layout)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand<E, C, IO> {
+    pub fn __expand_slice_method(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadOnly> {
+        let shape = self.__expand_shape_method(scope);
+        let pos = C::__expand_min(scope, pos, shape.clone());
+        let max_size = C::__expand_sub(scope, shape, pos.clone());
+        let size = C::__expand_min(scope, size, max_size);
+        let layout = SliceLayout::__expand_new(scope, pos, size, true);
+        self.clone().__expand_view_method(scope, layout.into())
     }
 }
 
@@ -296,6 +385,15 @@ impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
 
     /// Write a line to `pos` if it's in bounds. The layout handles translation into a concrete index.
     pub fn write_checked(&self, pos: C, value: E) {
+        unexpanded!()
+    }
+
+    /// Interpret this view as a mutable linear slice encompassing the entire view.
+    ///
+    /// # Safety
+    ///
+    /// No checking is done on whether the slice is contiguous in memory.
+    pub fn to_linear_slice_mut(&self) -> Slice<E, ReadWrite> {
         unexpanded!()
     }
 }
@@ -321,5 +419,139 @@ impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
         self.inner
             .write()
             .__expand_write_checked_method(scope, pos, value);
+    }
+
+    pub fn __expand_to_linear_slice_mut_method(
+        self,
+        scope: &mut Scope,
+    ) -> SliceExpand<E, ReadWrite> {
+        let shape = self.inner.read().__expand_shape_method(scope);
+        let origin = C::__expand_from_int(scope, shape.clone(), 0);
+        // Inclusive end so clamping works correctly
+        let one = C::__expand_from_int(scope, shape.clone(), 1);
+        let shape = C::__expand_max(scope, shape, one.clone());
+        let end = C::__expand_sub(scope, shape, one);
+        self.inner
+            .write()
+            .__expand_to_linear_slice_mut_method(scope, origin, end)
+    }
+
+    pub(super) fn __expand_to_linear_slice_mut_inner_method(
+        self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        end: C::ExpandType,
+    ) -> SliceExpand<E, ReadWrite> {
+        self.inner
+            .write()
+            .__expand_to_linear_slice_mut_method(scope, pos, end)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
+    /// Create a mutable slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    /// Size and pos will be clamped to the current layout size.
+    pub fn slice_mut(&self, _pos: C, _size: C) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+
+    pub fn __expand_slice_mut(
+        scope: &mut Scope,
+        this: ViewExpand<E, C, ReadWrite>,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadWrite> {
+        this.__expand_slice_mut_method(scope, pos, size)
+    }
+}
+
+#[cube]
+impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
+    /// Create a mutable slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    ///
+    /// # Safety
+    /// Size is unchecked and may exceed bounds
+    pub fn slice_mut_unchecked(&self, pos: C, size: C) -> View<E, C, ReadWrite> {
+        let layout = SliceLayout::new(pos, size, false);
+        self.view_mut(layout)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
+    pub fn __expand_slice_mut_method(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadWrite> {
+        let shape = self.__expand_shape_method(scope);
+        let pos = C::__expand_min(scope, pos, shape.clone());
+        let max_size = C::__expand_sub(scope, shape, pos.clone());
+        let size = C::__expand_min(scope, size, max_size);
+        let layout = SliceLayout::__expand_new(scope, pos, size, true);
+        self.clone().__expand_view_mut_method(scope, layout.into())
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> View<E, C, IO> {
+    ///.Execute a TMA load into shared memory, if the underlying storage supports it.
+    /// Panics if it's unsupported.
+    pub fn tensor_map_load(
+        &self,
+        _barrier: &Barrier,
+        _shared_memory: &mut Slice<E, ReadWrite>,
+        _pos: C,
+    ) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+
+    /// Fetches the underlying tensor map if present, to override the layout and apply a different
+    /// base dimensionality.
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E>> {
+        unexpanded!()
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates, IO: Clone> ViewExpand<E, C, IO> {
+    pub fn __expand_tensor_map_load_method(
+        self,
+        scope: &mut Scope,
+        barrier: BarrierExpand,
+        shared_memory: SliceExpand<E, ReadWrite>,
+        pos: C::ExpandType,
+    ) {
+        self.inner
+            .read()
+            .__expand_tensor_map_load_method(scope, barrier, shared_memory, pos)
+    }
+
+    pub fn __expand_as_tensor_map_method(
+        self,
+        scope: &mut Scope,
+    ) -> CubeOptionExpand<TensorMap<E>> {
+        self.inner.read().__expand_as_tensor_map_method(scope)
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates> View<E, C, ReadWrite> {
+    ///.Execute a TMA store into global memory, if the underlying storage supports it.
+    /// Panics if it's unsupported.
+    pub fn tensor_map_store(&self, _shared_memory: &Slice<E>, _pos: C) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+}
+
+impl<E: CubePrimitive, C: Coordinates> ViewExpand<E, C, ReadWrite> {
+    pub fn __expand_tensor_map_store_method(
+        self,
+        scope: &mut Scope,
+        shared_memory: SliceExpand<E, ReadOnly>,
+        pos: C::ExpandType,
+    ) {
+        self.inner
+            .write()
+            .__expand_tensor_map_store_method(scope, shared_memory, pos)
     }
 }

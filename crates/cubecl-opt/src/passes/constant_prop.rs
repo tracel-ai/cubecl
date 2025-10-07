@@ -295,6 +295,50 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Sub(op) => const_eval!(-op.lhs, op.rhs),
         Arithmetic::Mul(op) => const_eval!(*op.lhs, op.rhs),
         Arithmetic::Div(op) => const_eval!(/ op.lhs, op.rhs),
+        Arithmetic::SaturatingAdd(op) => {
+            use ConstantScalarValue::*;
+
+            let lhs = op.lhs.as_const();
+            let rhs = op.rhs.as_const();
+            if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
+                let rhs = rhs.cast_to(lhs.storage_type());
+                // Saturating ops only support 32-bit
+                // NOTE: Change this if that's ever not the case!
+                Some(match (lhs, rhs) {
+                    (Int(lhs, kind), Int(rhs, _)) => {
+                        Int((lhs as i32).saturating_add(rhs as i32) as i64, kind)
+                    }
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        UInt((lhs as u32).saturating_add(rhs as u32) as u64, kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
+        Arithmetic::SaturatingSub(op) => {
+            use ConstantScalarValue::*;
+
+            let lhs = op.lhs.as_const();
+            let rhs = op.rhs.as_const();
+            if let (Some(lhs), Some(rhs)) = (lhs, rhs) {
+                let rhs = rhs.cast_to(lhs.storage_type());
+                // Saturating ops only support 32-bit
+                // NOTE: Change this if that's ever not the case!
+                Some(match (lhs, rhs) {
+                    (Int(lhs, kind), Int(rhs, _)) => {
+                        Int((lhs as i32).saturating_sub(rhs as i32) as i64, kind)
+                    }
+                    (UInt(lhs, kind), UInt(rhs, _)) => {
+                        UInt((lhs as u32).saturating_sub(rhs as u32) as u64, kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
         Arithmetic::Powf(op) => const_eval_float!(op.lhs, op.rhs; num::Float::powf),
         // powf is fast enough for const eval
         Arithmetic::Powi(op) => {
@@ -464,6 +508,22 @@ fn try_const_eval_cmp(op: &mut Comparison) -> Option<ConstantScalarValue> {
         Comparison::Greater(op) => const_eval_cmp!(> op.lhs, op.rhs),
         Comparison::LowerEqual(op) => const_eval_cmp!(<= op.lhs, op.rhs),
         Comparison::GreaterEqual(op) => const_eval_cmp!(>= op.lhs, op.rhs),
+        Comparison::IsNan(op) => {
+            use ConstantScalarValue::*;
+            op.input.as_const().map(|input| match input {
+                Float(val, _) => Bool(val.is_nan()),
+                // Integers, bools, uints can't be NaN, so always false
+                Int(_, _) | UInt(_, _) | Bool(_) => Bool(false),
+            })
+        }
+        Comparison::IsInf(op) => {
+            use ConstantScalarValue::*;
+            op.input.as_const().map(|input| match input {
+                Float(val, _) => Bool(val.is_infinite()),
+                // Integers, bools, uints can't be infinite, so always false
+                Int(_, _) | UInt(_, _) | Bool(_) => Bool(false),
+            })
+        }
     }
 }
 

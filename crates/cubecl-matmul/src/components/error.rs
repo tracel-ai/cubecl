@@ -1,7 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, LineSizeError, ir::StorageType};
 use std::fmt::{Debug, Display};
 
-use crate::components::TileSize;
+use crate::components::{MatrixLayout, TileSize};
 
 /// Errors that can occur during the setup phase of a matmul operation.
 pub enum MatmulSetupError {
@@ -39,6 +39,12 @@ pub enum MatmulAvailabilityError {
         rhs: StorageType,
         output: StorageType,
         size: Option<TileSize>,
+    },
+
+    /// The layout of the matmul is unsupported
+    LayoutUnsupported {
+        lhs: MatrixLayout,
+        rhs: MatrixLayout,
     },
 
     /// Barrier synchronization is not available in the runtime.
@@ -139,6 +145,12 @@ impl Debug for MatmulAvailabilityError {
                 size.n(),
                 size.k()
             ),
+            MatmulAvailabilityError::LayoutUnsupported { lhs, rhs } => {
+                writeln!(
+                    f,
+                    "Cmma with layouts lhs {lhs:?} and rhs {rhs:?} not supported."
+                )
+            }
             MatmulAvailabilityError::CmmaInstructionUnavailable {
                 lhs,
                 rhs,

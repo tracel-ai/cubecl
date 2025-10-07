@@ -1,15 +1,15 @@
-use cubecl_core::{CubeDim, Feature, Runtime, client::ComputeClient};
+use cubecl_core::{CubeDim, Runtime, client::ComputeClient, ir::SemanticType};
 
 use crate::components::{
     LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
     error::{MatmulAvailabilityError, MatmulSetupError},
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
-        load::{LoaderMode, LoadingValidation},
         multi_stage::EventLoadingMode,
+        read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage,
+    stage::{self, StageMemoryConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -22,15 +22,14 @@ pub struct SimpleBarrierConfig<S: stage::StageConfig> {
     check_k_bounds: bool,
     pub k_step: u32,
     precompute_job: LoadingPrecomputeStrategy,
-    loader_mode: LoaderMode,
+    reader_mode: ReaderMode,
 }
 
 impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
     type StageConfig = S;
-    type StageMemoryConfig = S::StageMemoryConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig {
-        self.stage_config.stage_memory_config()
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config.stage_memory_config(ident.into_stage())
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -77,8 +76,8 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleBarrierConfig<S> {
         self.precompute_job.into()
     }
 
-    fn loader_mode(&self) -> LoaderMode {
-        self.loader_mode
+    fn reader_mode(&self) -> ReaderMode {
+        self.reader_mode
     }
 
     fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
@@ -112,7 +111,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     /// Create a new config for simple barrier global matmul
     ///
     /// May return an error if:
-    /// - a loader is invalid
+    /// - a reader is invalid
     /// - CubeDim is too big
     /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
@@ -124,7 +123,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
         check_k_bounds: bool,
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
-        loader_mode: LoaderMode,
+        reader_mode: ReaderMode,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
@@ -134,7 +133,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
             check_k_bounds,
             k_step,
             precompute_job,
-            loader_mode,
+            reader_mode,
         }
         .validate::<LL, RL>()?
         .check_availability::<R>(client)
@@ -154,7 +153,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
         self,
         client: &ComputeClient<R::Server, R::Channel>,
     ) -> Result<Self, MatmulSetupError> {
-        if !client.properties().feature_enabled(Feature::Barrier) {
+        if !client.properties().supports_type(SemanticType::Barrier) {
             return Err(MatmulSetupError::Unavailable(
                 MatmulAvailabilityError::BarrierUnavailable,
             ));

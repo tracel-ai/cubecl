@@ -6,15 +6,16 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        AccumulatorLoader, GlobalConfig as _, load::arrive_tma, single_stage::tma::SimpleTmaConfig,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter, read::arrive_tma,
+        single_stage::tma::SimpleTmaConfig,
     },
-    stage::{FullStageToTileReader, StageMatmul},
+    stage::{StageMatmul, StridedStage},
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords3d, r#virtual::VirtualTensor},
+    tensor::{AsTensorView, AsTensorViewExpand, layout::Coords2d, r#virtual::VirtualTensor},
 };
 
 use crate::{
@@ -23,10 +24,11 @@ use crate::{
         global::{
             GlobalConvolution,
             layout::{NhwcLayout, OutLayout},
-            load::{
-                bias::BiasLoader,
-                im2col_tma::{TmaIm2colLoader, TmaIm2colTiling},
-                weight_tma::{TmaWeightLoader, TmaWeightTiling},
+            read::{
+                bias::{BiasGlobalReader, BiasStage},
+                im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
+                layout::TmaWeightLayout,
+                weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
             },
         },
     },
@@ -59,25 +61,27 @@ impl<MP: MatmulPrecision, SMM> GlobalConvolution<MP> for MultiStageTmaConvolutio
 where
     SMM: StageMatmul<
             MP,
-            LhsReader = FullStageToTileReader<LhsS<MP>, TmaIm2colTiling>,
-            RhsReader = FullStageToTileReader<RhsS<MP>, TmaWeightTiling>,
-            WriteCoords = Coords3d,
+            LhsStage = StridedStage<LhsS<MP>, TmaIm2colTiling>,
+            RhsStage = StridedStage<RhsS<MP>, TmaWeightTiling>,
+            AccStage = BiasStage<AccS<MP>>,
+            OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
-    type LhsLoader = TmaIm2colLoader<MP::Lhs, Self::Config>;
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
-    type RhsLoader = TmaWeightLoader<MP::Rhs, SMM::Config>;
-    type AccumulatorLoader = BiasLoader<MP>;
 
-    type Writer = SMM::Writer;
-    type Accumulator = SMM::Accumulator;
+    type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs, Self::Config>;
+    type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs>;
+    type AccGlobalReader = BiasGlobalReader<MP::Acc>;
+    type GlobalWriter = PlaneWriter<MP::Acc>;
+
+    type Accumulators = SMM::Accumulators;
 
     fn execute(
-        mut lhs_loader: Self::LhsLoader,
-        mut rhs_loader: Self::RhsLoader,
-        mut acc_loader: Self::AccumulatorLoader,
-        mut out_writer: Self::Writer,
-        acc: &mut Self::Accumulator,
+        mut lhs_reader: Self::LhsGlobalReader,
+        mut rhs_reader: Self::RhsGlobalReader,
+        mut acc_reader: Self::AccGlobalReader,
+        mut out_writer: Self::GlobalWriter,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -86,12 +90,10 @@ where
         let stage_config = config.stage_config();
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
-        #[allow(unknown_lints)] // `manual_div_ceil` only appeared in 1.83
-        #[allow(clippy::manual_div_ceil)]
-        let num_loops = (range + k_step - 1) / k_step;
+        let num_loops = range.div_ceil(k_step);
         // Loop once for each full set of stages, then once for each stage in an inner loop,
         // so the stage index is comptime. This is needed to make `Sequence` work.
-        let num_loops = (num_loops + num_stages - 1) / num_stages;
+        let num_loops = num_loops.div_ceil(num_stages);
 
         let lhs_elem_size = LhsS::<MP>::elem_size();
         let rhs_elem_size = RhsS::<MP>::elem_size();
@@ -101,11 +103,11 @@ where
             comptime![config.tiling_scheme().elements_in_stage_nk() * rhs_elem_size];
         let stages_bytes = stage_bytes_lhs + stage_bytes_rhs;
 
-        Self::AccumulatorLoader::fill_stage::<Self::Config>(&mut acc_loader, config);
+        acc_reader.load_stage::<Self::Config>(config);
 
         sync_cube();
 
-        SMM::fill_accumulator::<Self::AccumulatorLoader>(&mut acc_loader, acc, stage_config);
+        SMM::load_accumulators(&acc_reader.stage(), acc, stage_config);
 
         let mut barriers = Sequence::<Barrier>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
@@ -119,13 +121,13 @@ where
         for _ in 0..num_stages {
             let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
-            Self::LhsLoader::fill_stage(&mut lhs_loader, &barrier, stage, config);
-            Self::RhsLoader::fill_stage(&mut rhs_loader, &barrier, stage, stage_config);
+            lhs_reader.fill_stage(&barrier, stage);
+            rhs_reader.fill_stage(&barrier, stage);
 
             arrive_tma(&barrier, stages_bytes);
 
-            Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
-            Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+            lhs_reader.advance_view(k_step);
+            rhs_reader.advance_view();
 
             barriers.push(barrier);
 
@@ -148,14 +150,11 @@ where
                 if k < k_range.1 {
                     let barrier = barriers.index(stage);
 
-                    let lhs_stage_reader = &Self::LhsLoader::reader(&lhs_loader, stage);
-                    let rhs_stage_reader = &Self::RhsLoader::reader(&rhs_loader, stage);
-
                     // Wait for load and execute matmul on this stage
                     barrier.wait();
                     SMM::execute(
-                        lhs_stage_reader,
-                        rhs_stage_reader,
+                        &lhs_reader.stage(stage),
+                        &rhs_reader.stage(stage),
                         &mut tile_lhs,
                         &mut tile_rhs,
                         acc,
@@ -169,13 +168,13 @@ where
                         barrier.wait();
 
                         // Refill stage and advance view
-                        Self::LhsLoader::fill_stage(&mut lhs_loader, barrier, stage, config);
-                        Self::RhsLoader::fill_stage(&mut rhs_loader, barrier, stage, stage_config);
+                        lhs_reader.fill_stage(barrier, stage);
+                        rhs_reader.fill_stage(barrier, stage);
 
                         arrive_tma(barrier, stages_bytes);
 
-                        Self::LhsLoader::advance_view(&mut lhs_loader, k_step);
-                        Self::RhsLoader::advance_view(&mut rhs_loader, k_step);
+                        lhs_reader.advance_view(k_step);
+                        rhs_reader.advance_view();
                     }
                 }
 
@@ -185,8 +184,11 @@ where
 
         sync_cube();
 
-        SMM::write_results::<Self::Config>(
+        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+        SMM::write_results::<Self::GlobalWriter, Self::Config>(
             acc,
+            &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
@@ -194,14 +196,15 @@ where
         );
     }
 
-    fn init_lhs_loader(
+    fn init_lhs_global_reader(
         lhs: VirtualTensor<LhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        _slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsLoader {
-        Self::LhsLoader::new(
+    ) -> Self::LhsGlobalReader {
+        let (x_offset, y_offset) = offset;
+        Self::LhsGlobalReader::new(
             lhs,
             x_offset,
             y_offset,
@@ -211,50 +214,56 @@ where
         )
     }
 
-    fn init_rhs_loader(
+    fn init_rhs_global_reader(
         rhs: VirtualTensor<RhsG<MP>>,
-        x_offset: u32,
-        y_offset: u32,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsLoader {
-        Self::RhsLoader::new::<Self::Config>(
-            rhs.as_tensor_map(),
-            x_offset,
-            y_offset,
-            runtime_args,
+    ) -> Self::RhsGlobalReader {
+        let layout = TmaWeightLayout::new(runtime_args.padded_channels);
+        let rhs = rhs.as_tensor_map().unwrap().view_3d(layout);
+        Self::RhsGlobalReader::new(
+            rhs.slice(offset, slice_size),
+            config.k_step,
             config.num_stages(MatmulIdent::Rhs),
-            config,
+            config.stage_memory_config(MatmulIdent::Rhs),
         )
     }
 
-    fn init_bias_loader(
-        bias: CubeOption<VirtualTensor<MP::EO>>,
+    fn init_bias_global_reader(
+        bias: CubeOption<VirtualTensor<AccG<MP>>>,
         n_offset: u32,
+        slice_size: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::AccumulatorLoader {
-        Self::AccumulatorLoader::new::<Self::Config>(bias, n_offset, config)
+    ) -> Self::AccGlobalReader {
+        Self::AccGlobalReader::new(
+            bias,
+            n_offset,
+            slice_size,
+            config.stage_memory_config(MatmulIdent::Out),
+        )
     }
 
-    fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
-        x_offset: u32,
-        y_offset: u32,
+    fn init_global_writer(
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
+        offset: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
-    ) -> Self::Writer {
+    ) -> Self::GlobalWriter {
+        let global_conf = config.global_memory_config(MatmulIdent::Out);
         let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
-        let layout_out =
-            OutLayout::new(runtime_args, config.global_memory_config(MatmulIdent::Out));
-        SMM::init_writer(
-            out.view_mut(layout_global).view_mut(layout_out),
-            x_offset,
-            y_offset,
-            0,
+        let layout_out = OutLayout::new(runtime_args, global_conf);
+        let out = out.view_mut(layout_global).view_mut(layout_out);
+        Self::GlobalWriter::new::<SMM::Config>(
+            out.slice_mut_unchecked(offset, slice_size),
+            global_conf,
+            config.stage_config(),
         )
     }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        SMM::init_accumulator(config.stage_config())
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {
+        SMM::init_accumulators(config.stage_config())
     }
 }

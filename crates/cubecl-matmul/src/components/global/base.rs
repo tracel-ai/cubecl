@@ -1,20 +1,22 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::error::MatmulSetupError;
-use crate::components::global::RoleRuleConfig;
 use crate::components::global::memory::GlobalMemoryConfig;
-use crate::components::stage::StageMemoryConfig;
+use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
+use cubecl_std::{
+    CubeOption,
+    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+};
 use std::{fmt::Debug, hash::Hash};
 
-use super::{GlobalWriter, load::LoaderMode};
+use super::read::ReaderMode;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -59,63 +61,81 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
 /// # Safety
 ///
 /// It is not assumed that the matmul's dimensions match its inputs dimensions perfectly.
-/// It is therefore important that Loaders and Writers perform checks to avoid out-of-bounds
-/// before loading data.
+/// It is therefore important that Readers and Writers perform checks to avoid out-of-bounds
+/// before reading data.
 pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: GlobalConfig;
-    type LhsLoader: CubeType;
-    type RhsLoader: CubeType;
-    type AccumulatorLoader: CubeType;
-    type Writer: GlobalWriter<MP::EO>;
-    type Accumulator: CubeType;
+
+    /// Global reader for matrix A (Lhs)
+    type LhsGlobalReader: CubeType;
+    /// Global reader for matrix B (Rhs)
+    type RhsGlobalReader: CubeType;
+    /// Global reader for matrix C (Accumulator/Bias)
+    type AccGlobalReader: CubeType;
+    /// Writer to store the output stage into global memory
+    type GlobalWriter: CubeType;
+
+    /// The accumulator type for the tile matmul
+    type Accumulators: CubeType;
 
     /// Performs the matrix multiplication over data loaded by the
-    /// Lhs and Rhs loaders, over the range given for K, and stores with
+    /// Lhs and Rhs readers, over the range given for K, and stores with
     /// using the output writer.
     ///
     /// To compute the whole range of k values, use k_range=(0, K) where
     /// K is the K dimension of Lhs and Rhs.
     fn execute(
-        lhs_loader: Self::LhsLoader,
-        rhs_loader: Self::RhsLoader,
-        writer: Self::Writer,
-        acc: &mut Self::Accumulator,
+        lhs_reader: Self::LhsGlobalReader,
+        rhs_reader: Self::RhsGlobalReader,
+        acc_reader: Self::AccGlobalReader,
+        writer: Self::GlobalWriter,
+        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
-    /// Initialize the loader for Lhs, starting at row m and column k
-    fn init_lhs_loader(
+    /// Initialize the global reader for Lhs, starting at row m and column k
+    fn init_lhs_global_reader(
         lhs: VirtualTensor<LhsG<MP>>,
-        m_offset: u32,
-        k_offset: u32,
-        nth_batch: u32,
         batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
+        nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::LhsLoader;
+    ) -> Self::LhsGlobalReader;
 
-    /// Initialize the loader for Rhs, starting at row k and column n
-    fn init_rhs_loader(
+    /// Initialize the global reader for Rhs, starting at row k and column n
+    fn init_rhs_global_reader(
         rhs: VirtualTensor<RhsG<MP>>,
-        k_offset: u32,
-        n_offset: u32,
-        nth_batch: u32,
         batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
+        nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::RhsLoader;
+    ) -> Self::RhsGlobalReader;
+
+    /// Initialize the global reader for Rhs, starting at row k and column n
+    fn init_acc_global_reader(
+        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
+        batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
+        nth_batch: u32,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccGlobalReader;
 
     /// Initialize the accumulator without data
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+    fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators;
 
-    /// Initialize the writer at row m and column n
-    fn init_writer(
-        out: VirtualTensor<MP::EO, ReadWrite>,
-        m_offset: u32,
-        n_offset: u32,
-        nth_batch: u32,
+    /// Initialize the global writer at row m and column n
+    fn init_global_writer(
+        out: VirtualTensor<AccG<MP>, ReadWrite>,
         batch_offset: u32,
+        offset: Coords2d,
+        view_shape: Coords2d,
+        nth_batch: u32,
         #[comptime] config: Self::Config,
-    ) -> Self::Writer;
+    ) -> Self::GlobalWriter;
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -124,12 +144,13 @@ pub trait GlobalConfig:
 {
     /// Underlying Stage matmul config
     type StageConfig: StageConfig;
-    type StageMemoryConfig: StageMemoryConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
 
-    fn stage_memory_config(&self) -> Self::StageMemoryConfig;
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config().stage_memory_config(ident.into_stage())
+    }
 
     fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
         GlobalMemoryConfig {
@@ -187,10 +208,10 @@ pub trait GlobalConfig:
     /// The number of stages in stage memory
     fn num_stages(&self, ident: MatmulIdent) -> u32;
 
-    /// Whether to check loader is balanced in comptime or runtime.
+    /// Whether to check reader is balanced in comptime or runtime.
     ///
     /// Not supported by all loading strategies
-    fn loader_mode(&self) -> LoaderMode;
+    fn reader_mode(&self) -> ReaderMode;
 
     /// Whether event loading is constrained to be ordered
     fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode;

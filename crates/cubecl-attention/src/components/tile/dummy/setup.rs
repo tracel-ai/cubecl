@@ -1,23 +1,23 @@
 use std::marker::PhantomData;
 
 use cubecl_core::client::ComputeClient;
+use cubecl_matmul::components::ComputeResources;
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError,
+    AttentionSetupError, InvalidConfigError,
     tile::{
         TileAttentionFamily,
-        dummy::{DummyTileAttention, FlashMatmulFamily},
+        dummy::{AttentionMatmulFamily, DummyTileAttention},
     },
 };
 
-pub struct DummyTileAttentionFamily<FM: FlashMatmulFamily> {
+pub struct DummyTileAttentionFamily<FM: AttentionMatmulFamily> {
     _phantom: PhantomData<FM>,
 }
 
-impl<FM: FlashMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM> {
-    type Attention<AP: AttentionPrecision> =
-        DummyTileAttention<AP::FlashPrecision, FM::Matmul<AP::FlashPrecision>>;
+impl<FM: AttentionMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM> {
+    type Attention<AP: AttentionPrecision> = DummyTileAttention<AP, FM::Matmul<AP>>;
 
     type Config = FM::Config;
 
@@ -28,5 +28,9 @@ impl<FM: FlashMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily<FM>
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
         FM::setup::<AP, R>(client, problem, selection, line_sizes)
+    }
+
+    fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
+        Ok(ComputeResources::Planes(1))
     }
 }

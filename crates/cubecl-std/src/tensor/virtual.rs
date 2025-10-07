@@ -3,10 +3,15 @@ use core::marker::PhantomData;
 use cubecl::prelude::{CubeType, Scope, *};
 use cubecl_core::{self as cubecl, unexpanded};
 
-use crate::tensor::{
-    ViewExpand,
-    layout::{Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand},
-    view::View,
+use crate::{
+    CubeOption,
+    tensor::{
+        ViewExpand,
+        layout::{
+            Coordinates, Coords1d, Layout, VirtualLayout, VirtualLayoutExpand, simple::SimpleLayout,
+        },
+        view::View,
+    },
 };
 
 /// Tensor representation that is decoupled from how the tensor is stored.
@@ -88,7 +93,7 @@ impl<E: Numeric, IO: Clone> SliceOperatorExpand<Line<E>> for VirtualTensorExpand
 
 #[allow(unused, clippy::all)]
 impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
-    pub fn as_tensor_map(&self) -> TensorMap<E> {
+    pub fn as_tensor_map(&self) -> CubeOption<TensorMap<E>> {
         unexpanded!()
     }
     pub fn as_slice(&self, start: u32, end: u32) -> Slice<Line<E>> {
@@ -114,7 +119,7 @@ impl<E: Numeric, IO: Clone> VirtualTensor<E, IO> {
     pub fn __expand_as_tensor_map(
         context: &mut Scope,
         this: <Self as CubeType>::ExpandType,
-    ) -> <TensorMap<E> as CubeType>::ExpandType {
+    ) -> <CubeOption<TensorMap<E>> as CubeType>::ExpandType {
         this.__expand_as_tensor_map_method(context)
     }
     pub fn __expand_as_slice(
@@ -158,7 +163,7 @@ impl<E: Numeric, IO: Clone> VirtualTensorExpand<E, IO> {
     pub fn __expand_as_tensor_map_method(
         self,
         context: &mut Scope,
-    ) -> <TensorMap<E> as CubeType>::ExpandType {
+    ) -> <CubeOption<TensorMap<E>> as CubeType>::ExpandType {
         self.state.clone().__expand_as_tensor_map_method(context)
     }
 
@@ -243,6 +248,18 @@ impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
     }
 }
 
+#[cube]
+impl<E: Numeric, IO: Clone + 'static> VirtualTensor<E, IO> {
+    /// Create a conceptual view over this tensor, with a simple linear layout
+    pub fn as_view(&self) -> View<Line<E>, u32, ReadOnly> {
+        let line_size = self.line_size();
+        View::new::<VirtualTensor<E, IO>, u32>(
+            self,
+            SimpleLayout::new(self.len() * line_size, line_size),
+        )
+    }
+}
+
 impl<E: Numeric, IO: Clone + 'static> VirtualTensorExpand<E, IO> {
     /// Create a conceptual view over this tensor, allowing for multi-dimensional indexing with custom
     /// layouts
@@ -280,6 +297,18 @@ impl<E: Numeric> VirtualTensorExpand<E, ReadWrite> {
         layout: VirtualLayoutExpand<C, Coords1d>,
     ) -> ViewExpand<Line<E>, C, ReadWrite> {
         View::__expand_new_mut::<VirtualTensor<E, ReadWrite>, Coords1d>(scope, self, layout)
+    }
+}
+
+#[cube]
+impl<E: Numeric> VirtualTensor<E, ReadWrite> {
+    /// Create a conceptual mutable view over this tensor, with a simple linear layout
+    pub fn as_view_mut(&mut self) -> View<Line<E>, u32, ReadWrite> {
+        let line_size = self.line_size();
+        View::new_mut::<VirtualTensor<E, ReadWrite>, u32>(
+            self,
+            SimpleLayout::new(self.len() * line_size, line_size),
+        )
     }
 }
 
@@ -383,7 +412,7 @@ impl<E: Numeric> VirtualTensor<E, ReadWrite> {
 /// rules, but it won't lead to any undefined behavior.
 #[cube(self_type = "ref", expand_base_traits = "LinedExpand")]
 pub trait VirtualTensorOperations<E: Numeric>: Lined {
-    fn as_tensor_map(&self) -> TensorMap<E> {
+    fn as_tensor_map(&self) -> CubeOption<TensorMap<E>> {
         unexpanded!()
     }
     /// Read the tensor at the given index.
@@ -436,6 +465,8 @@ mod __cube_type {
 
 /// Enable tensors to be virtual.
 mod __tensor {
+    use crate::CubeOptionExpand;
+
     use super::*;
 
     impl<E: Numeric> VirtualTensorOperations<E> for Tensor<Line<E>> {}
@@ -494,15 +525,17 @@ mod __tensor {
 
         fn __expand_as_tensor_map_method(
             &self,
-            _scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E>> {
-            unimplemented!("Can't turn normal tensor into `TensorMap`");
+            scope: &mut Scope,
+        ) -> CubeOptionExpand<TensorMap<E>> {
+            CubeOption::__expand_new_None(scope)
         }
     }
 }
 
 /// Enable tensor maps to be virtual.
 mod __tensor_map {
+    use crate::CubeOptionExpand;
+
     use super::*;
 
     impl<E: Numeric> VirtualTensorOperations<E> for TensorMap<E> {}
@@ -560,9 +593,9 @@ mod __tensor_map {
 
         fn __expand_as_tensor_map_method(
             &self,
-            _scope: &mut Scope,
-        ) -> ExpandElementTyped<TensorMap<E>> {
-            self.clone()
+            scope: &mut Scope,
+        ) -> CubeOptionExpand<TensorMap<E>> {
+            CubeOption::__expand_new_Some(scope, self.clone())
         }
     }
 }
