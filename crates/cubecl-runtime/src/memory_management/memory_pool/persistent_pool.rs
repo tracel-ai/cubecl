@@ -11,6 +11,32 @@ pub struct PersistentPool {
     max_alloc_size: u64,
 }
 
+impl core::fmt::Display for PersistentPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (size, ids) in self.sizes.iter() {
+            let mut num_free = 0;
+            let mut num_full = 0;
+            let total = ids.len();
+
+            for id in ids {
+                let slice = self.slices.get(id).unwrap();
+                let is_free = slice.is_free();
+                if is_free {
+                    num_free += 1;
+                } else {
+                    num_full += 1;
+                }
+            }
+
+            f.write_fmt(format_args!(
+                "\nPool: {size} bytes ({total}) - {num_free} free - {num_full} full\n"
+            ))?;
+        }
+
+        Ok(())
+    }
+}
+
 impl PersistentPool {
     pub fn new(max_alloc_size: u64, alignment: u64) -> Self {
         Self {

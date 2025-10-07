@@ -401,7 +401,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let allocated = pool.alloc(&mut self.storage, size);
 
         self.logger.log_memory(
-            |level| !matches!(level, MemoryLogLevel::Disabled),
+            |level| matches!(level, MemoryLogLevel::Full),
             || {
                 format!(
                     "[{}], Allocated a new memory page, current usage: \n{}",
@@ -446,6 +446,25 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
+    }
+}
+impl<Storage> core::fmt::Display for MemoryManagement<Storage> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("\n=== MemoryManagement ===\n")?;
+        f.write_fmt(format_args!("Name: {}\n", self.name))?;
+        f.write_fmt(format_args!("Persistent: {}\n", self.persistent))?;
+        f.write_str("Dynamic:\n")?;
+
+        for pool in self.pools.iter() {
+            match pool {
+                DynamicPool::Sliced(_) => f.write_str("\n  * Static Pool")?,
+                DynamicPool::Exclusive(pool) => f.write_fmt(format_args!("{pool}"))?,
+            }
+        }
+
+        f.write_str("\n========================\n")?;
+
+        Ok(())
     }
 }
 
