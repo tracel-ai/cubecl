@@ -3,7 +3,7 @@ use cubecl_core::{self as cubecl, unexpanded};
 
 use crate::tensor::{
     View, is_contiguous, is_contiguous_pitched,
-    launch::ViewLaunch,
+    launch::ViewArg,
     layout::{
         Coords1d, Layout, LayoutExpand, VirtualLayoutOperationsExpand,
         permuted::{PermutedLayout, PermutedLayoutLaunch},
@@ -143,7 +143,7 @@ impl Layout for LinearLayout {
 /// Useful for elementwise kernels.
 pub type LinearView<E, IO = ReadOnly> = View<E, Coords1d, IO>;
 /// Launch type for [LinearTensorView].
-pub type LinearViewLaunch<'a, R> = ViewLaunch<'a, Coords1d, R>;
+pub type LinearViewLaunch<'a, R> = ViewArg<'a, Coords1d, R>;
 
 /// Create a linear tensor view from a handle and line size
 pub fn linear_view<'a, R: Runtime>(
