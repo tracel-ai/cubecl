@@ -2,7 +2,6 @@ use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
-use crate::components::AttentionIdent;
 use crate::components::AttentionPrecision;
 use crate::components::TileMask;
 use crate::components::attention_types::*;

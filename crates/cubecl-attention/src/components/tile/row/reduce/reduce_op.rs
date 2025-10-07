@@ -23,7 +23,7 @@ impl<E: Float> ReduceOp<E> for RowMax {
 
     fn reduce_step_rowwise(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
         let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(mask) * E::min_value());
-        masked.add_inplace(&elem);
+        masked.add_inplace(elem);
 
         acc.max_inplace(&masked)
     }
@@ -45,7 +45,7 @@ impl<E: Float> ReduceOp<E> for RowSum {
 
     fn reduce_step_rowwise(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
         let mut masked = RowWise::new_filled(elem.num_rows, E::cast_from(!mask));
-        masked.mul_inplace(&elem);
+        masked.mul_inplace(elem);
 
         acc.add_inplace(&masked)
     }

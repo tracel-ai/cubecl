@@ -31,7 +31,7 @@ impl Reducer for BroadcastReducer {
             let offset = num_units_per_row >> (i + 1);
             let source_unit = unit_pos + offset;
 
-            let value_from_source = fpb.plane_broadcast(&vals, source_unit);
+            let value_from_source = fpb.plane_broadcast(vals, source_unit);
 
             // Mask if outside the row
             let mask = unit_pos_in_row + offset >= num_units_per_row;
@@ -39,8 +39,8 @@ impl Reducer for BroadcastReducer {
         }
 
         // Broadcast back to subgroup
-        let result = &fpb.plane_broadcast(&vals, unit_pos - unit_pos_in_row);
-        vals.copy_from(&result);
+        let result = &fpb.plane_broadcast(vals, unit_pos - unit_pos_in_row);
+        vals.copy_from(result);
     }
 }
 
