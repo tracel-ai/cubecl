@@ -17,7 +17,8 @@ fn main() {
         alignment: 32,
     };
     let logger = Arc::new(ServerLogger::default());
-    let mut mm = MemoryManagement::from_configuration(storage, &mem_props, config, logger);
+    let mut mm =
+        MemoryManagement::from_configuration("test".into(), storage, &mem_props, config, logger);
     let mut handles = LinkedList::new();
     for _ in 0..100 * 2048 {
         if handles.len() >= 4000 {

@@ -16,14 +16,17 @@ pub struct MemoryConfig {
 pub enum PersistentMemory {
     /// Persistent memory is enabled but used only when explicitly specified.
     #[default]
+    #[serde(rename = "enabled")]
     Enabled,
     /// Persistent memory is disabled, allowing dynamic allocations.
+    #[serde(rename = "disabled")]
     Disabled,
     /// Persistent memory is enforced, preventing dynamic allocations.
     ///
     /// # Warning
     ///
     /// Enforcing persistent memory may cause out-of-memory errors if tensors of varying sizes are used.
+    #[serde(rename = "enforced")]
     Enforced,
 }
 

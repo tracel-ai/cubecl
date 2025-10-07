@@ -95,6 +95,7 @@ pub enum MemoryAllocationMode {
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
+    name: String,
     persistent: PersistentPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
@@ -135,6 +136,7 @@ const BASE_DEALLOC_PERIOD: u64 = 5000;
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
+        name: String,
         storage: Storage,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
@@ -238,7 +240,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || {
                 let mut msg = String::new();
                 for pool in pool_options.iter() {
-                    msg += &format!("Using memory pool: \n {pool:?}");
+                    msg += &format!("[{name}] Using memory pool: \n {pool:?}");
                 }
                 msg
             },
@@ -273,6 +275,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
         };
         Self {
+            name,
             persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
             pools,
             storage,
@@ -287,7 +290,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
         self.logger.log_memory(
             |level| !matches!(level, MemoryLogLevel::Disabled),
-            || format!("Setting memory allocation mode: {mode:?}"),
+            || format!("[{}] Setting memory allocation mode: {mode:?}", self.name),
         );
         // We override the mode based on the cubecl config.
         let mode = match self.config {
@@ -353,7 +356,12 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         if let Some(val) = self.persistent.try_reserve(size) {
             self.logger.log_memory(
                 |level| matches!(level, MemoryLogLevel::Full),
-                || format!("Reserved memory {size} using persistent memory"),
+                || {
+                    format!(
+                        "[{}] Reserved memory {size} using persistent memory",
+                        self.name
+                    )
+                },
             );
             return Ok(val);
         }
@@ -365,8 +373,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 |level| !matches!(level, MemoryLogLevel::Disabled),
                 || {
                     format!(
-                        "Allocated a new memory page using persistent memory, current usage: \n{}",
-                        self.memory_usage()
+                        "[{}] Allocated a new memory page using persistent memory, current usage: \n{}",
+                        self.memory_usage(),
+                        self.name
                     )
                 },
             );
@@ -375,7 +384,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
-            || format!("Reserved memory {size} using dynamic pool"),
+            || format!("[{}] Reserved memory {size} using dynamic pool", self.name),
         );
 
         // Find first pool that fits this allocation
@@ -395,8 +404,9 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             |level| !matches!(level, MemoryLogLevel::Disabled),
             || {
                 format!(
-                    "Allocated a new memory page, current usage: \n{}",
-                    self.memory_usage()
+                    "[{}], Allocated a new memory page, current usage: \n{}",
+                    self.memory_usage(),
+                    self.name
                 )
             },
         );
@@ -466,6 +476,7 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
@@ -485,6 +496,7 @@ mod tests {
         let max_page_size = 512;
 
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -515,6 +527,7 @@ mod tests {
         let page_size = 2048;
 
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -545,6 +558,7 @@ mod tests {
         let page_size = 512;
 
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -575,6 +589,7 @@ mod tests {
         let page_size = 1024;
 
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -603,6 +618,7 @@ mod tests {
     fn alloc_respects_alignment_size() {
         let page_size = 500;
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: page_size,
@@ -642,6 +658,7 @@ mod tests {
             })
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -667,6 +684,7 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -697,6 +715,7 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -729,6 +748,7 @@ mod tests {
     #[test]
     fn noslice_test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &(MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -747,6 +767,7 @@ mod tests {
     #[test]
     fn noslice_alloc_two_chunk() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -774,6 +795,7 @@ mod tests {
     fn noslice_alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -801,6 +823,7 @@ mod tests {
     #[test]
     fn noslice_alloc_allocs_new_storage() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -826,6 +849,7 @@ mod tests {
     #[test]
     fn noslice_alloc_respects_alignment_size() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
@@ -862,6 +886,7 @@ mod tests {
             })
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
@@ -883,6 +908,7 @@ mod tests {
     #[test]
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
+            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,

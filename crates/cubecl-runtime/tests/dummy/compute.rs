@@ -41,6 +41,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         min_tensor_cores_dim: None,
     };
     let memory_management = MemoryManagement::from_configuration(
+        "CPU".into(),
         storage,
         &mem_properties,
         MemoryConfiguration::default(),

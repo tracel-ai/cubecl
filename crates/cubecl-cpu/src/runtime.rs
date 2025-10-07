@@ -69,6 +69,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     };
 
     let memory_management = MemoryManagement::from_configuration(
+        "CPU".into(),
         storage,
         &mem_properties,
         options.memory_config,

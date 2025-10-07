@@ -32,6 +32,7 @@ impl WgpuMemManager {
         // to empty() or create() with a small enough size will be allocated from this
         // main memory pool.
         let memory_main = MemoryManagement::from_configuration(
+            "Main".into(),
             WgpuStorage::new(
                 memory_properties.alignment as usize,
                 device.clone(),
@@ -46,6 +47,7 @@ impl WgpuMemManager {
         );
 
         let memory_staging = MemoryManagement::from_configuration(
+            "Staging".into(),
             WgpuStorage::new(
                 wgpu::COPY_BUFFER_ALIGNMENT as usize,
                 device.clone(),
@@ -61,6 +63,7 @@ impl WgpuMemManager {
         // TODO: In the future this should not need STORAGE, if cube writes out all
         // uniforms as having <uniform> usage.
         let memory_uniforms = MemoryManagement::from_configuration(
+            "Uniform".into(),
             WgpuStorage::new(
                 memory_properties.alignment as usize,
                 device.clone(),
