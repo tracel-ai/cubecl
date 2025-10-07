@@ -7,8 +7,8 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SupportedMmaCombinations,
-        Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -316,6 +316,22 @@ struct alignas({alignment}) {item} {{"
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "thread")
     }
+
+    fn compile_shared_memory_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        let size = shared.length;
+        let size_bytes = size * shared.item.size() as u32;
+        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
+        )
+    }
 }
 
 // Kernel argument bindings
@@ -413,16 +429,8 @@ void {kernel_name}("
                 .map(|it| it.offset + it.size())
                 .max()
                 .unwrap();
-            let max_align = body
-                .shared_memories
-                .iter()
-                .map(|smem| smem.align)
-                .max()
-                .unwrap();
-            writeln!(
-                f,
-                "threadgroup alignas({max_align}) uchar dynamic_shared_mem[{size}];",
-            )?;
+
+            writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
         }
         Ok(())
     }

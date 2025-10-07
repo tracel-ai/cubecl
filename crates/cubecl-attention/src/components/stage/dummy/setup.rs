@@ -52,10 +52,10 @@ impl<
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes)?;
-
         let num_planes = selection.tiling_scheme.stage_size.seq_q
             * TA::computation_resources()?.num_planes(selection.plane_dim)?;
+
+        let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
         DummyStageConfig::new(
             tile_config,

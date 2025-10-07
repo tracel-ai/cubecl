@@ -2,7 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
+use crate::components::attention_types::KVT;
 use crate::components::tile::dummy::AttentionMatmul;
+use crate::components::tile::{KeyValueTile, KeyValueTileExpand};
 
 #[derive(CubeType)]
 pub enum KeyValueFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
@@ -24,8 +26,16 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
     pub fn new_value(#[comptime] config: AM::Config) -> Self {
         Self::new_Value(Value::new(config))
     }
+}
 
-    pub fn key(&self) -> &AM::KeyValue {
+#[cube]
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueTile<KVT<AP>>
+    for KeyValueFragment<AP, AM>
+{
+    type Key = AM::KeyValue;
+    type Value = AM::KeyValue;
+
+    fn key(&self) -> &AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Key(key) => &key.fragment,
@@ -33,7 +43,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
         }
     }
 
-    pub fn key_mut(&mut self) -> &mut AM::KeyValue {
+    fn key_mut(&mut self) -> &mut AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Key(key) => &mut key.fragment,
@@ -41,7 +51,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
         }
     }
 
-    pub fn value(&self) -> &AM::KeyValue {
+    fn value(&self) -> &AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &reuse_kv.fragment,
             KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),
@@ -49,7 +59,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
         }
     }
 
-    pub fn value_mut(&mut self) -> &mut AM::KeyValue {
+    fn value_mut(&mut self) -> &mut AM::KeyValue {
         match self {
             KeyValueFragment::Reuse(reuse_kv) => &mut reuse_kv.fragment,
             KeyValueFragment::Key(_) => panic!("Tried to access value on key-only fragment"),

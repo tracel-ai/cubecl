@@ -3,12 +3,50 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
+use crate::components::TileMask;
 use crate::components::attention_types::*;
+use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
+
+#[cube]
+impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
+    fn num_local_rows(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn num_local_cols(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn num_units_per_row(&self) -> comptime_type!(u32) {
+        todo!()
+    }
+
+    fn rowwise_max(&self) -> RowWise<E> {
+        todo!()
+    }
+
+    fn rowwise_sum(&self) -> RowWise<E> {
+        todo!()
+    }
+
+    fn scale(&mut self, _val: &RowWise<E>) {
+        todo!()
+    }
+
+    fn scale_and_mask(&mut self, _scale: E, _mask: TileMask) {
+        todo!()
+    }
+
+    fn exp_m_diff(&mut self, _val: &RowWise<E>) {
+        todo!()
+    }
+}
 
 #[cube]
 impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul {
@@ -107,7 +145,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
                 cmma::MatrixIdent::B,
                 // m not relevant because it's a B
                 size.seq_q,
-                // n and k match key, but we are guaranteed that value takes the same space (albeit not the same shape)
+                // n and k match key, and we assume value takes the same space
                 size.seq_kv,
                 size.head_dim,
                 cmma::MatrixLayout::RowMajor,
@@ -131,7 +169,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
                 cmma::MatrixIdent::Accumulator,
                 size.seq_q,
                 size.seq_kv,
-                size.head_dim, // k, because we take accumulator point of view
+                size.head_dim, // k, because we take score matmul acc point of view
                 cmma::MatrixLayout::RowMajor,
             )
         }
@@ -154,7 +192,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         }
     }
 
-    fn zero_accumulator(acc: &mut Self::Accumulator, #[comptime] _config: Self::Config) {
+    fn zero_accumulator(acc: &mut Self::Accumulator) {
         cmma::fill(acc, ACC::<AP>::from_int(0));
     }
 
@@ -168,35 +206,6 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
             slice,
             &acc,
             config.attention_tile_size().val_dim,
-            cmma::MatrixLayout::RowMajor,
-        );
-    }
-
-    fn tmp_fill_accumulator(
-        tile: &StridedTile<ACC<AP>>,
-        acc: &mut Self::Accumulator,
-        #[comptime] _config: Self::Config,
-    ) {
-        let (slice, stride) = tile.as_unlined();
-        cmma::load_with_layout(acc, &slice, stride, cmma::MatrixLayout::RowMajor);
-    }
-    fn tmp_fill_prob(
-        tile: &StridedTile<SM<AP>>,
-        prob: &mut Self::Softmax,
-        #[comptime] _config: Self::Config,
-    ) {
-        let (slice, stride) = tile.as_unlined();
-        cmma::load_with_layout(prob, &slice, stride, cmma::MatrixLayout::RowMajor);
-    }
-    fn tmp_write_softmax(
-        softmax: &Self::Softmax,
-        slice: &mut SliceMut<Line<SM<AP>>>,
-        #[comptime] config: Self::Config,
-    ) {
-        cmma::store(
-            slice,
-            softmax,
-            config.attention_tile_size().seq_kv,
             cmma::MatrixLayout::RowMajor,
         );
     }
