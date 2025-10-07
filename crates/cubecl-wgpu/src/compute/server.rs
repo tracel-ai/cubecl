@@ -63,6 +63,7 @@ impl WgpuServer {
             memory_config,
             timing_method,
             tasks_max,
+            logger.clone(),
         );
 
         let config = GlobalConfig::get();

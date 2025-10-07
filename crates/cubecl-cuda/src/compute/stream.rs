@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::compute::{
     storage::{
         cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryStorage},
@@ -7,6 +9,7 @@ use crate::compute::{
 };
 use cubecl_core::MemoryConfiguration;
 use cubecl_runtime::{
+    logging::ServerLogger,
     memory_management::{MemoryDeviceProperties, MemoryManagement},
     stream::EventStreamBackend,
 };
@@ -23,6 +26,7 @@ pub struct CudaStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     mem_alignment: usize,
+    logger: Arc<ServerLogger>,
 }
 
 impl EventStreamBackend for CudaStreamBackend {
@@ -36,8 +40,12 @@ impl EventStreamBackend for CudaStreamBackend {
         .expect("Can create a new stream.");
 
         let storage = GpuStorage::new(self.mem_alignment, stream);
-        let memory_management_gpu =
-            MemoryManagement::from_configuration(storage, &self.mem_props, self.mem_config.clone());
+        let memory_management_gpu = MemoryManagement::from_configuration(
+            storage,
+            &self.mem_props,
+            self.mem_config.clone(),
+            self.logger.clone(),
+        );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
         let memory_management_cpu = MemoryManagement::from_configuration(
@@ -47,6 +55,7 @@ impl EventStreamBackend for CudaStreamBackend {
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
             },
             self.mem_config.clone(),
+            self.logger.clone(),
         );
 
         Stream {

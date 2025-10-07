@@ -464,13 +464,14 @@ impl CudaServer {
             log::info!("Peer data transfer not available for device {device_id}");
         }
 
+        let logger = Arc::new(ServerLogger::default());
         Self {
             mem_alignment,
             ctx,
             peer_activated,
             streams: MultiStream::new(
-                Arc::new(ServerLogger::default()),
-                CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
+                logger.clone(),
+                CudaStreamBackend::new(mem_props, mem_config, mem_alignment, logger),
                 max_streams,
             ),
         }

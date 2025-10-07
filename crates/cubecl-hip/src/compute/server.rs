@@ -252,12 +252,13 @@ impl HipServer {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
+        let logger = Arc::new(ServerLogger::default());
         Self {
             ctx,
             mem_alignment,
             streams: MultiStream::new(
-                Arc::new(ServerLogger::default()),
-                HipStreamBackend::new(mem_props, mem_config, mem_alignment),
+                logger.clone(),
+                HipStreamBackend::new(mem_props, mem_config, mem_alignment, logger),
                 max_streams,
             ),
         }

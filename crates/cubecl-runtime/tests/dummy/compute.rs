@@ -1,7 +1,10 @@
+use std::sync::Arc;
+
 use super::DummyServer;
 use cubecl_common::CubeDim;
 use cubecl_common::profile::TimingMethod;
 use cubecl_runtime::client::ComputeClient;
+use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryManagement,
 };
@@ -41,6 +44,7 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         storage,
         &mem_properties,
         MemoryConfiguration::default(),
+        Arc::new(ServerLogger::default()),
     );
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);

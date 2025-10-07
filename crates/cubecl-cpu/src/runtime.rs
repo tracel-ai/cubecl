@@ -7,6 +7,7 @@ use cubecl_core::{
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
+    logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
     storage::BytesStorage,
 };
@@ -45,6 +46,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         .cgroup_limits()
         .map(|g| g.total_memory)
         .unwrap_or(system.total_memory()) as usize;
+    let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
 
     let topology = HardwareProperties {
         plane_size_min: 1,
@@ -66,8 +68,12 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
         alignment: ALIGNMENT,
     };
 
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
+    let memory_management = MemoryManagement::from_configuration(
+        storage,
+        &mem_properties,
+        options.memory_config,
+        logger.clone(),
+    );
     let mut device_props = DeviceProperties::new(
         Default::default(),
         mem_properties,
@@ -77,7 +83,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     register_supported_types(&mut device_props);
 
     let ctx = CpuContext::new(memory_management);
-    let server = CpuServer::new(ctx);
+    let server = CpuServer::new(ctx, logger);
     ComputeClient::new(Channel::new(server), device_props, ())
 }
 
