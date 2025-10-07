@@ -12,6 +12,8 @@ use crate::{
     storage::{ComputeStorage, StorageHandle},
 };
 
+use alloc::format;
+use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
