@@ -28,14 +28,16 @@ impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
         DummyRegisterAttentionMatmulConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
-            1,
+            num_planes,
             line_sizes.query as u32,
             line_sizes.key as u32,
             !(problem.seq_kv as u32).is_multiple_of(selection.tiling_scheme.tile_size.seq_kv),
+            selection.two_rows_in_array_tile,
         )
     }
 }

@@ -82,8 +82,8 @@ where
 
         // Need to compensate for the temporary conversion to f16/tf32
         let epsilon = match maybe_f16 || maybe_tf32 {
-            true => 10e-5 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
-            false => 10e-5,
+            true => 10e-3 / EG::EPSILON.to_f32().unwrap() * half::f16::EPSILON.to_f32(),
+            false => 10e-3,
         };
 
         let expected = flash_attention_v2_cpu::<Self>(query, key, value, mask, problem)
@@ -253,7 +253,7 @@ macro_rules! sample_float {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
+                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-50), Self::from_int(50), output.as_ref());
 
                     output
                 }

@@ -26,8 +26,9 @@ impl<FM: AttentionMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
-        FM::setup::<AP, R>(client, problem, selection, line_sizes)
+        FM::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)
     }
 
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {

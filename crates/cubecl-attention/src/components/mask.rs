@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionTilingScheme;
 
@@ -87,8 +88,8 @@ impl PartitionMask {
 
 #[cube]
 impl TileMask {
-    pub fn apply<E: Numeric>(&self, row: u32, col: u32) -> Line<E> {
-        let should_mask = Line::<E>::cast_from(row >= self.q_bound || col >= self.kv_bound);
-        should_mask * Line::cast_from(-999999)
+    pub fn apply<E: Numeric>(&self, pos: Coords2d) -> E {
+        let should_mask = E::cast_from(pos.0 >= self.q_bound || pos.1 >= self.kv_bound);
+        should_mask * E::min_value()
     }
 }
