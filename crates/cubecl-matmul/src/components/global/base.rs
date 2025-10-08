@@ -12,7 +12,7 @@ use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, Rhs
 use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+    tensor::{View, layout::Coords2d},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -96,31 +96,19 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the global reader for Lhs, starting at row m and column k
     fn init_lhs_global_reader(
-        lhs: VirtualTensor<LhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        lhs: View<Line<LhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader;
 
     /// Initialize the global reader for Rhs, starting at row k and column n
     fn init_rhs_global_reader(
-        rhs: VirtualTensor<RhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader;
 
     /// Initialize the global reader for Rhs, starting at row k and column n
     fn init_acc_global_reader(
-        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        acc: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader;
 
@@ -129,11 +117,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the global writer at row m and column n
     fn init_global_writer(
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter;
 }

@@ -79,7 +79,7 @@ impl Coordinates for NhwcCoords {
 
 /// Layout for a spatial (i.e. NHWC) tensor. Bounds check only applies to spatial dimensions, not
 /// channel or batch (because these are implicitly checked in the layouts used with spatial tensors).
-#[derive(CubeType, Clone)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct NhwcLayout {
     /// Stride for N
     pub stride_batch: u32,
@@ -211,4 +211,40 @@ pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
         out_seq.push(elem);
     }
     out_seq
+}
+
+impl<'a, R: Runtime> NhwcLayoutLaunch<'a, R> {
+    pub fn from_handle(
+        handle: &TensorHandleRef<'a, R>,
+        line_size: u32,
+        check_spatial: bool,
+    ) -> Self {
+        let rank = handle.shape.len();
+        let dim_c = rank - 1;
+
+        let stride_batch = ScalarArg::new(handle.strides[0] as u32);
+        let strides_spatial = handle.strides[1..dim_c]
+            .iter()
+            .map(|s| ScalarArg::new(*s as u32))
+            .collect();
+        let stride_channel = ScalarArg::new(handle.strides[dim_c] as u32);
+
+        let shape_batch = ScalarArg::new(handle.shape[0] as u32);
+        let shapes_spatial = handle.strides[1..dim_c]
+            .iter()
+            .map(|s| ScalarArg::new(*s as u32))
+            .collect();
+        let shape_channel = ScalarArg::new(handle.shape[dim_c] as u32);
+
+        Self::new(
+            stride_batch,
+            strides_spatial,
+            stride_channel,
+            shape_batch,
+            shapes_spatial,
+            shape_channel,
+            line_size,
+            check_spatial,
+        )
+    }
 }

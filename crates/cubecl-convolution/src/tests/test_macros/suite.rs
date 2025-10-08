@@ -1,5 +1,8 @@
 use crate::{
-    components::{ConvolutionProblem, Dimensionality, global::args::ConcreteInputsFactory},
+    components::{
+        ConvolutionProblem, Dimensionality,
+        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    },
     tests::test_utils::TestPrecision,
 };
 use crate::{
@@ -7,7 +10,6 @@ use crate::{
     tests::convolution_test_launcher::test_convolution_algorithm,
 };
 use cubecl_core::Runtime;
-use cubecl_matmul::components::global::args::ConcreteOutputFactory;
 use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{

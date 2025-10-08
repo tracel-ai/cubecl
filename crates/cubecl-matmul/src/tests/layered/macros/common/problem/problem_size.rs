@@ -16,6 +16,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 256,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -36,6 +37,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 100,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -57,6 +59,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 100,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -78,6 +81,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 100,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -98,6 +102,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 17,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }
@@ -118,6 +123,7 @@ macro_rules! testgen_matmul_problem_size {
                     k: 256,
                     lhs_batches: vec![2],
                     rhs_batches: vec![2],
+                    out_batches: vec![2],
                     lhs_layout: $layouts.0,
                     rhs_layout: $layouts.1,
                 }

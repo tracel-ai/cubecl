@@ -3,14 +3,10 @@ use cubecl_core as cubecl;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     InputRuntimeArg, MatmulSpec, OutputRuntimeArg,
-    global::{
-        GlobalConfig as _,
-        args::{MatmulArgs, TensorAcc, TensorLhs, TensorOutput, TensorRhs},
-    },
+    batch::SliceIndex,
+    global::{GlobalConfig as _, args::MatmulArgs},
 };
-use cubecl_std::{
-    CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs, tensor::r#virtual::VirtualTensor,
-};
+use cubecl_std::{CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs};
 
 use crate::{
     components::{
@@ -60,24 +56,10 @@ pub(crate) fn implicit_conv<
 ) {
     let mut state = Args::init_state(inputs, output);
 
-    let lhs = TensorLhs::<LhsG, RhsG, AccG, Args>::new(&state);
-    let rhs = TensorRhs::<LhsG, RhsG, AccG, Args>::new(&state);
-    let mut out = TensorOutput::<LhsG, RhsG, AccG, Args>::new(&mut state);
-
-    let has_acc = Args::has_acc(&state);
-    let bias: CubeOption<VirtualTensor<AccG>> = match has_acc {
-        CubeOption::Some(_) => {
-            let bias = TensorAcc::<LhsG, RhsG, AccG, Args>::new(&state);
-            let bias = VirtualTensor::<AccG>::new::<TensorAcc<LhsG, RhsG, AccG, Args>>(&bias);
-            CubeOption::new_Some(bias)
-        }
-        CubeOption::None => CubeOption::new_None(),
-    };
-
-    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, AccG, Args>>(&lhs);
-    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, AccG, Args>>(&rhs);
-    let out =
-        VirtualTensor::<AccG, ReadWrite>::new::<TensorOutput<LhsG, RhsG, AccG, Args>>(&mut out);
+    let lhs = Args::view_lhs(&state);
+    let rhs = Args::view_rhs(&state);
+    let bias = Args::view_acc(&state);
+    let out = Args::view_out(&mut state);
 
     let stage_m = config.tiling_scheme().elements_in_stage_m().runtime();
     let stage_n = config.tiling_scheme().elements_in_stage_n().runtime();
@@ -88,6 +70,17 @@ pub(crate) fn implicit_conv<
     let k_range = (0, runtime_args.shape_k);
     let k_size = runtime_args.shape_k;
 
+    let lhs = lhs.view(SliceIndex::new(0, lhs.shape()));
+    let rhs = rhs.view(SliceIndex::new(0, rhs.shape()));
+    let bias = match bias {
+        CubeOption::Some(bias) => {
+            let view = bias.view(SliceIndex::new(0, bias.shape()));
+            CubeOption::new_Some(view.slice_unchecked((0, n_offset), (1, stage_n)))
+        }
+        CubeOption::None => CubeOption::new_None(),
+    };
+    let out = out.view_mut(SliceIndex::new(0, out.shape()));
+
     GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_lhs_global_reader(
             lhs,
@@ -97,20 +90,14 @@ pub(crate) fn implicit_conv<
             config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_rhs_global_reader(
-            rhs,
-            (k_range.0, n_offset),
-            (k_size, stage_n),
-            &runtime_args,
+            rhs.slice_unchecked((k_range.0, n_offset), (k_size, stage_n)),
             config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_bias_global_reader(
-            bias, n_offset, stage_n, config,
+            bias, config,
         ),
         GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_global_writer(
-            out,
-            (m_offset, n_offset),
-            (stage_m, stage_n),
-            &runtime_args,
+            out.slice_mut_unchecked((m_offset, n_offset), (stage_m, stage_n)),
             config,
         ),
         &mut GMM::Convolution::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::init_accumulator(config),
@@ -123,9 +110,8 @@ pub(crate) fn shape_divmod<'a, R: Runtime>(
     client: &ComputeClient<R::Server, R::Channel>,
     shape: &[usize],
 ) -> SequenceArg<'a, R, FastDivmod> {
-    let shape = shape
+    shape
         .iter()
         .map(|s| FastDivmodArgs::new(client, *s as u32))
-        .collect();
-    SequenceArg { values: shape }
+        .collect()
 }

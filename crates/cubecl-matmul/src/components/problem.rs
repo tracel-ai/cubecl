@@ -17,6 +17,8 @@ pub struct MatmulProblem {
     pub lhs_batches: Vec<usize>,
     /// Batch shape for Rhs tensor
     pub rhs_batches: Vec<usize>,
+    /// Batch shape for Out tensor
+    pub out_batches: Vec<usize>,
     /// Memory layout of the Lhs matrix.
     pub lhs_layout: MatrixLayout,
     /// Memory layout of the Rhs matrix.

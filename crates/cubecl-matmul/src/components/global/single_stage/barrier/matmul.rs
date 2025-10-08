@@ -4,7 +4,6 @@ use crate::components::RhsG;
 use crate::components::RhsS;
 use crate::components::global::GlobalConfig;
 use crate::components::global::GlobalMatmul;
-use crate::components::global::memory::SimpleGlobalLayout;
 use crate::components::global::read::AsyncFullLoadingStrategy;
 use crate::components::global::read::AsyncFullStageGlobalReader;
 use crate::components::global::single_stage::barrier::SimpleBarrierConfig;
@@ -19,7 +18,7 @@ use crate::components::{MatmulPrecision, global::GlobalWriter};
 use barrier::Barrier;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::tensor::View;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
 /// Performs matrix multiplication at the global level
@@ -134,47 +133,21 @@ where
     }
 
     fn init_lhs_global_reader(
-        lhs: VirtualTensor<LhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        slice_size: Coords2d,
-        _nth_batch: u32,
+        lhs: View<Line<LhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
-        let conf = config.global_memory_config(MatmulIdent::Lhs);
-        let layout = SimpleGlobalLayout::new(&lhs, batch_offset, conf);
-        Self::LhsGlobalReader::new(
-            lhs.view(layout).slice(offset, slice_size),
-            config.k_step,
-            MatmulIdent::Lhs,
-            config,
-        )
+        Self::LhsGlobalReader::new(lhs, config.k_step, MatmulIdent::Lhs, config)
     }
 
     fn init_rhs_global_reader(
-        rhs: VirtualTensor<RhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        slice_size: Coords2d,
-        _nth_batch: u32,
+        rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        let conf = config.global_memory_config(MatmulIdent::Rhs);
-        let layout = SimpleGlobalLayout::new(&rhs, batch_offset, conf);
-        Self::RhsGlobalReader::new(
-            rhs.view(layout).slice(offset, slice_size),
-            config.k_step,
-            MatmulIdent::Rhs,
-            config,
-        )
+        Self::RhsGlobalReader::new(rhs, config.k_step, MatmulIdent::Rhs, config)
     }
 
     fn init_acc_global_reader(
-        acc: CubeOption<VirtualTensor<AccG<MP>>>,
-        _batch_offset: u32,
-        _offset: Coords2d,
-        _slice_size: Coords2d,
-        _nth_batch: u32,
+        acc: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] _config: Self::Config,
     ) -> Self::AccGlobalReader {
         match acc {
@@ -184,17 +157,11 @@ where
     }
 
     fn init_global_writer(
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
-        batch_offset: u32,
-        offset: Coords2d,
-        size: Coords2d,
-        _nth_batch: u32,
+        out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
         let conf = config.global_memory_config(MatmulIdent::Out);
-        let layout = SimpleGlobalLayout::new(&out, batch_offset, conf);
-        let view = out.view_mut(layout).slice_mut_unchecked(offset, size);
-        Self::GlobalWriter::init::<SMM::Config>(view, conf, config.stage_config())
+        Self::GlobalWriter::init::<SMM::Config>(out, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

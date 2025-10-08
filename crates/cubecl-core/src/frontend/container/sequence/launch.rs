@@ -104,3 +104,11 @@ impl<R: Runtime, T: LaunchArg> ArgSettings<R> for SequenceArg<'_, R, T> {
         self.values.iter().for_each(|arg| arg.register(launcher));
     }
 }
+
+impl<'a, R: Runtime, E: LaunchArg> FromIterator<E::RuntimeArg<'a, R>> for SequenceArg<'a, R, E> {
+    fn from_iter<T: IntoIterator<Item = E::RuntimeArg<'a, R>>>(iter: T) -> Self {
+        SequenceArg {
+            values: iter.into_iter().collect(),
+        }
+    }
+}

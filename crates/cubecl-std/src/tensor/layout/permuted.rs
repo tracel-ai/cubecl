@@ -31,18 +31,14 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     ) -> Self {
         let len = shape.iter().product::<usize>() / line_size as usize;
 
-        let shape = SequenceArg {
-            values: shape
-                .iter()
-                .map(|it| FastDivmodArgs::new(client, *it as u32))
-                .collect(),
-        };
-        let strides = SequenceArg {
-            values: strides
-                .iter()
-                .map(|it| ScalarArg::new(*it as u32))
-                .collect(),
-        };
+        let shape = shape
+            .iter()
+            .map(|it| FastDivmodArgs::new(client, *it as u32))
+            .collect();
+        let strides = strides
+            .iter()
+            .map(|it| ScalarArg::new(*it as u32))
+            .collect();
 
         Self::new(shape, strides, ScalarArg::new(len as u32), line_size as u32)
     }
