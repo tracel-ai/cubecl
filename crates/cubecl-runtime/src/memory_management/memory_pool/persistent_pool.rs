@@ -1,4 +1,5 @@
 use super::{MemoryPool, Slice, SliceHandle, SliceId, calculate_padding};
+use crate::memory_management::BytesFormat;
 use crate::{memory_management::MemoryUsage, server::IoError};
 use alloc::vec;
 use alloc::vec::Vec;
@@ -29,8 +30,13 @@ impl core::fmt::Display for PersistentPool {
             }
 
             f.write_fmt(format_args!(
-                "\nPool: {size} bytes ({total}) - {num_free} free - {num_full} full\n"
+                "  - Slices {} =>  {num_free} free - {num_full} full - {total} total\n",
+                BytesFormat::new(*size)
             ))?;
+        }
+
+        if !self.sizes.is_empty() {
+            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
         }
 
         Ok(())

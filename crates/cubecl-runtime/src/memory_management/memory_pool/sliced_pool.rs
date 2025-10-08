@@ -1,5 +1,5 @@
 use super::{MemoryPool, RingBuffer, Slice, SliceBinding, SliceHandle, SliceId};
-use crate::memory_management::MemoryUsage;
+use crate::memory_management::{BytesFormat, MemoryUsage};
 use crate::storage::{ComputeStorage, StorageHandle, StorageId, StorageUtilization};
 use crate::{memory_management::memory_pool::calculate_padding, server::IoError};
 use alloc::vec::Vec;
@@ -18,6 +18,50 @@ pub(crate) struct SlicedPool {
     page_size: u64,
     max_alloc_size: u64,
     alignment: u64,
+}
+
+impl core::fmt::Display for SlicedPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(
+            " - Sliced Pool page_size={} max_alloc_size={}\n",
+            BytesFormat::new(self.page_size),
+            BytesFormat::new(self.max_alloc_size)
+        ))?;
+
+        for (id, page) in self.pages.iter() {
+            let num_slices = page.slices.len();
+            f.write_fmt(format_args!("   - Page {id} num_slices={num_slices} =>"))?;
+
+            let mut size_free = 0;
+            let mut size_full = 0;
+            let mut size_total = 0;
+
+            for id in page.slices.values() {
+                let slice = self.slices.get(id).unwrap();
+                let is_free = slice.is_free();
+                if is_free {
+                    size_free += slice.effective_size();
+                } else {
+                    size_full += slice.effective_size();
+                }
+                size_total += slice.effective_size();
+            }
+
+            let size_free = BytesFormat::new(size_free);
+            let size_full = BytesFormat::new(size_full);
+            let size_total = BytesFormat::new(size_total);
+
+            f.write_fmt(format_args!(
+                " {size_free} free - {size_full} full - {size_total} total\n"
+            ))?;
+        }
+
+        if !self.pages.is_empty() {
+            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
+        }
+
+        Ok(())
+    }
 }
 
 // TODO: consider using generic trait and decouple from Slice

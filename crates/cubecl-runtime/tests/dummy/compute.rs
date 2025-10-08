@@ -6,7 +6,7 @@ use cubecl_common::profile::TimingMethod;
 use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
-    MemoryConfiguration, MemoryDeviceProperties, MemoryManagement,
+    MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
 };
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::BytesStorage;
@@ -41,11 +41,11 @@ pub fn init_client() -> ComputeClient<DummyServer, MutexComputeChannel<DummyServ
         min_tensor_cores_dim: None,
     };
     let memory_management = MemoryManagement::from_configuration(
-        "CPU".into(),
         storage,
         &mem_properties,
         MemoryConfiguration::default(),
         Arc::new(ServerLogger::default()),
+        MemoryManagementOptions::new("Main CPU Memory"),
     );
     let server = DummyServer::new(memory_management);
     let channel = MutexComputeChannel::new(server);

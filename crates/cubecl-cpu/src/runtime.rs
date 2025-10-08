@@ -8,7 +8,9 @@ use cubecl_core::{
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties,
     logging::ServerLogger,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    memory_management::{
+        HardwareProperties, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+    },
     storage::BytesStorage,
 };
 use cubecl_std::tensor::is_contiguous;
@@ -69,11 +71,11 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
     };
 
     let memory_management = MemoryManagement::from_configuration(
-        "CPU".into(),
         storage,
         &mem_properties,
         options.memory_config,
         logger.clone(),
+        MemoryManagementOptions::new("test"),
     );
     let mut device_props = DeviceProperties::new(
         Default::default(),

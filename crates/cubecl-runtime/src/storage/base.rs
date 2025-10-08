@@ -8,6 +8,12 @@ use crate::{
 // This ID is used to map a handle to its actual data.
 storage_id_type!(StorageId);
 
+impl core::fmt::Display for StorageId {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!("StorageId({})", self.value))
+    }
+}
+
 /// Defines if data uses a full memory chunk or a slice of it.
 #[derive(Clone, Debug)]
 pub struct StorageUtilization {

@@ -4,7 +4,9 @@ use cubecl_core::MemoryConfiguration;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    memory_management::{
+        MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+    },
     stream::EventStreamBackend,
 };
 
@@ -42,16 +44,15 @@ impl EventStreamBackend for HipStreamBackend {
         };
         let storage = GpuStorage::new(self.mem_alignment);
         let memory_management_gpu = MemoryManagement::from_configuration(
-            "GPU".into(),
             storage,
             &self.mem_props,
             self.mem_config.clone(),
             self.logger.clone(),
+            MemoryManagementOptions::new("Main GPU Memory"),
         );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
         let memory_management_cpu = MemoryManagement::from_configuration(
-            "Pinned CPU".into(),
             PinnedMemoryStorage::new(),
             &MemoryDeviceProperties {
                 max_page_size: self.mem_props.max_page_size,
@@ -59,6 +60,7 @@ impl EventStreamBackend for HipStreamBackend {
             },
             self.mem_config.clone(),
             self.logger.clone(),
+            MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
         Stream {

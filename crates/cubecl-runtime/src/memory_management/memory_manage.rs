@@ -8,6 +8,7 @@ use crate::{
         memory::{MemoryLogLevel, PersistentMemory},
     },
     logging::ServerLogger,
+    memory_management::BytesFormat,
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
@@ -133,14 +134,49 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
+/// The options for creating a new [MemoryManagement] instance.
+#[derive(Debug)]
+pub struct MemoryManagementOptions {
+    /// The name of the memory management.
+    name: String,
+    /// The [MemoryAllocationOption] used by this instance.
+    memory: MemoryAllocationOption,
+}
+
+impl MemoryManagementOptions {
+    /// Creates a new [MemoryManagementOptions].
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            memory: MemoryAllocationOption::FromConfig,
+        }
+    }
+
+    /// Forces the [MemoryAllocationMode] during execution to always be the provided one.
+    pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
+        self.memory = MemoryAllocationOption::Provided(mode);
+        self
+    }
+}
+
+#[derive(Default, Debug)]
+/// Determines which [MemoryAllocationMode] is used during allocations.
+enum MemoryAllocationOption {
+    #[default]
+    /// Uses the [GlobalConfig] to determine the mode of allocation.
+    FromConfig,
+    /// Use the provided [MemoryAllocationMode].
+    Provided(MemoryAllocationMode),
+}
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
-        name: String,
         storage: Storage,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
         logger: Arc<ServerLogger>,
+        options: MemoryManagementOptions,
     ) -> Self {
         let pool_options = match config {
             #[cfg(not(exclusive_memory_only))]
@@ -240,7 +276,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || {
                 let mut msg = String::new();
                 for pool in pool_options.iter() {
-                    msg += &format!("[{name}] Using memory pool: \n {pool:?}");
+                    msg += &format!("[{}] Using memory pool: \n {pool:?}", options.name);
                 }
                 msg
             },
@@ -269,13 +305,17 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         let config = GlobalConfig::get().memory.persistent_memory.clone();
 
-        let mode = match config {
-            PersistentMemory::Enabled => MemoryAllocationMode::Auto,
-            PersistentMemory::Disabled => MemoryAllocationMode::Auto,
-            PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+        let mode = match options.memory {
+            MemoryAllocationOption::Provided(mode) => mode,
+            MemoryAllocationOption::FromConfig => match config {
+                PersistentMemory::Enabled => MemoryAllocationMode::Auto,
+                PersistentMemory::Disabled => MemoryAllocationMode::Auto,
+                PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+            },
         };
+
         Self {
-            name,
+            name: options.name,
             persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
             pools,
             storage,
@@ -288,16 +328,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Change the mode of allocation.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
-        self.logger.log_memory(
-            |level| !matches!(level, MemoryLogLevel::Disabled),
-            || format!("[{}] Setting memory allocation mode: {mode:?}", self.name),
-        );
         // We override the mode based on the cubecl config.
         let mode = match self.config {
             PersistentMemory::Enabled => mode,
-            PersistentMemory::Disabled => MemoryAllocationMode::Auto,
-            PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+            PersistentMemory::Disabled | PersistentMemory::Enforced => return,
         };
+
+        self.logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled),
+            || {
+                format!(
+                    "[{}] Setting memory allocation mode: from {:?} => {mode:?}",
+                    self.name, self.mode
+                )
+            },
+        );
         self.mode = mode;
     }
 
@@ -373,9 +418,8 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 |level| !matches!(level, MemoryLogLevel::Disabled),
                 || {
                     format!(
-                        "[{}] Allocated a new memory page using persistent memory, current usage: \n{}",
-                        self.memory_usage(),
-                        self.name
+                        "[{}] Allocated a new memory page using persistent memory, \n{}",
+                        self.name, self,
                     )
                 },
             );
@@ -384,7 +428,13 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
         self.logger.log_memory(
             |level| matches!(level, MemoryLogLevel::Full),
-            || format!("[{}] Reserved memory {size} using dynamic pool", self.name),
+            || {
+                format!(
+                    "[{}] Reserved memory {} using dynamic pool",
+                    self.name,
+                    BytesFormat::new(size)
+                )
+            },
         );
 
         // Find first pool that fits this allocation
@@ -405,8 +455,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             || {
                 format!(
                     "[{}], Allocated a new memory page, current usage: \n{}",
-                    self.memory_usage(),
-                    self.name
+                    self.name, self
                 )
             },
         );
@@ -448,21 +497,21 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         log::info!("{}", self.memory_usage());
     }
 }
-impl<Storage> core::fmt::Display for MemoryManagement<Storage> {
+impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("\n=== MemoryManagement ===\n")?;
-        f.write_fmt(format_args!("Name: {}\n", self.name))?;
-        f.write_fmt(format_args!("Persistent: {}\n", self.persistent))?;
-        f.write_str("Dynamic:\n")?;
+        f.write_str("\n# MemoryManagement\n\n")?;
+        f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
+        f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
+        f.write_str("\n## Dynamic\n\n")?;
 
         for pool in self.pools.iter() {
             match pool {
-                DynamicPool::Sliced(_) => f.write_str("\n  * Static Pool")?,
-                DynamicPool::Exclusive(pool) => f.write_fmt(format_args!("{pool}"))?,
+                DynamicPool::Sliced(pool) => f.write_fmt(format_args!("{pool}\n"))?,
+                DynamicPool::Exclusive(pool) => f.write_fmt(format_args!("{pool}\n"))?,
             }
         }
-
-        f.write_str("\n========================\n")?;
+        let memory_usage = self.memory_usage();
+        f.write_fmt(format_args!("\n## Summary\n\n{}", memory_usage))?;
 
         Ok(())
     }
@@ -490,16 +539,23 @@ mod tests {
         alignment: 32,
     };
 
+    fn options() -> MemoryManagementOptions {
+        MemoryManagementOptions {
+            name: "test".into(),
+            memory: MemoryAllocationOption::FromConfig,
+        }
+    }
+
     // Test pools with slices.
     #[test]
     #[cfg(not(exclusive_memory_only))]
     fn test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(10).unwrap();
         let other_ref = handle.clone();
@@ -515,7 +571,6 @@ mod tests {
         let max_page_size = 512;
 
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -527,6 +582,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(100);
         let usage = memory_management.memory_usage();
@@ -546,7 +602,6 @@ mod tests {
         let page_size = 2048;
 
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -559,6 +614,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -577,7 +633,6 @@ mod tests {
         let page_size = 512;
 
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -590,6 +645,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -608,7 +664,6 @@ mod tests {
         let page_size = 1024;
 
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -621,6 +676,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 768;
@@ -637,7 +693,6 @@ mod tests {
     fn alloc_respects_alignment_size() {
         let page_size = 500;
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: page_size,
@@ -653,6 +708,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size);
@@ -677,7 +733,6 @@ mod tests {
             })
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -687,6 +742,7 @@ mod tests {
                 pool_options: pools,
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
@@ -703,7 +759,6 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -711,6 +766,7 @@ mod tests {
             },
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
@@ -734,7 +790,6 @@ mod tests {
     #[cfg(not(exclusive_memory_only))]
     fn test_fragmentation_resistance() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -742,6 +797,7 @@ mod tests {
             },
             MemoryConfiguration::SubSlices,
             Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a mix of small and large chunks
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
@@ -767,7 +823,6 @@ mod tests {
     #[test]
     fn noslice_test_handle_mutability() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &(MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -775,6 +830,7 @@ mod tests {
             }),
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(10).unwrap();
         let other_ref = handle.clone();
@@ -786,7 +842,6 @@ mod tests {
     #[test]
     fn noslice_alloc_two_chunk() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -798,6 +853,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -814,7 +870,6 @@ mod tests {
     fn noslice_alloc_reuses_storage() {
         // If no storage is re-used, this will allocate two pages.
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -826,6 +881,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -842,7 +898,6 @@ mod tests {
     #[test]
     fn noslice_alloc_allocs_new_storage() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::Custom {
@@ -854,6 +909,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 768;
@@ -868,7 +924,6 @@ mod tests {
     #[test]
     fn noslice_alloc_respects_alignment_size() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
@@ -883,6 +938,7 @@ mod tests {
                 }],
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size);
@@ -905,7 +961,6 @@ mod tests {
             })
             .collect();
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: DUMMY_MEM_PROPS.max_page_size,
@@ -915,6 +970,7 @@ mod tests {
                 pool_options: pools,
             },
             Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
@@ -927,7 +983,6 @@ mod tests {
     #[test]
     fn noslice_allocate_deallocate_reallocate() {
         let mut memory_management = MemoryManagement::from_configuration(
-            "test".to_string(),
             BytesStorage::default(),
             &MemoryDeviceProperties {
                 max_page_size: 128 * 1024 * 1024,
@@ -935,6 +990,7 @@ mod tests {
             },
             MemoryConfiguration::ExclusivePages,
             Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
