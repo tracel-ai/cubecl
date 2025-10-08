@@ -1156,8 +1156,8 @@ macro_rules! testgen_attention {
                     seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
                     head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
                     val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
-                    masked: true,
-                    causal: false,
+                    masked: false,
+                    causal: true,
                 };
                 attention_test_launch::<DummyRegisterAlgorithm, TestRuntime>(
                     client,

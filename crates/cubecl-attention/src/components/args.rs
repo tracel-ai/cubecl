@@ -16,7 +16,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
-        // mask: &'a TensorHandleRef<'a, R>,
+        mask: &'a TensorHandleRef<'a, R>,
         selection: &AttentionSelection,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -776,18 +776,19 @@ pub struct TensorArgs;
 
 #[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [AttentionArgs].
-pub struct TensorInputs<Q: Float, K: Float, V: Float> {
+pub struct TensorInputs<Q: Float, K: Float, V: Float, M: Numeric> {
     pub query: Tensor<Line<Q>>,
     pub key: Tensor<Line<K>>,
     pub value: Tensor<Line<V>>,
-    // pub mask: CubeOption<Tensor<Line<EM>>>,
+    pub mask: CubeOption<Tensor<Line<M>>>,
 }
 
-impl<Q: Float, K: Float, V: Float> ConcreteInputsFactory for TensorInputs<Q, K, V> {
+impl<Q: Float, K: Float, V: Float, M: Numeric> ConcreteInputsFactory for TensorInputs<Q, K, V, M> {
     fn create<'a, R: Runtime>(
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
+        mask: &'a TensorHandleRef<'a, R>,
         _selection: &AttentionSelection,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -796,7 +797,8 @@ impl<Q: Float, K: Float, V: Float> ConcreteInputsFactory for TensorInputs<Q, K, 
             query.as_tensor_arg(line_sizes.query),
             key.as_tensor_arg(line_sizes.key),
             value.as_tensor_arg(line_sizes.value),
-            // mask.as_tensor_arg(line_sizes.value),
+            // TODO CubeOptionArgs
+            mask.as_tensor_arg(line_sizes.mask),
         )
     }
 }
