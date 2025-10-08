@@ -508,27 +508,26 @@ where
         self.channel.allocation_mode(mode, self.stream_id())
     }
 
-    /// Use a static memory strategy to execute the provided function.
+    /// Use a persistent memory strategy to execute the provided function.
     ///
     /// # Notes
     ///
-    /// Using that memory strategy is beneficial for weights loading and similar workflows.
-    /// However make sure to call [Self::memory_cleanup()] if you want to free the allocated
-    /// memory.
-    pub fn memory_static_allocation<Input, Output, Func: Fn(Input) -> Output>(
+    /// - Using that memory strategy is beneficial for stating model parameters and similar workflows.
+    /// - You can call [Self::memory_cleanup()] if you want to free persistent memory.
+    pub fn memory_persistent_allocation<Input, Output, Func: Fn(Input) -> Output>(
         &self,
         input: Input,
         func: Func,
     ) -> Output {
         // We use the same profiling lock to make sure no other task is currently using the current
-        // device. Meaning that the current static memory strategy will only be used for the
+        // device. Meaning that the current persistent memory strategy will only be used for the
         // provided function.
 
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
         self.channel
-            .allocation_mode(MemoryAllocationMode::Static, self.stream_id());
+            .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
         let output = func(input);
         self.channel
             .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
