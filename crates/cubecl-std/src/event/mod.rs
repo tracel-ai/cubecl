@@ -30,6 +30,12 @@ struct Payload<E: CubeType> {
     call: Call<E>,
 }
 
+impl Default for ComptimeEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cube]
 impl ComptimeEventBus {
     /// Creates a new event bus.
