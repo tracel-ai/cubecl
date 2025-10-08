@@ -1,63 +1,118 @@
+use crate::event::{ComptimeEventBus, EventListener, EventListenerExpand};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::event::{EventBus, EventListener, EventListenerExpand};
-
-use super::*;
-
 #[derive(CubeType)]
-pub struct Event1 {
+pub struct DummyEvent {
     #[cube(comptime)]
-    pub index: u32,
+    pub value: u32,
 }
 
 #[derive(CubeType, Clone)]
-pub struct EventListener1 {
+pub struct EventListenerPosZero {
+    items: SliceMut<f32>,
+}
+
+#[derive(CubeType, Clone)]
+pub struct EventListenerPosOne {
     items: SliceMut<f32>,
 }
 
 #[cube]
-impl EventListener for EventListener1 {
-    type Event = Event1;
+impl EventListener for EventListenerPosZero {
+    type Event = DummyEvent;
 
-    fn on_event(&mut self, event: Self::Event, bus: &mut EventBus) {
-        self.items[0] = f32::cast_from(event.index);
-
-        if comptime!(event.index < 10) {
-            bus.event::<Event1>(Event1 { index: 15u32 });
+    fn on_event(&mut self, event: Self::Event, bus: &mut ComptimeEventBus) {
+        if comptime!(event.value < 10) {
+            comment!("On event pos zero < 10");
+            bus.event::<DummyEvent>(DummyEvent {
+                value: comptime!(15u32 + event.value),
+            });
+        } else {
+            comment!("On event pos zero >= 10");
+            self.items[0] = f32::cast_from(event.value);
         }
     }
 }
 
 #[cube]
-fn allo(items: SliceMut<f32>) {
-    let mut bus = EventBus::new();
-    let listener = EventListener1 { items };
-    bus.listener::<EventListener1>(listener);
-    bus.event::<Event1>(Event1 { index: 5u32 });
+impl EventListener for EventListenerPosOne {
+    type Event = DummyEvent;
+
+    fn on_event(&mut self, event: Self::Event, _bus: &mut ComptimeEventBus) {
+        comment!("On event pos one");
+        self.items[1] = (f32::cast_from(event.value) * 2.0) + self.items[1];
+    }
+}
+
+#[cube]
+fn test_1(items: SliceMut<f32>) {
+    let mut bus = ComptimeEventBus::new();
+    let listener_zero = EventListenerPosZero { items };
+    bus.listener::<EventListenerPosZero>(listener_zero);
+
+    let listener_one = EventListenerPosOne { items };
+    bus.listener::<EventListenerPosOne>(listener_one);
+
+    bus.event::<DummyEvent>(DummyEvent { value: 5u32 });
+}
+
+#[cube]
+fn test_2(items: SliceMut<f32>) {
+    let mut bus = ComptimeEventBus::new();
+    let listener_zero = EventListenerPosZero { items };
+    bus.listener::<EventListenerPosZero>(listener_zero);
+
+    let listener_one = EventListenerPosOne { items };
+    bus.listener::<EventListenerPosOne>(listener_one);
+
+    bus.event::<DummyEvent>(DummyEvent { value: 15u32 });
 }
 
 #[cube(launch_unchecked)]
-pub fn launch_allo(output: &mut Array<f32>) {
-    allo(output.to_slice_mut());
+fn launch_test_1(output: &mut Array<f32>) {
+    test_1(output.to_slice_mut());
 }
 
-pub fn test<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
-    let output = client.empty(4);
+#[cube(launch_unchecked)]
+fn launch_test_2(output: &mut Array<f32>) {
+    test_2(output.to_slice_mut());
+}
+
+pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    let output = client.empty(8);
 
     unsafe {
-        launch_allo::launch_unchecked::<R>(
+        launch_test_1::launch_unchecked::<R>(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim { x: 1, y: 1, z: 1 },
-            ArrayArg::from_raw_parts::<f32>(&output, 32, 1),
+            ArrayArg::from_raw_parts::<f32>(&output, 2, 1),
         );
     }
 
     let bytes = client.read_one(output);
     let actual = f32::from_bytes(&bytes);
 
-    assert_eq!(actual, &[6.0])
+    assert_eq!(actual, &[20.0, 50.0]);
+}
+
+pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+    let output = client.empty(8);
+
+    unsafe {
+        launch_test_2::launch_unchecked::<R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            CubeDim { x: 1, y: 1, z: 1 },
+            ArrayArg::from_raw_parts::<f32>(&output, 2, 1),
+        );
+    }
+
+    let bytes = client.read_one(output);
+    let actual = f32::from_bytes(&bytes);
+
+    assert_eq!(actual, &[15.0, 30.0]);
 }
 
 #[macro_export]
@@ -67,9 +122,15 @@ macro_rules! testgen_event {
             use super::*;
 
             #[test]
-            fn test_event() {
+            fn test_1() {
                 let client = TestRuntime::client(&Default::default());
-                cubecl_std::tests::event::test::<TestRuntime>(client);
+                cubecl_std::tests::event::event_test_1::<TestRuntime>(client);
+            }
+
+            #[test]
+            fn test_2() {
+                let client = TestRuntime::client(&Default::default());
+                cubecl_std::tests::event::event_test_2::<TestRuntime>(client);
             }
         }
     };

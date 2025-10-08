@@ -9,13 +9,21 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 
 #[derive(CubeType, Clone)]
-pub struct EventBus {
+/// This event bus allows users to trigger events at compilation time to modify the generated code.
+///
+/// # Warning
+///
+/// Recursion isn't supported with a runtime end condition, the compilation will fail with a
+/// strange error.
+pub struct ComptimeEventBus {
+    #[allow(unused)]
     #[cube(comptime)]
-    listeners: Rc<RefCell<HashMap<TypeId, EventItem>>>,
+    listener_family: Rc<RefCell<HashMap<TypeId, Vec<EventItem>>>>,
 }
 
-type EventItem = Rc<RefCell<Box<dyn Any>>>;
-type Call<E> = Box<dyn Fn(&mut Scope, &Box<dyn Any>, <E as CubeType>::ExpandType, EventBusExpand)>;
+type EventItem = Box<dyn Any>;
+type Call<E> =
+    Box<dyn Fn(&mut Scope, &Box<dyn Any>, <E as CubeType>::ExpandType, ComptimeEventBusExpand)>;
 
 struct Payload<E: CubeType> {
     listener: Box<dyn Any>,
@@ -23,65 +31,86 @@ struct Payload<E: CubeType> {
 }
 
 #[cube]
-#[allow(unused_variables)]
-impl EventBus {
+impl ComptimeEventBus {
+    /// Creates a new event bus.
     pub fn new() -> Self {
         intrinsic!(|_| {
-            EventBusExpand {
-                listeners: Rc::new(RefCell::new(HashMap::new())),
+            ComptimeEventBusExpand {
+                listener_family: Rc::new(RefCell::new(HashMap::new())),
             }
         })
     }
 
+    #[allow(unused_variables)]
+    /// Registers a new callback to be called when its event is launched.
+    ///
+    /// # Notes
+    ///
+    /// Multiple listeners for a single event type is supported. All the listeners will be called
+    /// for each event in the same order they were registered.
     pub fn listener<L: EventListener>(&mut self, listener: L) {
         intrinsic!(|_| {
             let type_id = TypeId::of::<L::Event>();
-            let mut listeners = self.listeners.borrow_mut();
+            let mut listeners = self.listener_family.borrow_mut();
+
+            // The call dynamic function erases the [EventListener] type.
+            //
+            // This is necessary since we need to clone the expand type when calling the expand
+            // method. The listener is passed as a dynamic type and casted during the function call.
             let call =
                 |scope: &mut cubecl::prelude::Scope,
-                 data: &Box<dyn Any>,
+                 listener: &Box<dyn Any>,
                  event: <L::Event as cubecl::prelude::CubeType>::ExpandType,
-                 bus: <EventBus as cubecl::prelude::CubeType>::ExpandType| {
-                    let listener: &L::ExpandType = data.downcast_ref().unwrap();
+                 bus: <ComptimeEventBus as cubecl::prelude::CubeType>::ExpandType| {
+                    let listener: &L::ExpandType = listener.downcast_ref().unwrap();
                     listener.clone().__expand_on_event_method(scope, event, bus)
                 };
-
             let call: Call<L::Event> = Box::new(call);
-            let data: Box<dyn Any> = Box::new(listener);
 
-            let payload = Payload::<L::Event> {
-                listener: data,
-                call,
-            };
+            let listener: Box<dyn Any> = Box::new(listener);
+            let payload = Payload::<L::Event> { listener, call };
 
-            println!("{}", core::any::type_name_of_val(&payload));
+            // Here we erase the event type, so that all listeners can be stored in the same event
+            // bus which support multiple event types.
             let listener_dyn: Box<dyn Any> = Box::new(payload);
-            let listener_rc = Rc::new(RefCell::new(listener_dyn));
-            listeners.insert(type_id, listener_rc);
+
+            match listeners.get_mut(&type_id) {
+                Some(list) => list.push(listener_dyn),
+                None => {
+                    listeners.insert(type_id, vec![listener_dyn]);
+                }
+            }
         })
     }
 
+    #[allow(unused_variables)]
+    /// Registers a new event to be processed by [registered listeners](EventListener).
     pub fn event<E: CubeType + 'static>(&mut self, event: E) {
         intrinsic!(|scope| {
             let type_id = TypeId::of::<E>();
-            let mut listeners = self.listeners.borrow();
-            let listener = listeners
-                .get(&type_id)
-                .expect("Should have a listener registered for the event")
-                .clone();
-            core::mem::drop(listeners);
+            let family = self.listener_family.borrow();
+            let listeners = match family.get(&type_id) {
+                Some(val) => val,
+                None => return,
+            };
 
-            let listener_ref = listener.borrow();
-            println!("{}", core::any::type_name::<Payload<E>>());
-            let payload = listener_ref.downcast_ref::<Payload<E>>().unwrap();
-            let call = &payload.call;
-            call(scope, &payload.listener, event, self);
+            for listener in listeners.iter() {
+                let payload = listener.downcast_ref::<Payload<E>>().unwrap();
+                let call = &payload.call;
+                call(scope, &payload.listener, event.clone(), self.clone());
+            }
         })
     }
 }
 
 #[cube]
+/// Defines a listener that is called each time an event is triggered on an
+/// [event bus](ComptimeEventBus).
 pub trait EventListener: 'static {
+    /// The event type triggering the [EventListener::on_event] callback.
     type Event: CubeType + 'static;
-    fn on_event(&mut self, event: Self::Event, bus: &mut EventBus);
+
+    /// The function called when and event of the type [EventListener::Event] is registered on the
+    /// [ComptimeEventBus].
+    fn on_event(&mut self, event: Self::Event, bus: &mut ComptimeEventBus);
 }
