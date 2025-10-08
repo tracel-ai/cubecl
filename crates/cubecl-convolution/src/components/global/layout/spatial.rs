@@ -230,7 +230,7 @@ impl<'a, R: Runtime> NhwcLayoutLaunch<'a, R> {
         let stride_channel = ScalarArg::new(handle.strides[dim_c] as u32);
 
         let shape_batch = ScalarArg::new(handle.shape[0] as u32);
-        let shapes_spatial = handle.strides[1..dim_c]
+        let shapes_spatial = handle.shape[1..dim_c]
             .iter()
             .map(|s| ScalarArg::new(*s as u32))
             .collect();
