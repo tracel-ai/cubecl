@@ -338,7 +338,9 @@ where
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
     let val_dim = problem.val_dim;
+
     let masked = mask.is_some();
+    assert!(problem.masked == masked);
 
     // Precompute strides for indexing
     let query_strides = strides(problem, AttentionIdent::Query);
@@ -390,13 +392,15 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
-                        // apply mask (for masked positions set -inf)
-                        let s_val = if masked {
+                        let s_val = if problem.causal && j > i {
+                            P::EA::new(f32::NEG_INFINITY)
+                        } else if masked {
                             let m_idx = b * mask_strides[0]
                                 + i * mask_strides[1]
                                 + h * mask_strides[2]
                                 + j * mask_strides[3];
                             let m_val = mask.unwrap()[m_idx].cast_into();
+
                             if m_val != P::EM::from_int(0) {
                                 P::EA::new(f32::NEG_INFINITY)
                             } else {

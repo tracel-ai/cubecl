@@ -82,6 +82,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         head_dim: query.shape[3],
         val_dim: value.shape[3],
         masked: false,
+        causal: false,
     };
 
     let tile_size = AttentionTileSize {

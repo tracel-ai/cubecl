@@ -16,6 +16,8 @@ pub struct AttentionProblem {
     /// Usually equal to `head_dim`, but may differ in some variants
     pub val_dim: usize,
 
-    /// Whether a mask is applied (shape is always [batch, seq_q, heads, seq_k])
+    /// Whether a mask is supplied (shape is always [batch, seq_q, heads, seq_k])
     pub masked: bool,
+    /// Whether there is a causal mask
+    pub causal: bool,
 }
