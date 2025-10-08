@@ -10,6 +10,8 @@ use cubecl_core::prelude::*;
 type Input<Args, Lhs, Rhs, AccG> = <Args as MatmulArgs>::Input<Lhs, Rhs, AccG>;
 type Output<Args, AccG> = <Args as MatmulArgs>::Output<AccG>;
 
+type GlobalConf<BMMF> = <<BMMF as BatchMatmulFamily>::Config as BatchConfig>::GlobalConfig;
+
 #[cube(launch_unchecked)]
 /// Launches the matmul kernel
 pub(crate) fn matmul<
@@ -34,7 +36,11 @@ pub(crate) fn matmul<
         }
     }
 
-    let mut state = Args::init_state(inputs, output);
+    let mut state = Args::init_state::<LhsG, RhsG, AccG, GlobalConf<BMMF>>(
+        inputs,
+        output,
+        config.global_config(),
+    );
 
     let lhs = Args::view_lhs(&state);
     let rhs = Args::view_rhs(&state);

@@ -256,7 +256,6 @@ impl ComputeServer for CudaServer {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
-                        println!("ptr: {:x}", resource.ptr);
 
                         cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),

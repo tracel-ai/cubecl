@@ -61,9 +61,10 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
     type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric>: CubeType;
 
     /// Init the state.
-    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric, G: GlobalConfig>(
         input: &Self::Input<Lhs, Rhs, EO>,
         output: &mut Self::Output<EO>,
+        #[comptime] config: G,
     ) -> Self::State<Lhs, Rhs, EO>;
 
     fn view_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
@@ -176,9 +177,10 @@ impl MatmulArgs for TensorArgs {
         View<Line<EO>, Coords3d, ReadWrite>,
     );
 
-    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric, G: GlobalConfig>(
         input: &Self::Input<Lhs, Rhs, EO>,
         output: &mut Self::Output<EO>,
+        #[comptime] _config: G,
     ) -> Self::State<Lhs, Rhs, EO> {
         (input.lhs, input.rhs, input.acc, *output)
     }
@@ -334,7 +336,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_lhs,
             },
             rank: 3,
-            shape: lhs_shape,
+            shape: lhs_shape.clone(),
             strides: lhs_strides,
             elem_stride: vec![1, 1, 1],
             interleave: TensorMapInterleave::None,
@@ -349,7 +351,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_rhs,
             },
             rank: 3,
-            shape: rhs_shape,
+            shape: rhs_shape.clone(),
             strides: rhs_strides,
             elem_stride: vec![1, 1, 1],
             interleave: TensorMapInterleave::None,
@@ -368,14 +370,26 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             metadata: meta_rhs,
         };
 
-        let view = |buffer, transposed| {
-            let layout = SimpleTmaGlobalLayoutLaunch::new(transposed);
+        let view = |buffer, shape: &[usize], transposed| {
+            let batches = ScalarArg::new(shape[0] as u32);
+            let (rows, cols) = match transposed {
+                true => (
+                    ScalarArg::new(shape[2] as u32),
+                    ScalarArg::new(shape[1] as u32),
+                ),
+                false => (
+                    ScalarArg::new(shape[1] as u32),
+                    ScalarArg::new(shape[2] as u32),
+                ),
+            };
+            let shape = (batches, rows, cols);
+            let layout = SimpleTmaGlobalLayoutLaunch::new(transposed, shape);
             ViewArg::new_tensor_map::<SimpleTmaGlobalLayout>(buffer, layout)
         };
 
         TensorMapInputsLaunch::new(
-            view(lhs, lhs_transposed),
-            view(rhs, rhs_transposed),
+            view(lhs, &lhs_shape, lhs_transposed),
+            view(rhs, &rhs_shape, rhs_transposed),
             CubeOptionArgs::None,
         )
     }
@@ -392,9 +406,10 @@ impl MatmulArgs for TensorMapArgs {
         View<Line<EO>, Coords3d, ReadWrite>,
     );
 
-    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn init_state<Lhs: Numeric, Rhs: Numeric, EO: Numeric, G: GlobalConfig>(
         input: &Self::Input<Lhs, Rhs, EO>,
         output: &mut Self::Output<EO>,
+        #[comptime] _config: G,
     ) -> Self::State<Lhs, Rhs, EO> {
         (input.lhs, input.rhs, input.acc, *output)
     }

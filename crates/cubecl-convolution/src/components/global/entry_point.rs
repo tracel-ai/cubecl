@@ -54,7 +54,7 @@ pub(crate) fn implicit_conv<
     runtime_args: RuntimeArgs,
     #[comptime] config: GMM::Config,
 ) {
-    let mut state = Args::init_state(inputs, output);
+    let mut state = Args::init_state::<LhsG, RhsG, AccG, GMM::Config>(inputs, output, config);
 
     let lhs = Args::view_lhs(&state);
     let rhs = Args::view_rhs(&state);
