@@ -1,5 +1,8 @@
 #[cfg(not(feature = "std"))]
-use alloc::{format, string::String};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 
 /// Amount of memory in use by this allocator
 /// and statistics on how much memory is reserved and
