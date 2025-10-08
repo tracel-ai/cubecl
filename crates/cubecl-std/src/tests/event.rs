@@ -91,9 +91,9 @@ impl EventListener for EventListenerPosTwo {
 fn test_1(items: SliceMut<f32>) {
     let mut bus = ComptimeEventBus::new();
     let listener_zero = EventListenerPosZero { items };
-    bus.listener::<EventListenerPosZero>(listener_zero);
-
     let listener_one = EventListenerPosOne { items };
+
+    bus.listener::<EventListenerPosZero>(listener_zero);
     bus.listener::<EventListenerPosOne>(listener_one);
 
     bus.event::<EventUInt>(EventUInt { value: 5u32 });
