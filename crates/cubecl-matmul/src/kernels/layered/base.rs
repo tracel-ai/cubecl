@@ -309,7 +309,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();
     let batch_rhs: usize = rhs.shape[..rhs.shape.len() - 2].iter().product();
-    let batch_out: usize = rhs.shape[..out.shape.len() - 2].iter().product();
+    let batch_out: usize = out.shape[..out.shape.len() - 2].iter().product();
 
     let problem = MatmulProblem {
         m: m as usize,

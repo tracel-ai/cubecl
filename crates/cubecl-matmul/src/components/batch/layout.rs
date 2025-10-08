@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_std::tensor::layout::*;
 
 /// Slice the layout at a specific batch, and reduce its dimensionality
-/// Not general enoguh to be in cubecl-std
+/// Not general enough to be in cubecl-std
 #[derive(CubeType, Clone, Copy)]
 pub struct SliceIndex {
     offset: u32,
