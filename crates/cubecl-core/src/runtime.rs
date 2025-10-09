@@ -38,6 +38,11 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// Returns the supported line sizes for the current runtime's compiler.
     fn supported_line_sizes() -> &'static [u8];
 
+    /// The maximum line size that can be used for global buffer bindings.
+    fn max_global_line_size() -> u8 {
+        u8::MAX
+    }
+
     /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
     fn io_optimized_line_sizes(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
         let max = (LOAD_WIDTH / elem.size_bits()) as u8;
@@ -50,7 +55,12 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// unrolled, and may not support dynamic indexing.
     fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
         let max = LOAD_WIDTH / elem.size_bits();
-        (1..max as u8).rev().filter(|v| v.is_power_of_two())
+        let max = usize::min(Self::max_global_line_size() as usize, max);
+
+        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = f32::log2(max as f32) as u32 + 1;
+
+        (0..num_candidates).map(|i| 2u8.pow(i)).rev()
     }
 
     /// Returns the maximum cube count on each dimension that can be launched.
