@@ -56,7 +56,7 @@ where
         query: &[EG],
         key: &[EG],
         value: &[EG],
-        mask: Option<&[u8]>,
+        mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
         client: &ComputeClient<R::Server, R::Channel>,
         out: server::Handle,
@@ -266,7 +266,6 @@ sample_float!(half::f16);
 sample_float!(half::bf16);
 sample_float!(f32);
 sample_float!(f64);
-sample_float!(u8);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
@@ -323,6 +322,21 @@ impl Sampleable for bool {
     }
 }
 
+impl Sampleable for u8 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, u8>::empty(client, shape.to_vec());
+
+        cubecl_random::random_bernoulli::<R, u8>(client, 0.5, output.as_ref());
+
+        output
+    }
+}
+
 pub(crate) fn flash_attention_v2_cpu<P: TestPrecision>(
     query: &[P::EG],
     key: &[P::EG],
@@ -340,6 +354,8 @@ where
     let val_dim = problem.val_dim;
 
     let masked = mask.is_some();
+    println!("{:?}", problem.masked);
+    println!("{:?}", mask);
     assert!(problem.masked == masked);
 
     // Precompute strides for indexing

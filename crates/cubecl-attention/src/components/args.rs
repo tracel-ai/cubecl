@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::{
-    CubeOption, CubeOptionExpand,
+    CubeOption, CubeOptionArgs, CubeOptionExpand,
     tensor::r#virtual::{VirtualTensorOperations, VirtualTensorOperationsExpand},
 };
 
@@ -16,7 +16,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
-        mask: &'a TensorHandleRef<'a, R>,
+        mask: &'a Option<TensorHandleRef<'a, R>>,
         selection: &AttentionSelection,
         problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -38,206 +38,222 @@ pub trait ConcreteOutputFactory: LaunchArg {
 /// Arguments for the attention algorithm.
 pub trait AttentionArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
-    type Input<Q: Float, K: Float, V: Float>: LaunchArg + CubeType;
+    type Input<Q: Float, K: Float, V: Float, M: Numeric>: LaunchArg + CubeType;
     /// Type used for the output.
     type Output<O: Float>: LaunchArg + CubeType;
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
-    type State<Q: Float, K: Float, V: Float, O: Float>: CubeType;
+    type State<Q: Float, K: Float, V: Float, M: Numeric, O: Float>: CubeType;
 
     /// Init the state.
-    fn init_state<Q: Float, K: Float, V: Float, O: Float>(
-        input: &Self::Input<Q, K, V>,
+    fn init_state<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        input: &Self::Input<Q, K, V, M>,
         output: &mut Self::Output<O>,
-    ) -> Self::State<Q, K, V, O>;
+    ) -> Self::State<Q, K, V, M, O>;
 
     /// Read the line of the query tensor using the state at the given coordinate.
-    fn read_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<Q>;
     /// Read the line of the key tensor using the state at the given coordinate.
-    fn read_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<K>;
     /// Read the line of the value tensor using the state at the given coordinate.
-    fn read_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<V>;
 
     /// Read the line of the query tensor using the state at the given coordinate.
-    fn read_window_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<Q>>;
 
     /// Read the line of the key tensor using the state at the given coordinate.
-    fn read_window_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<K>>;
 
     /// Read the line of the value tensor using the state at the given coordinate.
-    fn read_window_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<V>>;
 
     /// Reinterpret query as tensor map
-    fn as_tensor_map_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<Q>>;
 
     /// Reinterpret key as tensor map
-    fn as_tensor_map_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<K>>;
 
     /// Reinterpret value as tensor map
-    fn as_tensor_map_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<V>>;
 
     /// Write the line to the output at the given coordinate using the state.
-    fn write_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &mut Self::State<Q, K, V, O>,
+    fn write_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &mut Self::State<Q, K, V, M, O>,
         coordinate: u32,
         value: Line<O>,
     );
 
     /// Get the rank of the query tensor using the state.
-    fn rank_query<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn rank_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the rank of the key tensor using the state.
-    fn rank_key<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn rank_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the rank of the value tensor using the state.
-    fn rank_value<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn rank_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the rank of the out tensor using the state.
-    fn rank_out<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn rank_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
 
     /// Get the length of the query tensor using the state.
-    fn len_query<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn len_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the length of the key tensor using the state.
-    fn len_key<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn len_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the length of the value tensor using the state.
-    fn len_value<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn len_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
     /// Get the length of the out tensor using the state.
-    fn len_out<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32;
+    fn len_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32;
 
     /// Get the buffer length of the query tensor using the state.
-    fn buffer_len_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32;
     /// Get the buffer length of the key tensor using the state.
-    fn buffer_len_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32;
     /// Get the buffer length of the value tensor using the state.
-    fn buffer_len_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32;
     /// Get the buffer length of the out tensor using the state.
-    fn buffer_len_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32;
 
     /// Get the shape of the query tensor using the state.
-    fn shape_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the shape of the key tensor using the state.
-    fn shape_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the shape of the value tensor using the state.
-    fn shape_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the shape of the out tensor using the state.
-    fn shape_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
 
     /// Get the stride of the query tensor using the state.
-    fn stride_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the stride of the key tensor using the state.
-    fn stride_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the stride of the value tensor using the state.
-    fn stride_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
     /// Get the stride of the out tensor using the state.
-    fn stride_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         axis: u32,
     ) -> u32;
 
-    fn line_size_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32);
-    fn line_size_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32);
-    fn line_size_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32);
-    fn line_size_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32);
 }
 
 /// Tensor input representation.
 ///
 /// You can use the tensor input as if it was a pointer to the actually tensor.
-pub struct TensorQuery<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: *const GA::State<Q, K, V, O>,
+pub struct TensorQuery<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> {
+    state: *const GA::State<Q, K, V, M, O>,
 }
 
-pub struct TensorKey<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: *const GA::State<Q, K, V, O>,
+pub struct TensorKey<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> {
+    state: *const GA::State<Q, K, V, M, O>,
 }
 
-pub struct TensorValue<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: *const GA::State<Q, K, V, O>,
+pub struct TensorValue<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> {
+    state: *const GA::State<Q, K, V, M, O>,
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperations<Q>
-    for TensorQuery<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperations<Q> for TensorQuery<Q, K, V, M, O, MA>
 {
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperations<K>
-    for TensorKey<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperations<K> for TensorKey<Q, K, V, M, O, MA>
 {
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperations<V>
-    for TensorValue<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperations<V> for TensorValue<Q, K, V, M, O, MA>
 {
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperations<O>
-    for TensorOutput<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperations<O> for TensorOutput<Q, K, V, M, O, MA>
 {
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperationsExpand<O>
-    for TensorOutputExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperationsExpand<O> for TensorOutputExpand<Q, K, V, M, O, MA>
 {
     fn __expand_read_method(
         &self,
@@ -298,12 +314,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> Lined
-    for TensorOutput<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> Lined
+    for TensorOutput<Q, K, V, M, O, MA>
 {
 }
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
-    for TensorOutputExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> LinedExpand
+    for TensorOutputExpand<Q, K, V, M, O, MA>
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
@@ -311,8 +327,8 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperationsExpand<Q>
-    for TensorQueryExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperationsExpand<Q> for TensorQueryExpand<Q, K, V, M, O, MA>
 {
     fn __expand_read_method(
         &self,
@@ -372,12 +388,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> Lined
-    for TensorQuery<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> Lined
+    for TensorQuery<Q, K, V, M, O, MA>
 {
 }
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
-    for TensorQueryExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> LinedExpand
+    for TensorQueryExpand<Q, K, V, M, O, MA>
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
@@ -385,8 +401,8 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperationsExpand<K>
-    for TensorKeyExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperationsExpand<K> for TensorKeyExpand<Q, K, V, M, O, MA>
 {
     fn __expand_read_method(
         &self,
@@ -446,12 +462,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> Lined
-    for TensorKey<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> Lined
+    for TensorKey<Q, K, V, M, O, MA>
 {
 }
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
-    for TensorKeyExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> LinedExpand
+    for TensorKeyExpand<Q, K, V, M, O, MA>
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
@@ -459,8 +475,8 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOperationsExpand<V>
-    for TensorValueExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperationsExpand<V> for TensorValueExpand<Q, K, V, M, O, MA>
 {
     fn __expand_read_method(
         &self,
@@ -520,12 +536,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> VirtualTensorOpe
     }
 }
 
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> Lined
-    for TensorValue<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> Lined
+    for TensorValue<Q, K, V, M, O, MA>
 {
 }
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
-    for TensorValueExpand<Q, K, V, O, MA>
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs> LinedExpand
+    for TensorValueExpand<Q, K, V, M, O, MA>
 {
     fn line_size(&self) -> u32 {
         let mut scope = Scope::root(false);
@@ -538,35 +554,41 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> LinedExpand
 /// You can use the tensor output as if it was a pointer to the actually tensor.
 ///
 /// # Warning
+/// # Warning
 ///
 /// There is no mutability guarantee.
-pub struct TensorOutput<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: *mut GA::State<Q, K, V, O>,
+pub struct TensorOutput<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> {
+    state: *mut GA::State<Q, K, V, M, O>,
 }
 
 /// Expand type for [tensor input](TensorInput).
-pub struct TensorQueryExpand<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: <GA::State<Q, K, V, O> as CubeType>::ExpandType,
+pub struct TensorQueryExpand<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs>
+{
+    state: <GA::State<Q, K, V, M, O> as CubeType>::ExpandType,
 }
 
-pub struct TensorKeyExpand<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: <GA::State<Q, K, V, O> as CubeType>::ExpandType,
+pub struct TensorKeyExpand<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> {
+    state: <GA::State<Q, K, V, M, O> as CubeType>::ExpandType,
 }
 
-pub struct TensorValueExpand<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: <GA::State<Q, K, V, O> as CubeType>::ExpandType,
+pub struct TensorValueExpand<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs>
+{
+    state: <GA::State<Q, K, V, M, O> as CubeType>::ExpandType,
 }
 
 /// Expand type for [tensor output](TensorOutput).
-pub struct TensorOutputExpand<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> {
-    state: <GA::State<Q, K, V, O> as CubeType>::ExpandType,
+pub struct TensorOutputExpand<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs>
+{
+    state: <GA::State<Q, K, V, M, O> as CubeType>::ExpandType,
 }
 
 #[cube]
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorQuery<Q, K, V, O, MA> {
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    TensorQuery<Q, K, V, M, O, MA>
+{
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
-    pub fn new(state: &MA::State<Q, K, V, O>) -> TensorQuery<Q, K, V, O, MA> {
-        TensorQuery::<Q, K, V, O, MA> { state }
+    pub fn new(state: &MA::State<Q, K, V, M, O>) -> TensorQuery<Q, K, V, M, O, MA> {
+        TensorQuery::<Q, K, V, M, O, MA> { state }
     }
 
     //// Read the tensor at the given coordinate.
@@ -617,10 +639,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorQuery<Q, K
 }
 
 #[cube]
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorKey<Q, K, V, O, MA> {
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    TensorKey<Q, K, V, M, O, MA>
+{
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
-    pub fn new(state: &MA::State<Q, K, V, O>) -> TensorKey<Q, K, V, O, MA> {
-        TensorKey::<Q, K, V, O, MA> { state }
+    pub fn new(state: &MA::State<Q, K, V, M, O>) -> TensorKey<Q, K, V, M, O, MA> {
+        TensorKey::<Q, K, V, M, O, MA> { state }
     }
 
     //// Read the tensor at the given coordinate.
@@ -671,10 +695,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorKey<Q, K, 
 }
 
 #[cube]
-impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorValue<Q, K, V, O, MA> {
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    TensorValue<Q, K, V, M, O, MA>
+{
     /// Create a [tensor input](TensorInput) from the state and the [ident](TensorInputIdent).
-    pub fn new(state: &MA::State<Q, K, V, O>) -> TensorValue<Q, K, V, O, MA> {
-        TensorValue::<Q, K, V, O, MA> { state }
+    pub fn new(state: &MA::State<Q, K, V, M, O>) -> TensorValue<Q, K, V, M, O, MA> {
+        TensorValue::<Q, K, V, M, O, MA> { state }
     }
 
     //// Read the tensor at the given coordinate.
@@ -725,10 +751,12 @@ impl<Q: Float, K: Float, V: Float, O: Float, MA: AttentionArgs> TensorValue<Q, K
 }
 
 #[cube]
-impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> TensorOutput<Q, K, V, O, GA> {
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs>
+    TensorOutput<Q, K, V, M, O, GA>
+{
     /// Create a [tensor output](TensorOutput) from the state.
-    pub fn new(state: &mut GA::State<Q, K, V, O>) -> TensorOutput<Q, K, V, O, GA> {
-        TensorOutput::<Q, K, V, O, GA> { state }
+    pub fn new(state: &mut GA::State<Q, K, V, M, O>) -> TensorOutput<Q, K, V, M, O, GA> {
+        TensorOutput::<Q, K, V, M, O, GA> { state }
     }
 
     /// Write the value to tensor at the given coordinate.
@@ -788,7 +816,7 @@ impl<Q: Float, K: Float, V: Float, M: Numeric> ConcreteInputsFactory for TensorI
         query: &'a TensorHandleRef<'a, R>,
         key: &'a TensorHandleRef<'a, R>,
         value: &'a TensorHandleRef<'a, R>,
-        mask: &'a TensorHandleRef<'a, R>,
+        mask: &'a Option<TensorHandleRef<'a, R>>,
         _selection: &AttentionSelection,
         _problem: &AttentionProblem,
         line_sizes: &AttentionLineSizes,
@@ -797,8 +825,10 @@ impl<Q: Float, K: Float, V: Float, M: Numeric> ConcreteInputsFactory for TensorI
             query.as_tensor_arg(line_sizes.query),
             key.as_tensor_arg(line_sizes.key),
             value.as_tensor_arg(line_sizes.value),
-            // TODO CubeOptionArgs
-            mask.as_tensor_arg(line_sizes.mask),
+            match mask {
+                Some(mask) => CubeOptionArgs::Some(mask.as_tensor_arg(line_sizes.mask)),
+                None => CubeOptionArgs::None,
+            },
         )
     }
 }
@@ -815,234 +845,260 @@ impl<EG: Numeric> ConcreteOutputFactory for Tensor<Line<EG>> {
 }
 
 #[derive(CubeType)]
-pub struct AttentionState<Q: Float, K: Float, V: Float, O: Float> {
+pub struct AttentionState<Q: Float, K: Float, V: Float, M: Numeric, O: Float> {
     pub query: *const Tensor<Line<Q>>,
     pub key: *const Tensor<Line<K>>,
     pub value: *const Tensor<Line<V>>,
+    pub mask: CubeOption<*const Tensor<Line<M>>>,
     pub output: *mut Tensor<Line<O>>,
 }
 
 #[cube]
 impl AttentionArgs for TensorArgs {
-    type Input<Q: Float, K: Float, V: Float> = TensorInputs<Q, K, V>;
+    type Input<Q: Float, K: Float, V: Float, M: Numeric> = TensorInputs<Q, K, V, M>;
     type Output<O: Float> = Tensor<Line<O>>;
-    type State<Q: Float, K: Float, V: Float, O: Float> = AttentionState<Q, K, V, O>;
+    type State<Q: Float, K: Float, V: Float, M: Numeric, O: Float> = AttentionState<Q, K, V, M, O>;
 
-    fn init_state<Q: Float, K: Float, V: Float, O: Float>(
-        input: &Self::Input<Q, K, V>,
+    fn init_state<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        input: &Self::Input<Q, K, V, M>,
         output: &mut Self::Output<O>,
-    ) -> Self::State<Q, K, V, O> {
-        AttentionState::<Q, K, V, O> {
+    ) -> Self::State<Q, K, V, M, O> {
+        let mask = match &input.mask {
+            CubeOption::None => CubeOption::new_None(),
+            CubeOption::Some(mask) => {
+                let ptr: *const Tensor<Line<M>> = mask;
+                CubeOption::new_Some(ptr)
+            }
+        };
+
+        AttentionState::<Q, K, V, M, O> {
             query: &input.query,
             key: &input.key,
             value: &input.value,
+            mask,
             output,
         }
     }
 
-    fn read_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<Q> {
         unsafe { (*state.query)[coordinate] }
     }
 
-    fn read_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<K> {
         unsafe { (*state.key)[coordinate] }
     }
 
-    fn read_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         coordinate: u32,
     ) -> Line<V> {
         unsafe { (*state.value)[coordinate] }
     }
 
-    fn read_window_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<Q>> {
         unsafe { (*state.query).slice(start, end) }
     }
 
-    fn read_window_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<K>> {
         unsafe { (*state.key).slice(start, end) }
     }
 
-    fn read_window_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn read_window_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         start: u32,
         end: u32,
     ) -> Slice<Line<V>> {
         unsafe { (*state.value).slice(start, end) }
     }
 
-    fn as_tensor_map_query<Q: Float, K: Float, V: Float, O: Float>(
-        _state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        _state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<Q>> {
         CubeOption::new_None()
     }
 
-    fn as_tensor_map_key<Q: Float, K: Float, V: Float, O: Float>(
-        _state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        _state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<K>> {
         CubeOption::new_None()
     }
 
-    fn as_tensor_map_value<Q: Float, K: Float, V: Float, O: Float>(
-        _state: &Self::State<Q, K, V, O>,
+    fn as_tensor_map_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        _state: &Self::State<Q, K, V, M, O>,
     ) -> CubeOption<TensorMap<V>> {
         CubeOption::new_None()
     }
 
-    fn shape_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.query).shape(dim) }
     }
 
-    fn shape_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.key).shape(dim) }
     }
 
-    fn shape_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.value).shape(dim) }
     }
 
-    fn shape_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn shape_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.output).shape(dim) }
     }
 
-    fn stride_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.query).stride(dim) }
     }
 
-    fn stride_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.key).stride(dim) }
     }
 
-    fn stride_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.value).stride(dim) }
     }
 
-    fn stride_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn stride_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
         dim: u32,
     ) -> u32 {
         unsafe { (*state.output).stride(dim) }
     }
 
-    fn write_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &mut Self::State<Q, K, V, O>,
+    fn write_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &mut Self::State<Q, K, V, M, O>,
         coordinate: u32,
         value: Line<O>,
     ) {
         unsafe { (*state.output)[coordinate] = value }
     }
 
-    fn rank_query<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn rank_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.query).rank() }
     }
 
-    fn rank_key<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn rank_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.key).rank() }
     }
 
-    fn rank_value<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn rank_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.value).rank() }
     }
 
-    fn rank_out<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn rank_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.output).rank() }
     }
 
-    fn len_query<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn len_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.query).len() }
     }
 
-    fn len_key<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn len_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.key).len() }
     }
 
-    fn len_value<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn len_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.value).len() }
     }
 
-    fn len_out<Q: Float, K: Float, V: Float, O: Float>(state: &Self::State<Q, K, V, O>) -> u32 {
+    fn len_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> u32 {
         unsafe { (*state.output).len() }
     }
 
-    fn buffer_len_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32 {
         unsafe { (*state.query).buffer_len() }
     }
 
-    fn buffer_len_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32 {
         unsafe { (*state.key).buffer_len() }
     }
 
-    fn buffer_len_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32 {
         unsafe { (*state.value).buffer_len() }
     }
 
-    fn buffer_len_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn buffer_len_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> u32 {
         unsafe { (*state.output).buffer_len() }
     }
 
-    fn line_size_query<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32) {
         unsafe { (*state.query).line_size() }
     }
 
-    fn line_size_key<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_key<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32) {
         unsafe { (*state.key).line_size() }
     }
 
-    fn line_size_value<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_value<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32) {
         unsafe { (*state.value).line_size() }
     }
 
-    fn line_size_out<Q: Float, K: Float, V: Float, O: Float>(
-        state: &Self::State<Q, K, V, O>,
+    fn line_size_out<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
     ) -> comptime_type!(u32) {
         unsafe { (*state.output).line_size() }
     }
@@ -1051,14 +1107,14 @@ impl AttentionArgs for TensorArgs {
 mod __query {
     use super::*;
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeType
-        for TensorQuery<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeType
+        for TensorQuery<Q, K, V, M, O, GA>
     {
-        type ExpandType = TensorQueryExpand<Q, K, V, O, GA>;
+        type ExpandType = TensorQueryExpand<Q, K, V, M, O, GA>;
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorQueryExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorQueryExpand<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             Self {
@@ -1067,30 +1123,30 @@ mod __query {
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> IntoMut
-        for TensorQueryExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> IntoMut
+        for TensorQueryExpand<Q, K, V, M, O, GA>
     {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
             self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeDebug
-        for TensorQueryExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeDebug
+        for TensorQueryExpand<Q, K, V, M, O, GA>
     {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorQuery<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorQuery<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             *self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Copy
-        for TensorQuery<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Copy
+        for TensorQuery<Q, K, V, M, O, GA>
     {
     }
 }
@@ -1098,14 +1154,14 @@ mod __query {
 mod __key {
     use super::*;
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeType
-        for TensorKey<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeType
+        for TensorKey<Q, K, V, M, O, GA>
     {
-        type ExpandType = TensorKeyExpand<Q, K, V, O, GA>;
+        type ExpandType = TensorKeyExpand<Q, K, V, M, O, GA>;
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorKeyExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorKeyExpand<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             Self {
@@ -1114,42 +1170,45 @@ mod __key {
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> IntoMut
-        for TensorKeyExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> IntoMut
+        for TensorKeyExpand<Q, K, V, M, O, GA>
     {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
             self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeDebug
-        for TensorKeyExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeDebug
+        for TensorKeyExpand<Q, K, V, M, O, GA>
     {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorKey<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorKey<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             *self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Copy for TensorKey<Q, K, V, O, GA> {}
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Copy
+        for TensorKey<Q, K, V, M, O, GA>
+    {
+    }
 }
 
 mod __value {
     use super::*;
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeType
-        for TensorValue<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeType
+        for TensorValue<Q, K, V, M, O, GA>
     {
-        type ExpandType = TensorValueExpand<Q, K, V, O, GA>;
+        type ExpandType = TensorValueExpand<Q, K, V, M, O, GA>;
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorValueExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorValueExpand<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             Self {
@@ -1158,30 +1217,30 @@ mod __value {
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> IntoMut
-        for TensorValueExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> IntoMut
+        for TensorValueExpand<Q, K, V, M, O, GA>
     {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
             self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeDebug
-        for TensorValueExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeDebug
+        for TensorValueExpand<Q, K, V, M, O, GA>
     {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorValue<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorValue<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             *self
         }
     }
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Copy
-        for TensorValue<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Copy
+        for TensorValue<Q, K, V, M, O, GA>
     {
     }
 }
@@ -1189,22 +1248,22 @@ mod __value {
 mod __output {
     use super::*;
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeType
-        for TensorOutput<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeType
+        for TensorOutput<Q, K, V, M, O, GA>
     {
-        type ExpandType = TensorOutputExpand<Q, K, V, O, GA>;
+        type ExpandType = TensorOutputExpand<Q, K, V, M, O, GA>;
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorOutput<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorOutput<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             *self
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Clone
-        for TensorOutputExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Clone
+        for TensorOutputExpand<Q, K, V, M, O, GA>
     {
         fn clone(&self) -> Self {
             Self {
@@ -1213,8 +1272,8 @@ mod __output {
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> IntoMut
-        for TensorOutputExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> IntoMut
+        for TensorOutputExpand<Q, K, V, M, O, GA>
     {
         fn into_mut(mut self, scope: &mut Scope) -> Self {
             self.state = self.state.into_mut(scope);
@@ -1222,16 +1281,16 @@ mod __output {
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> CubeDebug
-        for TensorOutputExpand<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> CubeDebug
+        for TensorOutputExpand<Q, K, V, M, O, GA>
     {
         fn set_debug_name(&self, scope: &mut Scope, name: &'static str) {
             self.state.set_debug_name(scope, name);
         }
     }
 
-    impl<Q: Float, K: Float, V: Float, O: Float, GA: AttentionArgs> Copy
-        for TensorOutput<Q, K, V, O, GA>
+    impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, GA: AttentionArgs> Copy
+        for TensorOutput<Q, K, V, M, O, GA>
     {
     }
 }

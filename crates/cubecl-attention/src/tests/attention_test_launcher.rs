@@ -112,7 +112,7 @@ pub fn test_attention_algorithm<A, P, R>(
                     &value.shape,
                     line_sizes.value,
                 ),
-                match mask {
+                match mask.as_ref() {
                     Some(m) => CubeOptionArgs::Some(TensorArg::<R>::from_raw_parts::<P::EM>(
                         &m.handle,
                         &m.strides,
@@ -137,7 +137,8 @@ pub fn test_attention_algorithm<A, P, R>(
         &query.original_data.unwrap(),
         &key.original_data.unwrap(),
         &value.original_data.unwrap(),
-        None,
+        mask.as_ref()
+            .map(|m| m.original_data.as_ref().unwrap().as_slice()),
         &problem,
         &client,
         out.handle,
