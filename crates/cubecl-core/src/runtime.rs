@@ -50,7 +50,11 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// unrolled, and may not support dynamic indexing.
     fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
         let max = LOAD_WIDTH / elem.size_bits();
-        (1..max as u8).rev().filter(|v| v.is_power_of_two())
+
+        // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.
+        let num_candidates = f32::log2(max as f32) as u32 + 1;
+
+        (0..num_candidates).into_iter().map(|i| 2u8.pow(i)).rev()
     }
 
     /// Returns the maximum cube count on each dimension that can be launched.
