@@ -39,11 +39,6 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     fn supported_line_sizes() -> &'static [u8];
 
     /// The maximum line size that can be used for global buffer bindings.
-    ///
-    /// # Notes
-    ///
-    /// Normally any line size is supported within kernels (when using registers), but for global
-    /// line size it's not the case.
     fn max_global_line_size() -> u8 {
         u8::MAX
     }
