@@ -1,12 +1,14 @@
 use crate::{WgpuResource, WgpuStorage};
-use cubecl_common::stream_id::StreamId;
+use cubecl_common::{stream_id::StreamId, stub::Arc};
 use cubecl_core::{
     MemoryConfiguration,
     server::{Binding, Handle, IoError},
 };
 use cubecl_runtime::{
+    logging::ServerLogger,
     memory_management::{
-        MemoryDeviceProperties, MemoryHandle, MemoryManagement, SliceBinding, SliceHandle,
+        MemoryAllocationMode, MemoryDeviceProperties, MemoryHandle, MemoryManagement,
+        MemoryManagementOptions, SliceBinding, SliceHandle,
     },
     storage::ComputeStorage,
 };
@@ -25,6 +27,7 @@ impl WgpuMemManager {
         device: wgpu::Device,
         memory_properties: MemoryDeviceProperties,
         memory_config: MemoryConfiguration,
+        logger: Arc<ServerLogger>,
     ) -> Self {
         // Allocate storage & memory management for the main memory buffers. Any calls
         // to empty() or create() with a small enough size will be allocated from this
@@ -40,6 +43,8 @@ impl WgpuMemManager {
             ),
             &memory_properties,
             memory_config,
+            logger.clone(),
+            MemoryManagementOptions::new("Main GPU Memory"),
         );
 
         let memory_staging = MemoryManagement::from_configuration(
@@ -52,6 +57,8 @@ impl WgpuMemManager {
             // Unfortunately, we can't reuse a different part of a buffer for different reads, so we
             // can't have a single binding with multiple slices allocated.
             MemoryConfiguration::ExclusivePages,
+            logger.clone(),
+            MemoryManagementOptions::new("Staging CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
         // TODO: In the future this should not need STORAGE, if cube writes out all
@@ -64,6 +71,8 @@ impl WgpuMemManager {
             ),
             &memory_properties,
             MemoryConfiguration::ExclusivePages,
+            logger,
+            MemoryManagementOptions::new("Uniform GPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
         Self {
@@ -137,7 +146,7 @@ impl WgpuMemManager {
         self.memory_pool.cleanup(explicit);
     }
 
-    pub(crate) fn mode(&mut self, mode: cubecl_runtime::memory_management::MemoryAllocationMode) {
+    pub(crate) fn mode(&mut self, mode: MemoryAllocationMode) {
         self.memory_pool.mode(mode);
     }
 

@@ -29,9 +29,9 @@ pub struct CpuServer {
 }
 
 impl CpuServer {
-    pub fn new(ctx: CpuContext) -> Self {
+    pub fn new(ctx: CpuContext, logger: Arc<ServerLogger>) -> Self {
         Self {
-            logger: Arc::new(ServerLogger::default()),
+            logger,
             scheduler: Scheduler::default(),
             ctx,
         }

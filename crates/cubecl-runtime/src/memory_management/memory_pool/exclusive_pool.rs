@@ -22,6 +22,12 @@ pub struct ExclusiveMemoryPool {
     cur_avg_size: f64,
 }
 
+impl core::fmt::Display for ExclusiveMemoryPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("ExclusiveMemoryPool")
+    }
+}
+
 const SIZE_AVG_DECAY: f64 = 0.01;
 
 // How many times to find the allocation 'free' before deallocating it.

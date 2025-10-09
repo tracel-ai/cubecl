@@ -1,7 +1,7 @@
 use super::GlobalConfig;
 use crate::config::{
-    autotune::AutotuneLogLevel, compilation::CompilationLogLevel, profiling::ProfilingLogLevel,
-    streaming::StreamingLogLevel,
+    autotune::AutotuneLogLevel, compilation::CompilationLogLevel, memory::MemoryLogLevel,
+    profiling::ProfilingLogLevel, streaming::StreamingLogLevel,
 };
 use alloc::{string::ToString, sync::Arc, vec::Vec};
 use core::fmt::Display;
@@ -118,6 +118,9 @@ pub struct Logger {
     /// Indices of loggers used for streaming logging.
     streaming_index: Vec<usize>,
 
+    /// Indices of loggers used for memory logging.
+    memory_index: Vec<usize>,
+
     /// Global configuration for logging settings.
     pub config: Arc<GlobalConfig>,
 }
@@ -142,6 +145,7 @@ impl Logger {
         let mut profiling_index = Vec::new();
         let mut autotune_index = Vec::new();
         let mut streaming_index = Vec::new();
+        let mut memory_index = Vec::new();
 
         #[derive(Hash, PartialEq, Eq)]
         enum LoggerId {
@@ -281,12 +285,25 @@ impl Logger {
             )
         }
 
+        if let MemoryLogLevel::Disabled = config.memory.logger.level {
+        } else {
+            register_logger(
+                &config.memory.logger,
+                config.memory.logger.append,
+                config.memory.logger.log,
+                &mut memory_index,
+                &mut loggers,
+                &mut logger2index,
+            )
+        }
+
         Self {
             loggers,
             compilation_index,
             profiling_index,
             autotune_index,
             streaming_index,
+            memory_index,
             config,
         }
     }
@@ -301,6 +318,20 @@ impl Logger {
                 self.log(&msg, index)
             }
         } else if let Some(index) = self.streaming_index.first() {
+            self.log(&msg, *index)
+        }
+    }
+
+    /// Logs a message for memory, directing it to all configured streaming loggers.
+    pub fn log_memory<S: Display>(&mut self, msg: &S) {
+        let length = self.memory_index.len();
+        if length > 1 {
+            let msg = msg.to_string();
+            for i in 0..length {
+                let index = self.memory_index[i];
+                self.log(&msg, index)
+            }
+        } else if let Some(index) = self.memory_index.first() {
             self.log(&msg, *index)
         }
     }

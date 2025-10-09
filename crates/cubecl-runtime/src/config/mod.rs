@@ -5,6 +5,8 @@ pub mod autotune;
 pub mod cache;
 /// Compilation config module.
 pub mod compilation;
+/// Memory config module.
+pub mod memory;
 /// Profiling config module.
 pub mod profiling;
 /// Streaming config module.
