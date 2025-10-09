@@ -51,6 +51,12 @@ pub trait AttentionArgs: Send + Sync + 'static + Clone {
         output: &mut Self::Output<O>,
     ) -> Self::State<Q, K, V, M, O>;
 
+    /// Whether the mask argument is present. Returns `CubeOption` to allow matching at
+    /// comptime
+    fn has_mask<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> CubeOption<()>;
+
     /// Read the line of the query tensor using the state at the given coordinate.
     fn read_query<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
         state: &Self::State<Q, K, V, M, O>,
@@ -289,6 +295,11 @@ impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
 
 impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
     VirtualTensorOperations<V> for TensorValue<Q, K, V, M, O, MA>
+{
+}
+
+impl<Q: Float, K: Float, V: Float, M: Numeric, O: Float, MA: AttentionArgs>
+    VirtualTensorOperations<M> for TensorMask<Q, K, V, M, O, MA>
 {
 }
 
@@ -1056,6 +1067,15 @@ impl AttentionArgs for TensorArgs {
             value: &input.value,
             mask,
             output,
+        }
+    }
+
+    fn has_mask<Q: Float, K: Float, V: Float, M: Numeric, O: Float>(
+        state: &Self::State<Q, K, V, M, O>,
+    ) -> CubeOption<()> {
+        match state.mask {
+            CubeOption::None => CubeOption::new_None(),
+            CubeOption::Some(_) => CubeOption::new_Some(()),
         }
     }
 

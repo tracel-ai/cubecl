@@ -1,49 +1,89 @@
+use crate::components::global::dummy::MaskReader;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
+use cubecl_std::tensor::layout::{Coordinates, Coords2d};
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
-use crate::components::AttentionTilingScheme;
+use crate::components::global::GlobalAttentionConfig;
+use crate::components::{AttentionPrecision, AttentionTilingScheme};
+
+#[derive(CubeType, Copy, Clone)]
+pub struct LogicalMask {
+    #[cube(comptime)]
+    pub causal: bool,
+    pub out_of_bounds: CubeOption<Coords2d>,
+}
+
+#[cube]
+impl LogicalMask {
+    pub fn apply<E: Numeric>(&self, pos: Coords2d) -> E {
+        let causal_masked = self.causal && pos.0 < pos.1;
+
+        let oob_masked = match self.out_of_bounds {
+            CubeOption::Some(bounds) => !Coords2d::is_in_bounds(&pos, &bounds),
+            CubeOption::None => false,
+        };
+
+        E::cast_from(causal_masked || oob_masked) * E::min_value()
+    }
+}
+
+#[derive(CubeType)]
+pub enum Mask<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+    /// Full mask tensor in global memory.
+    /// Used when the user provides an explicit mask.
+    /// Causal or out-of-bounds padding are applied directly in the materialized mask
+    Materialized(MaskReader<AP, G>, LogicalMask),
+
+    /// Mask is applied logically.
+    /// This variant is chosen when no mask tensor is provided but the attention logic
+    /// requires masking for causal or padding purposes.
+    Logical(LogicalMask),
+
+    /// No mask is applied at all.
+    /// Used when neither a mask tensor is provided nor causal/padding masking is needed.
+    None,
+}
 
 #[derive(CubeType, Copy, Clone)]
 pub struct GlobalMask {
-    q_bound: u32,
-    kv_bound: u32,
+    origin: Coords2d,
+    logical_mask: LogicalMask,
     #[cube(comptime)]
     tiling_scheme: AttentionTilingScheme,
 }
 
 #[derive(CubeType, Copy, Clone)]
 pub struct StageMask {
-    q_bound: u32,
-    kv_bound: u32,
+    origin: Coords2d,
+    logical_mask: LogicalMask,
     #[cube(comptime)]
     tiling_scheme: AttentionTilingScheme,
 }
 
 #[derive(CubeType, Copy, Clone)]
 pub struct PartitionMask {
-    q_bound: u32,
-    kv_bound: u32,
+    origin: Coords2d,
+    logical_mask: LogicalMask,
     #[cube(comptime)]
     tiling_scheme: AttentionTilingScheme,
 }
 
 #[derive(CubeType, Copy, Clone)]
 pub struct TileMask {
-    q_bound: u32,
-    kv_bound: u32,
+    origin: Coords2d,
+    logical_mask: LogicalMask,
 }
 
 #[cube]
 impl GlobalMask {
     pub fn new(
-        q_bound: u32,
-        kv_bound: u32,
+        logical_mask: LogicalMask,
         #[comptime] tiling_scheme: AttentionTilingScheme,
     ) -> GlobalMask {
         GlobalMask {
-            q_bound,
-            kv_bound,
+            origin: (0u32, 0u32).runtime(),
+            logical_mask,
             tiling_scheme,
         }
     }
@@ -53,8 +93,8 @@ impl GlobalMask {
         let kv_factor = comptime!(self.tiling_scheme.elements_in_stage_seq_kv());
 
         StageMask {
-            q_bound: self.q_bound.saturating_sub(row * q_factor),
-            kv_bound: self.kv_bound.saturating_sub(col * kv_factor),
+            origin: Coords2d::add(self.origin, (row * q_factor, col * kv_factor)),
+            logical_mask: self.logical_mask,
             tiling_scheme: self.tiling_scheme,
         }
     }
@@ -66,8 +106,8 @@ impl StageMask {
         let q_factor = comptime!(self.tiling_scheme.elements_in_partition_seq_q());
 
         PartitionMask {
-            q_bound: self.q_bound.saturating_sub(row * q_factor),
-            kv_bound: self.kv_bound,
+            origin: Coords2d::add(self.origin, (row * q_factor, 0u32)),
+            logical_mask: self.logical_mask,
             tiling_scheme: self.tiling_scheme,
         }
     }
@@ -80,8 +120,8 @@ impl PartitionMask {
         let kv_factor = comptime!(self.tiling_scheme.elements_in_tile_seq_kv());
 
         TileMask {
-            q_bound: self.q_bound.saturating_sub(row * q_factor),
-            kv_bound: self.kv_bound.saturating_sub(col * kv_factor),
+            origin: Coords2d::add(self.origin, (row * q_factor, col * kv_factor)),
+            logical_mask: self.logical_mask,
         }
     }
 }
@@ -89,7 +129,7 @@ impl PartitionMask {
 #[cube]
 impl TileMask {
     pub fn apply<E: Numeric>(&self, pos: Coords2d) -> E {
-        let should_mask = E::cast_from(pos.0 >= self.q_bound || pos.1 >= self.kv_bound);
-        should_mask * E::min_value()
+        self.logical_mask
+            .apply::<E>(Coords2d::add(self.origin, pos))
     }
 }

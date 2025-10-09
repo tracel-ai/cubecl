@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -45,6 +45,8 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyReader: CubeType;
     /// Loads to SMEM as is
     type ValueReader: CubeType;
+    /// Loads to SMEM as is
+    type MaskReader: CubeType;
 
     /// The configuration type associated with this Attention.
     type Config: GlobalAttentionConfig;
@@ -53,6 +55,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query_reader: QueryReader<AP>,
         key_reader: Self::KeyReader,
         value_reader: Self::ValueReader,
+        mask_reader: Self::MaskReader,
         writer: Self::Writer,
         seq_q: u32,
         seq_kv: u32,
@@ -74,6 +77,11 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader;
+
+    fn init_mask_reader(
+        mask: CubeOption<VirtualTensor<MSK<AP>>>,
+        #[comptime] config: Self::Config,
+    ) -> Self::MaskReader;
 
     fn init_writer(
         q_offset: u32,

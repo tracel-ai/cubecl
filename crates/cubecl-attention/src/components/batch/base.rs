@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -61,6 +61,7 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query: VirtualTensor<QG<AP>>,
         key: VirtualTensor<KG<AP>>,
         value: VirtualTensor<VG<AP>>,
+        mask: CubeOption<VirtualTensor<MSK<AP>>>,
         out: VirtualTensor<OG<AP>, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,

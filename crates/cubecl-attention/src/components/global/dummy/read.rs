@@ -39,6 +39,14 @@ pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
     _phantom: PhantomData<G>,
 }
 
+#[derive(CubeType)]
+pub struct MaskReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+    global_iter: GlobalIterator<Line<MSK<AP>>>,
+
+    #[cube(comptime)]
+    _phantom: PhantomData<G>,
+}
+
 #[cube]
 impl<AP: AttentionPrecision> QueryReader<AP> {
     pub fn new(q_offset: u32, query: View<Line<QG<AP>>, Coords2d>) -> Self {
@@ -222,5 +230,17 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
 
     pub fn advance_view(&mut self) {
         self.global_iter.advance();
+    }
+}
+
+#[cube]
+impl<AP: AttentionPrecision, G: GlobalAttentionConfig> MaskReader<AP, G> {
+    pub fn new(mask: View<Line<MSK<AP>>, Coords2d>, step: u32, #[comptime] _config: G) -> Self {
+        let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
+
+        MaskReader::<AP, G> {
+            global_iter,
+            _phantom: PhantomData,
+        }
     }
 }
