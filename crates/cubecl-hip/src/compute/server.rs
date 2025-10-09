@@ -1,7 +1,9 @@
 use super::storage::gpu::GpuResource;
 use super::storage::gpu::GpuStorage;
 use crate::compute::command::Command;
+use crate::compute::command::write_to_cpu;
 use crate::compute::context::HipContext;
+use crate::compute::fence::Fence;
 use crate::compute::stream::HipStreamBackend;
 use crate::runtime::HipCompiler;
 use cubecl_common::bytes::Bytes;
@@ -238,7 +240,17 @@ impl ComputeServer for HipServer {
 }
 
 impl ServerCommunication for HipServer {
-    const SERVER_COMM_ENABLED: bool = false;
+    const SERVER_COMM_ENABLED: bool = true;
+
+    fn copy(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        Self::change_server_serialized(server_src, server_dst, src, stream_id_src, stream_id_dst)
+    }
 }
 
 impl HipServer {
@@ -276,6 +288,77 @@ impl HipServer {
         let streams = self.streams.resolve(stream_id, bindings);
 
         Command::new(&mut self.ctx, streams)
+    }
+
+    fn change_server_serialized(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        let shape = src.shape.to_vec();
+        let strides = src.strides.to_vec();
+        let elem_size = src.elem_size;
+        let binding = src.binding.clone();
+        let num_bytes = shape.iter().product::<usize>() * elem_size;
+
+        // We start by creating a command on the destination server.
+        //
+        // Here we allocate the necessary bytes using pinned memory managed by the destination
+        // server along a new GPU handle. This way, the bytes could be reused later by that server,
+        // and the lifetime of that handle is aligned with the execution order of the destination server,
+        // removing the need to keep the bytes handle alive using synchronization, which would be the
+        // case if we allocated the bytes using the source server.
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let handle = command_dst.reserve(binding.size())?;
+        let mut bytes = command_dst.reserve_cpu(num_bytes, true, None);
+        let copy_desc = handle.copy_descriptor(&shape, &strides, elem_size);
+
+        // We need to free the command before creating another one.
+        core::mem::drop(command_dst);
+
+        // We create a command on the source server to retrieve the correct resource from the
+        // source memory pools. We also make sure the current stream is aligned with the stream of
+        // the binding, where the data was first allocated.
+        //
+        // We use the source stream to copy the data from the source server into the allocated
+        // bytes. This ensures that the source binding follows the correct execution order, meaning
+        // that we don't have to keep the source handle alive using synchronization, which would be
+        // the case if we performed the copy on the destination server.
+        let mut command_src = server_src.command(stream_id_src, [&src.binding].into_iter());
+        let resource_src = command_src.resource(binding.clone())?;
+        let stream_src = command_src.streams.current().sys;
+
+        unsafe {
+            write_to_cpu(
+                &shape,
+                &strides,
+                elem_size,
+                &mut bytes,
+                resource_src.ptr,
+                stream_src,
+            )?;
+        }
+        let fence_src = Fence::new(stream_src);
+
+        // We need to free the command before creating another one.
+        core::mem::drop(command_src);
+
+        // Finally, we recreate a new command on the destination server to write the data stored in
+        // pinned memory into the destination server. Here we need to wait for the initial copy
+        // made by the source server using an event. The synchronization is done lazily on the
+        // destination stream, which is very efficient.
+        let mut command_dst = server_dst.command_no_inputs(stream_id_dst);
+        let stream_dst = command_dst.streams.current().sys;
+
+        fence_src.wait_async(stream_dst);
+        command_dst.write_to_gpu(copy_desc, &bytes)?;
+
+        // We drop the last command.
+        core::mem::drop(command_dst);
+
+        Ok(Allocation { handle, strides })
     }
 }
 
