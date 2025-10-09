@@ -136,15 +136,21 @@ impl MemoryPool for PersistentPool {
         explicit: bool,
     ) {
         if explicit {
-            self.slices.retain(|_, slice| {
+            let mut removed = Vec::new();
+            self.slices.retain(|id, slice| {
                 if slice.is_free() {
                     storage.dealloc(slice.storage.id);
+                    removed.push((*id, slice.effective_size()));
                     false
                 } else {
                     true
                 }
-                // TODO: Remove the slice id from the sizes map.
             });
+
+            for (id, size) in removed {
+                let ids = self.sizes.get_mut(&size).expect("The size should match");
+                ids.retain(|id_| *id_ != id);
+            }
 
             storage.flush();
         }
