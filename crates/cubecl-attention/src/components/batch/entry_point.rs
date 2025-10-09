@@ -1,5 +1,6 @@
 use crate::components::args::AttentionArgs;
 use crate::components::args::TensorKey;
+use crate::components::args::TensorMask;
 use crate::components::args::TensorOutput;
 use crate::components::args::TensorQuery;
 use crate::components::args::TensorValue;
@@ -41,6 +42,7 @@ pub(crate) fn attention<
     let query = TensorQuery::<QG, KG, VG, MSK, OG, Args>::new(&state);
     let key = TensorKey::<QG, KG, VG, MSK, OG, Args>::new(&state);
     let value = TensorValue::<QG, KG, VG, MSK, OG, Args>::new(&state);
+    let mask = TensorMask::<QG, KG, VG, MSK, OG, Args>::new(&state);
     let mut out = TensorOutput::<QG, KG, VG, MSK, OG, Args>::new(&mut state);
 
     let query = VirtualTensor::<QG>::new::<TensorQuery<QG, KG, VG, MSK, OG, Args>>(&query);
