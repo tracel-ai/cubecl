@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
-use crate::components::TileMask;
+use crate::components::AttentionMask;
 use crate::components::attention_types::*;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
@@ -113,7 +113,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
 
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
-        mask: TileMask,
+        mask: AttentionMask,
         state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
         sum_placeholder: &mut RowWise<SM<AP>>,

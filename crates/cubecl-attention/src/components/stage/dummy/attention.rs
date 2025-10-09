@@ -14,8 +14,8 @@ use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues,
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::TileAttention;
+use crate::components::{AttentionMask, tile::RunningState};
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
-use crate::components::{StageMask, tile::RunningState};
 
 pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
@@ -47,7 +47,7 @@ impl<
         query_partition: &Self::QueryPartition,
         key_value_partition: &mut Self::KeyValuePartition,
         softmax_partition: &mut Self::SoftmaxPartition,
-        mask: StageMask,
+        mask: AttentionMask,
         accumulator_partition: &mut Self::AccumulatorPartition,
         state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,

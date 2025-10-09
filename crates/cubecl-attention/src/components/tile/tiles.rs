@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
-use crate::components::TileMask;
+use crate::components::AttentionMask;
 use crate::components::attention_types::*;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, RowWise, RunningState};
@@ -31,7 +31,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
     fn zero(&mut self);
 
-    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask);
+    fn scale_and_mask(&mut self, scale: SM<AP>, mask: AttentionMask);
 
     fn row_max<TC: AttentionMatmulConfig>(
         &self,

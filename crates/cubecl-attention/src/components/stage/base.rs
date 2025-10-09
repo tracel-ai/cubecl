@@ -6,27 +6,27 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::attention_types::*;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::tile::RunningState;
+use crate::components::{attention_types::*, AttentionMask};
+use crate::components::{global::dummy::QueryReader, AttentionTilingScheme};
 use crate::components::{
+    global::GlobalAttentionConfig,
+    tile::{dummy::AttentionMatmulConfig, AttentionTilingLayout},
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
-    global::GlobalAttentionConfig,
-    tile::{AttentionTilingLayout, dummy::AttentionMatmulConfig},
 };
-use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
-use crate::components::{StageMask, tile::RunningState};
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
     /// The specific [TileAttention] implementation associated with this family.
     type Attention<AP: AttentionPrecision>: StageAttention<
-            AP,
-            Config = Self::Config,
-            KeyStage = <Self::KeyStage as StageFamily>::Stage<KS<AP>, AttentionTilingLayout>,
-            ValueStage = <Self::ValueStage as StageFamily>::Stage<VS<AP>, AttentionTilingLayout>,
-            OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<OS<AP>, WriteTiling>,
-        >;
+        AP,
+        Config = Self::Config,
+        KeyStage = <Self::KeyStage as StageFamily>::Stage<KS<AP>, AttentionTilingLayout>,
+        ValueStage = <Self::ValueStage as StageFamily>::Stage<VS<AP>, AttentionTilingLayout>,
+        OutStage = <Self::OutStage as StageFamily<ReadWrite>>::Stage<OS<AP>, WriteTiling>,
+    >;
 
     /// The configuration type associated with this Attention family.
     type Config: StageAttentionConfig;
@@ -75,7 +75,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query: &Self::QueryPartition,
         key_value: &mut Self::KeyValuePartition,
         score: &mut Self::SoftmaxPartition,
-        mask: StageMask,
+        mask: AttentionMask,
         accumulator: &mut Self::AccumulatorPartition,
         prev_state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,

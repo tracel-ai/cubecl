@@ -17,11 +17,11 @@ use crate::components::global::{
 use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, global::dummy::QueryReader};
+use crate::components::{AttentionMask, LogicalMask};
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
 };
-use crate::components::{GlobalMask, LogicalMask};
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
     _phantom: PhantomData<(AP, SA)>,
@@ -68,11 +68,11 @@ impl<
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
-        let logical_mask = LogicalMask {
-            causal: false,
-            out_of_bounds: CubeOption::new_Some((seq_q, seq_kv)),
-        };
-        let mask = GlobalMask::new(logical_mask, config.tiling_scheme());
+        let mask = AttentionMask::new(
+            config.causal_mask(),
+            CubeOption::new_Some((seq_q, seq_kv)),
+            config.tiling_scheme(),
+        );
 
         for i in 0..num_stage_iterations {
             key_reader.read_transposed(config);

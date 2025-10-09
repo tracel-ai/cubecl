@@ -9,7 +9,7 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::TileMask;
+use crate::components::AttentionMask;
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
@@ -186,7 +186,7 @@ impl<E: Float> PlaneLayout<E> for ArrayTile<E> {
         }
     }
 
-    fn scale_and_mask(&mut self, scale: E, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: E, mask: AttentionMask) {
         #[unroll]
         for r in 0..self.unit_size.0 {
             let row_offset = r * self.unit_size.1;

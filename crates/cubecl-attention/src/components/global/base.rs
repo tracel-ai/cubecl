@@ -105,4 +105,6 @@ pub trait GlobalAttentionConfig:
     fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
+
+    fn causal_mask(&self) -> bool;
 }

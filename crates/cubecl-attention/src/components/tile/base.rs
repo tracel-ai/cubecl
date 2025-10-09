@@ -13,7 +13,7 @@ use crate::components::{
     tile::{KeyValueTile, QueryTile, RowWise, RunningState, dummy::AttentionMatmulConfig},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
-use crate::components::{TileMask, tile::SoftmaxTile};
+use crate::components::{AttentionMask, tile::SoftmaxTile};
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
@@ -103,7 +103,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn softmax(
         softmax: &mut Self::SoftmaxTile,
-        mask: TileMask,
+        mask: AttentionMask,
         state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
         sum_placeholder: &mut RowWise<SM<AP>>,

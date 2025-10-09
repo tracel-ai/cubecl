@@ -9,7 +9,7 @@ use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
 use crate::components::tile::{row_max, row_sum};
 use crate::components::{
-    TileMask,
+    AttentionMask,
     tile::{RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul},
 };
 
@@ -47,7 +47,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         AM::zero_softmax(&mut self.fragment, self.config);
     }
 
-    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
+    fn scale_and_mask(&mut self, scale: SM<AP>, mask: AttentionMask) {
         self.fragment.scale_and_mask(scale, mask);
     }
 
