@@ -74,6 +74,10 @@ impl Runtime for WgpuRuntime {
         }
     }
 
+    fn max_global_line_size() -> u8 {
+        4
+    }
+
     fn max_cube_count() -> (u32, u32, u32) {
         let max_dim = u16::MAX as u32;
         (max_dim, max_dim, max_dim)
