@@ -12,6 +12,7 @@ pub enum AttentionMask {
     /// Full mask tensor in global memory.
     /// Used when the user provides an explicit mask.
     /// Causal or out-of-bounds padding are applied directly in the materialized mask
+    //
     // Materialized(MaskReader<AP, G>, LogicalMask),
     Materialized(LogicalMask),
 
@@ -43,6 +44,8 @@ impl AttentionMask {
     pub fn to_stage(&self, row: u32, col: u32) -> AttentionMask {
         match self {
             AttentionMask::Materialized(logical_mask) => {
+                // Adjust origin to the view?
+                // Advance mask reader's iterator
                 todo!()
             }
             AttentionMask::Logical(logical_mask) => {
@@ -55,6 +58,7 @@ impl AttentionMask {
     pub fn to_partition(&self, row: u32) -> AttentionMask {
         match self {
             AttentionMask::Materialized(logical_mask) => {
+                // Adjust origin
                 todo!()
             }
             AttentionMask::Logical(logical_mask) => {
@@ -67,6 +71,8 @@ impl AttentionMask {
     pub fn to_tile(&self, row: u32, col: u32) -> AttentionMask {
         match self {
             AttentionMask::Materialized(logical_mask) => {
+                // Load tile from global memory to register
+                // Using view, iterator, origin and row,col
                 todo!()
             }
             AttentionMask::Logical(logical_mask) => {
@@ -76,27 +82,18 @@ impl AttentionMask {
         }
     }
 
-    pub fn to_element(&self, pos: Coords2d) -> AttentionMask {
-        match self {
+    pub fn apply<E: Numeric>(&self, pos_in_tile: Coords2d) -> E {
+        let should_mask = match self {
             AttentionMask::Materialized(logical_mask) => {
+                // registers[pos_in_tile]
                 todo!()
             }
-            AttentionMask::Logical(logical_mask) => {
-                AttentionMask::new_Logical(logical_mask.to_element(pos))
-            }
-            AttentionMask::None => AttentionMask::new_None(),
-        }
-    }
-
-    pub fn apply<E: Numeric>(&self, pos: Coords2d) -> E {
-        match self {
-            AttentionMask::Materialized(logical_mask) => {
-                todo!()
-            }
-            AttentionMask::Logical(logical_mask) => logical_mask.apply::<E>(pos),
+            AttentionMask::Logical(logical_mask) => logical_mask.should_mask(pos_in_tile),
             // TODO refactor so it does not do the addition of +0
-            AttentionMask::None => E::from_int(0),
-        }
+            AttentionMask::None => false,
+        };
+
+        E::cast_from(should_mask) * E::min_value()
     }
 }
 
@@ -160,16 +157,9 @@ impl LogicalMask {
         }
     }
 
-    pub fn to_element(&self, pos: Coords2d) -> LogicalMask {
-        LogicalMask {
-            origin: Coords2d::add(self.origin, pos),
-            causal: self.causal,
-            out_of_bounds: self.out_of_bounds,
-            tiling_scheme: self.tiling_scheme,
-        }
-    }
+    pub fn should_mask(&self, pos_in_tile: Coords2d) -> bool {
+        let pos = Coords2d::add(self.origin, pos_in_tile);
 
-    pub fn apply<E: Numeric>(&self, pos: Coords2d) -> E {
         let causal_masked = self.causal && pos.0 < pos.1;
 
         let oob_masked = match self.out_of_bounds {
@@ -177,6 +167,6 @@ impl LogicalMask {
             CubeOption::None => false,
         };
 
-        E::cast_from(causal_masked || oob_masked) * E::min_value()
+        causal_masked || oob_masked
     }
 }
