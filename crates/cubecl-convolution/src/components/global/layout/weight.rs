@@ -5,16 +5,13 @@ use cubecl_matmul::components::{
     global::{GlobalConfig, memory::GlobalMemoryConfig},
 };
 use cubecl_std::{
-    FastDivmod,
-    tensor::{
-        layout::{Coords2d, Layout, LayoutExpand},
-        r#virtual::VirtualTensor,
-    },
+    FastDivmod, FastDivmodArgs,
+    tensor::layout::{Coords3d, Layout, LayoutExpand},
 };
 
 use crate::{
     components::{
-        ConvGemmConfig, ConvolutionConfig,
+        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
         global::layout::{NhwcCoords, unwrap},
     },
     kernels::layered::selector::RuntimeArgs,
@@ -22,15 +19,8 @@ use crate::{
 
 /// Maps a 4D weight tensor of shape `(out_c, (k_h, k_w, in_c))` to a col-major 2D matmul tile with
 /// shape `(n, k)`
-#[derive(CubeType, Clone)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct WeightLayout {
-    /// Stride of `out_c`
-    pub stride_out_c: u32,
-    /// Stride of `k_h`, `k_w`
-    pub strides_spatial: Sequence<u32>,
-    /// Stride of `in_c`
-    pub stride_in_c: u32,
-
     /// Number of channels, including padding, used for decomposing `k`
     pub channels: FastDivmod,
 
@@ -41,7 +31,7 @@ pub struct WeightLayout {
 
     /// Size of the convolution kernel
     #[cube(comptime)]
-    pub kernel_size: [u32; 3],
+    pub params: ConvolutionParams,
     /// Global memory config for the backing tensor
     #[cube(comptime)]
     pub config: GlobalMemoryConfig,
@@ -50,29 +40,14 @@ pub struct WeightLayout {
 #[cube]
 impl WeightLayout {
     pub fn new<E: Numeric, G: GlobalConfig>(
-        tensor: &VirtualTensor<E>,
         args: &RuntimeArgs,
         #[comptime] config: ConvolutionConfig<G>,
     ) -> WeightLayout {
-        let spatial_dims = comptime![config.dimensionality().num_dims()];
-        let mut strides_spatial = Sequence::new();
-
-        #[unroll]
-        for i in 0..spatial_dims {
-            strides_spatial.push(tensor.stride(i + 1));
-        }
-
-        let stride_out_c = tensor.stride(0);
-        let stride_in_c = tensor.stride(spatial_dims + 1);
-
         WeightLayout {
-            stride_out_c,
-            strides_spatial,
-            stride_in_c,
             shape_k: args.shape_k,
             shape_n: args.shape_n,
             channels: args.padded_channels,
-            kernel_size: config.kernel_size,
+            params: config.convolution_params(),
             config: config.global_memory_config(MatmulIdent::Rhs),
         }
     }
@@ -80,22 +55,23 @@ impl WeightLayout {
 
 #[cube]
 impl Layout for WeightLayout {
-    type Coordinates = Coords2d;
+    type Coordinates = Coords3d;
     type SourceCoordinates = NhwcCoords;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> NhwcCoords {
-        let (k, n) = coords;
+        let params = comptime![self.params];
+        let (_, k, n) = coords;
 
         let (mut rem, in_c) = self.channels.div_mod(k);
 
-        let spatial_dims = comptime![self.strides_spatial.len()];
+        let spatial_dims = comptime![params.dimensionality.num_dims()];
         let mut kernel_pos = Sequence::<i32>::new();
 
         #[unroll]
         for i in 0..spatial_dims {
             let i = unwrap(i);
             let dim = comptime![spatial_dims - i - 1];
-            let ksize = comptime![self.kernel_size[dim as usize]];
+            let ksize = comptime![params.kernel_size[dim as usize]];
             let k_pos = rem % ksize;
             rem /= ksize;
 
@@ -116,13 +92,28 @@ impl Layout for WeightLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        (self.shape_k, self.shape_n)
+        (1, self.shape_k, self.shape_n)
     }
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
-        let (k, n) = pos;
+        let (_, k, n) = pos;
         let check_k = comptime![self.config.check_row_bounds];
         let check_n = comptime![self.config.check_col_bounds];
         (!check_k || k < self.shape_k) && (!check_n || n < self.shape_n)
+    }
+}
+
+impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
+    pub fn from_args(
+        client: &ComputeClient<R::Server, R::Channel>,
+        problem: &ConvolutionProblem,
+        params: ConvolutionParams,
+        config: GlobalMemoryConfig,
+    ) -> Self {
+        let channels = FastDivmodArgs::new(client, problem.channels as u32);
+        let shape_k = ScalarArg::new(problem.k as u32);
+        let shape_n = ScalarArg::new(problem.n as u32);
+
+        WeightLayoutLaunch::new(channels, shape_k, shape_n, params, config)
     }
 }

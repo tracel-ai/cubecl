@@ -15,16 +15,7 @@ use super::*;
 /// Convolution specific config, extends regular matmul [`Config`](global::Config)
 pub trait ConvGemmConfig: GlobalConfig {
     /// The size of the convolution kernel at `dim`
-    fn kernel_size(&self, dim: u32) -> u32;
-    /// The dilation of the kernel at `dim`
-    fn dilation(&self, dim: u32) -> u32;
-    /// The stride of the kernel at `dim`
-    fn stride(&self, dim: u32) -> u32;
-    /// The padding of the kernel at `dim`
-    fn padding(&self, dim: u32) -> i32;
-    /// The dimensionality of the kernel
-    fn dimensionality(&self) -> Dimensionality;
-
+    fn convolution_params(&self) -> ConvolutionParams;
     fn line_sizes(&self) -> MatmulLineSizes;
     fn check_spatial_bounds(&self) -> bool;
 }
@@ -32,12 +23,17 @@ pub trait ConvGemmConfig: GlobalConfig {
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct ConvolutionConfig<M: GlobalConfig> {
     matmul: M,
+    params: ConvolutionParams,
+    num_stages: u32,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct ConvolutionParams {
     pub kernel_size: [u32; 3],
     pub stride: [u32; 3],
     pub dilation: [u32; 3],
     pub padding: [i32; 3],
-    dimensionality: Dimensionality,
-    num_stages: u32,
+    pub dimensionality: Dimensionality,
 }
 
 impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
@@ -121,24 +117,8 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
 }
 
 impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
-    fn kernel_size(&self, dim: u32) -> u32 {
-        self.kernel_size[dim as usize]
-    }
-
-    fn dilation(&self, dim: u32) -> u32 {
-        self.dilation[dim as usize]
-    }
-
-    fn stride(&self, dim: u32) -> u32 {
-        self.stride[dim as usize]
-    }
-
-    fn padding(&self, dim: u32) -> i32 {
-        self.padding[dim as usize]
-    }
-
-    fn dimensionality(&self) -> Dimensionality {
-        self.dimensionality
+    fn convolution_params(&self) -> ConvolutionParams {
+        self.params
     }
 
     fn line_sizes(&self) -> cubecl_matmul::components::MatmulLineSizes {
@@ -150,10 +130,10 @@ impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
     }
 
     fn check_spatial_bounds(&self) -> bool {
-        let spatial_dims = self.dimensionality.num_dims();
+        let spatial_dims = self.params.dimensionality.num_dims();
         let mut has_padding = false;
         for i in 0..spatial_dims {
-            has_padding |= self.padding[i as usize] != 0;
+            has_padding |= self.params.padding[i as usize] != 0;
         }
         has_padding
     }
@@ -172,20 +152,22 @@ impl<M: GlobalConfig> ConvolutionConfig<M> {
     ) -> Result<Self, MatmulSetupError> {
         let dims = kernel_size.len();
 
-        let mut this = Self {
-            matmul,
+        let mut params = ConvolutionParams {
             kernel_size: [0; 3],
             stride: [0; 3],
             dilation: [0; 3],
             padding: [0; 3],
             dimensionality: dim,
-            num_stages,
         };
-        this.kernel_size[0..dims].copy_from_slice(kernel_size);
-        this.stride[0..dims].copy_from_slice(stride);
-        this.dilation[0..dims].copy_from_slice(dilation);
-        this.padding[0..dims].copy_from_slice(padding);
-        Ok(this)
+        params.kernel_size[0..dims].copy_from_slice(kernel_size);
+        params.stride[0..dims].copy_from_slice(stride);
+        params.dilation[0..dims].copy_from_slice(dilation);
+        params.padding[0..dims].copy_from_slice(padding);
+        Ok(Self {
+            matmul,
+            params,
+            num_stages,
+        })
     }
 
     pub fn to_matmul_config(self) -> M {

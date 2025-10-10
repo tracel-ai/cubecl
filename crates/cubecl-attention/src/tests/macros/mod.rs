@@ -8,18 +8,10 @@ use crate::{
     tests::attention_test_launcher::test_attention_algorithm,
 };
 
+#[derive(Default)]
 pub struct TestOptions {
     pub reuse_key_value: bool,
     pub two_rows_in_array_tile: bool,
-}
-
-impl Default for TestOptions {
-    fn default() -> Self {
-        Self {
-            reuse_key_value: false,
-            two_rows_in_array_tile: false,
-        }
-    }
 }
 
 pub fn attention_test_launch<A: Algorithm, R: Runtime>(

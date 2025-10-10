@@ -15,7 +15,7 @@ use cubecl_matmul::components::{
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{AsTensorView, AsTensorViewExpand, layout::Coords2d, r#virtual::VirtualTensor},
+    tensor::{View, layout::Coords2d},
 };
 
 use crate::{
@@ -23,11 +23,9 @@ use crate::{
         ConvGemmConfig, ConvolutionConfig,
         global::{
             GlobalConvolution,
-            layout::{NhwcLayout, OutLayout},
             read::{
                 bias::{BiasGlobalReader, BiasStage},
                 im2col_tma::{TmaIm2colGlobalReader, TmaIm2colTiling},
-                layout::TmaWeightLayout,
                 weight_tma::{TmaWeightGlobalReader, TmaWeightTiling},
             },
         },
@@ -69,7 +67,7 @@ where
 {
     type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
 
-    type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs, Self::Config>;
+    type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs>;
     type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs>;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
     type GlobalWriter = PlaneWriter<MP::Acc>;
@@ -197,7 +195,7 @@ where
     }
 
     fn init_lhs_global_reader(
-        lhs: VirtualTensor<LhsG<MP>>,
+        lhs: View<Line<LhsG<MP>>, Coords2d>,
         offset: Coords2d,
         _slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
@@ -205,26 +203,22 @@ where
     ) -> Self::LhsGlobalReader {
         let (x_offset, y_offset) = offset;
         Self::LhsGlobalReader::new(
-            lhs,
+            lhs.as_tensor_map().unwrap(),
             x_offset,
             y_offset,
             runtime_args,
             config.num_stages(MatmulIdent::Lhs),
-            config,
+            config.convolution_params(),
+            config.stage_memory_config(MatmulIdent::Lhs),
         )
     }
 
     fn init_rhs_global_reader(
-        rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords2d,
-        slice_size: Coords2d,
-        runtime_args: &RuntimeArgs,
+        rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        let layout = TmaWeightLayout::new(runtime_args.padded_channels);
-        let rhs = rhs.as_tensor_map().unwrap().view_3d(layout);
         Self::RhsGlobalReader::new(
-            rhs.slice(offset, slice_size),
+            rhs,
             config.k_step,
             config.num_stages(MatmulIdent::Rhs),
             config.stage_memory_config(MatmulIdent::Rhs),
@@ -232,35 +226,18 @@ where
     }
 
     fn init_bias_global_reader(
-        bias: CubeOption<VirtualTensor<AccG<MP>>>,
-        n_offset: u32,
-        slice_size: u32,
+        bias: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new(
-            bias,
-            n_offset,
-            slice_size,
-            config.stage_memory_config(MatmulIdent::Out),
-        )
+        Self::AccGlobalReader::new(bias, config.stage_memory_config(MatmulIdent::Out))
     }
 
     fn init_global_writer(
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords2d,
-        slice_size: Coords2d,
-        runtime_args: &RuntimeArgs,
+        out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
         let global_conf = config.global_memory_config(MatmulIdent::Out);
-        let layout_global = NhwcLayout::new(out, comptime![config.dimensionality()], false);
-        let layout_out = OutLayout::new(runtime_args, global_conf);
-        let out = out.view_mut(layout_global).view_mut(layout_out);
-        Self::GlobalWriter::new::<SMM::Config>(
-            out.slice_mut_unchecked(offset, slice_size),
-            global_conf,
-            config.stage_config(),
-        )
+        Self::GlobalWriter::new::<SMM::Config>(out, global_conf, config.stage_config())
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

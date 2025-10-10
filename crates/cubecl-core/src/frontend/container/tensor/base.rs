@@ -15,7 +15,7 @@ use crate as cubecl;
 
 /// The tensor type is similar to the [array type](crate::prelude::Array), however it comes with more
 /// metadata such as [stride](Tensor::stride) and [shape](Tensor::shape).
-#[derive(new)]
+#[derive(new, Clone, Copy)]
 pub struct Tensor<T: CubeType> {
     _val: PhantomData<T>,
 }

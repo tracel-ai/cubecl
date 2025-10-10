@@ -7,7 +7,10 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::{View, layout::Coords3d},
+};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
@@ -74,10 +77,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        a: VirtualTensor<LhsG<MP>>,
-        b: VirtualTensor<RhsG<MP>>,
-        c: CubeOption<VirtualTensor<AccG<MP>>>,
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
+        a: View<Line<LhsG<MP>>, Coords3d>,
+        b: View<Line<RhsG<MP>>, Coords3d>,
+        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
+        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );

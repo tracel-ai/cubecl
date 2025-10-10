@@ -183,6 +183,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         k: k as usize,
         lhs_batches: lhs.shape[..lhs.shape.len() - 2].to_vec(),
         rhs_batches: rhs.shape[..rhs.shape.len() - 2].to_vec(),
+        out_batches: out.shape[..out.shape.len() - 2].to_vec(),
         lhs_layout,
         rhs_layout,
     };
@@ -308,6 +309,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
     let batch_lhs: usize = lhs.shape[..lhs.shape.len() - 2].iter().product();
     let batch_rhs: usize = rhs.shape[..rhs.shape.len() - 2].iter().product();
+    let batch_out: usize = out.shape[..out.shape.len() - 2].iter().product();
 
     let problem = MatmulProblem {
         m: m as usize,
@@ -315,6 +317,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
         k: k as usize,
         lhs_batches: [batch_lhs].to_vec(),
         rhs_batches: [batch_rhs].to_vec(),
+        out_batches: [batch_out].to_vec(),
         lhs_layout,
         rhs_layout,
     };

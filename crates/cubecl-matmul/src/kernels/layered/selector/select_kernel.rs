@@ -51,13 +51,22 @@ where
         config.cube_dim(),
         cube_count_plan.resolve(),
         <InputArg<MS> as ConcreteInputsFactory>::create(
+            client,
             lhs,
             rhs,
             &selection,
             &problem,
             &line_sizes,
+            config,
         ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(
+            client,
+            out,
+            &selection,
+            &problem,
+            &line_sizes,
+            config,
+        ),
         cube_count_plan.as_args(),
         config,
     )
