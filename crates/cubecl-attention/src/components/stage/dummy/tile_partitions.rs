@@ -4,8 +4,11 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
+use crate::components::AttentionTilingScheme;
 use crate::components::global::dummy::QueryReader;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::layout::Coords2d;
 
 #[derive(CubeType)]
 pub struct Accumulators<
@@ -302,5 +305,71 @@ impl<
     ) -> &mut TA::SoftmaxTile {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
         self.sequence.index_mut(index)
+    }
+}
+
+#[derive(CubeType)]
+pub struct MaskPartition<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> {
+    sequence: Sequence<TA::MaskTile>,
+    #[cube(comptime)]
+    _phantom: PhantomData<S>,
+}
+
+#[cube]
+impl<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> MaskPartition<AP, TA, S>
+{
+    pub fn new(
+        origin: Coords2d,
+        #[comptime] causal: bool,
+        out_of_bounds: CubeOption<Coords2d>,
+        #[comptime] materialized: bool,
+        #[comptime] config: S,
+    ) -> MaskPartition<AP, TA, S> {
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        #[unroll]
+        for _ in 0..comptime!(p.seq_q * p.val_dim) {
+            sequence.push(TA::init_mask(
+                origin,
+                causal,
+                out_of_bounds,
+                materialized,
+                config.tile_config(),
+            ));
+        }
+
+        MaskPartition::<AP, TA, S> {
+            sequence,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_at(
+        &self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] tiling_scheme: AttentionTilingScheme,
+    ) -> &TA::MaskTile {
+        let p = tiling_scheme.partition_size;
+        self.sequence.index(comptime!(q * p.seq_kv + kv))
+    }
+
+    pub fn get_at_mut(
+        &mut self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] tiling_scheme: AttentionTilingScheme,
+    ) -> &mut TA::MaskTile {
+        let p = tiling_scheme.partition_size;
+        self.sequence.index_mut(comptime!(q * p.seq_kv + kv))
     }
 }

@@ -17,7 +17,6 @@ use crate::components::global::{
 use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, global::dummy::QueryReader};
-use crate::components::{AttentionMask, LogicalMask};
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, dummy::config::DummyGlobalConfig},
@@ -40,7 +39,7 @@ impl<
 {
     type KeyReader = DummyKeyReader<AP, Self::Config>;
     type ValueReader = DummyValueReader<AP, Self::Config>;
-    type MaskReader = CubeOption<MaskReader<AP, Self::Config>>;
+    type MaskReader = CubeOption<MaskReader<AP>>;
 
     type Writer = DummyWriter<(OG<AP>, OS<AP>)>;
 
@@ -68,10 +67,13 @@ impl<
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
-        let mask = AttentionMask::new(
+        let mask = SA::init_mask(
+            // TODO origin
+            (0u32, 0u32).runtime(),
             config.causal_mask(),
             CubeOption::new_Some((seq_q, seq_kv)),
-            config.tiling_scheme(),
+            comptime!(mask_reader.is_some()),
+            config.stage_config(),
         );
 
         for i in 0..num_stage_iterations {
@@ -85,7 +87,8 @@ impl<
                 &query,
                 &mut key_value,
                 &mut softmax,
-                mask.to_stage(CUBE_POS, i),
+                &mask,
+                // mask.to_stage(CUBE_POS, i),
                 &mut accumulator,
                 &mut stage_state,
                 config.stage_config(),
@@ -160,7 +163,7 @@ impl<
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
-                CubeOption::new_Some(MaskReader::new(mask.view(layout), step, config))
+                CubeOption::new_Some(MaskReader::new(mask.view(layout), step))
             }
             CubeOption::None => CubeOption::new_None(),
         }

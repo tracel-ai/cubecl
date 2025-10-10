@@ -9,13 +9,16 @@ use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
+use crate::components::stage::dummy::MaskPartition;
 use crate::components::stage::dummy::SoftmaxPartition;
 use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
+use crate::components::tile::RunningState;
 use crate::components::tile::TileAttention;
-use crate::components::{AttentionMask, tile::RunningState};
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::layout::Coords2d;
 
 pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
     _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
@@ -40,6 +43,7 @@ impl<
     type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
     type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
     type AccumulatorPartition = Accumulators<AP, TA, Self::Config>;
+    type MaskPartition = MaskPartition<AP, TA, Self::Config>;
 
     fn execute(
         key_reader: &Self::KeyStage,
@@ -47,12 +51,12 @@ impl<
         query_partition: &Self::QueryPartition,
         key_value_partition: &mut Self::KeyValuePartition,
         softmax_partition: &mut Self::SoftmaxPartition,
-        mask: AttentionMask,
+        mask: &Self::MaskPartition,
         accumulator_partition: &mut Self::AccumulatorPartition,
         state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
-        let partition_mask = mask.to_partition(UNIT_POS_Y);
+        // let partition_mask = mask.to_partition(UNIT_POS_Y);
 
         let p = config.tiling_scheme().partition_size;
 
@@ -89,6 +93,8 @@ impl<
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
                 TA::zero_softmax(softmax_tile, config.tile_config());
 
+                let mask_tile = mask.get_at(q, kv, config.tiling_scheme());
+
                 let mut hd = comptime![0u32];
 
                 #[unroll]
@@ -106,7 +112,7 @@ impl<
 
                 scales.push(TA::softmax(
                     softmax_tile,
-                    partition_mask.to_tile(q, kv),
+                    mask_tile,
                     state_q,
                     &mut max_placeholder,
                     &mut sum_placeholder,
@@ -258,5 +264,15 @@ impl<
             Self::SoftmaxPartition::new(config),
             Self::AccumulatorPartition::new(config),
         )
+    }
+
+    fn init_mask(
+        origin: Coords2d,
+        #[comptime] causal: bool,
+        out_of_bounds: CubeOption<Coords2d>,
+        #[comptime] materialized: bool,
+        #[comptime] config: Self::Config,
+    ) -> Self::MaskPartition {
+        Self::MaskPartition::new(origin, causal, out_of_bounds, materialized, config)
     }
 }

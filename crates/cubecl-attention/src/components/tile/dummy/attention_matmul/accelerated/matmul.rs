@@ -3,18 +3,20 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
-use crate::components::AttentionMask;
 use crate::components::attention_types::*;
+use crate::components::tile::FragmentMask;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::tile::{FragmentOps, FragmentOpsExpand};
+use cubecl_std::tensor::layout::Coords2d;
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
 
 #[cube]
-impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
+impl<E: Numeric> FragmentLayout for cmma::Matrix<E> {
     fn num_local_rows(&self) -> comptime_type!(u32) {
         todo!()
     }
@@ -26,7 +28,10 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
     fn num_units_per_row(&self) -> comptime_type!(u32) {
         todo!()
     }
+}
 
+#[cube]
+impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
     fn rowwise_max(&self) -> RowWise<E> {
         todo!()
     }
@@ -39,7 +44,7 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_and_mask(&mut self, _scale: E, _mask: AttentionMask) {
+    fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M) {
         todo!()
     }
 
@@ -49,10 +54,18 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
 }
 
 #[cube]
+impl<MSK: Numeric> FragmentMask for cmma::Matrix<MSK> {
+    fn apply<E: Float>(this: &Self, pos: Coords2d) -> E {
+        todo!()
+    }
+}
+
+#[cube]
 impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul {
     type Config = AcceleratedAttentionMatmulConfig;
     type Query = cmma::Matrix<QT<AP>>;
     type KeyValue = cmma::Matrix<KVT<AP>>;
+    type Mask = cmma::Matrix<MSK<AP>>;
     type Softmax = cmma::Matrix<SM<AP>>;
     type Accumulator = cmma::Matrix<ACC<AP>>;
 
@@ -146,6 +159,19 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
                 // m not relevant because it's a B
                 size.seq_q,
                 // n and k match key, and we assume value takes the same space
+                size.seq_kv,
+                size.head_dim,
+                cmma::MatrixLayout::RowMajor,
+            )
+        }
+    }
+
+    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
+        let size = config.attention_tile_size();
+        unsafe {
+            cmma::Matrix::<MSK<AP>>::uninitialized(
+                cmma::MatrixIdent::Accumulator,
+                size.seq_q,
                 size.seq_kv,
                 size.head_dim,
                 cmma::MatrixLayout::RowMajor,

@@ -40,11 +40,8 @@ pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[derive(CubeType)]
-pub struct MaskReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
+pub struct MaskReader<AP: AttentionPrecision> {
     global_iter: GlobalIterator<Line<MSK<AP>>>,
-
-    #[cube(comptime)]
-    _phantom: PhantomData<G>,
 }
 
 #[cube]
@@ -234,13 +231,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> MaskReader<AP, G> {
-    pub fn new(mask: View<Line<MSK<AP>>, Coords2d>, step: u32, #[comptime] _config: G) -> Self {
+impl<AP: AttentionPrecision> MaskReader<AP> {
+    pub fn new(mask: View<Line<MSK<AP>>, Coords2d>, step: u32) -> Self {
         let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
 
-        MaskReader::<AP, G> {
-            global_iter,
-            _phantom: PhantomData,
-        }
+        MaskReader::<AP> { global_iter }
     }
 }

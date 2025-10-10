@@ -2,19 +2,19 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 #[derive(CubeType)]
-pub struct RowWise<E: Float> {
+pub struct RowWise<E: Numeric> {
     #[cube(comptime)]
     pub num_rows: u32,
     pub vals: Sequence<RowVal<E>>,
 }
 
 #[derive(CubeType)]
-pub struct RowVal<E: Float> {
+pub struct RowVal<E: Numeric> {
     pub val: E,
 }
 
 #[cube]
-impl<E: Float> RowWise<E> {
+impl<E: Numeric> RowWise<E> {
     pub fn new_filled(#[comptime] num_rows: u32, val: E) -> RowWise<E> {
         let mut vals = Sequence::new();
         #[unroll]
@@ -80,17 +80,6 @@ impl<E: Float> RowWise<E> {
         }
     }
 
-    pub fn recip_inplace(&mut self) {
-        let mut i = comptime![0u32];
-        #[unroll]
-        for _ in 0..self.num_rows {
-            let row_val = self.vals.index_mut(i);
-            row_val.val = Recip::recip(row_val.val);
-
-            comptime![i += 1];
-        }
-    }
-
     pub fn max_inplace(&mut self, other: &RowWise<E>) {
         let mut i = comptime![0u32];
         #[unroll]
@@ -120,24 +109,6 @@ impl<E: Float> RowWise<E> {
         }
 
         RowWise::<E2> {
-            num_rows: self.num_rows,
-            vals,
-        }
-    }
-
-    pub fn exp_m_diff(&self, other: &RowWise<E>) -> RowWise<E> {
-        let mut vals = Sequence::new();
-        let mut i = comptime![0u32];
-
-        #[unroll]
-        for _ in 0..self.num_rows {
-            let val = Exp::exp(self.index(i) - other.index(i));
-            vals.push(RowVal::<E> { val });
-
-            comptime![i += 1];
-        }
-
-        RowWise::<E> {
             num_rows: self.num_rows,
             vals,
         }
@@ -176,6 +147,38 @@ impl<E: Float> RowWise<E> {
         RowWise::<E> {
             num_rows: self.num_rows,
             vals,
+        }
+    }
+}
+
+#[cube]
+impl<E: Float> RowWise<E> {
+    pub fn exp_m_diff(&self, other: &RowWise<E>) -> RowWise<E> {
+        let mut vals = Sequence::new();
+        let mut i = comptime![0u32];
+
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let val = Exp::exp(self.index(i) - other.index(i));
+            vals.push(RowVal::<E> { val });
+
+            comptime![i += 1];
+        }
+
+        RowWise::<E> {
+            num_rows: self.num_rows,
+            vals,
+        }
+    }
+
+    pub fn recip_inplace(&mut self) {
+        let mut i = comptime![0u32];
+        #[unroll]
+        for _ in 0..self.num_rows {
+            let row_val = self.vals.index_mut(i);
+            row_val.val = Recip::recip(row_val.val);
+
+            comptime![i += 1];
         }
     }
 }
