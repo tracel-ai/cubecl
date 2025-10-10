@@ -120,16 +120,6 @@ impl<
         let p = config.tiling_scheme().partition_size;
         self.sequence.index(comptime!(q * p.head_dim + hd))
     }
-
-    pub fn get_at_mut(
-        &mut self,
-        #[comptime] q: u32,
-        #[comptime] hd: u32,
-        #[comptime] config: S,
-    ) -> &mut TA::QueryTile {
-        let p = config.tiling_scheme().partition_size;
-        self.sequence.index_mut(comptime!(q * p.head_dim + hd))
-    }
 }
 
 #[derive(CubeType)]

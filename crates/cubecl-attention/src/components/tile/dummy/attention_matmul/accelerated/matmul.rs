@@ -194,6 +194,14 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         cmma::load(rhs, &slice, stride);
     }
 
+    fn fill_mask<E: Numeric>(
+        tile: &StridedTile<E>,
+        mask: &mut Self::Mask,
+        #[comptime] _config: Self::Config,
+    ) {
+        todo!()
+    }
+
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
         let size = config.attention_tile_size();
         unsafe {

@@ -103,6 +103,12 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         #[comptime] config: Self::Config,
     );
 
+    fn fill_mask<E: Numeric>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::MaskTile,
+        #[comptime] config: Self::Config,
+    );
+
     fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config);
 
     fn accumulate_score(

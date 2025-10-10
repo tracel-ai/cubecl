@@ -54,6 +54,12 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
+    fn fill_mask<E: Numeric>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::Mask,
+        #[comptime] config: Self::Config,
+    );
+
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
 

@@ -6,7 +6,8 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::AttentionPrecision;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::row::{FragmentMask, FragmentMaskExpand};
-use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile};
+use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile, MaskTileExpand};
+
 use cubecl_std::tensor::layout::Coordinates;
 
 #[derive(CubeType)]
@@ -87,6 +88,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<AP, AM> {
+    type Fragment = AM::Mask;
+
     fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
         let should_mask = match this {
             MaskFragment::Materialized(materialized_tile_mask) => {
@@ -96,5 +99,16 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
         };
 
         E::cast_from(should_mask) * E::min_value()
+    }
+
+    fn fragment_mut(&mut self) -> &mut Self::Fragment {
+        match self {
+            MaskFragment::Materialized(materialized_tile_mask) => {
+                &mut materialized_tile_mask.fragment
+            }
+            MaskFragment::Logical(_) => {
+                panic!("Tried to get fragment of logical mask")
+            }
+        }
     }
 }

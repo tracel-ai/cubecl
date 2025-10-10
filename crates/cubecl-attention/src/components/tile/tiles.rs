@@ -3,6 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::FragmentMask;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{FragmentOps, RowWise, RunningState};
 use cubecl_std::tensor::layout::Coords2d;
@@ -59,5 +60,8 @@ pub trait AccumulatorTile<AP: AttentionPrecision>: CubeType {
 
 #[cube]
 pub trait MaskTile: CubeType {
+    type Fragment: CubeType;
+
     fn apply<E: Float>(this: &Self, pos: Coords2d) -> E;
+    fn fragment_mut(&mut self) -> &mut Self::Fragment;
 }

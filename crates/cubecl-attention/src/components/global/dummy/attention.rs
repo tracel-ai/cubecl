@@ -39,7 +39,7 @@ impl<
 {
     type KeyReader = DummyKeyReader<AP, Self::Config>;
     type ValueReader = DummyValueReader<AP, Self::Config>;
-    type MaskReader = CubeOption<MaskReader<AP>>;
+    type MaskReader = MaskReader<AP>;
 
     type Writer = DummyWriter<(OG<AP>, OS<AP>)>;
 
@@ -72,23 +72,24 @@ impl<
             (0u32, 0u32).runtime(),
             config.causal_mask(),
             CubeOption::new_Some((seq_q, seq_kv)),
-            comptime!(mask_reader.is_some()),
+            has_mask,
             config.stage_config(),
         );
 
-        for i in 0..num_stage_iterations {
+        for _ in 0..num_stage_iterations {
             key_reader.read_transposed(config);
             value_reader.read(config);
+
             sync_cube();
 
             SA::execute(
                 &key_stage,
                 &value_stage,
+                &mask_reader,
                 &query,
                 &mut key_value,
                 &mut softmax,
-                &mask,
-                // mask.to_stage(CUBE_POS, i),
+                &mut mask,
                 &mut accumulator,
                 &mut stage_state,
                 config.stage_config(),
@@ -97,6 +98,8 @@ impl<
             sync_cube();
             key_reader.advance_view();
             value_reader.advance_view();
+
+            mask_reader.advance_view();
         }
 
         SA::rescale(&mut accumulator, stage_state, config.stage_config());
@@ -149,12 +152,12 @@ impl<
     }
 
     fn init_mask_reader(
+        q_offset: u32,
         mask: CubeOption<VirtualTensor<MSK<AP>>>,
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
         let step = reduction_step::<Self::Config>(config);
 
-        // TODO this is a simplification for now
         match mask {
             CubeOption::Some(mask) => {
                 let layout = AttentionGlobalLayout::new(
@@ -163,9 +166,9 @@ impl<
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
-                CubeOption::new_Some(MaskReader::new(mask.view(layout), step))
+                MaskReader::new_Materialized(q_offset, mask.view(layout), step)
             }
-            CubeOption::None => CubeOption::new_None(),
+            CubeOption::None => MaskReader::new_Logical(),
         }
     }
 

@@ -7,6 +7,7 @@ use cubecl_matmul::components::{
 use std::{fmt::Debug, hash::Hash};
 
 use crate::components::attention_types::*;
+use crate::components::global::dummy::MaskReader;
 use crate::components::stage::dummy::AttentionStageMemoryConfig;
 use crate::components::tile::RunningState;
 use crate::components::{
@@ -75,10 +76,11 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn execute(
         key_reader: &Self::KeyStage,
         value_reader: &Self::ValueStage,
+        mask_reader: &MaskReader<AP>,
         query: &Self::QueryPartition,
         key_value: &mut Self::KeyValuePartition,
         score: &mut Self::SoftmaxPartition,
-        mask: &Self::MaskPartition,
+        mask_partition: &mut Self::MaskPartition,
         accumulator: &mut Self::AccumulatorPartition,
         prev_state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,

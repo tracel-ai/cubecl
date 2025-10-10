@@ -15,6 +15,7 @@ use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, AttentionPrecision};
+use cubecl_std::CubeOption;
 
 #[derive(CubeType)]
 pub struct QueryReader<AP: AttentionPrecision> {
@@ -40,8 +41,9 @@ pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
 }
 
 #[derive(CubeType)]
-pub struct MaskReader<AP: AttentionPrecision> {
-    global_iter: GlobalIterator<Line<MSK<AP>>>,
+pub enum MaskReader<AP: AttentionPrecision> {
+    Materialized(GlobalIterator<Line<MSK<AP>>>),
+    Logical,
 }
 
 #[cube]
@@ -232,9 +234,55 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
 
 #[cube]
 impl<AP: AttentionPrecision> MaskReader<AP> {
-    pub fn new(mask: View<Line<MSK<AP>>, Coords2d>, step: u32) -> Self {
+    pub fn new_logical() -> Self {
+        MaskReader::<AP>::new_Logical()
+    }
+
+    pub fn new_materialized(q_offset: u32, mask: View<Line<MSK<AP>>, Coords2d>, step: u32) -> Self {
+        let mask = mask.slice((q_offset, 0), mask.shape());
         let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
 
-        MaskReader::<AP> { global_iter }
+        MaskReader::<AP>::new_Materialized(global_iter)
+    }
+
+    pub fn get_tile<S: StageAttentionConfig>(
+        &self,
+        tile: Coords2d,
+        #[comptime] config: S,
+    ) -> CubeOption<StridedTile<MSK<AP>>> {
+        match self {
+            MaskReader::Logical => CubeOption::new_None(),
+            MaskReader::Materialized(global_iter) => {
+                let (row_in_partition, col) = tile;
+                let attention_tile_size = config.tiling_scheme().tile_size;
+
+                let row =
+                    row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
+
+                let tile = StridedTile::<MSK<AP>>::new_strided(
+                    global_iter
+                        .view()
+                        .slice(
+                            (
+                                row * attention_tile_size.seq_q,
+                                col * attention_tile_size.seq_kv,
+                            ),
+                            (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
+                        )
+                        .to_linear_slice(),
+                    config.tiling_scheme().elements_in_partition_seq_kv(),
+                    MatrixLayout::RowMajor,
+                );
+
+                CubeOption::new_Some(tile)
+            }
+        }
+    }
+
+    pub fn advance_view(&mut self) {
+        match self {
+            MaskReader::Logical => {}
+            MaskReader::Materialized(global_iter) => global_iter.advance(),
+        }
     }
 }

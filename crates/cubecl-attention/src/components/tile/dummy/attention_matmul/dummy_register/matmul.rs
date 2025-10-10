@@ -470,6 +470,16 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         sync_cube();
     }
 
+    fn fill_mask<E: Numeric>(
+        tile: &StridedTile<E>,
+        mask: &mut Self::Mask,
+        #[comptime] _config: Self::Config,
+    ) {
+        strided_tile_to_array_tile(tile, mask);
+
+        sync_cube();
+    }
+
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
         softmax.zero();
         sync_cube();

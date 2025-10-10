@@ -12,6 +12,7 @@ use crate::components::tile::dummy::MaskFragment;
 use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
+use crate::components::tile::tiles::{MaskTile, MaskTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
@@ -104,6 +105,14 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         #[comptime] config: Self::Config,
     ) {
         AM::fill_key_value(tile, rhs.value_mut(), config);
+    }
+
+    fn fill_mask<E: Numeric>(
+        tile: &StridedTile<E>,
+        mask: &mut Self::MaskTile,
+        #[comptime] config: Self::Config,
+    ) {
+        AM::fill_mask(tile, mask.fragment_mut(), config)
     }
 
     fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config) {

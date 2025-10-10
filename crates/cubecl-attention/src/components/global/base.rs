@@ -79,6 +79,7 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     ) -> Self::ValueReader;
 
     fn init_mask_reader(
+        q_offset: u32,
         mask: CubeOption<VirtualTensor<MSK<AP>>>,
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader;

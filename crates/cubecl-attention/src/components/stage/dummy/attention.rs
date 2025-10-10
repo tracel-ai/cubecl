@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::attention_types::*;
 use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::MaskPartition;
 use crate::components::stage::dummy::SoftmaxPartition;
@@ -17,6 +16,7 @@ use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{attention_types::*, global::dummy::MaskReader};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -48,10 +48,11 @@ impl<
     fn execute(
         key_reader: &Self::KeyStage,
         value_reader: &Self::ValueStage,
+        mask_reader: &MaskReader<AP>,
         query_partition: &Self::QueryPartition,
         key_value_partition: &mut Self::KeyValuePartition,
         softmax_partition: &mut Self::SoftmaxPartition,
-        mask: &Self::MaskPartition,
+        mask_partition: &mut Self::MaskPartition,
         accumulator_partition: &mut Self::AccumulatorPartition,
         state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
@@ -93,7 +94,12 @@ impl<
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
                 TA::zero_softmax(softmax_tile, config.tile_config());
 
-                let mask_tile = mask.get_at(q, kv, config.tiling_scheme());
+                let mask_tile = mask_partition.get_at_mut(q, kv, config.tiling_scheme());
+                TA::fill_mask(
+                    &mask_reader.get_tile((q, kv), config),
+                    mask_tile,
+                    config.tile_config(),
+                );
 
                 let mut hd = comptime![0u32];
 
