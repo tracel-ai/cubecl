@@ -4,7 +4,9 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
-use crate::components::tile::{FragmentMask, FragmentOps};
+use crate::components::tile::FragmentLayout;
+use crate::components::tile::FragmentMask;
+use crate::components::tile::FragmentOps;
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
@@ -18,8 +20,9 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     type Query: CubeType;
     type KeyValue: CubeType;
     type Mask: FragmentMask;
-    type Softmax: FragmentOps<SM<AP>>;
-    type Accumulator: FragmentOps<ACC<AP>>;
+    type Softmax: FragmentOps<SM<AP>, Layout = Self::FragmentLayout>;
+    type Accumulator: FragmentOps<ACC<AP>, Layout = Self::FragmentLayout>;
+    type FragmentLayout: FragmentLayout;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -62,6 +65,8 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );
+
+    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout;
 }
 
 /// Configuration for the Tile Attention level

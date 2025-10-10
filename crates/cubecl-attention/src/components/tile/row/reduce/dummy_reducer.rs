@@ -5,7 +5,8 @@ use crate::components::tile::ReduceOp;
 use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{FragmentLayoutExpand, FragmentOps};
+use crate::components::tile::row::base::FragmentLayout;
+use crate::components::tile::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 pub struct DummyReducer {}
@@ -41,15 +42,16 @@ impl Reducer for DummyReducer {
 
         let mut r = comptime![0u32];
 
+        let num_units_per_row = data.layout().num_units_per_row();
+
         #[unroll]
         for _ in 0..config.num_rows_per_unit() {
             let mut val = vals.index(r);
 
             let row_offset = r * config.plane_dim();
 
-            for c in 0..data.num_units_per_row() {
-                let unit_offset =
-                    (UNIT_POS_X / data.num_units_per_row()) * data.num_units_per_row();
+            for c in 0..num_units_per_row {
+                let unit_offset = (UNIT_POS_X / num_units_per_row) * num_units_per_row;
                 let offset = plane_offset + row_offset + unit_offset;
 
                 val = RO::reduce_step_scalar(val, smem[offset + c]);

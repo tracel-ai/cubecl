@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentMask;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{FragmentOps, RowWise, RunningState};
+use cubecl_std::tensor::layout::Coords2d;
 
 #[cube]
 pub trait QueryTile<E: Float>: CubeType {}
@@ -31,7 +31,7 @@ pub trait SoftmaxTile<AP: AttentionPrecision>: CubeType {
 
     fn zero(&mut self);
 
-    fn scale_and_mask<M: MaskTile<AP>>(this: &mut Self, scale: SM<AP>, mask: &M);
+    fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: SM<AP>, mask: &M);
 
     fn row_max<TC: AttentionMatmulConfig>(
         &self,
@@ -58,8 +58,6 @@ pub trait AccumulatorTile<AP: AttentionPrecision>: CubeType {
 }
 
 #[cube]
-pub trait MaskTile<AP: AttentionPrecision>: CubeType {
-    type Fragment: FragmentMask;
-
-    fn fragment(&self) -> &Self::Fragment;
+pub trait MaskTile: CubeType {
+    fn apply<E: Float>(this: &Self, pos: Coords2d) -> E;
 }

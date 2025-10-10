@@ -4,27 +4,26 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentMask;
+use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 use cubecl_std::tensor::layout::Coords2d;
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
 
+#[derive(CubeType)]
+pub struct TODO;
+
 #[cube]
-impl<E: Numeric> FragmentLayout for cmma::Matrix<E> {
-    fn num_local_rows(&self) -> comptime_type!(u32) {
+impl FragmentLayout for TODO {
+    fn absolute_pos(&self, local_pos: Coords2d) -> Coords2d {
         todo!()
     }
-
-    fn num_local_cols(&self) -> comptime_type!(u32) {
-        todo!()
-    }
-
     fn num_units_per_row(&self) -> comptime_type!(u32) {
         todo!()
     }
@@ -32,6 +31,8 @@ impl<E: Numeric> FragmentLayout for cmma::Matrix<E> {
 
 #[cube]
 impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
+    type Layout = TODO;
+
     fn rowwise_max(&self) -> RowWise<E> {
         todo!()
     }
@@ -44,18 +45,22 @@ impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M) {
+    fn scale_and_mask<M: MaskTile>(_this: &mut Self, _scale: E, _mask: &M) {
         todo!()
     }
 
     fn exp_m_diff(&mut self, _val: &RowWise<E>) {
         todo!()
     }
+
+    fn layout(&self) -> Self::Layout {
+        todo!()
+    }
 }
 
 #[cube]
-impl<MSK: Numeric> FragmentMask for cmma::Matrix<MSK> {
-    fn apply<E: Float>(this: &Self, pos: Coords2d) -> E {
+impl<E: Numeric> FragmentMask for cmma::Matrix<E> {
+    fn should_mask(&self, _local_pos: Coords2d) -> bool {
         todo!()
     }
 }
@@ -68,6 +73,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     type Mask = cmma::Matrix<MSK<AP>>;
     type Softmax = cmma::Matrix<SM<AP>>;
     type Accumulator = cmma::Matrix<ACC<AP>>;
+    type FragmentLayout = TODO;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -234,5 +240,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
             config.attention_tile_size().val_dim,
             cmma::MatrixLayout::RowMajor,
         );
+    }
+
+    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout {
+        todo!()
     }
 }

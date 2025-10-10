@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::BroadcastReducer;
-use crate::components::tile::{MaskTile, MaskTileExpand};
+use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{FragmentOps, FragmentOpsExpand};
@@ -47,12 +47,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         AM::zero_softmax(&mut self.fragment, self.config);
     }
 
-    fn scale_and_mask<M: MaskTile<AP>>(this: &mut Self, scale: SM<AP>, mask: &M) {
-        Self::FragmentOps::scale_and_mask::<M::Fragment>(
-            &mut this.fragment,
-            scale,
-            mask.fragment(),
-        );
+    fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: SM<AP>, mask: &M) {
+        Self::FragmentOps::scale_and_mask::<M>(&mut this.fragment, scale, mask);
     }
 
     fn row_max<TC: AttentionMatmulConfig>(

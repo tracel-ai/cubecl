@@ -7,9 +7,10 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::tile::MaskTile;
+use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::tile::FragmentMask;
 use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
@@ -24,14 +25,7 @@ pub struct DummyRegisterAttentionMatmul;
 /// - There is never more than one row for one unit
 pub struct ArrayTile<E: Numeric> {
     array: Array<E>,
-    #[cube(comptime)]
-    total_size: Coords2d,
-    #[cube(comptime)]
-    unit_size: Coords2d,
-    #[cube(comptime)]
-    num_units_per_row: u32,
-    #[cube(comptime)]
-    plane_dim: u32,
+    layout: ArrayTileLayout,
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -64,11 +58,37 @@ pub enum InnerLayout {
 
 #[cube]
 impl<E: Numeric> ArrayTile<E> {
+    pub fn new(layout: ArrayTileLayout) -> ArrayTile<E> {
+        let array = Array::<E>::new(comptime!(layout.unit_size.0 * layout.unit_size.1));
+        ArrayTile::<E> { array, layout }
+    }
+
+    pub fn zero(&mut self) {
+        for i in 0..self.layout.unit_size.0 * self.layout.unit_size.1 {
+            self.array[i] = E::from_int(0);
+        }
+    }
+}
+
+#[derive(CubeType, Copy, Clone)]
+pub struct ArrayTileLayout {
+    #[cube(comptime)]
+    total_size: Coords2d,
+    #[cube(comptime)]
+    unit_size: Coords2d,
+    #[cube(comptime)]
+    num_units_per_row: u32,
+    #[cube(comptime)]
+    plane_dim: u32,
+}
+
+#[cube]
+impl ArrayTileLayout {
     pub fn new(
         #[comptime] total_size: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] inner_layout: InnerLayout,
-    ) -> ArrayTile<E> {
+    ) -> ArrayTileLayout {
         let total_elements = total_size.0 * total_size.1;
         let elements_per_unit = total_elements.div_ceil(plane_dim);
 
@@ -78,51 +98,30 @@ impl<E: Numeric> ArrayTile<E> {
         };
         let unit_size = (num_rows_per_unit, num_cols_per_unit);
 
-        let array = Array::<E>::new(comptime!(unit_size.0 * unit_size.1));
         let num_units_per_row = comptime!(total_size.1 / unit_size.1);
 
-        ArrayTile::<E> {
-            array,
+        ArrayTileLayout {
             total_size,
             unit_size,
             num_units_per_row,
             plane_dim,
         }
     }
-
-    pub fn zero(&mut self) {
-        for i in 0..self.unit_size.0 * self.unit_size.1 {
-            self.array[i] = E::from_int(0);
-        }
-    }
-
-    fn abs_row_index(&self, r: u32) -> u32 {
-        let row_0 = UNIT_POS_X / self.num_units_per_row;
-        let row_jump = comptime!(self.plane_dim / self.num_units_per_row);
-
-        r * row_jump + row_0
-    }
-
-    fn abs_col_index(&self, c: u32) -> u32 {
-        self.unit_size.1 * (UNIT_POS_X % self.num_units_per_row) + c
-    }
-
-    fn abs_pos(&self, local_pos: Coords2d) -> Coords2d {
-        (
-            self.abs_row_index(local_pos.0),
-            self.abs_col_index(local_pos.1),
-        )
-    }
 }
 
 #[cube]
-impl<E: Numeric> FragmentLayout for ArrayTile<E> {
-    fn num_local_rows(&self) -> comptime_type!(u32) {
-        self.unit_size.0
-    }
+impl FragmentLayout for ArrayTileLayout {
+    fn absolute_pos(&self, local_pos: Coords2d) -> Coords2d {
+        let abs_row_index = {
+            let row_0 = UNIT_POS_X / self.num_units_per_row;
+            let row_jump = comptime!(self.plane_dim / self.num_units_per_row);
 
-    fn num_local_cols(&self) -> comptime_type!(u32) {
-        self.unit_size.1
+            local_pos.0 * row_jump + row_0
+        };
+
+        let abs_col_index = self.unit_size.1 * (UNIT_POS_X % self.num_units_per_row) + local_pos.1;
+
+        (abs_row_index, abs_col_index)
     }
 
     fn num_units_per_row(&self) -> comptime_type!(u32) {
@@ -132,16 +131,18 @@ impl<E: Numeric> FragmentLayout for ArrayTile<E> {
 
 #[cube]
 impl<E: Float> FragmentOps<E> for ArrayTile<E> {
+    type Layout = ArrayTileLayout;
+
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();
 
         #[unroll]
-        for r in 0..self.unit_size.0 {
-            let row_offset = r * self.unit_size.1;
+        for r in 0..self.layout.unit_size.0 {
+            let row_offset = r * self.layout.unit_size.1;
             let mut val = E::min_value();
 
             #[unroll]
-            for c in 0..self.unit_size.1 {
+            for c in 0..self.layout.unit_size.1 {
                 let index = row_offset + c;
                 val = Max::max(val, self.array[index]);
             }
@@ -150,7 +151,7 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         }
 
         RowWise::<E> {
-            num_rows: self.unit_size.0,
+            num_rows: self.layout.unit_size.0,
             vals,
         }
     }
@@ -159,12 +160,12 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         let mut vals = Sequence::new();
 
         #[unroll]
-        for r in 0..self.unit_size.0 {
-            let row_offset = r * self.unit_size.1;
+        for r in 0..self.layout.unit_size.0 {
+            let row_offset = r * self.layout.unit_size.1;
             let mut val = E::from_int(0);
 
             #[unroll]
-            for c in 0..self.unit_size.1 {
+            for c in 0..self.layout.unit_size.1 {
                 let index = row_offset + c;
                 val += self.array[index];
             }
@@ -173,29 +174,29 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         }
 
         RowWise::<E> {
-            num_rows: self.unit_size.0,
+            num_rows: self.layout.unit_size.0,
             vals,
         }
     }
 
     fn scale(&mut self, scale: &RowWise<E>) {
         #[unroll]
-        for r in 0..self.unit_size.0 {
-            let row_offset = r * self.unit_size.1;
+        for r in 0..self.layout.unit_size.0 {
+            let row_offset = r * self.layout.unit_size.1;
             #[unroll]
-            for c in 0..self.unit_size.1 {
+            for c in 0..self.layout.unit_size.1 {
                 let index = row_offset + c;
                 self.array[index] = self.array[index] * scale.index(r);
             }
         }
     }
 
-    fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M) {
+    fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: E, mask: &M) {
         #[unroll]
-        for r in 0..this.unit_size.0 {
-            let row_offset = r * this.unit_size.1;
+        for r in 0..this.layout.unit_size.0 {
+            let row_offset = r * this.layout.unit_size.1;
             #[unroll]
-            for c in 0..this.unit_size.1 {
+            for c in 0..this.layout.unit_size.1 {
                 let index = row_offset + c;
                 this.array[index] = this.array[index] * scale + M::apply::<E>(mask, (r, c));
             }
@@ -204,20 +205,24 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
 
     fn exp_m_diff(&mut self, val: &RowWise<E>) {
         #[unroll]
-        for r in 0..self.unit_size.0 {
-            let row_offset = r * self.unit_size.1;
+        for r in 0..self.layout.unit_size.0 {
+            let row_offset = r * self.layout.unit_size.1;
             #[unroll]
-            for c in 0..self.unit_size.1 {
+            for c in 0..self.layout.unit_size.1 {
                 let index = row_offset + c;
                 self.array[index] = Exp::exp(self.array[index] - val.index(r));
             }
         }
     }
+
+    fn layout(&self) -> Self::Layout {
+        self.layout
+    }
 }
 
 #[cube]
-impl<MSK: Numeric> FragmentMask for ArrayTile<MSK> {
-    fn apply<E: Float>(this: &Self, pos: Coords2d) -> E {
+impl<E: Numeric> FragmentMask for ArrayTile<E> {
+    fn should_mask(&self, local_pos: Coords2d) -> bool {
         todo!()
     }
 }
@@ -227,7 +232,7 @@ fn array_tile_to_tmp_smem<E: Numeric>(
     array_tile: &ArrayTile<E>,
     #[comptime] num_planes: u32,
 ) -> SliceMut<E> {
-    let tile_size = comptime!(array_tile.total_size.0 * array_tile.total_size.1);
+    let tile_size = comptime!(array_tile.layout.total_size.0 * array_tile.layout.total_size.1);
     let mut tmp_smem = SharedMemory::<E>::new(comptime!(num_planes * tile_size));
 
     let start = UNIT_POS_Y * tile_size;
@@ -241,11 +246,11 @@ fn array_tile_to_tmp_smem<E: Numeric>(
     }
     sync_cube();
 
-    for r in 0..array_tile.unit_size.0 {
-        for c in 0..array_tile.unit_size.1 {
-            let index =
-                array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
-            tmp_smem_slice[index] = array_tile.array[r * array_tile.unit_size.1 + c];
+    for r in 0..array_tile.layout.unit_size.0 {
+        for c in 0..array_tile.layout.unit_size.1 {
+            let (row, col) = array_tile.layout.absolute_pos((r, c));
+            let index = row * array_tile.layout.total_size.1 + col;
+            tmp_smem_slice[index] = array_tile.array[r * array_tile.layout.unit_size.1 + c];
         }
     }
 
@@ -254,11 +259,11 @@ fn array_tile_to_tmp_smem<E: Numeric>(
 
 #[cube]
 fn tmp_smem_to_array_tile<E: Numeric>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
-    for r in 0..array_tile.unit_size.0 {
-        for c in 0..array_tile.unit_size.1 {
-            array_tile.array[r * array_tile.unit_size.1 + c] =
-                tmp_smem_slice[array_tile.abs_row_index(r) * array_tile.total_size.1
-                    + array_tile.abs_col_index(c)];
+    for r in 0..array_tile.layout.unit_size.0 {
+        for c in 0..array_tile.layout.unit_size.1 {
+            let (row, col) = array_tile.layout.absolute_pos((r, c));
+            let index = row * array_tile.layout.total_size.1 + col;
+            array_tile.array[r * array_tile.layout.unit_size.1 + c] = tmp_smem_slice[index];
         }
     }
 }
@@ -268,11 +273,11 @@ fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     array_tile: &mut ArrayTile<E2>,
 ) {
-    for r in 0..array_tile.unit_size.0 {
-        for c in 0..array_tile.unit_size.1 {
-            array_tile.array[r * array_tile.unit_size.1 + c] = E2::cast_from(
-                strided_tile.get_line(array_tile.abs_row_index(r), array_tile.abs_col_index(c)),
-            )
+    for r in 0..array_tile.layout.unit_size.0 {
+        for c in 0..array_tile.layout.unit_size.1 {
+            let (row, col) = array_tile.layout.absolute_pos((r, c));
+            array_tile.array[r * array_tile.layout.unit_size.1 + c] =
+                E2::cast_from(strided_tile.get_line(row, col))
         }
     }
 }
@@ -282,11 +287,11 @@ fn array_tile_to_slice<E: Numeric, E2: Numeric>(
     array_tile: &ArrayTile<E>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
-    for r in 0..array_tile.unit_size.0 {
-        for c in 0..array_tile.unit_size.1 {
-            let index =
-                array_tile.abs_row_index(r) * array_tile.total_size.1 + array_tile.abs_col_index(c);
-            slice[index] = Line::cast_from(array_tile.array[r * array_tile.unit_size.1 + c]);
+    for r in 0..array_tile.layout.unit_size.0 {
+        for c in 0..array_tile.layout.unit_size.1 {
+            let (row, col) = array_tile.layout.absolute_pos((r, c));
+            let index = row * array_tile.layout.total_size.1 + col;
+            slice[index] = Line::cast_from(array_tile.array[r * array_tile.layout.unit_size.1 + c]);
         }
     }
 }
@@ -300,6 +305,18 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
     type Mask = ArrayTile<MSK<AP>>;
     type Softmax = ArrayTile<SM<AP>>;
     type Accumulator = ArrayTile<ACC<AP>>;
+    type FragmentLayout = ArrayTileLayout;
+
+    fn softmax_layout(#[comptime] config: Self::Config) -> ArrayTileLayout {
+        ArrayTileLayout::new(
+            (
+                config.attention_tile_size().seq_q,
+                config.attention_tile_size().seq_kv,
+            ),
+            config.plane_dim(),
+            config.inner_layout(),
+        )
+    }
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -367,7 +384,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(
+        ArrayTile::new(ArrayTileLayout::new(
             (
                 comptime!(max(
                     config.attention_tile_size().head_dim,
@@ -380,62 +397,48 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
             ),
             config.plane_dim(),
             config.inner_layout(),
-        )
+        ))
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(
+        ArrayTile::new(ArrayTileLayout::new(
             (
                 config.attention_tile_size().head_dim,
                 config.attention_tile_size().seq_kv,
             ),
             config.plane_dim(),
             config.inner_layout(),
-        )
+        ))
     }
 
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(
+        ArrayTile::new(ArrayTileLayout::new(
             (
                 config.attention_tile_size().seq_kv,
                 config.attention_tile_size().val_dim,
             ),
             config.plane_dim(),
             config.inner_layout(),
-        )
+        ))
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        ArrayTile::new(
-            (
-                config.attention_tile_size().seq_q,
-                config.attention_tile_size().seq_kv,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        )
+        ArrayTile::new(<Self as AttentionMatmul<AP>>::softmax_layout(config))
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        ArrayTile::new(
-            (
-                config.attention_tile_size().seq_q,
-                config.attention_tile_size().seq_kv,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        )
+        ArrayTile::new(<Self as AttentionMatmul<AP>>::softmax_layout(config))
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        ArrayTile::new(
+        ArrayTile::new(ArrayTileLayout::new(
             (
                 config.attention_tile_size().seq_q,
                 config.attention_tile_size().val_dim,
             ),
             config.plane_dim(),
             config.inner_layout(),
-        )
+        ))
     }
 
     fn allocate_fill_query<EI: Float>(
@@ -445,8 +448,11 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         let seq_q = config.attention_tile_size().seq_q;
         let head_dim = config.attention_tile_size().head_dim;
 
-        let mut query =
-            ArrayTile::new((seq_q, head_dim), config.plane_dim(), config.inner_layout());
+        let mut query = ArrayTile::new(ArrayTileLayout::new(
+            (seq_q, head_dim),
+            config.plane_dim(),
+            config.inner_layout(),
+        ));
 
         strided_tile_to_array_tile(tile, &mut query);
 

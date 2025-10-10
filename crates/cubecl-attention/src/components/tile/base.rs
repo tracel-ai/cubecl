@@ -58,7 +58,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type KeyValueTile: KeyValueTile<KVT<AP>>;
     type SoftmaxTile: SoftmaxTile<AP>;
     type AccumulatorTile: AccumulatorTile<AP>;
-    type MaskTile: MaskTile<AP>;
+    type MaskTile: MaskTile;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,
