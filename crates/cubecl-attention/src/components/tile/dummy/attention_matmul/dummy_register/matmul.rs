@@ -223,7 +223,7 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
 #[cube]
 impl<E: Numeric> FragmentMask for ArrayTile<E> {
     fn should_mask(&self, local_pos: Coords2d) -> bool {
-        todo!()
+        bool::cast_from(self.array[local_pos.0 * self.layout.unit_size.1 + local_pos.1])
     }
 }
 

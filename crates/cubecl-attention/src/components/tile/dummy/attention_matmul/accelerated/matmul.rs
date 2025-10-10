@@ -21,7 +21,7 @@ pub struct TODO;
 
 #[cube]
 impl FragmentLayout for TODO {
-    fn absolute_pos(&self, local_pos: Coords2d) -> Coords2d {
+    fn absolute_pos(&self, _local_pos: Coords2d) -> Coords2d {
         todo!()
     }
     fn num_units_per_row(&self) -> comptime_type!(u32) {
@@ -242,7 +242,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         );
     }
 
-    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout {
+    fn softmax_layout(#[comptime] _config: Self::Config) -> Self::FragmentLayout {
         todo!()
     }
 }

@@ -337,7 +337,7 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(p.seq_q * p.val_dim) {
+        for _ in 0..comptime!(p.seq_q * p.seq_kv) {
             sequence.push(TA::init_mask(
                 origin,
                 causal,
