@@ -271,6 +271,14 @@ mod dynamic {
             let layout = IntoDynLayoutLaunch::new(layout);
             ViewArg::TensorMap(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
         }
+
+        pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
+            Self::Quantized {
+                values: Box::new(values),
+                scales: Box::new(scales),
+                scheme,
+            }
+        }
     }
     impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
         fn register(&self, launcher: &mut KernelLauncher<R>) {
