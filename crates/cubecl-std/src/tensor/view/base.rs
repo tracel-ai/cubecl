@@ -93,11 +93,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
         view: V::ExpandType,
         layout: VirtualLayoutExpand<C, S>,
     ) -> ViewExpand<E, C, ReadOnly> {
-        let virt = VirtualView::<E, C, S, V>::__expand_new(scope, view, layout);
-        ViewExpand::<E, C, ReadOnly> {
-            inner: ViewType::Read(Arc::new(virt)),
-            _io: PhantomData,
-        }
+        ViewExpand::new(VirtualView::<E, C, S, V>::__expand_new(scope, view, layout))
     }
 }
 
@@ -125,6 +121,20 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         layout: VirtualLayoutExpand<T, C>,
     ) -> ViewExpand<E, T, ReadOnly> {
         View::__expand_new::<View<E, C, IO>, C>(scope, self, layout)
+    }
+
+    pub fn new<V: ViewOperationsExpand<E, C> + 'static>(view: V) -> Self {
+        ViewExpand {
+            inner: ViewType::Read(Arc::new(view)),
+            _io: PhantomData,
+        }
+    }
+
+    pub fn new_mut<V: ViewOperationsMutExpand<E, C> + 'static>(view: V) -> Self {
+        ViewExpand {
+            inner: ViewType::ReadWrite(Arc::new(view)),
+            _io: PhantomData,
+        }
     }
 }
 
@@ -174,11 +184,9 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
         view: V::ExpandType,
         layout: VirtualLayoutExpand<C, S>,
     ) -> ViewExpand<E, C, ReadWrite> {
-        let virt = VirtualViewMut::<E, C, S, V>::__expand_new(scope, view, layout);
-        ViewExpand::<E, C, ReadWrite> {
-            inner: ViewType::ReadWrite(Arc::new(virt)),
-            _io: PhantomData,
-        }
+        ViewExpand::new_mut(VirtualViewMut::<E, C, S, V>::__expand_new(
+            scope, view, layout,
+        ))
     }
 }
 

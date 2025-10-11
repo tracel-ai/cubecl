@@ -230,9 +230,14 @@ impl<
 }
 
 mod dynamic {
-    use crate::tensor::layout::{
-        VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
-        as_dyn::{IntoDyn, IntoDynLayout, IntoDynLayoutLaunch},
+    use cubecl_common::quant::scheme::QuantScheme;
+
+    use crate::{
+        quant,
+        tensor::layout::{
+            VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
+            as_dyn::{IntoDyn, IntoDynLayout, IntoDynLayoutLaunch},
+        },
     };
 
     use super::*;
@@ -243,6 +248,11 @@ mod dynamic {
             TensorMapArg<'a, R>,
             VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
         ),
+        Quantized {
+            values: Box<ViewArg<'a, C, R>>,
+            scales: Box<ViewArg<'a, C, R>>,
+            scheme: QuantScheme,
+        },
     }
     impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
@@ -273,19 +283,28 @@ mod dynamic {
                     buffer.register(launcher);
                     layout.register(launcher);
                 }
+                ViewArg::Quantized { values, scales, .. } => {
+                    values.register(launcher);
+                    scales.register(launcher);
+                }
             }
         }
     }
     #[derive(Clone)]
     pub enum ViewCompilationArg<C: Coordinates> {
-        Array(
-            ArrayCompilationArg,
-            VirtualLayoutCompilationArg<C, Coords1d>,
-        ),
-        TensorMap(
-            TensorMapCompilationArg,
-            VirtualLayoutCompilationArg<C, Sequence<i32>>,
-        ),
+        Array {
+            buffer: ArrayCompilationArg,
+            layout: VirtualLayoutCompilationArg<C, Coords1d>,
+        },
+        TensorMap {
+            buffer: TensorMapCompilationArg,
+            layout: VirtualLayoutCompilationArg<C, Sequence<i32>>,
+        },
+        Quantized {
+            values: Box<ViewCompilationArg<C>>,
+            scales: Box<ViewCompilationArg<C>>,
+            scheme: QuantScheme,
+        },
     }
 
     impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
@@ -293,12 +312,32 @@ mod dynamic {
     impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
             match (self, other) {
-                (ViewCompilationArg::Array(bs, ls), ViewCompilationArg::Array(bo, lo)) => {
-                    bs == bo && ls == lo
-                }
-                (ViewCompilationArg::TensorMap(bs, ls), ViewCompilationArg::TensorMap(bo, lo)) => {
-                    bs == bo && ls == lo
-                }
+                (
+                    ViewCompilationArg::Array { buffer, layout },
+                    ViewCompilationArg::Array {
+                        buffer: buffer_other,
+                        layout: layout_other,
+                    },
+                ) => buffer == buffer_other && layout == layout_other,
+                (
+                    ViewCompilationArg::TensorMap { buffer, layout },
+                    ViewCompilationArg::TensorMap {
+                        buffer: buffer_other,
+                        layout: layout_other,
+                    },
+                ) => buffer == buffer_other && layout == layout_other,
+                (
+                    ViewCompilationArg::Quantized {
+                        values,
+                        scales,
+                        scheme,
+                    },
+                    ViewCompilationArg::Quantized {
+                        values: values_other,
+                        scales: scales_other,
+                        scheme: scheme_other,
+                    },
+                ) => values == values_other && scales == scales_other && scheme == scheme_other,
                 _ => false,
             }
         }
@@ -306,13 +345,22 @@ mod dynamic {
     impl<C: Coordinates> core::hash::Hash for ViewCompilationArg<C> {
         fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
             match self {
-                ViewCompilationArg::Array(buffer, layout) => {
+                ViewCompilationArg::Array { buffer, layout } => {
                     buffer.hash(ra_expand_state);
                     layout.hash(ra_expand_state);
                 }
-                ViewCompilationArg::TensorMap(buffer, layout) => {
+                ViewCompilationArg::TensorMap { buffer, layout } => {
                     buffer.hash(ra_expand_state);
                     layout.hash(ra_expand_state);
+                }
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => {
+                    values.hash(ra_expand_state);
+                    scales.hash(ra_expand_state);
+                    scheme.hash(ra_expand_state);
                 }
             }
         }
@@ -320,12 +368,26 @@ mod dynamic {
     impl<C: Coordinates> core::fmt::Debug for ViewCompilationArg<C> {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
             match self {
-                ViewCompilationArg::Array(f0, f1) => {
-                    f.debug_tuple("Array").field(&f0).field(&f1).finish()
-                }
-                ViewCompilationArg::TensorMap(f0, f1) => {
-                    f.debug_tuple("TensorMap").field(&f0).field(&f1).finish()
-                }
+                ViewCompilationArg::Array { buffer, layout } => f
+                    .debug_struct("ArrayView")
+                    .field("buffer", &buffer)
+                    .field("layout", &layout)
+                    .finish(),
+                ViewCompilationArg::TensorMap { buffer, layout } => f
+                    .debug_struct("TensorMapView")
+                    .field("buffer", &buffer)
+                    .field("layout", &layout)
+                    .finish(),
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => f
+                    .debug_struct("QuantizedView")
+                    .field("values", &values)
+                    .field("scales", &scales)
+                    .field("scheme", &scheme)
+                    .finish(),
             }
         }
     }
@@ -341,12 +403,26 @@ mod dynamic {
                 ViewArg::Array(buffer, layout) => {
                     let buffer = Array::<E>::compilation_arg(buffer);
                     let layout = VirtualLayout::<C, Coords1d>::compilation_arg(layout);
-                    ViewCompilationArg::Array(buffer, layout)
+                    ViewCompilationArg::Array { buffer, layout }
                 }
                 ViewArg::TensorMap(buffer, layout) => {
                     let buffer = TensorMap::<E>::compilation_arg(buffer);
                     let layout = VirtualLayout::<C, Sequence<i32>>::compilation_arg(layout);
-                    ViewCompilationArg::TensorMap(buffer, layout)
+                    ViewCompilationArg::TensorMap { buffer, layout }
+                }
+                ViewArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => {
+                    // Type isn't real, but doesn't matter for compilation arg
+                    let values = View::<E, C, IO>::compilation_arg(values);
+                    let scales = View::<E, C, IO>::compilation_arg(scales);
+                    ViewCompilationArg::Quantized {
+                        values: Box::new(values),
+                        scales: Box::new(scales),
+                        scheme: *scheme,
+                    }
                 }
             }
         }
@@ -355,7 +431,7 @@ mod dynamic {
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             match arg {
-                ViewCompilationArg::Array(buffer, layout) => {
+                ViewCompilationArg::Array { buffer, layout } => {
                     let buffer = Array::<E>::expand(buffer, builder);
                     let layout = VirtualLayout::<C, Coords1d>::expand(layout, builder);
                     let view =
@@ -365,7 +441,7 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
-                ViewCompilationArg::TensorMap(buffer, layout) => {
+                ViewCompilationArg::TensorMap { buffer, layout } => {
                     let buffer = TensorMap::<E>::expand(buffer, builder);
                     let layout = VirtualLayout::<C, Sequence<i32>>::expand(layout, builder);
                     let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
@@ -376,6 +452,11 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => quant::view::expand_dynamic(values, scales, *scheme, builder),
             }
         }
         fn expand_output(
@@ -383,7 +464,7 @@ mod dynamic {
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
             match arg {
-                ViewCompilationArg::Array(buffer, layout) => {
+                ViewCompilationArg::Array { buffer, layout } => {
                     let buffer = Array::<E>::expand_output(buffer, builder);
                     let layout = VirtualLayout::<C, Coords1d>::expand_output(layout, builder);
                     let view =
@@ -393,7 +474,7 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
-                ViewCompilationArg::TensorMap(buffer, layout) => {
+                ViewCompilationArg::TensorMap { buffer, layout } => {
                     let buffer = TensorMap::<E>::expand_output(buffer, builder);
                     let layout = VirtualLayout::<C, Sequence<i32>>::expand_output(layout, builder);
                     let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
@@ -404,6 +485,7 @@ mod dynamic {
                         _io: PhantomData,
                     }
                 }
+                ViewCompilationArg::Quantized { .. } => panic!("Quantized views must be readonly"),
             }
         }
     }
