@@ -1,7 +1,6 @@
 use alloc::vec;
 use alloc::vec::Vec;
 use core::{default::Default, ops::Deref};
-use cubecl_common::{e4m3, e5m2};
 use serde::{Deserialize, Serialize};
 
 /// Describes a quantization scheme/configuration.
@@ -79,6 +78,12 @@ impl QuantScheme {
     pub fn num_quants(&self) -> usize {
         self.size_bits_stored() / self.value.size_bits()
     }
+
+    /// Returns the native packing factor for the values. When native packing > 1, the packed
+    /// representation stores `num_quants` elements grouped into packs of `native_packing` size.
+    pub fn native_packing(&self) -> usize {
+        self.value.native_packing()
+    }
 }
 
 /// Level or granularity of quantization.
@@ -91,6 +96,7 @@ pub enum QuantLevel {
 }
 
 impl QuantLevel {
+    /// Converting constructor for [`QuantLevel::Block`]
     pub fn block(values: impl AsRef<[u8]>) -> Self {
         QuantLevel::Block(BlockSize::new(values))
     }
@@ -129,6 +135,15 @@ impl QuantValue {
         }
     }
 
+    /// Packing factor for the native representation used for intermediate values. If > 1, values
+    /// should always be processed in `native_packing` sized chunks.
+    pub fn native_packing(&self) -> usize {
+        match self {
+            QuantValue::E2M1 => 2,
+            _ => 1,
+        }
+    }
+
     /// The possible range of values allowed by the quant value.
     pub fn range(&self) -> (f32, f32) {
         match self {
@@ -138,8 +153,8 @@ impl QuantValue {
             QuantValue::Q8S => (-i8::MAX as f32, i8::MAX as f32),
             QuantValue::Q4S => (-7.0, 7.0),
             QuantValue::Q2S => (-1.0, 1.0),
-            QuantValue::E4M3 => (e4m3::MIN as f32, e4m3::MAX as f32),
-            QuantValue::E5M2 => (e5m2::MIN as f32, e5m2::MAX as f32),
+            QuantValue::E4M3 => (-448.0, 448.0),
+            QuantValue::E5M2 => (-57344.0, 57344.0),
             QuantValue::E2M1 => (-6.0, 6.0), // Hardcoded because of no-std
         }
     }
@@ -253,10 +268,12 @@ impl BlockSize {
         out
     }
 
+    /// Create an iterator over all stored dimensions
     pub fn iter(&self) -> impl Iterator<Item = &u8> {
         self.as_slice().iter()
     }
 
+    /// Returns the total number of elements in each block
     pub fn num_elements(&self) -> usize {
         self.iter().map(|it| *it as usize).product()
     }
