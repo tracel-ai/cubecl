@@ -272,6 +272,8 @@ mod dynamic {
             ViewArg::TensorMap(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
         }
 
+        /// Create a new view arg that dequantizes on read.
+        /// The scales layout should take values indices and map them to the corresponding scale.
         pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
             Self::Quantized {
                 values: Box::new(values),

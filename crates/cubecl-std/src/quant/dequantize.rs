@@ -26,6 +26,7 @@ pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Float>(
 #[cube]
 pub fn unpack_cast_u32<F: Float>(value: Line<u32>, #[comptime] scheme: QuantScheme) -> Line<F> {
     let num_quants = comptime![scheme.num_quants() as u32];
+    let native_packing = comptime![scheme.native_packing() as u32];
     let out_line_size = comptime![value.line_size() * num_quants];
     let size_bits = comptime![scheme.size_bits_value() as u32];
     let mask = comptime![packing_mask(scheme)];
@@ -38,18 +39,17 @@ pub fn unpack_cast_u32<F: Float>(value: Line<u32>, #[comptime] scheme: QuantSche
         let packed_val = value[line_idx];
         let out_offset = comptime![line_idx * num_quants];
         #[unroll]
-        for packed_idx in 0..num_quants {
+        for packed_idx in range_stepped(0, num_quants, native_packing) {
             let packed_idx = unwrap(packed_idx);
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift) & mask;
 
             let float_value = cast_masked::<F>(value, scheme);
-            let native_packing = float_value.line_size();
 
             #[unroll]
             for native_idx in 0..native_packing {
                 let native_idx = unwrap(native_idx);
-                let out_offset = comptime![out_offset + packed_idx * native_packing + native_idx];
+                let out_offset = comptime![out_offset + packed_idx + native_idx];
                 out[out_offset] = float_value[native_idx];
             }
         }

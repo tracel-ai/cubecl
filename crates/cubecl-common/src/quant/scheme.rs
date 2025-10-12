@@ -78,6 +78,12 @@ impl QuantScheme {
     pub fn num_quants(&self) -> usize {
         self.size_bits_stored() / self.value.size_bits()
     }
+
+    /// Returns the native packing factor for the values. When native packing > 1, the packed
+    /// representation stores `num_quants` elements grouped into packs of `native_packing` size.
+    pub fn native_packing(&self) -> usize {
+        self.value.native_packing()
+    }
 }
 
 /// Level or granularity of quantization.
@@ -126,6 +132,15 @@ impl QuantValue {
             QuantValue::Q8F | QuantValue::Q8S | QuantValue::E4M3 | QuantValue::E5M2 => 8,
             QuantValue::Q4F | QuantValue::Q4S | QuantValue::E2M1 => 4,
             QuantValue::Q2F | QuantValue::Q2S => 2,
+        }
+    }
+
+    /// Packing factor for the native representation used for intermediate values. If > 1, values
+    /// should always be processed in `native_packing` sized chunks.
+    pub fn native_packing(&self) -> usize {
+        match self {
+            QuantValue::E2M1 => 2,
+            _ => 1,
         }
     }
 
