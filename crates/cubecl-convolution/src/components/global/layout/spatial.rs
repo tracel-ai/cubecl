@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::{
     layout::{Coordinates, Coords1d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
@@ -154,7 +154,6 @@ impl Layout for NhwcLayout {
 
         #[unroll]
         for i in 0..spatial_dims {
-            let i = unwrap(i);
             read_pos += *spatial.index(i) as u32 * *self.strides_spatial.index(i);
         }
 
@@ -172,7 +171,6 @@ impl Layout for NhwcLayout {
 
             #[unroll]
             for i in 0..spatial_dims {
-                let i = unwrap(i);
                 let pos = *pos.spatial.index(i);
                 spatial_in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
             }
@@ -192,12 +190,6 @@ impl Layout for NhwcLayout {
     }
 }
 
-#[allow(unused_variables)]
-#[cube]
-pub(crate) fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
-}
-
 #[cube]
 pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
     seq: Sequence<From>,
@@ -206,7 +198,6 @@ pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
     let mut out_seq = Sequence::new();
     #[unroll]
     for i in 0..num_elems {
-        let i = unwrap(i);
         let elem = To::cast_from(*seq.index(i));
         out_seq.push(elem);
     }

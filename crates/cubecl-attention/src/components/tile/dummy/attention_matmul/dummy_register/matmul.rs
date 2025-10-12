@@ -106,7 +106,7 @@ impl<E: Float> ArrayTile<E> {
         self.unit_size.1 * (UNIT_POS_X % self.num_units_per_row) + c
     }
 
-    fn abs_pos(&self, local_pos: Coords2d) -> Coords2d {
+    fn abs_pos(&self, #[comptime] local_pos: Coords2d) -> Coords2d {
         (
             self.abs_row_index(local_pos.0),
             self.abs_col_index(local_pos.1),

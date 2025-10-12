@@ -12,7 +12,7 @@ use cubecl_std::{
 use crate::{
     components::{
         ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
-        global::layout::{NhwcCoords, unwrap},
+        global::layout::NhwcCoords,
     },
     kernels::layered::selector::RuntimeArgs,
 };
@@ -69,7 +69,6 @@ impl Layout for WeightLayout {
 
         #[unroll]
         for i in 0..spatial_dims {
-            let i = unwrap(i);
             let dim = comptime![spatial_dims - i - 1];
             let ksize = comptime![params.kernel_size[dim as usize]];
             let k_pos = rem % ksize;
