@@ -305,6 +305,29 @@ test_unary_impl!(
     ]
 );
 
+test_unary_impl!(
+    test_trunc,
+    F,
+    F::trunc,
+    [{
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: -1.2, -1., -0., 0.],
+        expected: as_type![F: -1., -1., -0., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: f32::NAN, 1., 1.2, 1.9],
+        expected: as_type![F: f32::NAN, 1., 1., 1.0]
+    },{
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -0.9, 0.2, f32::NAN, 1.99],
+        expected: as_type![F: -0., 0., f32::NAN, 1.]
+    }]
+);
+
 test_unary_impl_fixed!(
     test_is_nan,
     F,
@@ -479,6 +502,7 @@ macro_rules! testgen_unary {
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_abs);
+            add_test!(test_trunc);
             add_test!(test_is_nan);
             add_test!(test_is_inf);
         }
