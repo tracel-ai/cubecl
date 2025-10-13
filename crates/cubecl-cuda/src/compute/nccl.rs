@@ -1,4 +1,4 @@
-//* WITH THIS MODULE `cudarc::driver::result::init().unwrap();` IS NOT LONGER HANDLES BY `CudaRuntime::create_clien()`
+//* WITH THIS MODULE `cudarc::driver::result::init().unwrap();` IS NOT LONGER HANDLES BY `CudaRuntime::create_client()`
 //*
 //* NCCL Multi-GPU Communication Wrapper
 //*
@@ -124,16 +124,15 @@ impl NcclDevice {
     }
 
     /// https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#allreduce
+    /// When no output is set the reduction will be made in place.
     pub fn all_reduce<N: Float + CubeElement>(
         &self,
         input: &Handle,
-        output: Option<&Handle>,
+        output: &Handle,
         op: ReduceOp,
     ) {
         let in_ptr = NcclPtr::<N>::get(self.client(), input);
-        let out_ptr = output
-            .map(|h| NcclPtr::<N>::get(self.client(), h))
-            .unwrap_or_else(|| in_ptr);
+        let out_ptr = NcclPtr::<N>::get(self.client(), output);
 
         unsafe {
             cudarc::nccl::result::all_reduce(
@@ -150,16 +149,9 @@ impl NcclDevice {
     }
 
     /// https://docs.nvidia.com/deeplearning/nccl/user-guide/docs/usage/collectives.html#broadcast
-    pub fn broadcast<N: Float + CubeElement>(
-        &self,
-        input: &Handle,
-        output: Option<&Handle>,
-        root: i32,
-    ) {
+    pub fn broadcast<N: Float + CubeElement>(&self, input: &Handle, output: &Handle, root: i32) {
         let in_ptr = NcclPtr::<N>::get(self.client(), input);
-        let out_ptr = output
-            .map(|h| NcclPtr::<N>::get(self.client(), h))
-            .unwrap_or_else(|| in_ptr);
+        let out_ptr = NcclPtr::<N>::get(self.client(), output);
         unsafe {
             cudarc::nccl::result::broadcast(
                 in_ptr.ptr as *const ::core::ffi::c_void,
@@ -178,14 +170,12 @@ impl NcclDevice {
     pub fn reduce<N: Float + CubeElement>(
         &self,
         input: &Handle,
-        output: Option<&Handle>,
+        output: &Handle,
         op: ReduceOp,
         root: i32,
     ) {
         let in_ptr = NcclPtr::<N>::get(&self.client, input);
-        let out_ptr = output
-            .map(|h| NcclPtr::<N>::get(&self.client, h))
-            .unwrap_or_else(|| in_ptr);
+        let out_ptr = NcclPtr::<N>::get(self.client(), output);
         unsafe {
             cudarc::nccl::result::reduce(
                 in_ptr.ptr as *const ::core::ffi::c_void,
@@ -238,12 +228,12 @@ impl NcclDevice {
     }
 }
 
-pub struct LazyNccl {
+pub struct NcclGroup {
     nccl_devs: Vec<NcclDevice>,
     device_count: usize,
 }
 
-impl LazyNccl {
+impl NcclGroup {
     /// Creates a single group with all devices on a single thread.
     pub fn new() -> Self {
         cudarc::driver::result::init().unwrap();
@@ -310,17 +300,14 @@ impl LazyNccl {
     pub fn all_reduce<N: Float + CubeElement>(
         &self,
         inputs: &[Handle],
-        outputs: Option<&Vec<Handle>>,
+        outputs: &Vec<Handle>,
         op: ReduceOp,
     ) {
         cudarc::nccl::result::group_start().unwrap();
         for nccl_client in &self.nccl_devs {
             let rank = nccl_client.rank as usize;
             let in_ptr = NcclPtr::<N>::get(nccl_client.client(), &inputs[rank]);
-            let out_ptr = outputs
-                .and_then(|o| o.get(rank))
-                .map(|h| NcclPtr::<N>::get(nccl_client.client(), h))
-                .unwrap_or_else(|| in_ptr);
+            let out_ptr = NcclPtr::<N>::get(nccl_client.client(), &outputs[rank]);
             unsafe {
                 cudarc::nccl::result::all_reduce(
                     in_ptr.ptr as *const ::core::ffi::c_void,
@@ -338,21 +325,22 @@ impl LazyNccl {
     }
 
     /// Assumes the `handles` vecotor got a `Handle` for each device in order of the rank.
-    /// If outputs is `None` reduction will be in place.
     pub fn broadcast<N: Float + CubeElement>(
         &self,
-        inputs: &[Handle],
-        outputs: Option<&Vec<Handle>>,
+        input: &Handle,
+        outputs: &Vec<Handle>,
         root: i32,
     ) {
         cudarc::nccl::result::group_start().unwrap();
         for nccl_client in &self.nccl_devs {
-            let rank = nccl_client.rank as usize;
-            let in_ptr = NcclPtr::<N>::get(nccl_client.client(), &inputs[rank]);
-            let out_ptr = outputs
-                .and_then(|o| o.get(rank))
-                .map(|h| NcclPtr::<N>::get(nccl_client.client(), h))
-                .unwrap_or_else(|| in_ptr);
+            let rank = nccl_client.rank;
+            let out_ptr = NcclPtr::<N>::get(nccl_client.client(), &outputs[rank as usize]);
+            let in_ptr = if rank == root {
+                NcclPtr::<N>::get(nccl_client.client(), &input)
+            } else {
+                out_ptr
+            };
+
             unsafe {
                 cudarc::nccl::result::broadcast(
                     in_ptr.ptr as *const ::core::ffi::c_void,
@@ -369,12 +357,11 @@ impl LazyNccl {
         cudarc::nccl::result::group_end().unwrap();
     }
 
-    /// Assumes the `handles` vecotor got a `Handle` for each device in order of the rank.
-    /// If outputs is `None` reduction will be in place.
+    /// Assumes the `handles` vector got a `Handle` for each device in order of the rank.
     pub fn reduce<N: Float + CubeElement>(
         &self,
         inputs: &[Handle],
-        outputs: Option<&Vec<Handle>>,
+        outputs: &Vec<Handle>,
         op: ReduceOp,
         root: i32,
     ) {
@@ -382,10 +369,8 @@ impl LazyNccl {
         for nccl_client in &self.nccl_devs {
             let rank = nccl_client.rank as usize;
             let in_ptr = NcclPtr::<N>::get(nccl_client.client(), &inputs[rank]);
-            let out_ptr = outputs
-                .and_then(|o| o.get(rank))
-                .map(|h| NcclPtr::<N>::get(nccl_client.client(), h))
-                .unwrap_or_else(|| in_ptr);
+            let out_ptr = NcclPtr::<N>::get(nccl_client.client(), &outputs[rank]);
+
             unsafe {
                 cudarc::nccl::result::reduce(
                     in_ptr.ptr as *const ::core::ffi::c_void,
@@ -477,10 +462,10 @@ mod tests {
 
     #[test]
     fn all_reduce() {
-        let group = LazyNccl::new();
+        let group = NcclGroup::new();
         let data = vec![1.0f32, 2.0f32, 3.0f32, 4.0f32];
         let handles = group.create_copies(f32::as_bytes(data.as_slice()));
-        group.all_reduce::<f32>(&handles, None, ReduceOp::Sum);
+        group.all_reduce::<f32>(&handles, &handles, ReduceOp::Sum);
         group.barrier();
         let results = group.read_intervall(handles);
         let expected = vec![
@@ -497,14 +482,15 @@ mod tests {
 
     #[test]
     fn broadcast() {
-        let group = LazyNccl::new();
+        let group = NcclGroup::new();
         let mut handles = Vec::new();
         for i in 0..group.device_count {
             let data = vec![i as f32, (i + 1) as f32, (i + 2) as f32, (i + 3) as f32];
             handles.push(group.get_client(i).create(f32::as_bytes(data.as_slice())));
         }
         let root = 0;
-        group.broadcast::<f32>(&handles, None, root);
+
+        group.broadcast::<f32>(&handles[0], &handles, root);
         group.barrier();
         let results = group.read_intervall(handles);
         let expected = vec![0.0f32, 1.0f32, 2.0f32, 3.0f32];
@@ -516,11 +502,11 @@ mod tests {
 
     #[test]
     fn reduce() {
-        let group = LazyNccl::new();
+        let group = NcclGroup::new();
         let data = vec![1.0f32, 2.0f32, 3.0f32, 4.0f32];
         let handles = group.create_copies(f32::as_bytes(data.as_slice()));
         let root = 0;
-        group.reduce::<f32>(&handles, None, ReduceOp::Sum, root);
+        group.reduce::<f32>(&handles, &handles, ReduceOp::Sum, root);
         group.barrier();
         let results = group.read_intervall(handles);
         let expected = vec![
@@ -539,7 +525,7 @@ mod tests {
 
     #[test]
     fn send_recv() {
-        let group = LazyNccl::new();
+        let group = NcclGroup::new();
         if group.device_count >= 2 {
             let send_data = vec![1.0f32, 2.0f32, 3.0f32, 4.0f32];
             let send_handle = group
@@ -556,7 +542,7 @@ mod tests {
 
     #[test]
     fn reduce_operations() {
-        let group = LazyNccl::new();
+        let group = NcclGroup::new();
         let n = group.device_count as f32;
         let data = vec![2.0f32, 3.0f32, 4.0f32, 5.0f32];
         let test_cases = vec![
@@ -576,7 +562,7 @@ mod tests {
         ];
         for (op, expected) in test_cases {
             let handles = group.create_copies(f32::as_bytes(data.as_slice()));
-            group.all_reduce::<f32>(&handles, None, op);
+            group.all_reduce::<f32>(&handles, &handles, op);
             group.barrier();
             let results = group.read_intervall(handles);
             let values = f32::from_bytes(results[0].as_slice());
