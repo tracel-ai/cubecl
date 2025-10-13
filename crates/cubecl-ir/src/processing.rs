@@ -131,6 +131,9 @@ impl ScopeProcessing {
                     Arithmetic::Ceil(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
+                    Arithmetic::Trunc(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
                     Arithmetic::Erf(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }

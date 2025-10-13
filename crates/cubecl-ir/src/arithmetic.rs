@@ -32,6 +32,7 @@ pub enum Arithmetic {
     Round(UnaryOperator),
     Floor(UnaryOperator),
     Ceil(UnaryOperator),
+    Trunc(UnaryOperator),
     Erf(UnaryOperator),
     Recip(UnaryOperator),
     Clamp(ClampOperator),
@@ -73,6 +74,7 @@ impl Display for Arithmetic {
             Arithmetic::Round(op) => write!(f, "{}.round()", op.input),
             Arithmetic::Floor(op) => write!(f, "{}.floor()", op.input),
             Arithmetic::Ceil(op) => write!(f, "{}.ceil()", op.input),
+            Arithmetic::Trunc(op) => write!(f, "{}.trunc()", op.input),
             Arithmetic::Erf(op) => write!(f, "{}.erf()", op.input),
             Arithmetic::Recip(op) => write!(f, "{}.recip()", op.input),
             Arithmetic::Clamp(op) => {

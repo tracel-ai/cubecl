@@ -4,7 +4,7 @@ use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
     self as cubecl,
-    prelude::{IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub},
+    prelude::{IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub, Trunc},
 };
 use crate::{
     frontend::{
@@ -255,6 +255,7 @@ impl<P: CubePrimitive + Remainder> Remainder for Line<P> {}
 impl<P: CubePrimitive + Round> Round for Line<P> {}
 impl<P: CubePrimitive + Floor> Floor for Line<P> {}
 impl<P: CubePrimitive + Ceil> Ceil for Line<P> {}
+impl<P: CubePrimitive + Trunc> Trunc for Line<P> {}
 impl<P: CubePrimitive + ReverseBits> ReverseBits for Line<P> {}
 impl<P: CubePrimitive + BitwiseNot> BitwiseNot for Line<P> {}
 impl<P: CubePrimitive + SaturatingAdd> SaturatingAdd for Line<P> {}

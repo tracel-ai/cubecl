@@ -1012,6 +1012,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Ceil(op) => {
                 instructions.push(Instruction::Ceil(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::Trunc(op) => {
+                instructions.push(Instruction::Trunc(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Remainder(op) => {
                 instructions.push(Instruction::Remainder(self.compile_binary(op, out)))
             }
