@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::*;
-use cubecl_ir::{ElemType, ExpandElement, IntKind, Scope, StorageType, Variable};
+use cubecl_ir::{
+    ConstantScalarValue, ElemType, ExpandElement, IntKind, Scope, StorageType, Variable,
+};
 use derive_more::derive::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
     DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
@@ -140,6 +142,10 @@ impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     /// Return the element type to use on GPU
     fn as_type(scope: &Scope) -> StorageType {
         scope.resolve_type::<Self>().expect("Type to be registered")
+    }
+
+    fn from_const_value(_value: ConstantScalarValue) -> Self {
+        unimplemented!("Can't turn `IntExpand` into a constant value")
     }
 }
 
