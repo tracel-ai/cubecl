@@ -25,24 +25,18 @@ impl Reducer for DummyReducer {
         let plane_offset = UNIT_POS_Y * num_vals_in_plane;
         let unit_offset = UNIT_POS_X;
 
-        let mut r = comptime![0u32];
-
         #[unroll]
-        for _ in 0..config.num_rows_per_unit() {
+        for r in 0..config.num_rows_per_unit() {
             let row_offset = r * config.plane_dim();
             let offset = plane_offset + row_offset + unit_offset;
 
             smem[offset] = local_vals.index(r);
-
-            comptime![r += 1];
         }
 
         sync_cube();
 
-        let mut r = comptime![0u32];
-
         #[unroll]
-        for _ in 0..config.num_rows_per_unit() {
+        for r in 0..config.num_rows_per_unit() {
             let mut val = vals.index(r);
 
             let row_offset = r * config.plane_dim();
@@ -56,8 +50,6 @@ impl Reducer for DummyReducer {
             }
 
             vals.replace_at(r, val);
-
-            comptime![r += 1];
         }
 
         sync_cube();

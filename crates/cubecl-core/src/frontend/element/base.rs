@@ -342,6 +342,11 @@ impl<T: CubePrimitive> ExpandElementTyped<T> {
             _ => None,
         }
     }
+
+    pub fn __expand_into_lit_unchecked_method(self, _scope: &mut Scope) -> T {
+        let value = self.constant().unwrap();
+        T::from_const_value(value)
+    }
 }
 
 pub(crate) fn into_runtime_expand_element<E: Into<ExpandElement>>(

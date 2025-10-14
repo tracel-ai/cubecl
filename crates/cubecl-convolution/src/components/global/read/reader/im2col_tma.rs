@@ -1,5 +1,5 @@
+use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
-use cubecl_core::{intrinsic, prelude::*};
 
 use cubecl_matmul::components::{MatrixPrecision, StageIdent, stage::StageMemoryConfig};
 use cubecl_std::FastDivmod;
@@ -73,7 +73,6 @@ impl<IP: MatrixPrecision> TmaIm2colGlobalReader<IP> {
 
             #[unroll]
             for dim in 0..spatial_dims {
-                let dim = unwrap(dim);
                 let offs =
                     self.map.spatial_offsets.index(dim) * comptime![params.stride[dim as usize]];
                 let offs = offs as i32 - comptime![params.padding[dim as usize]];
@@ -171,7 +170,6 @@ pub(crate) fn div_mod_seq(pos: u32, shape: &Sequence<FastDivmod>) -> (u32, Seque
 
     #[unroll]
     for i in 0..rank {
-        let i = unwrap(i);
         let dim = comptime![rank - i - 1];
         let (rem, offs_local) = shape.index(dim).div_mod(offs);
         out.push(offs_local);
@@ -179,10 +177,4 @@ pub(crate) fn div_mod_seq(pos: u32, shape: &Sequence<FastDivmod>) -> (u32, Seque
     }
 
     (offs, out.rev())
-}
-
-#[allow(unused_variables)]
-#[cube]
-fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
 }

@@ -56,19 +56,15 @@ impl<
 
         let p = config.tiling_scheme().partition_size;
 
-        let mut kv = comptime![0u32];
-
         let mut max_placeholder = TA::init_max_placeholder(config.num_rows_per_unit());
         let mut sum_placeholder = TA::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_kv {
-            let mut hd = comptime![0u32];
-
+        for kv in 0..p.seq_kv {
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.head_dim {
+            for hd in 0..p.head_dim {
                 let key_tile = SK::tile(key_reader, (hd, kv).runtime());
 
                 TA::fill_key(
@@ -76,30 +72,23 @@ impl<
                     key_value_partition.get_key_at_mut(hd, kv, config),
                     config.tile_config(),
                 );
-
-                comptime![hd += 1];
             }
 
-            let mut q = comptime![0u32];
             let mut scales = Sequence::<RowWise<SM<AP>>>::new();
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.seq_q {
+            for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
                 TA::zero_softmax(softmax_tile, config.tile_config());
 
-                let mut hd = comptime![0u32];
-
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
-                for _ in 0..p.head_dim {
+                for hd in 0..p.head_dim {
                     let query_tile = query_partition.get_at(q, hd, config);
                     let key_tile = key_value_partition.get_key_at(hd, kv, config);
 
                     TA::accumulate_score(query_tile, key_tile, softmax_tile, config.tile_config());
-
-                    comptime![hd += 1];
                 }
 
                 let state_q = state.index_mut(q);
@@ -113,15 +102,11 @@ impl<
                     config.tiling_scheme().elements_in_partition_head_dim(),
                     config.tile_config(),
                 ));
-
-                comptime![q += 1];
             }
-
-            let mut vd = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.val_dim {
+            for vd in 0..p.val_dim {
                 let value_tile = SV::tile(value_reader, (kv, vd).runtime());
 
                 TA::fill_value(
@@ -129,21 +114,16 @@ impl<
                     key_value_partition.get_value_at_mut(kv, vd, config),
                     config.tile_config(),
                 );
-
-                comptime![vd += 1];
             }
-
-            let mut q = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.seq_q {
-                let mut vd = comptime![0u32];
+            for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at(q, kv, config);
 
                 #[unroll]
                 #[allow(clippy::explicit_counter_loop)]
-                for _ in 0..p.val_dim {
+                for vd in 0..p.val_dim {
                     TA::accumulate_value(
                         softmax_tile,
                         key_value_partition.get_value_at(kv, vd, config),
@@ -151,14 +131,8 @@ impl<
                         scales.index(q),
                         config.tile_config(),
                     );
-
-                    comptime![vd += 1];
                 }
-
-                comptime![q += 1];
             }
-
-            comptime![kv += 1];
         }
     }
 
