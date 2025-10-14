@@ -70,9 +70,9 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> SyncPartialCyclicJob {
-        let line_size = config.global_line_size(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
         let tile_size = config.tiling_scheme().elements_in_tile(ident);
@@ -165,9 +165,12 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
+    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
+    let view = global_iter.view().view(layout);
+
     let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.global_line_size(job.ident),
+            view.line_size(),
             config.tiling_scheme().elements_in_tile(job.ident),
             config.tiling_scheme().tiles_in_stage_row(job.ident),
             config.tiling_scheme().tiles_in_stage_col(job.ident),
@@ -207,9 +210,6 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
         ),
         MatmulIdent::Out => comptime!(unreachable!()),
     };
-
-    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
-    let view = global_iter.view().view(layout);
 
     let line_read = view.read_checked((tile, pos_within_tile));
 

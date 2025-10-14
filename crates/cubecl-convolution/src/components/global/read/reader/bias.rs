@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use cubecl_matmul::components::{
-    MatmulIdent, MatrixPrecision, StageIdent,
+    MatrixPrecision, StageIdent,
     global::GlobalConfig,
     stage::{StageMemoryConfig, StridedStage},
 };
@@ -33,7 +33,7 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
     pub fn load_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
         match self {
             BiasGlobalReader::Some { view, stage } => {
-                let line_size = config.global_line_size(MatmulIdent::Out);
+                let line_size = view.line_size();
                 let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
 
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;

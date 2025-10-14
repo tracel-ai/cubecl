@@ -34,6 +34,7 @@ pub trait SyncFullLoadingStrategy:
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP>;
 }
@@ -75,7 +76,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
+            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, tensor.line_size(), config)),
             false => CubeOption::new_None(),
         };
 
@@ -104,9 +105,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(&mut self, #[comptime] config: G) {
+        let view = self.global_iter.view();
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(self.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(self.ident, view.line_size(), config),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -136,9 +138,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         #[comptime] _stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
+        let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(this.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(this.ident, view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);

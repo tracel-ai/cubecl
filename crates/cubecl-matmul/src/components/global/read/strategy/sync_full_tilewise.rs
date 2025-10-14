@@ -80,9 +80,9 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
-        let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();

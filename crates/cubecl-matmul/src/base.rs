@@ -1,7 +1,8 @@
+use cubecl_common::quant::scheme::QuantScheme;
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
+    prelude::{CubePrimitive, Numeric, TensorHandleRef},
 };
 
 use cubecl_std::tensor::TensorHandle;
@@ -94,11 +95,13 @@ pub enum AsyncReadingStrategy {
     Tma,
 }
 
-pub enum MatmulInputHandle<R: Runtime, E: Numeric> {
+pub enum MatmulInputHandle<R: Runtime, E: CubePrimitive, S: CubePrimitive = f32> {
     Normal(TensorHandle<R, E>),
     Quantized {
         data: TensorHandle<R, E>,
-        scale: TensorHandle<R, f32>,
+        scale: TensorHandle<R, S>,
+        shape: Vec<usize>,
+        scheme: QuantScheme,
     },
 }
 
@@ -106,21 +109,35 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
     pub fn as_ref(&self) -> MatmulInputHandleRef<'_, R> {
         match self {
             MatmulInputHandle::Normal(handle) => MatmulInputHandleRef::Normal(handle.as_ref()),
-            MatmulInputHandle::Quantized { data, scale } => MatmulInputHandleRef::Quantized {
+            MatmulInputHandle::Quantized {
+                data,
+                scale,
+                shape,
+                scheme,
+            } => MatmulInputHandleRef::Quantized {
                 data: data.as_ref(),
                 scale: scale.as_ref(),
+                shape,
+                scheme,
             },
         }
     }
 }
 
-impl<R: Runtime, E: Numeric> Clone for MatmulInputHandle<R, E> {
+impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
     fn clone(&self) -> Self {
         match self {
             Self::Normal(handle) => Self::Normal(handle.clone()),
-            Self::Quantized { data, scale } => Self::Quantized {
+            Self::Quantized {
+                data,
+                scale,
+                shape,
+                scheme,
+            } => Self::Quantized {
                 data: data.clone(),
                 scale: scale.clone(),
+                shape: shape.clone(),
+                scheme: *scheme,
             },
         }
     }
@@ -132,6 +149,9 @@ pub enum MatmulInputHandleRef<'a, R: Runtime> {
     Quantized {
         data: TensorHandleRef<'a, R>,
         scale: TensorHandleRef<'a, R>,
+        /// Unpacked shape, excluding padding
+        shape: &'a [usize],
+        scheme: &'a QuantScheme,
     },
 }
 
@@ -148,8 +168,18 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         Self::Normal(data)
     }
 
-    pub fn quantized(data: TensorHandleRef<'a, R>, scale: TensorHandleRef<'a, R>) -> Self {
-        Self::Quantized { data, scale }
+    pub fn quantized(
+        data: TensorHandleRef<'a, R>,
+        scale: TensorHandleRef<'a, R>,
+        shape: &'a [usize],
+        scheme: &'a QuantScheme,
+    ) -> Self {
+        Self::Quantized {
+            data,
+            scale,
+            shape,
+            scheme,
+        }
     }
 
     pub fn data(&self) -> &TensorHandleRef<'a, R> {
@@ -170,6 +200,20 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         match self {
             MatmulInputHandleRef::Normal(_) => None,
             MatmulInputHandleRef::Quantized { scale, .. } => Some(scale),
+        }
+    }
+
+    pub fn scheme(&self) -> Option<&QuantScheme> {
+        match self {
+            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Quantized { scheme, .. } => Some(scheme),
+        }
+    }
+
+    pub fn shape(&self) -> &[usize] {
+        match self {
+            MatmulInputHandleRef::Normal(handle) => handle.shape,
+            MatmulInputHandleRef::Quantized { shape, .. } => shape,
         }
     }
 }

@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_common::quant::scheme::*;
 use cubecl_common::{e2m1x2, e4m3, e5m2};
-use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_core as cubecl;
 
 /// Dequantize a line of values, where `line_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
@@ -35,12 +35,10 @@ pub fn unpack_cast_u32<F: Float>(value: Line<u32>, #[comptime] scheme: QuantSche
 
     #[unroll]
     for line_idx in 0..value.line_size() {
-        let line_idx = unwrap(line_idx);
         let packed_val = value[line_idx];
         let out_offset = comptime![line_idx * num_quants];
         #[unroll]
         for packed_idx in range_stepped(0, num_quants, native_packing) {
-            let packed_idx = unwrap(packed_idx);
             let shift = packed_idx * size_bits;
             let value = (packed_val >> shift) & mask;
 
@@ -48,7 +46,6 @@ pub fn unpack_cast_u32<F: Float>(value: Line<u32>, #[comptime] scheme: QuantSche
 
             #[unroll]
             for native_idx in 0..native_packing {
-                let native_idx = unwrap(native_idx);
                 let out_offset = comptime![out_offset + packed_idx + native_idx];
                 out[out_offset] = float_value[native_idx];
             }
@@ -100,10 +97,4 @@ fn cast_masked<F: Float>(value: u32, #[comptime] scheme: QuantScheme) -> Line<F>
             Line::<F>::cast_from(signed_value)
         }
     }
-}
-
-#[allow(unused_variables)]
-#[cube]
-pub(crate) fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
 }
