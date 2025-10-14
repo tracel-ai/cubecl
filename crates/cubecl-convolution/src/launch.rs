@@ -10,10 +10,13 @@ use crate::{
     kernels::layered::selector::launch_kernel_concrete,
 };
 use crate::{
-    components::{ConvolutionProblem, Dimensionality, global::args::ConcreteInputsFactory},
+    components::{
+        ConvolutionProblem, Dimensionality,
+        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    },
     kernels::layered::algorithm::Algorithm,
 };
-use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::{
     self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
     MatrixPrecision, RhsG,

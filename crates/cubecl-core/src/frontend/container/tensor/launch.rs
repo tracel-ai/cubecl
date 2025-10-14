@@ -6,7 +6,9 @@ use crate::{
     Runtime,
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
-    prelude::{ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg},
+    prelude::{
+        ArgSettings, ArrayArg, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
+    },
 };
 
 use super::Tensor;
@@ -183,6 +185,11 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
                 self.elem_size,
             )
         }
+    }
+    /// Convert the handle into an [array argument](ArrayArg).
+    pub fn as_array_arg(&'a self, line_size: u8) -> ArrayArg<'a, R> {
+        let length = self.shape.iter().product();
+        unsafe { ArrayArg::from_raw_parts_and_size(self.handle, length, line_size, self.elem_size) }
     }
     /// Create a handle from raw parts.
     ///

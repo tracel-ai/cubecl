@@ -6,6 +6,7 @@ pub use base::*;
 pub use coordinates::*;
 pub use r#virtual::*;
 
+pub mod as_dyn;
 pub mod chain;
 pub mod linear;
 pub mod permuted;

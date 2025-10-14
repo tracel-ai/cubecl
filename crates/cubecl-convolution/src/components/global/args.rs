@@ -2,15 +2,37 @@ use std::any::TypeId;
 
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
+use cubecl_std::{
+    FastDivmodArgs,
+    tensor::{
+        View,
+        launch::ViewArg,
+        layout::{
+            Coords3d,
+            chain::{Chain, ChainLaunch},
+        },
+    },
+};
 
 use crate::{
-    components::ConvolutionProblem,
+    components::{
+        ConvGemmConfig, ConvolutionProblem,
+        global::{
+            layout::{
+                BiasLayout, BiasLayoutLaunch, Im2colLayout, Im2colLayoutLaunch, NhwcLayout,
+                NhwcLayoutLaunch, OutLayout, OutLayoutLaunch, WeightLayout, WeightLayoutLaunch,
+            },
+            read::layout::{
+                TmaDummyLayout, TmaDummyLayoutLaunch, TmaWeightLayout, TmaWeightLayoutLaunch,
+            },
+        },
+    },
     kernels::layered::algorithm::simple_tma::{calculate_lower_corner, calculate_upper_corner},
 };
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        MatmulLineSizes, MatmulSelection,
+        MatmulIdent, MatmulLineSizes, MatmulSelection,
         global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
     },
 };
@@ -18,32 +40,103 @@ use cubecl_matmul::{
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
+    #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
+        config: impl ConvGemmConfig,
+    ) -> Self::RuntimeArg<'a, R>;
+}
+
+/// Create the output runtime arguments for a matmul kernel that works on concrete inputs and
+/// output (not fused).
+pub trait ConcreteOutputFactory: LaunchArg {
+    fn create<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        out: &'a TensorHandleRef<'a, R>,
+        selection: &MatmulSelection,
+        problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
+        config: impl ConvGemmConfig,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
 impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs, EO> {
     fn create<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
         _selection: &MatmulSelection,
-        _problem: &ConvolutionProblem,
+        problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
+        config: impl ConvGemmConfig,
     ) -> Self::RuntimeArg<'a, R> {
+        type LhsLayout = Chain<NhwcLayout, Im2colLayout>;
+        type RhsLayout = Chain<NhwcLayout, WeightLayout>;
+
+        let layout_nhwc = |handle, line_size, check| {
+            NhwcLayoutLaunch::from_handle(handle, line_size as u32, check)
+        };
+        let layout_lhs = Im2colLayoutLaunch::from_args(
+            client,
+            problem,
+            config.convolution_params(),
+            config.global_memory_config(MatmulIdent::Lhs),
+        );
+        let layout_rhs = WeightLayoutLaunch::from_args(
+            client,
+            problem,
+            config.convolution_params(),
+            config.global_memory_config(MatmulIdent::Rhs),
+        );
+        let layout_bias =
+            BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
+
+        let layout_lhs = {
+            let global = layout_nhwc(lhs.data(), line_sizes.lhs, config.check_spatial_bounds());
+            ChainLaunch::new(global, layout_lhs)
+        };
+        let layout_rhs = {
+            let global = layout_nhwc(rhs.data(), line_sizes.rhs, false);
+            ChainLaunch::new(global, layout_rhs)
+        };
+
         TensorInputsLaunch::new(
-            lhs.data().as_tensor_arg(line_sizes.lhs),
-            lhs.scale().map(|it| it.as_tensor_arg(1)).into(),
-            rhs.data().as_tensor_arg(line_sizes.rhs),
-            rhs.scale().map(|it| it.as_tensor_arg(1)).into(),
-            bias.map(|it| it.as_tensor_arg(line_sizes.out)).into(),
+            ViewArg::new::<LhsLayout>(lhs.data().as_array_arg(line_sizes.lhs), layout_lhs),
+            ViewArg::new::<RhsLayout>(rhs.data().as_array_arg(line_sizes.rhs), layout_rhs),
+            bias.map(|bias| {
+                ViewArg::new::<BiasLayout>(bias.as_array_arg(line_sizes.out), layout_bias)
+            })
+            .into(),
         )
+    }
+}
+
+impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> {
+    fn create<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
+        out: &'a TensorHandleRef<'a, R>,
+        _selection: &MatmulSelection,
+        problem: &ConvolutionProblem,
+        line_sizes: &MatmulLineSizes,
+        config: impl ConvGemmConfig,
+    ) -> Self::RuntimeArg<'a, R> {
+        type Layout = Chain<NhwcLayout, OutLayout>;
+
+        let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false);
+        let layout = OutLayoutLaunch::from_args(
+            client,
+            problem,
+            config.global_memory_config(MatmulIdent::Out),
+        );
+        let layout = ChainLaunch::new(global, layout);
+        ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout)
     }
 }
 
@@ -51,12 +144,14 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
     for TensorMapInputs<Lhs, Rhs, EO>
 {
     fn create<'a, R: Runtime>(
+        client: &ComputeClient<R::Server, R::Channel>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
+        config: impl ConvGemmConfig,
     ) -> Self::RuntimeArg<'a, R> {
         let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
@@ -119,9 +214,23 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         )
         .with_prefetch(prefetch_rhs);
 
-        let bias = bias.map(|it| it.as_tensor_arg(line_sizes.out));
+        let padded_channels =
+            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
 
-        // TODO: Think about how to handle scales with TMA
-        TensorMapInputsLaunch::new(lhs, rhs, bias.into())
+        // Dummy layout since we don't support im2col loading rn
+        let lhs_layout = TmaDummyLayoutLaunch::new();
+        let rhs_layout = TmaWeightLayoutLaunch::new(FastDivmodArgs::new(client, padded_channels));
+
+        let bias = bias.map(|bias| {
+            let layout =
+                BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
+            ViewArg::new::<BiasLayout>(bias.as_array_arg(line_sizes.out), layout)
+        });
+
+        TensorMapInputsLaunch::new(
+            ViewArg::new_tensor_map::<TmaDummyLayout>(lhs, lhs_layout),
+            ViewArg::new_tensor_map::<TmaWeightLayout>(rhs, rhs_layout),
+            bias.into(),
+        )
     }
 }

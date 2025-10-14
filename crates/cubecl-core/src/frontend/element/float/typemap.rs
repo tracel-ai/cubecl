@@ -184,6 +184,10 @@ impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
     fn as_type(scope: &Scope) -> StorageType {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
+
+    fn from_const_value(_value: ConstantScalarValue) -> Self {
+        unimplemented!("Can't turn `ElemExpand` into a constant value")
+    }
 }
 
 impl<const POS: u8> From<ElemExpand<POS>> for Variable {

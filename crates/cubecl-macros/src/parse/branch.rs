@@ -1,5 +1,7 @@
 use quote::quote;
-use syn::{Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat, spanned::Spanned};
+use syn::{
+    Expr, ExprForLoop, ExprIf, ExprLoop, ExprMatch, Ident, Lit, Pat, parse_quote, spanned::Spanned,
+};
 
 use crate::{
     expression::{Block, Expression},
@@ -9,13 +11,29 @@ use crate::{
 
 use super::{helpers::Unroll, statement::parse_pat};
 
-pub fn expand_for_loop(for_loop: ExprForLoop, context: &mut Context) -> syn::Result<Expression> {
+pub fn expand_for_loop(
+    mut for_loop: ExprForLoop,
+    context: &mut Context,
+) -> syn::Result<Expression> {
     let span = for_loop.span();
-    let unroll = Unroll::from_attributes(&for_loop.attrs, context)?.map(|it| it.value);
+    let unroll = Unroll::from_attributes(&for_loop.attrs, context)?;
+    let var = parse_pat(*for_loop.pat)?;
 
+    if let Some(Unroll {
+        always_true: true, ..
+    }) = unroll
+        && var.ident != "_"
+    {
+        let var_name = &var.ident;
+        for_loop.body.stmts.insert(
+            0,
+            parse_quote![let #var_name = #var_name.into_lit_unchecked();],
+        );
+    };
+
+    let unroll = unroll.map(|it| it.value);
     let right = Expression::from_expr(*for_loop.expr.clone(), context)
         .map_err(|_| syn::Error::new(span, "Unsupported for loop expression"))?;
-    let var = parse_pat(*for_loop.pat)?;
 
     if right.is_const() && !matches!(right, Expression::Range { .. }) {
         return expand_for_in_loop(var.ident, right, for_loop.body, context);
