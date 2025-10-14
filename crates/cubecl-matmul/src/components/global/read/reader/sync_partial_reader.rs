@@ -120,11 +120,9 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
         let len = L::Job::task_count(&loading_job);
 
-        let mut task_id = comptime![0u32];
-
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 0..len {
+        for task_id in 0..len {
             L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
@@ -132,7 +130,6 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
                 &mut self.stage_memory,
                 config,
             );
-            comptime![task_id += 1];
         }
     }
 }

@@ -1,4 +1,4 @@
-use cubecl_ir::{ExpandElement, StorageType};
+use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
 use cubecl_runtime::{
     TypeUsage, channel::ComputeChannel, client::ComputeClient, server::ComputeServer,
 };
@@ -49,6 +49,12 @@ pub trait CubePrimitive:
 
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
+    }
+
+    fn from_const_value(value: ConstantScalarValue) -> Self;
+
+    fn into_lit_unchecked(self) -> Self {
+        self
     }
 
     fn supported_uses<S: ComputeServer, C: ComputeChannel<S>>(

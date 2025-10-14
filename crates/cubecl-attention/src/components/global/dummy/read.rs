@@ -135,9 +135,11 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
                                 let index_load = row_load_in_tile * tile_cols_load + col_load;
                                 let index_store = col_load * tile_rows_load + row_load_in_tile;
 
-                                slice[index_store + store_offset] = Line::cast_from(
-                                    view.read_checked(((tile_row_load, tile_col_load), index_load)),
-                                );
+                                slice[index_store + store_offset] =
+                                    Line::cast_from(view.read_checked((
+                                        (tile_row_load, tile_col_load).runtime(),
+                                        index_load,
+                                    )));
                             }
                         }
                     }
@@ -210,7 +212,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
                                 let index = row_in_tile * tile_cols + col;
 
                                 slice[index + offset] = Line::cast_from(
-                                    view.read_checked(((tile_row, tile_col), index)),
+                                    view.read_checked(((tile_row, tile_col).runtime(), index)),
                                 );
                             }
                         }

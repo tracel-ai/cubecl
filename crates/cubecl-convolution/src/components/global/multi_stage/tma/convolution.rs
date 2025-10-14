@@ -111,12 +111,10 @@ where
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
-        let mut stage = comptime![0u32];
-
         // Create barriers and prefetch each stage
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..num_stages {
+        for stage in 0..num_stages {
             let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
             lhs_reader.fill_stage(&barrier, stage);
@@ -128,19 +126,15 @@ where
             rhs_reader.advance_view();
 
             barriers.push(barrier);
-
-            comptime![stage += 1];
         }
 
         for k in 0..num_loops {
             let k = k * num_stages;
 
-            let mut stage = comptime![0u32];
-
             // Loop through all stages
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..num_stages {
+            for stage in 0..num_stages {
                 let k = k + stage;
                 let next_k = k + num_stages;
 
@@ -175,8 +169,6 @@ where
                         rhs_reader.advance_view();
                     }
                 }
-
-                comptime![stage += 1];
             }
         }
 

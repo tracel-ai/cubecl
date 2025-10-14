@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_core::{self as cubecl};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::{
@@ -149,7 +149,6 @@ impl Layout for BlockScaledLayout {
 
         #[unroll]
         for i in 0..rank {
-            let i = unwrap(i);
             let dim = comptime![rank - i - 1];
             let block_size_local = comptime![self.block_size[dim as usize] as u32];
             let (rem, offs_local) = self.tensor_shape.index(dim).div_mod(offs);
@@ -185,7 +184,6 @@ impl BlockScaledLayout {
 
         #[unroll]
         for i in 0..rank {
-            let i = unwrap(i);
             let dim = comptime![rank - i - 1];
             let block_size_local = comptime![self.block_size[dim as usize] as u32];
             let (rem, offs_local) = self.tensor_shape.index(dim).div_mod(offs);
@@ -195,12 +193,6 @@ impl BlockScaledLayout {
 
         is_start
     }
-}
-
-#[allow(unused_variables)]
-#[cube]
-fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
 }
 
 /// [TensorView] with a linear layout inferred from the shape/strides at launch.
