@@ -119,8 +119,17 @@ mod state {
 
             let state = self.lock.lock.lock();
 
-            // Safe because the map is stable.
-            // This essentially only remove the lifetime of this map
+            // It is safe for multiple reasons.
+            //
+            // 1. The mutability of the map is handled by each map entry with a RefCell.
+            //    Therefore, multiple mutable references to a map entry are checked.
+            // 2. Map items are never cleaned up, therefore it's impossible to remove the validity of
+            //    an entry.
+            // 3. Because of the lock, no race condition is possible.
+            //
+            // The reason why unsafe is necessary is that the [DeviceStateGuard] doesn't keep track
+            // of the borrowed map entry lifetime. But since it keeps track of both the [RefCell]
+            // and the [ReentrantMutex] guards, it is fine to erase the lifetime here.
             let map = unsafe {
                 let ptr = state.map.get();
                 ptr.as_mut().unwrap()
@@ -293,9 +302,9 @@ mod state {
 
         #[test]
         fn work_with_many_threads() {
-            let num_threads = 8;
+            let num_threads = 32;
             let handles: Vec<_> = (0..num_threads)
-                .map(|i| std::thread::spawn(move || thread_main((num_threads * 2) - i)))
+                .map(|i| std::thread::spawn(move || thread_main((num_threads * 4) - i)))
                 .collect();
 
             handles.into_iter().for_each(|h| h.join().unwrap());
@@ -321,11 +330,6 @@ mod state {
         }
 
         fn thread_main(sleep: u64) {
-            println!(
-                "[{:?}] Starting, sleeping {sleep:?}.",
-                std::thread::current().id()
-            );
-
             let device1 = TestDevice::<0>::new(0);
             let device2 = TestDevice::<1>::new(0);
 
@@ -335,7 +339,6 @@ mod state {
 
             let mut guard_i64 = state1_i64.lock();
             let mut guard_i32 = state1_i32.lock();
-            println!("[{:?}] Locked.", std::thread::current().id());
 
             let val_i64 = guard_i64.deref_mut();
             let val_i32 = guard_i32.deref_mut();
@@ -345,7 +348,6 @@ mod state {
 
             core::mem::drop(guard_i64);
             core::mem::drop(guard_i32);
-            println!("[{:?}] Released.", std::thread::current().id());
 
             std::thread::sleep(Duration::from_millis(sleep));
 
@@ -355,7 +357,6 @@ mod state {
             *val_i32 += 1;
 
             core::mem::drop(guard_i32);
-            println!("[{:?}] Done.", std::thread::current().id());
         }
 
         #[derive(Debug, Clone, Default, new)]
