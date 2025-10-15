@@ -1,4 +1,5 @@
 use crate::{
+    DeviceProperties,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -15,7 +16,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+    ExecutionMode, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
 use thiserror::Error;
@@ -29,11 +31,53 @@ pub enum ProfileError {
     NotRegistered,
 }
 
+#[derive(Debug)]
+pub struct ServerUtilities<Server: ComputeServer> {
+    #[cfg(feature = "profile-tracy")]
+    pub epoch_time: web_time::Instant,
+
+    #[cfg(feature = "profile-tracy")]
+    pub gpu_client: tracy_client::GpuContext,
+
+    pub properties: DeviceProperties,
+    pub info: Server::Info,
+    pub logger: Arc<ServerLogger>,
+}
+
+impl<S: ComputeServer> ServerUtilities<S> {
+    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
+        // Start a tracy client if needed.
+        #[cfg(feature = "profile-tracy")]
+        let client = tracy_client::Client::start();
+
+        Self {
+            properties,
+            logger,
+            // Create the GPU client if needed.
+            #[cfg(feature = "profile-tracy")]
+            gpu_client: client
+                .clone()
+                .new_gpu_context(
+                    Some(&format!("{info:?}")),
+                    // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
+                    tracy_client::GpuContextType::Invalid,
+                    0,   // Timestamps are manually aligned to this epoch so start at 0.
+                    1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
+                )
+                .unwrap(),
+            #[cfg(feature = "profile-tracy")]
+            epoch_time: web_time::Instant::now(),
+            info,
+        }
+    }
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug + ServerCommunication + Default + 'static
+pub trait ComputeServer:
+    Send + core::fmt::Debug + ServerCommunication + device::State + 'static
 where
     Self: Sized,
 {
@@ -53,6 +97,9 @@ where
 
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
+
+    /// Retrieve the server utilities.
+    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {

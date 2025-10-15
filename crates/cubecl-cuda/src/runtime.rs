@@ -241,7 +241,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_alignment,
         device_id,
     );
-    ComputeClient::new(device, server, device_props, ())
+    ComputeClient::init(device, server, device_props, ())
 }
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {

@@ -2,17 +2,17 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
+use cubecl_common::device::{Device, State};
 use cubecl_common::{future, profile::TimingMethod};
-
+use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{
-    ComputeRuntime,
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
 };
-use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -21,14 +21,11 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 #[derive(Debug)]
 pub struct WgpuRuntime;
 
-type Server = WgpuServer;
-
-/// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server> = ComputeRuntime::new();
-
-impl Default for WgpuServer {
-    fn default() -> Self {
-        todo!()
+impl State for WgpuServer {
+    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        let device = WgpuDevice::from_id(device_id);
+        let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
+        create_server(setup, RuntimeOptions::default())
     }
 }
 
@@ -38,11 +35,7 @@ impl Runtime for WgpuRuntime {
     type Device = WgpuDevice;
 
     fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
-        RUNTIME.client(device, move || {
-            let setup =
-                future::block_on(create_setup_for_device(device, AutoGraphicsApi::backend()));
-            create_client_on_setup(device, setup, RuntimeOptions::default())
-        })
+        ComputeClient::load(device)
     }
 
     fn name(client: &ComputeClient<Self::Server>) -> &'static str {
@@ -173,8 +166,8 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::Existing(device_id);
-    let client = create_client_on_setup(&device_id, setup, options);
-    RUNTIME.register(&device_id, client);
+    let server = create_server(setup, options);
+    let _ = ComputeClient::init(&device_id, server);
     device_id
 }
 
@@ -200,16 +193,12 @@ pub async fn init_setup_async<G: GraphicsApi>(
 ) -> WgpuSetup {
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
-    let client = create_client_on_setup(device, setup, options);
-    RUNTIME.register(device, client);
+    let server = create_server(setup, options);
+    let _ = ComputeClient::init(device, server);
     return_setup
 }
 
-pub(crate) fn create_client_on_setup(
-    device: &WgpuDevice,
-    setup: WgpuSetup,
-    options: RuntimeOptions,
-) -> ComputeClient<WgpuServer> {
+pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
     let limits = setup.device.limits();
     let mut adapter_limits = setup.adapter.limits();
 
@@ -289,7 +278,9 @@ pub(crate) fn create_client_on_setup(
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
-    let server = WgpuServer::new(
+    let logger = alloc::sync::Arc::new(ServerLogger::default());
+
+    WgpuServer::new(
         mem_props,
         options.memory_config,
         compilation_options,
@@ -298,21 +289,8 @@ pub(crate) fn create_client_on_setup(
         options.tasks_max,
         setup.backend,
         time_measurement,
-        alloc::sync::Arc::new(ServerLogger::default()),
-    );
-
-    #[cfg(not(all(target_os = "macos", feature = "msl")))]
-    if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        use cubecl_core::ir::{ElemType, FloatKind, StorageType};
-        use cubecl_runtime::TypeUsage;
-
-        device_props.register_type_usage(
-            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
-        );
-    }
-
-    ComputeClient::new(device, server, device_props, setup.backend)
+        ServerUtilities::new(device_props, logger, setup.backend),
+    )
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and

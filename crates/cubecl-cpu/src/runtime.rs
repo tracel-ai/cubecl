@@ -85,7 +85,7 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server> {
 
     let ctx = CpuContext::new(memory_management);
     let server = CpuServer::new(ctx, logger);
-    ComputeClient::new(&CpuDevice::new(), server, device_props, ())
+    ComputeClient::init(&CpuDevice::new(), server, device_props, ())
 }
 
 impl Default for CpuServer {

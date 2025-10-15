@@ -60,20 +60,28 @@ mod state {
 
     use super::{Device, DeviceId};
 
+    /// A state that can be saved inside the [DeviceState].
+    pub trait State: Send + 'static {
+        /// Initialize a new state on the given device.
+        fn init(device_id: DeviceId) -> Self;
+    }
+
     /// Handle for accessing type `S` state associated with a specific device.
-    pub struct DeviceState<S: Send + 'static + Default> {
+    pub struct DeviceState<S: State> {
         lock: DeviceStateLock,
+        device_id: DeviceId,
         _phantom: PhantomData<S>,
     }
 
-    unsafe impl<S: Send + 'static + Default> Sync for DeviceState<S> {}
-    unsafe impl<S: Send + 'static + Default> Send for DeviceState<S> {}
+    unsafe impl<S: State> Sync for DeviceState<S> {}
+    unsafe impl<S: State> Send for DeviceState<S> {}
 
-    impl<S: Send + 'static + Default> Clone for DeviceState<S> {
+    impl<S: State> Clone for DeviceState<S> {
         fn clone(&self) -> Self {
             Self {
                 lock: self.lock.clone(),
                 _phantom: self._phantom.clone(),
+                device_id: self.device_id.clone(),
             }
         }
     }
@@ -81,7 +89,7 @@ mod state {
     /// Guard providing mutable access to device state of type `S`.
     ///
     /// Automatically releases the lock when dropped.
-    pub struct DeviceStateGuard<'a, S: Default + Send + 'static> {
+    pub struct DeviceStateGuard<'a, S: State> {
         guard_ref: Option<RefMut<'a, Box<dyn Any + Send + 'static>>>,
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
         _phantom: PhantomData<S>,
@@ -94,21 +102,28 @@ mod state {
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
     }
 
-    impl<'a, S: Default + Send + 'static> Drop for DeviceStateGuard<'a, S> {
+    impl<'a, S: State> Drop for DeviceStateGuard<'a, S> {
         fn drop(&mut self) {
             // Important to drop the ref before.
             self.guard_ref = None;
             self.guard_mutex = None;
+            #[cfg(feature = "std")]
+            println!("[dropped] from thread {:?}", std::thread::current().id(),);
         }
     }
 
     impl<'a> Drop for DeviceGuard<'a> {
         fn drop(&mut self) {
             self.guard_mutex = None;
+            #[cfg(feature = "std")]
+            println!(
+                "[dropped_device] from thread {:?}",
+                std::thread::current().id(),
+            );
         }
     }
 
-    impl<'a, S: Default + Send + 'static> core::ops::Deref for DeviceStateGuard<'a, S> {
+    impl<'a, S: State> core::ops::Deref for DeviceStateGuard<'a, S> {
         type Target = S;
 
         fn deref(&self) -> &Self::Target {
@@ -116,13 +131,13 @@ mod state {
         }
     }
 
-    impl<'a, S: Default + Send + 'static> core::ops::DerefMut for DeviceStateGuard<'a, S> {
+    impl<'a, S: State> core::ops::DerefMut for DeviceStateGuard<'a, S> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.guard_ref.as_mut().unwrap().downcast_mut().unwrap()
         }
     }
 
-    impl<S: Default + Send + 'static> DeviceState<S> {
+    impl<S: State> DeviceState<S> {
         /// Creates a [DeviceState<S>] handle for the given device.
         ///
         /// Registers the device-type combination globally if needed.
@@ -139,6 +154,12 @@ mod state {
             let id = TypeId::of::<S>();
 
             let state = lock.lock.lock.lock();
+
+            #[cfg(feature = "std")]
+            println!(
+                "[insert] locked from thread {:?}",
+                std::thread::current().id(),
+            );
 
             // It is safe for multiple reasons for the same reason enumerated in the lock function.
             let map = unsafe {
@@ -160,12 +181,23 @@ mod state {
 
             core::mem::drop(state);
 
+            #[cfg(feature = "std")]
+            println!(
+                "[dropped_insert] dropped from thread {:?}",
+                std::thread::current().id(),
+            );
+
             Ok(lock)
         }
 
         /// TODO
         pub fn lock_device(&self) -> DeviceGuard<'_> {
             let state = self.lock.lock.lock();
+            #[cfg(feature = "std")]
+            println!(
+                "[lock_device] locked from thread {:?}",
+                std::thread::current().id(),
+            );
 
             DeviceGuard {
                 guard_mutex: Some(state),
@@ -183,8 +215,13 @@ mod state {
         /// since having multiple mutable references to the same state isn't valid.
         pub fn lock(&self) -> DeviceStateGuard<'_, S> {
             let id = TypeId::of::<S>();
-
             let state = self.lock.lock.lock();
+
+            #[cfg(feature = "std")]
+            println!(
+                "[lock] locked from thread {:?}",
+                std::thread::current().id(),
+            );
 
             // It is safe for multiple reasons.
             //
@@ -203,7 +240,7 @@ mod state {
             };
 
             if !map.contains_key(&id) {
-                let state_default = S::default();
+                let state_default = S::init(self.device_id);
                 let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
                 let cell = RefCell::new(any);
 
@@ -249,7 +286,7 @@ mod state {
     }
 
     impl DeviceStateLock {
-        fn locate<D: Device + 'static, S: Send + 'static + Default>(device: &D) -> DeviceState<S> {
+        fn locate<D: Device + 'static, S: State>(device: &D) -> DeviceState<S> {
             let id = device.to_id();
             let key = (id, TypeId::of::<D>());
             let mut global = GLOBAL.lock();
@@ -278,13 +315,14 @@ mod state {
 
             DeviceState {
                 lock,
+                device_id: id,
                 _phantom: PhantomData,
             }
         }
     }
 
     impl DeviceStateMap {
-        fn new<S: Send + 'static + Default>() -> Self {
+        fn new<S: State>() -> Self {
             Self {
                 map: UnsafeCell::new(HashMap::new()),
             }
@@ -348,8 +386,13 @@ mod state {
         fn can_not_have_multiple_mut_ref_to_same_state() {
             let device1 = TestDevice::<0>::new(0);
 
-            #[derive(Default)]
             struct DummyState;
+
+            impl State for DummyState {
+                fn init(_device_id: DeviceId) -> Self {
+                    DummyState
+                }
+            }
 
             fn recursive(total: usize, state: &DeviceState<DummyState>) {
                 let _guard = state.lock();
@@ -443,6 +486,28 @@ mod state {
 
             fn device_count(_type_id: u16) -> usize {
                 TYPE as usize + 1
+            }
+        }
+
+        impl State for usize {
+            fn init(_device_id: DeviceId) -> Self {
+                0
+            }
+        }
+
+        impl State for u32 {
+            fn init(_device_id: DeviceId) -> Self {
+                0
+            }
+        }
+        impl State for i32 {
+            fn init(_device_id: DeviceId) -> Self {
+                0
+            }
+        }
+        impl State for i64 {
+            fn init(_device_id: DeviceId) -> Self {
+                0
             }
         }
     }

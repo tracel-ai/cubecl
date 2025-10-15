@@ -171,7 +171,7 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         options.memory_config,
         mem_alignment,
     );
-    ComputeClient::new(device, server, device_props, ())
+    ComputeClient::init(device, server, device_props, ())
 }
 
 impl Runtime for HipRuntime {

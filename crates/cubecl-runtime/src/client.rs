@@ -2,11 +2,11 @@ use crate::{
     DeviceProperties,
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
-    logging::{ProfileLevel, ServerLogger},
+    logging::ProfileLevel,
     memory_management::{MemoryAllocationMode, MemoryUsage},
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, ProfileError,
+        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -31,21 +31,8 @@ use cubecl_common::stream_id::StreamId;
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<Server: ComputeServer> {
     state: DeviceState<Server>,
-    stateless: Arc<ComputeClientData<Server>>,
+    utilities: Arc<ServerUtilities<Server>>,
     stream_id: Option<StreamId>,
-}
-
-#[derive(new)]
-struct ComputeClientData<Server: ComputeServer> {
-    #[cfg(feature = "profile-tracy")]
-    epoch_time: web_time::Instant,
-
-    #[cfg(feature = "profile-tracy")]
-    gpu_client: tracy_client::GpuContext,
-
-    properties: DeviceProperties,
-    info: Server::Info,
-    logger: Arc<ServerLogger>,
 }
 
 impl<S> Clone for ComputeClient<S>
@@ -55,7 +42,7 @@ where
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
-            stateless: self.stateless.clone(),
+            utilities: self.utilities.clone(),
             stream_id: self.stream_id,
         }
     }
@@ -67,48 +54,31 @@ where
 {
     /// Get the info of the current backend.
     pub fn info(&self) -> &Server::Info {
-        &self.stateless.info
+        &self.utilities.info
     }
 
     /// Create a new client.
-    pub fn new<D: Device>(
-        device: &D,
-        server: Server,
-        properties: DeviceProperties,
-        info: Server::Info,
-    ) -> Self {
-        // Start a tracy client if needed.
-        #[cfg(feature = "profile-tracy")]
-        let client = tracy_client::Client::start();
-
-        let logger = server.logger();
-
-        let stateless = ComputeClientData {
-            properties,
-            logger,
-            // Create the GPU client if needed.
-            #[cfg(feature = "profile-tracy")]
-            gpu_client: client
-                .clone()
-                .new_gpu_context(
-                    Some(&format!("{info:?}")),
-                    // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
-                    tracy_client::GpuContextType::Invalid,
-                    0,   // Timestamps are manually aligned to this epoch so start at 0.
-                    1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
-                )
-                .unwrap(),
-            #[cfg(feature = "profile-tracy")]
-            epoch_time: web_time::Instant::now(),
-            info,
-        };
+    pub fn init<D: Device>(device: &D, server: Server) -> Self {
+        let utilities = server.utilities();
 
         let state = DeviceState::<Server>::insert(device, server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
             state,
-            stateless: Arc::new(stateless),
+            utilities,
+            stream_id: None,
+        }
+    }
+
+    /// Create a new client.
+    pub fn load<D: Device>(device: &D) -> Self {
+        let state = DeviceState::<Server>::locate(device);
+        let utilities = state.lock().utilities();
+
+        Self {
+            state,
+            utilities,
             stream_id: None,
         }
     }
@@ -231,6 +201,7 @@ where
         data: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut state = self.state.lock();
+        println!("do_create");
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
@@ -305,6 +276,7 @@ where
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
+        println!("create_tensors");
         self.do_create(descriptors, data).unwrap()
     }
 
@@ -312,7 +284,9 @@ where
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
     ) -> Result<Vec<Allocation>, IoError> {
-        self.state.lock().create(descriptors, self.stream_id())
+        let mut state = self.state.lock();
+        println!("do_empty");
+        state.create(descriptors, self.stream_id())
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -391,8 +365,9 @@ where
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let level = self.stateless.logger.profile_level();
+        let level = self.utilities.logger.profile_level();
         let mut state = self.state.lock();
+        println!("execute_inner");
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
@@ -402,7 +377,7 @@ where
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    self.stateless.logger.register_execution(info);
+                    self.utilities.logger.register_execution(info);
                 }
             }
             Some(level) => {
@@ -422,7 +397,7 @@ where
                     }
                     _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
-                self.stateless.logger.register_profiled(info, profile);
+                self.utilities.logger.register_profiled(info, profile);
             }
         }
     }
@@ -478,23 +453,24 @@ where
     pub fn sync(&self) -> DynFut<()> {
         let stream_id = self.stream_id();
         let mut state = self.state.lock();
+        println!("sync");
         let fut = state.sync(stream_id);
         core::mem::drop(state);
-        self.stateless.logger.profile_summary();
+        self.utilities.logger.profile_summary();
 
         fut
     }
 
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties {
-        &self.stateless.properties
+        &self.utilities.properties
     }
 
     /// # Warning
     ///
     /// For private use only.
     pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
-        Arc::get_mut(&mut self.stateless).map(|state| &mut state.properties)
+        Arc::get_mut(&mut self.utilities).map(|state| &mut state.properties)
     }
 
     /// Get the current memory usage of this client.
@@ -523,6 +499,7 @@ where
         func: Func,
     ) -> Output {
         let device_guard = self.state.lock_device();
+        println!("memory_persistent_allocation");
 
         self.state
             .lock()
