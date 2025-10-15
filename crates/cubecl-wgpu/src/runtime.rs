@@ -2,7 +2,7 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
-use cubecl_common::device::{Device, State};
+use cubecl_common::device::{Device, DeviceState};
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
@@ -21,7 +21,7 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 #[derive(Debug)]
 pub struct WgpuRuntime;
 
-impl State for WgpuServer {
+impl DeviceState for WgpuServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = WgpuDevice::from_id(device_id);
         let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));

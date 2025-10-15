@@ -61,22 +61,22 @@ mod state {
     use super::{Device, DeviceId};
 
     /// A state that can be saved inside the [DeviceState].
-    pub trait State: Send + 'static {
+    pub trait DeviceState: Send + 'static {
         /// Initialize a new state on the given device.
         fn init(device_id: DeviceId) -> Self;
     }
 
     /// Handle for accessing type `S` state associated with a specific device.
-    pub struct DeviceState<S: State> {
+    pub struct DeviceContext<S: DeviceState> {
         lock: DeviceStateLock,
         device_id: DeviceId,
         _phantom: PhantomData<S>,
     }
 
-    unsafe impl<S: State> Sync for DeviceState<S> {}
-    unsafe impl<S: State> Send for DeviceState<S> {}
+    unsafe impl<S: DeviceState> Sync for DeviceContext<S> {}
+    unsafe impl<S: DeviceState> Send for DeviceContext<S> {}
 
-    impl<S: State> Clone for DeviceState<S> {
+    impl<S: DeviceState> Clone for DeviceContext<S> {
         fn clone(&self) -> Self {
             Self {
                 lock: self.lock.clone(),
@@ -89,7 +89,7 @@ mod state {
     /// Guard providing mutable access to device state of type `S`.
     ///
     /// Automatically releases the lock when dropped.
-    pub struct DeviceStateGuard<'a, S: State> {
+    pub struct DeviceStateGuard<'a, S: DeviceState> {
         guard_ref: Option<RefMut<'a, Box<dyn Any + Send + 'static>>>,
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
         _phantom: PhantomData<S>,
@@ -102,7 +102,7 @@ mod state {
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
     }
 
-    impl<'a, S: State> Drop for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceState> Drop for DeviceStateGuard<'a, S> {
         fn drop(&mut self) {
             // Important to drop the ref before.
             self.guard_ref = None;
@@ -116,7 +116,7 @@ mod state {
         }
     }
 
-    impl<'a, S: State> core::ops::Deref for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceState> core::ops::Deref for DeviceStateGuard<'a, S> {
         type Target = S;
 
         fn deref(&self) -> &Self::Target {
@@ -124,13 +124,13 @@ mod state {
         }
     }
 
-    impl<'a, S: State> core::ops::DerefMut for DeviceStateGuard<'a, S> {
+    impl<'a, S: DeviceState> core::ops::DerefMut for DeviceStateGuard<'a, S> {
         fn deref_mut(&mut self) -> &mut Self::Target {
             self.guard_ref.as_mut().unwrap().downcast_mut().unwrap()
         }
     }
 
-    impl<S: State> DeviceState<S> {
+    impl<S: DeviceState> DeviceContext<S> {
         /// Creates a [DeviceState<S>] handle for the given device.
         ///
         /// Registers the device-type combination globally if needed.
@@ -256,7 +256,7 @@ mod state {
     }
 
     impl DeviceStateLock {
-        fn locate<D: Device + 'static, S: State>(device: &D) -> DeviceState<S> {
+        fn locate<D: Device + 'static, S: DeviceState>(device: &D) -> DeviceContext<S> {
             let id = device.to_id();
             let key = (id, TypeId::of::<D>());
             let mut global = GLOBAL.lock();
@@ -283,7 +283,7 @@ mod state {
                 }
             };
 
-            DeviceState {
+            DeviceContext {
                 lock,
                 device_id: id,
                 _phantom: PhantomData,
@@ -292,7 +292,7 @@ mod state {
     }
 
     impl DeviceStateMap {
-        fn new<S: State>() -> Self {
+        fn new<S: DeviceState>() -> Self {
             Self {
                 map: UnsafeCell::new(HashMap::new()),
             }
@@ -313,9 +313,9 @@ mod state {
             let device1 = TestDevice::<0>::new(0);
             let device2 = TestDevice::<1>::new(0);
 
-            let state1_usize = DeviceState::<usize>::locate(&device1);
-            let state1_u32 = DeviceState::<u32>::locate(&device1);
-            let state2_usize = DeviceState::<usize>::locate(&device2);
+            let state1_usize = DeviceContext::<usize>::locate(&device1);
+            let state1_u32 = DeviceContext::<u32>::locate(&device1);
+            let state2_usize = DeviceContext::<usize>::locate(&device2);
 
             let mut guard_usize = state1_usize.lock();
             let mut guard_u32 = state1_u32.lock();
@@ -358,13 +358,13 @@ mod state {
 
             struct DummyState;
 
-            impl State for DummyState {
+            impl DeviceState for DummyState {
                 fn init(_device_id: DeviceId) -> Self {
                     DummyState
                 }
             }
 
-            fn recursive(total: usize, state: &DeviceState<DummyState>) {
+            fn recursive(total: usize, state: &DeviceContext<DummyState>) {
                 let _guard = state.lock();
 
                 if total > 0 {
@@ -372,7 +372,7 @@ mod state {
                 }
             }
 
-            recursive(5, &DeviceState::locate(&device1));
+            recursive(5, &DeviceContext::locate(&device1));
         }
 
         #[test]
@@ -387,9 +387,9 @@ mod state {
             let device1 = TestDevice::<0>::new(0);
             let device2 = TestDevice::<1>::new(0);
 
-            let state1_i64 = DeviceState::<i64>::locate(&device1);
-            let state1_i32 = DeviceState::<i32>::locate(&device1);
-            let state2_i32 = DeviceState::<i32>::locate(&device2);
+            let state1_i64 = DeviceContext::<i64>::locate(&device1);
+            let state1_i32 = DeviceContext::<i32>::locate(&device1);
+            let state2_i32 = DeviceContext::<i32>::locate(&device2);
 
             let guard_i64 = state1_i64.lock();
             let guard_i32 = state1_i32.lock();
@@ -408,9 +408,9 @@ mod state {
             let device1 = TestDevice::<0>::new(0);
             let device2 = TestDevice::<1>::new(0);
 
-            let state1_i64 = DeviceState::<i64>::locate(&device1);
-            let state1_i32 = DeviceState::<i32>::locate(&device1);
-            let state2_i32 = DeviceState::<i32>::locate(&device2);
+            let state1_i64 = DeviceContext::<i64>::locate(&device1);
+            let state1_i32 = DeviceContext::<i32>::locate(&device1);
+            let state2_i32 = DeviceContext::<i32>::locate(&device2);
 
             let mut guard_i64 = state1_i64.lock();
             let mut guard_i32 = state1_i32.lock();
@@ -459,23 +459,23 @@ mod state {
             }
         }
 
-        impl State for usize {
+        impl DeviceState for usize {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
 
-        impl State for u32 {
+        impl DeviceState for u32 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
-        impl State for i32 {
+        impl DeviceState for i32 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }
         }
-        impl State for i64 {
+        impl DeviceState for i64 {
             fn init(_device_id: DeviceId) -> Self {
                 0
             }

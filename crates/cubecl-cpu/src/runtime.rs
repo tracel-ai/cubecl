@@ -1,4 +1,4 @@
-use cubecl_common::{device::State, profile::TimingMethod};
+use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     client::ComputeClient,
@@ -35,7 +35,7 @@ pub struct CpuRuntime;
 
 pub type CpuCompiler = MlirCompiler;
 
-impl State for CpuServer {
+impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);

@@ -4,7 +4,7 @@ use crate::{
     device::CudaDevice,
 };
 use cubecl_common::{
-    device::{Device, State},
+    device::{Device, DeviceState},
     profile::TimingMethod,
 };
 use cubecl_core::{
@@ -43,7 +43,7 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct CudaRuntime;
 
-impl State for CudaServer {
+impl DeviceState for CudaServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let options = RuntimeOptions::default();
         let device = CudaDevice::from_id(device_id);

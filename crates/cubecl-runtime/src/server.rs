@@ -77,7 +77,7 @@ impl<S: ComputeServer> ServerUtilities<S> {
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
 pub trait ComputeServer:
-    Send + core::fmt::Debug + ServerCommunication + device::State + 'static
+    Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
 where
     Self: Sized,
 {

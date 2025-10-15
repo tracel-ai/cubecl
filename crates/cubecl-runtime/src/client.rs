@@ -18,7 +18,7 @@ use core::ops::DerefMut;
 use cubecl_common::{
     ExecutionMode,
     bytes::Bytes,
-    device::{Device, DeviceState},
+    device::{Device, DeviceContext},
     future::DynFut,
     profile::ProfileDuration,
 };
@@ -30,7 +30,7 @@ use cubecl_common::stream_id::StreamId;
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
 pub struct ComputeClient<Server: ComputeServer> {
-    state: DeviceState<Server>,
+    context: DeviceContext<Server>,
     utilities: Arc<ServerUtilities<Server>>,
     stream_id: Option<StreamId>,
 }
@@ -41,7 +41,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            state: self.state.clone(),
+            context: self.context.clone(),
             utilities: self.utilities.clone(),
             stream_id: self.stream_id,
         }
@@ -57,27 +57,27 @@ where
         &self.utilities.info
     }
 
-    /// Create a new client.
+    /// Create a new client with a new server.
     pub fn init<D: Device>(device: &D, server: Server) -> Self {
         let utilities = server.utilities();
 
-        let state = DeviceState::<Server>::insert(device, server)
+        let context = DeviceContext::<Server>::insert(device, server)
             .expect("Can't create a new client on an already registered server");
 
         Self {
-            state,
+            context,
             utilities,
             stream_id: None,
         }
     }
 
-    /// Create a new client.
+    /// Load the client for the given device.
     pub fn load<D: Device>(device: &D) -> Self {
-        let state = DeviceState::<Server>::locate(device);
-        let utilities = state.lock().utilities();
+        let context = DeviceContext::<Server>::locate(device);
+        let utilities = context.lock().utilities();
 
         Self {
-            state,
+            context,
             utilities,
             stream_id: None,
         }
@@ -101,7 +101,7 @@ where
 
     fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let stream_id = self.stream_id();
-        let mut state = self.state.lock();
+        let mut state = self.context.lock();
         let fut = state.read(descriptors, stream_id);
         core::mem::drop(state);
         fut
@@ -192,7 +192,7 @@ where
         binding: Binding,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
         let stream_id = self.stream_id();
-        self.state.lock().get_resource(binding, stream_id)
+        self.context.lock().get_resource(binding, stream_id)
     }
 
     fn do_create(
@@ -200,7 +200,7 @@ where
         descriptors: Vec<AllocationDescriptor<'_>>,
         data: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
-        let mut state = self.state.lock();
+        let mut state = self.context.lock();
         println!("do_create");
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
@@ -284,7 +284,7 @@ where
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
     ) -> Result<Vec<Allocation>, IoError> {
-        let mut state = self.state.lock();
+        let mut state = self.context.lock();
         println!("do_empty");
         state.create(descriptors, self.stream_id())
     }
@@ -335,8 +335,8 @@ where
         dst_server: &Self,
     ) -> Allocation {
         if Server::SERVER_COMM_ENABLED {
-            let mut server_src = self.state.lock();
-            let mut server_dst = dst_server.state.lock();
+            let mut server_src = self.context.lock();
+            let mut server_dst = dst_server.context.lock();
 
             Server::copy(
                 server_src.deref_mut(),
@@ -366,7 +366,7 @@ where
         stream_id: StreamId,
     ) {
         let level = self.utilities.logger.profile_level();
-        let mut state = self.state.lock();
+        let mut state = self.context.lock();
         println!("execute_inner");
 
         match level {
@@ -446,13 +446,13 @@ where
     /// Flush all outstanding commands.
     pub fn flush(&self) {
         let stream_id = self.stream_id();
-        self.state.lock().flush(stream_id);
+        self.context.lock().flush(stream_id);
     }
 
     /// Wait for the completion of every task in the server.
     pub fn sync(&self) -> DynFut<()> {
         let stream_id = self.stream_id();
-        let mut state = self.state.lock();
+        let mut state = self.context.lock();
         println!("sync");
         let fut = state.sync(stream_id);
         core::mem::drop(state);
@@ -475,7 +475,7 @@ where
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
-        self.state.lock().memory_usage(self.stream_id())
+        self.context.lock().memory_usage(self.stream_id())
     }
 
     /// Change the memory allocation mode.
@@ -484,7 +484,7 @@ where
     ///
     /// This function isn't thread safe and might create memory leaks.
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
-        self.state.lock().allocation_mode(mode, self.stream_id())
+        self.context.lock().allocation_mode(mode, self.stream_id())
     }
 
     /// Use a persistent memory strategy to execute the provided function.
@@ -498,16 +498,16 @@ where
         input: Input,
         func: Func,
     ) -> Output {
-        let device_guard = self.state.lock_device();
+        let device_guard = self.context.lock_device();
         println!("memory_persistent_allocation");
 
-        self.state
+        self.context
             .lock()
             .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
 
         let output = func(input);
 
-        self.state
+        self.context
             .lock()
             .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
 
@@ -521,7 +521,7 @@ where
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        self.state.lock().memory_cleanup(self.stream_id())
+        self.context.lock().memory_cleanup(self.stream_id())
     }
 
     /// Measure the execution time of some inner operations.
@@ -546,7 +546,7 @@ where
             0,
         );
 
-        let device_guard = self.state.lock_device();
+        let device_guard = self.context.lock_device();
 
         #[cfg(feature = "profile-tracy")]
         let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
@@ -560,11 +560,11 @@ where
             None
         };
 
-        let token = self.state.lock().start_profile(self.stream_id());
+        let token = self.context.lock().start_profile(self.stream_id());
 
         let out = func();
 
-        let result = self.state.lock().end_profile(self.stream_id(), token);
+        let result = self.context.lock().end_profile(self.stream_id(), token);
 
         core::mem::drop(out);
 
@@ -605,13 +605,13 @@ where
 
         // Allocate destination
         let alloc = dst_server
-            .state
+            .context
             .lock()
             .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
-        let read = self.state.lock().read(vec![src_descriptor], stream_id);
+        let read = self.context.lock().read(vec![src_descriptor], stream_id);
         let data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
@@ -622,7 +622,7 @@ where
         };
 
         dst_server
-            .state
+            .context
             .lock()
             .write(vec![(desc_descriptor, &data[0])], stream_id)
             .unwrap();
