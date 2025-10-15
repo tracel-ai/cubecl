@@ -66,6 +66,9 @@ mod state {
         _phantom: PhantomData<S>,
     }
 
+    unsafe impl<S: Send + 'static + Default> Sync for DeviceState<S> {}
+    unsafe impl<S: Send + 'static + Default> Send for DeviceState<S> {}
+
     impl<S: Send + 'static + Default> Clone for DeviceState<S> {
         fn clone(&self) -> Self {
             Self {

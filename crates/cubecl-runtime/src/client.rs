@@ -19,6 +19,7 @@ use cubecl_common::{
     ExecutionMode,
     bytes::Bytes,
     device::{Device, DeviceState},
+    future::DynFut,
     profile::ProfileDuration,
 };
 
@@ -128,13 +129,16 @@ where
         self.stream_id = Some(stream_id);
     }
 
-    async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
+    fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Result<Vec<Bytes>, IoError>> {
         let stream_id = self.stream_id();
-        self.state.lock().read(descriptors, stream_id).await
+        let mut state = self.state.lock();
+        let fut = state.read(descriptors, stream_id);
+        core::mem::drop(state);
+        fut
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_async(&self, handles: Vec<Handle>) -> Vec<Bytes> {
+    pub fn read_async(&self, handles: Vec<Handle>) -> DynFut<Vec<Bytes>> {
         let strides = [1];
         let shapes = handles
             .iter()
@@ -150,7 +154,9 @@ where
             .map(|(binding, shape)| CopyDescriptor::new(binding, shape, &strides, 1))
             .collect();
 
-        self.do_read(descriptors).await.unwrap()
+        let fut = self.do_read(descriptors);
+
+        Box::pin(async move { fut.await.unwrap() })
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -171,8 +177,10 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub async fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Vec<Bytes> {
-        self.do_read(descriptors).await.unwrap()
+    pub fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Vec<Bytes>> {
+        let fut = self.do_read(descriptors);
+
+        Box::pin(async move { fut.await.unwrap() })
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -193,8 +201,10 @@ where
 
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
-    pub async fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> Bytes {
-        self.read_tensor_async(vec![descriptor]).await.remove(0)
+    pub fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> DynFut<Bytes> {
+        let fut = self.read_tensor_async(vec![descriptor]);
+
+        Box::pin(async { fut.await.remove(0) })
     }
 
     /// Given a binding, returns owned resource as bytes.
@@ -465,10 +475,14 @@ where
     }
 
     /// Wait for the completion of every task in the server.
-    pub async fn sync(&self) {
+    pub fn sync(&self) -> DynFut<()> {
         let stream_id = self.stream_id();
-        self.state.lock().sync(stream_id).await;
+        let mut state = self.state.lock();
+        let fut = state.sync(stream_id);
+        core::mem::drop(state);
         self.stateless.logger.profile_summary();
+
+        fut
     }
 
     /// Get the features supported by the compute server.
