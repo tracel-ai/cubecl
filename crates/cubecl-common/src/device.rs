@@ -43,3 +43,344 @@ impl PartialOrd for DeviceId {
         Some(self.cmp(other))
     }
 }
+
+pub use state::*;
+
+mod state {
+    use alloc::boxed::Box;
+    use core::{
+        any::{Any, TypeId},
+        cell::{RefCell, RefMut, UnsafeCell},
+        marker::PhantomData,
+    };
+    use hashbrown::HashMap;
+    use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+
+    use crate::stub::Arc;
+
+    use super::{Device, DeviceId};
+
+    /// Handle for accessing type `S` state associated with a specific device.
+    pub struct DeviceState<S: Send + 'static + Default> {
+        lock: DeviceStateLock,
+        _phantom: PhantomData<S>,
+    }
+
+    /// Guard providing mutable access to device state of type `S`.
+    ///
+    /// Automatically releases the lock when dropped.
+    pub struct DeviceStateGuard<'a, S: Default + Send + 'static> {
+        guard_ref: Option<RefMut<'a, Box<dyn Any + Send + 'static>>>,
+        guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
+        _phantom: PhantomData<S>,
+    }
+
+    impl<'a, S: Default + Send + 'static> Drop for DeviceStateGuard<'a, S> {
+        fn drop(&mut self) {
+            // Important to drop the ref before.
+            self.guard_ref = None;
+            self.guard_mutex = None;
+        }
+    }
+
+    impl<'a, S: Default + Send + 'static> core::ops::Deref for DeviceStateGuard<'a, S> {
+        type Target = S;
+
+        fn deref(&self) -> &Self::Target {
+            self.guard_ref.as_ref().unwrap().downcast_ref().unwrap()
+        }
+    }
+
+    impl<'a, S: Default + Send + 'static> core::ops::DerefMut for DeviceStateGuard<'a, S> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.guard_ref.as_mut().unwrap().downcast_mut().unwrap()
+        }
+    }
+
+    impl<S: Default + Send + 'static> DeviceState<S> {
+        /// Creates a [DeviceState<S>] handle for the given device.
+        ///
+        /// Registers the device-type combination globally if needed.
+        pub fn locate<D: Device + 'static>(device: &D) -> Self {
+            DeviceStateLock::locate(device)
+        }
+
+        /// Acquires exclusive mutable access to the state.
+        ///
+        /// The same device can lock multiple types at the same time.
+        ///
+        /// # Panics
+        ///
+        /// If the same state type is locked multiple times on the same thread.
+        /// This can only happen with recursive locking of the same state, which isn't allowed
+        /// since having multiple mutable references to the same state isn't valid.
+        pub fn lock(&self) -> DeviceStateGuard<'_, S> {
+            let id = TypeId::of::<S>();
+
+            let state = self.lock.lock.lock();
+
+            // Safe because the map is stable.
+            // This essentially only remove the lifetime of this map
+            let map = unsafe {
+                let ptr = state.map.get();
+                ptr.as_mut().unwrap()
+            };
+
+            if !map.contains_key(&id) {
+                let state_default = S::default();
+                let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
+                let cell = RefCell::new(any);
+
+                map.insert(id, cell);
+            }
+
+            let value = map.get(&id).unwrap();
+            let ref_guard = match value.try_borrow_mut() {
+                Ok(guard) => guard,
+                #[cfg(feature = "std")]
+                Err(_) => panic!(
+                    "State {} is already borrowed by the current thread {:?}",
+                    core::any::type_name::<S>(),
+                    std::thread::current().id()
+                ),
+                #[cfg(not(feature = "std"))]
+                Err(_) => panic!("State {} is already borrowed", core::any::type_name::<S>(),),
+            };
+
+            DeviceStateGuard {
+                guard_ref: Some(ref_guard),
+                guard_mutex: Some(state),
+                _phantom: PhantomData,
+            }
+        }
+    }
+
+    type Key = (DeviceId, TypeId);
+
+    static GLOBAL: spin::Mutex<DeviceLocator> = spin::Mutex::new(DeviceLocator { state: None });
+
+    struct DeviceLocator {
+        state: Option<HashMap<Key, DeviceStateLock>>,
+    }
+
+    #[derive(Clone)]
+    struct DeviceStateLock {
+        lock: Arc<ReentrantMutex<DeviceStateMap>>,
+    }
+
+    struct DeviceStateMap {
+        map: UnsafeCell<HashMap<TypeId, RefCell<Box<dyn Any + Send + 'static>>>>,
+    }
+
+    impl DeviceStateLock {
+        fn locate<D: Device + 'static, S: Send + 'static + Default>(device: &D) -> DeviceState<S> {
+            let id = device.to_id();
+            let key = (id, TypeId::of::<D>());
+            let mut global = GLOBAL.lock();
+
+            let map = match &mut global.state {
+                Some(state) => state,
+                None => {
+                    global.state = Some(HashMap::default());
+                    global.state.as_mut().unwrap()
+                }
+            };
+
+            let lock = match map.get(&key) {
+                Some(value) => value.clone(),
+                None => {
+                    let state = DeviceStateMap::new::<S>();
+
+                    let value = DeviceStateLock {
+                        lock: Arc::new(ReentrantMutex::new(state)),
+                    };
+
+                    map.insert(key, value);
+                    map.get(&key).unwrap().clone()
+                }
+            };
+
+            DeviceState {
+                lock,
+                _phantom: PhantomData,
+            }
+        }
+    }
+
+    impl DeviceStateMap {
+        fn new<S: Send + 'static + Default>() -> Self {
+            let state = S::default();
+            let any: Box<dyn Any + Send + 'static> = Box::new(state);
+            let mut map = HashMap::new();
+            map.insert(TypeId::of::<S>(), RefCell::new(any));
+
+            Self {
+                map: UnsafeCell::new(map),
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use core::{
+            ops::{Deref, DerefMut},
+            time::Duration,
+        };
+
+        use super::*;
+
+        #[test]
+        fn can_have_multiple_mutate_state() {
+            let device1 = TestDevice::<0>::new(0);
+            let device2 = TestDevice::<1>::new(0);
+
+            let state1_usize = DeviceState::<usize>::locate(&device1);
+            let state1_u32 = DeviceState::<u32>::locate(&device1);
+            let state2_usize = DeviceState::<usize>::locate(&device2);
+
+            let mut guard_usize = state1_usize.lock();
+            let mut guard_u32 = state1_u32.lock();
+
+            let val_usize = guard_usize.deref_mut();
+            let val_u32 = guard_u32.deref_mut();
+
+            *val_usize += 1;
+            *val_u32 += 2;
+
+            assert_eq!(*val_usize, 1);
+            assert_eq!(*val_u32, 2);
+
+            core::mem::drop(guard_usize);
+            core::mem::drop(guard_u32);
+
+            let mut guard_usize = state2_usize.lock();
+
+            let val_usize = guard_usize.deref_mut();
+            *val_usize += 1;
+
+            assert_eq!(*val_usize, 1);
+
+            core::mem::drop(guard_usize);
+
+            let guard_usize = state1_usize.lock();
+            let guard_u32 = state1_u32.lock();
+
+            let val_usize = guard_usize.deref();
+            let val_u32 = guard_u32.deref();
+
+            assert_eq!(*val_usize, 1);
+            assert_eq!(*val_u32, 2);
+        }
+
+        #[test]
+        #[should_panic]
+        fn can_not_have_multiple_mut_ref_to_same_state() {
+            let device1 = TestDevice::<0>::new(0);
+
+            #[derive(Default)]
+            struct DummyState;
+
+            fn recursive(total: usize, state: &DeviceState<DummyState>) {
+                let _guard = state.lock();
+
+                if total > 0 {
+                    recursive(total - 1, state);
+                }
+            }
+
+            recursive(5, &DeviceState::locate(&device1));
+        }
+
+        #[test]
+        fn work_with_many_threads() {
+            let num_threads = 8;
+            let handles: Vec<_> = (0..num_threads)
+                .map(|i| std::thread::spawn(move || thread_main((num_threads * 2) - i)))
+                .collect();
+
+            handles.into_iter().for_each(|h| h.join().unwrap());
+
+            let device1 = TestDevice::<0>::new(0);
+            let device2 = TestDevice::<1>::new(0);
+
+            let state1_i64 = DeviceState::<i64>::locate(&device1);
+            let state1_i32 = DeviceState::<i32>::locate(&device1);
+            let state2_i32 = DeviceState::<i32>::locate(&device2);
+
+            let guard_i64 = state1_i64.lock();
+            let guard_i32 = state1_i32.lock();
+
+            assert_eq!(*guard_i64, num_threads as i64);
+            assert_eq!(*guard_i32, num_threads as i32 * 2);
+
+            core::mem::drop(guard_i64);
+            core::mem::drop(guard_i32);
+
+            let guard_i32 = state2_i32.lock();
+            assert_eq!(*guard_i32, num_threads as i32);
+        }
+
+        fn thread_main(sleep: u64) {
+            println!(
+                "[{:?}] Starting, sleeping {sleep:?}.",
+                std::thread::current().id()
+            );
+
+            let device1 = TestDevice::<0>::new(0);
+            let device2 = TestDevice::<1>::new(0);
+
+            let state1_i64 = DeviceState::<i64>::locate(&device1);
+            let state1_i32 = DeviceState::<i32>::locate(&device1);
+            let state2_i32 = DeviceState::<i32>::locate(&device2);
+
+            let mut guard_i64 = state1_i64.lock();
+            let mut guard_i32 = state1_i32.lock();
+            println!("[{:?}] Locked.", std::thread::current().id());
+
+            let val_i64 = guard_i64.deref_mut();
+            let val_i32 = guard_i32.deref_mut();
+
+            *val_i64 += 1;
+            *val_i32 += 2;
+
+            core::mem::drop(guard_i64);
+            core::mem::drop(guard_i32);
+            println!("[{:?}] Released.", std::thread::current().id());
+
+            std::thread::sleep(Duration::from_millis(sleep));
+
+            let mut guard_i32 = state2_i32.lock();
+
+            let val_i32 = guard_i32.deref_mut();
+            *val_i32 += 1;
+
+            core::mem::drop(guard_i32);
+            println!("[{:?}] Done.", std::thread::current().id());
+        }
+
+        #[derive(Debug, Clone, Default, new)]
+        /// Type is only to create different type ids.
+        pub struct TestDevice<const TYPE: u8> {
+            index: u32,
+        }
+
+        impl<const TYPE: u8> Device for TestDevice<TYPE> {
+            fn from_id(device_id: DeviceId) -> Self {
+                Self {
+                    index: device_id.index_id,
+                }
+            }
+
+            fn to_id(&self) -> DeviceId {
+                DeviceId {
+                    type_id: 0,
+                    index_id: self.index,
+                }
+            }
+
+            fn device_count(_type_id: u16) -> usize {
+                TYPE as usize + 1
+            }
+        }
+    }
+}

@@ -57,6 +57,7 @@ embassy-futures = { version = "0.1.1" }
 futures-lite = { workspace = true, features = [
     "std",
 ], default-features = false, optional = true }
+parking_lot = { version = "0.12.5", default-features = false }
 
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
