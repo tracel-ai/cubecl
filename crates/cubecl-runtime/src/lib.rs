@@ -18,8 +18,6 @@ pub mod kernel;
 #[cfg(feature = "std")]
 pub mod stream;
 
-/// Compute channel module.
-pub mod channel;
 /// Compute client module.
 pub mod client;
 
