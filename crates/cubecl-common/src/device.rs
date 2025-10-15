@@ -107,19 +107,12 @@ mod state {
             // Important to drop the ref before.
             self.guard_ref = None;
             self.guard_mutex = None;
-            #[cfg(feature = "std")]
-            println!("[dropped] from thread {:?}", std::thread::current().id(),);
         }
     }
 
     impl<'a> Drop for DeviceGuard<'a> {
         fn drop(&mut self) {
             self.guard_mutex = None;
-            #[cfg(feature = "std")]
-            println!(
-                "[dropped_device] from thread {:?}",
-                std::thread::current().id(),
-            );
         }
     }
 
@@ -155,12 +148,6 @@ mod state {
 
             let state = lock.lock.lock.lock();
 
-            #[cfg(feature = "std")]
-            println!(
-                "[insert] locked from thread {:?}",
-                std::thread::current().id(),
-            );
-
             // It is safe for multiple reasons for the same reason enumerated in the lock function.
             let map = unsafe {
                 let ptr = state.map.get();
@@ -181,23 +168,12 @@ mod state {
 
             core::mem::drop(state);
 
-            #[cfg(feature = "std")]
-            println!(
-                "[dropped_insert] dropped from thread {:?}",
-                std::thread::current().id(),
-            );
-
             Ok(lock)
         }
 
         /// TODO
         pub fn lock_device(&self) -> DeviceGuard<'_> {
             let state = self.lock.lock.lock();
-            #[cfg(feature = "std")]
-            println!(
-                "[lock_device] locked from thread {:?}",
-                std::thread::current().id(),
-            );
 
             DeviceGuard {
                 guard_mutex: Some(state),
@@ -216,12 +192,6 @@ mod state {
         pub fn lock(&self) -> DeviceStateGuard<'_, S> {
             let id = TypeId::of::<S>();
             let state = self.lock.lock.lock();
-
-            #[cfg(feature = "std")]
-            println!(
-                "[lock] locked from thread {:?}",
-                std::thread::current().id(),
-            );
 
             // It is safe for multiple reasons.
             //
