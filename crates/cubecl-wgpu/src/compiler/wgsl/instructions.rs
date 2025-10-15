@@ -265,6 +265,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Trunc {
+        input: Variable,
+        out: Variable,
+    },
     Remainder {
         lhs: Variable,
         rhs: Variable,
@@ -853,6 +857,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Ceil { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ceil({input});")
+            }
+            Instruction::Trunc { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = trunc({input});")
             }
             Instruction::Subgroup(op) => write!(f, "{op}"),
             Instruction::Bitcast { input, out } => {

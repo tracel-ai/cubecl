@@ -421,6 +421,7 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
         Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),
+        Arithmetic::Trunc(op) => const_eval_float!(op.input; num::Float::trunc),
         Arithmetic::Recip(op) => const_eval_float!(op.input; num::Float::recip),
         Arithmetic::Neg(op) => {
             use ConstantScalarValue::*;
