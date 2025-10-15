@@ -354,7 +354,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs.data(), rhs.data(), out)?;
+            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs, rhs, out)?;
             Ok(())
         }
         Strategy::Auto => {
