@@ -8,7 +8,7 @@ use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
 use cubecl_runtime::{
-    ComputeRuntime, channel,
+    ComputeRuntime,
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
 };
@@ -22,28 +22,30 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 pub struct WgpuRuntime;
 
 type Server = WgpuServer;
-type Channel = channel::MutexComputeChannel<Server>;
-// type Channel = channel::MpscComputeChannel<Server>;
 
 /// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, Channel> = ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<WgpuDevice, Server> = ComputeRuntime::new();
+
+impl Default for WgpuServer {
+    fn default() -> Self {
+        todo!()
+    }
+}
 
 impl Runtime for WgpuRuntime {
     type Compiler = AutoCompiler;
     type Server = WgpuServer;
-
-    type Channel = Channel;
     type Device = WgpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
         RUNTIME.client(device, move || {
             let setup =
                 future::block_on(create_setup_for_device(device, AutoGraphicsApi::backend()));
-            create_client_on_setup(setup, RuntimeOptions::default())
+            create_client_on_setup(device, setup, RuntimeOptions::default())
         })
     }
 
-    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(client: &ComputeClient<Self::Server>) -> &'static str {
         match client.info() {
             wgpu::Backend::Vulkan => {
                 #[cfg(feature = "spirv")]
@@ -171,7 +173,7 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::Existing(device_id);
-    let client = create_client_on_setup(setup, options);
+    let client = create_client_on_setup(&device_id, setup, options);
     RUNTIME.register(&device_id, client);
     device_id
 }
@@ -198,15 +200,16 @@ pub async fn init_setup_async<G: GraphicsApi>(
 ) -> WgpuSetup {
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
-    let client = create_client_on_setup(setup, options);
+    let client = create_client_on_setup(device, setup, options);
     RUNTIME.register(device, client);
     return_setup
 }
 
 pub(crate) fn create_client_on_setup(
+    device: &WgpuDevice,
     setup: WgpuSetup,
     options: RuntimeOptions,
-) -> ComputeClient<WgpuServer, Channel> {
+) -> ComputeClient<WgpuServer> {
     let limits = setup.device.limits();
     let mut adapter_limits = setup.adapter.limits();
 
@@ -297,7 +300,6 @@ pub(crate) fn create_client_on_setup(
         time_measurement,
         alloc::sync::Arc::new(ServerLogger::default()),
     );
-    let channel = Channel::new(server);
 
     #[cfg(not(all(target_os = "macos", feature = "msl")))]
     if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
@@ -310,7 +312,7 @@ pub(crate) fn create_client_on_setup(
         );
     }
 
-    ComputeClient::new(channel, device_props, setup.backend)
+    ComputeClient::new(device, server, device_props, setup.backend)
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and

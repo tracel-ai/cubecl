@@ -144,7 +144,7 @@ impl Layout for BatchedGlobalLayout {
 
 impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
     pub fn from_handle(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
         config: GlobalMemoryConfig,

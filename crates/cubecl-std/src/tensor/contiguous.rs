@@ -151,7 +151,7 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
     let num_elems: usize = input.shape.iter().product();
@@ -167,7 +167,7 @@ pub fn into_contiguous<R: Runtime, E: CubePrimitive>(
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<'_, R>,
 ) -> TensorHandle<R, E> {
     if input.shape.len() <= 1 {
@@ -183,7 +183,7 @@ pub fn into_contiguous_pitched<R: Runtime, E: CubePrimitive>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
 ) {

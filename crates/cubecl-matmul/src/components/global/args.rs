@@ -26,7 +26,7 @@ use crate::{
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,
@@ -40,7 +40,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &MatmulProblem,
@@ -119,7 +119,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
     for TensorInputs<Lhs, Rhs, Acc>
 {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         _selection: &MatmulSelection,
@@ -148,7 +148,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
 
 impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
         _selection: &MatmulSelection,
         problem: &MatmulProblem,
@@ -231,7 +231,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
     for TensorMapInputs<Lhs, Rhs, EO>
 {
     fn create<'a, R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server>,
         lhs_handle: &'a MatmulInputHandleRef<'a, R>,
         rhs_handle: &'a MatmulInputHandleRef<'a, R>,
         selection: &MatmulSelection,

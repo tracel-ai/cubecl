@@ -204,7 +204,7 @@ pub type ScalesViewLaunch<'a, R> = TypedViewLaunch<'a, ScalesLayout, R>;
 /// Create a scales view from the values and scales handle, line size and quantization scheme.
 /// `values` should be *the quantized tensor*, and will be adjusted by `num_quants`.
 pub fn scales_view<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
     scales_line_size: u8,
@@ -219,7 +219,7 @@ pub fn scales_view<'a, R: Runtime>(
 }
 
 pub fn scales_layout<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
     scales_line_size: u8,
@@ -245,7 +245,7 @@ pub fn scales_layout<'a, R: Runtime>(
 }
 
 fn shape_divmod_quant<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     shape: &'a [usize],
     num_quants: usize,
 ) -> SequenceArg<'a, R, FastDivmod> {

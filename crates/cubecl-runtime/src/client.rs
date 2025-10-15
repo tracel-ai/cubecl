@@ -72,7 +72,7 @@ where
     /// Create a new client.
     pub fn new<D: Device>(
         device: &D,
-        logger: Arc<ServerLogger>,
+        server: Server,
         properties: DeviceProperties,
         info: Server::Info,
     ) -> Self {
@@ -80,7 +80,9 @@ where
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
 
-        let state = ComputeClientData {
+        let logger = server.logger();
+
+        let stateless = ComputeClientData {
             properties,
             logger,
             // Create the GPU client if needed.
@@ -100,9 +102,12 @@ where
             info,
         };
 
+        let state = DeviceState::<Server>::insert(device, server)
+            .expect("Can't create a new client on an already registered server");
+
         Self {
-            state: DeviceState::<Server>::locate(device),
-            stateless: Arc::new(state),
+            state,
+            stateless: Arc::new(stateless),
             stream_id: None,
         }
     }

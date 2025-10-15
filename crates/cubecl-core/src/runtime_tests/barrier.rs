@@ -17,9 +17,7 @@ pub fn async_copy_test<F: Float>(input: &Array<Line<F>>, output: &mut Array<Line
     output[0] = smem[0];
 }
 
-pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
+pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -130,9 +128,7 @@ fn two_independent_loads<F: Float>(
     output[UNIT_POS_X] = dot;
 }
 
-pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
+pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.
         return;
@@ -160,7 +156,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(
 
 pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     independent: bool,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     if !client.properties().supports_type(SemanticType::Barrier) {
         // We can't execute the test, skip.

@@ -26,7 +26,7 @@ impl<R: Runtime, F: Float + CubeElement> Clone for GpuTensor<R, F> {
 
 impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
     /// Create a GpuTensor with a shape filled by number in order
-    pub fn arange(shape: Vec<usize>, client: &ComputeClient<R::Server, R::Channel>) -> Self {
+    pub fn arange(shape: Vec<usize>, client: &ComputeClient<R::Server>) -> Self {
         let size = shape.iter().product();
         let data: Vec<F> = (0..size).map(|i| F::from_int(i as i64)).collect();
         let data = client.create(F::as_bytes(&data));
@@ -42,7 +42,7 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
     }
 
     /// Create an empty GpuTensor with a shape
-    pub fn empty(shape: Vec<usize>, client: &ComputeClient<R::Server, R::Channel>) -> Self {
+    pub fn empty(shape: Vec<usize>, client: &ComputeClient<R::Server>) -> Self {
         let size = shape.iter().product::<usize>() * core::mem::size_of::<F>();
         let data = client.empty(size);
 
@@ -62,7 +62,7 @@ impl<R: Runtime, F: Float + CubeElement> GpuTensor<R, F> {
     }
 
     /// Return the data from the client
-    pub fn read(self, client: &ComputeClient<R::Server, R::Channel>) -> Vec<F> {
+    pub fn read(self, client: &ComputeClient<R::Server>) -> Vec<F> {
         let bytes = client.read_one(self.data.binding());
         F::from_bytes(&bytes).to_vec()
     }

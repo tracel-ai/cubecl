@@ -80,7 +80,7 @@ impl Layout for OutLayout {
 
 impl<'a, R: Runtime> OutLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         config: GlobalMemoryConfig,
     ) -> Self {

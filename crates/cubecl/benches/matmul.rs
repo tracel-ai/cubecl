@@ -121,7 +121,7 @@ struct MatmulBench<R: Runtime, MP> {
     tr: bool,
     strategy: matmul::Strategy,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _mp: PhantomData<MP>,
 }
 

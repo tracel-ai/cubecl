@@ -105,7 +105,7 @@ pub struct Conv2dBench<R: Runtime, MP> {
     bias_shape: usize,
     args: ConvolutionArgs<2>,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _phantom: PhantomData<MP>,
 }
 

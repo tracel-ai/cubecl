@@ -22,7 +22,7 @@ impl<FM: AttentionMatmulFamily> TileAttentionFamily for DummyTileAttentionFamily
     type Config = FM::Config;
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,

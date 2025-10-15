@@ -28,7 +28,7 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, Args, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
@@ -153,7 +153,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

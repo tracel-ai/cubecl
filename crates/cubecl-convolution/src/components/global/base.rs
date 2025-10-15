@@ -28,7 +28,7 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes;
 
     fn setup<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,

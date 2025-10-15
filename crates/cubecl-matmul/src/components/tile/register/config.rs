@@ -81,7 +81,7 @@ impl RegisterConfig {
     /// - Line sizes do not evenly divide tile sizes in the lined axis
     /// - Types are unavailable
     pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         tile_size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
@@ -165,7 +165,7 @@ impl RegisterConfig {
 
     fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
         let lhs = Lhs::as_type_native_unchecked();
         let rhs = Rhs::as_type_native_unchecked();

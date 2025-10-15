@@ -128,6 +128,39 @@ mod state {
         }
 
         /// TODO
+        pub fn insert<D: Device + 'static>(
+            device: &D,
+            state_new: S,
+        ) -> Result<Self, alloc::string::String> {
+            let lock = Self::locate(device);
+            let id = TypeId::of::<S>();
+
+            let state = lock.lock.lock.lock();
+
+            // It is safe for multiple reasons for the same reason enumerated in the lock function.
+            let map = unsafe {
+                let ptr = state.map.get();
+                ptr.as_mut().unwrap()
+            };
+
+            if map.contains_key(&id) {
+                return Err(alloc::format!(
+                    "A server is still registered for device {:?}",
+                    device
+                ));
+            }
+
+            let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
+            let cell = RefCell::new(any);
+
+            map.insert(id, cell);
+
+            core::mem::drop(state);
+
+            Ok(lock)
+        }
+
+        /// TODO
         pub fn lock_device(&self) -> DeviceGuard<'_> {
             let state = self.lock.lock.lock();
 
@@ -249,13 +282,8 @@ mod state {
 
     impl DeviceStateMap {
         fn new<S: Send + 'static + Default>() -> Self {
-            let state = S::default();
-            let any: Box<dyn Any + Send + 'static> = Box::new(state);
-            let mut map = HashMap::new();
-            map.insert(TypeId::of::<S>(), RefCell::new(any));
-
             Self {
-                map: UnsafeCell::new(map),
+                map: UnsafeCell::new(HashMap::new()),
             }
         }
     }

@@ -64,7 +64,7 @@ impl<
     }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
     ) -> TensorHandle<R, E> {
@@ -77,7 +77,7 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: MatmulElems,
@@ -92,7 +92,7 @@ impl<
 }
 
 pub(crate) fn into_tensor_handle_tma<R: Runtime, E: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     handle: &TensorHandleRef<'_, R>,
     ident: MatmulIdent,
 ) -> TensorHandle<R, E> {

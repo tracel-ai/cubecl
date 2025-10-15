@@ -15,7 +15,7 @@ pub struct TestOptions {
 }
 
 pub fn attention_test_launch<A: Algorithm, R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
     test_options: TestOptions,
