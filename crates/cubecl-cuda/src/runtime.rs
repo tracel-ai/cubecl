@@ -22,7 +22,6 @@ use cubecl_cpp::{
 };
 use cubecl_runtime::{
     ComputeRuntime, DeviceProperties, Plane, Tma, TypeUsage,
-    channel::MutexComputeChannel,
     client::ComputeClient,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
@@ -40,16 +39,21 @@ pub struct RuntimeOptions {
 pub struct CudaRuntime;
 
 type Server = CudaServer;
-type Channel = MutexComputeChannel<Server>;
 
-static RUNTIME: ComputeRuntime<CudaDevice, Server, Channel> = ComputeRuntime::new();
+impl Default for CudaServer {
+    fn default() -> Self {
+        todo!()
+    }
+}
+
+static RUNTIME: ComputeRuntime<CudaDevice, Server> = ComputeRuntime::new();
 
 pub type CudaCompiler = CppCompiler<CudaDialect<WmmaCompiler>>;
 
 fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
     device: &CudaDevice,
     options: RuntimeOptions,
-) -> ComputeClient<Server, Channel> {
+) -> ComputeClient<Server> {
     // To get the supported WMMA features, and memory properties, we have to initialize the server immediately.
     cudarc::driver::result::init().unwrap();
     let device_id = device.index as i32;
@@ -237,7 +241,7 @@ fn create_client<M: DialectWmmaCompiler<CudaDialect<M>>>(
         mem_alignment,
         device_id,
     );
-    ComputeClient::new(MutexComputeChannel::new(server), device_props, ())
+    ComputeClient::new(device, server, device_props, ())
 }
 
 fn tensor_cores_per_sm(version: u32) -> Option<u32> {
@@ -251,17 +255,15 @@ fn tensor_cores_per_sm(version: u32) -> Option<u32> {
 impl Runtime for CudaRuntime {
     type Compiler = CudaCompiler;
     type Server = CudaServer;
-
-    type Channel = MutexComputeChannel<CudaServer>;
     type Device = CudaDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
         RUNTIME.client(device, move || {
             create_client::<WmmaCompiler>(device, RuntimeOptions::default())
         })
     }
 
-    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
         "cuda"
     }
 

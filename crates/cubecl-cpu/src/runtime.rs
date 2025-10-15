@@ -1,7 +1,6 @@
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    channel::MpscComputeChannel,
     client::ComputeClient,
     ir::{StorageType, TargetProperties},
 };
@@ -33,14 +32,13 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct CpuRuntime;
 
-static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<CpuDevice, Server> = ComputeRuntime::new();
 
 pub type CpuCompiler = MlirCompiler;
 
 type Server = CpuServer;
-type Channel = MpscComputeChannel<Server>;
 
-fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
+fn create_client(options: RuntimeOptions) -> ComputeClient<Server> {
     let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
     let max_cube_count = CubeCount::Static(64, 64, 64);
     let system = System::new_all();
@@ -87,21 +85,25 @@ fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
 
     let ctx = CpuContext::new(memory_management);
     let server = CpuServer::new(ctx, logger);
-    ComputeClient::new(Channel::new(server), device_props, ())
+    ComputeClient::new(&CpuDevice::new(), server, device_props, ())
+}
+
+impl Default for CpuServer {
+    fn default() -> Self {
+        todo!()
+    }
 }
 
 impl Runtime for CpuRuntime {
     type Compiler = CpuCompiler;
     type Server = CpuServer;
-
-    type Channel = Channel;
     type Device = CpuDevice;
 
-    fn client(_device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
+    fn client(_device: &Self::Device) -> ComputeClient<Self::Server> {
         RUNTIME.client(_device, move || create_client(RuntimeOptions::default()))
     }
 
-    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
         "cpu"
     }
 

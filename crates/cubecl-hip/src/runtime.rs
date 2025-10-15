@@ -5,7 +5,7 @@ use crate::{
 };
 use cubecl_common::profile::TimingMethod;
 use cubecl_core::{
-    CubeCount, CubeDim, MemoryConfiguration, Runtime, channel,
+    CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{MatrixLayout, MmaProperties, TargetProperties},
 };
 use cubecl_cpp::{
@@ -34,18 +34,22 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct HipRuntime;
 
-static RUNTIME: ComputeRuntime<AmdDevice, Server, Channel> = ComputeRuntime::new();
+static RUNTIME: ComputeRuntime<AmdDevice, Server> = ComputeRuntime::new();
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 
 type Server = HipServer;
-type Channel = channel::MutexComputeChannel<Server>;
-// type Channel = channel::MpscComputeChannel<Server>;
+
+impl Default for HipServer {
+    fn default() -> Self {
+        todo!()
+    }
+}
 
 fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
     device: &AmdDevice,
     options: RuntimeOptions,
-) -> ComputeClient<Server, Channel> {
+) -> ComputeClient<Server> {
     #[allow(unused_assignments)]
     let mut prop_warp_size = 0;
     #[allow(unused_assignments)]
@@ -167,22 +171,21 @@ fn create_client<M: DialectWmmaCompiler<HipDialect<M>>>(
         options.memory_config,
         mem_alignment,
     );
-    ComputeClient::new(Channel::new(server), device_props, ())
+    ComputeClient::new(device, server, device_props, ())
 }
 
 impl Runtime for HipRuntime {
     type Compiler = HipCompiler;
     type Server = HipServer;
-    type Channel = Channel;
     type Device = AmdDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
         RUNTIME.client(device, move || {
             create_client::<HipWmmaCompiler>(device, RuntimeOptions::default())
         })
     }
 
-    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
         "hip"
     }
 
