@@ -230,96 +230,180 @@ impl<
 }
 
 mod dynamic {
-    use crate::tensor::layout::{VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch};
+    use crate::tensor::layout::{
+        VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
+        as_dyn::{IntoDyn, IntoDynLayout, IntoDynLayoutLaunch},
+    };
 
     use super::*;
 
-    pub struct ViewLaunch<'a, C: Coordinates, R: Runtime> {
-        _phantom_runtime: PhantomData<R>,
-        _phantom_a: PhantomData<&'a ()>,
-        buffer: ArrayArg<'a, R>,
-        layout: VirtualLayoutLaunch<'a, C, Coords1d, R>,
+    pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
+        Array(ArrayArg<'a, R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
+        TensorMap(
+            TensorMapArg<'a, R>,
+            VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
+        ),
     }
-    impl<'a, C: Coordinates, R: Runtime> ViewLaunch<'a, C, R> {
+    impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
             buffer: ArrayArg<'a, R>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
-            Self {
-                _phantom_runtime: core::marker::PhantomData,
-                _phantom_a: core::marker::PhantomData,
-                buffer,
-                layout: VirtualLayoutLaunch::new::<L>(layout),
+            ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
+        }
+
+        pub fn new_tensor_map<
+            L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
+        >(
+            buffer: TensorMapArg<'a, R>,
+            layout: L::RuntimeArg<'a, R>,
+        ) -> Self {
+            let layout = IntoDynLayoutLaunch::new(layout);
+            ViewArg::TensorMap(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
+        }
+    }
+    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
+        fn register(&self, launcher: &mut KernelLauncher<R>) {
+            match self {
+                ViewArg::Array(buffer, layout) => {
+                    buffer.register(launcher);
+                    layout.register(launcher);
+                }
+                ViewArg::TensorMap(buffer, layout) => {
+                    buffer.register(launcher);
+                    layout.register(launcher);
+                }
             }
         }
     }
-    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewLaunch<'a, C, R> {
-        fn register(&self, launcher: &mut KernelLauncher<R>) {
-            self.buffer.register(launcher);
-            self.layout.register(launcher);
-        }
-    }
     #[derive(Clone)]
-    pub struct ViewCompilationArg<C: Coordinates> {
-        buffer: ArrayCompilationArg,
-        layout: VirtualLayoutCompilationArg<C, Coords1d>,
+    pub enum ViewCompilationArg<C: Coordinates> {
+        Array(
+            ArrayCompilationArg,
+            VirtualLayoutCompilationArg<C, Coords1d>,
+        ),
+        TensorMap(
+            TensorMapCompilationArg,
+            VirtualLayoutCompilationArg<C, Sequence<i32>>,
+        ),
     }
 
     impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
     impl<C: Coordinates> Eq for ViewCompilationArg<C> {}
     impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
-            self.buffer == other.buffer && self.layout == other.layout
+            match (self, other) {
+                (ViewCompilationArg::Array(bs, ls), ViewCompilationArg::Array(bo, lo)) => {
+                    bs == bo && ls == lo
+                }
+                (ViewCompilationArg::TensorMap(bs, ls), ViewCompilationArg::TensorMap(bo, lo)) => {
+                    bs == bo && ls == lo
+                }
+                _ => false,
+            }
         }
     }
     impl<C: Coordinates> core::hash::Hash for ViewCompilationArg<C> {
         fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
-            self.buffer.hash(ra_expand_state);
-            self.layout.hash(ra_expand_state);
+            match self {
+                ViewCompilationArg::Array(buffer, layout) => {
+                    buffer.hash(ra_expand_state);
+                    layout.hash(ra_expand_state);
+                }
+                ViewCompilationArg::TensorMap(buffer, layout) => {
+                    buffer.hash(ra_expand_state);
+                    layout.hash(ra_expand_state);
+                }
+            }
         }
     }
     impl<C: Coordinates> core::fmt::Debug for ViewCompilationArg<C> {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-            f.debug_struct("ViewCompilationArg")
-                .field("buffer", &self.buffer)
-                .field("layout", &self.layout)
-                .finish()
+            match self {
+                ViewCompilationArg::Array(f0, f1) => {
+                    f.debug_tuple("Array").field(&f0).field(&f1).finish()
+                }
+                ViewCompilationArg::TensorMap(f0, f1) => {
+                    f.debug_tuple("TensorMap").field(&f0).field(&f1).finish()
+                }
+            }
         }
     }
 
     impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
-        type RuntimeArg<'a, R: Runtime> = ViewLaunch<'a, C, R>;
+        type RuntimeArg<'a, R: Runtime> = ViewArg<'a, C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
         fn compilation_arg<'a, R: Runtime>(
             runtime_arg: &Self::RuntimeArg<'a, R>,
         ) -> Self::CompilationArg {
-            let buffer = Array::<E>::compilation_arg(&runtime_arg.buffer);
-            let layout = VirtualLayout::<C, Coords1d>::compilation_arg(&runtime_arg.layout);
-            ViewCompilationArg { buffer, layout }
+            match runtime_arg {
+                ViewArg::Array(buffer, layout) => {
+                    let buffer = Array::<E>::compilation_arg(buffer);
+                    let layout = VirtualLayout::<C, Coords1d>::compilation_arg(layout);
+                    ViewCompilationArg::Array(buffer, layout)
+                }
+                ViewArg::TensorMap(buffer, layout) => {
+                    let buffer = TensorMap::<E>::compilation_arg(buffer);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::compilation_arg(layout);
+                    ViewCompilationArg::TensorMap(buffer, layout)
+                }
+            }
         }
         fn expand(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let buffer = Array::<E>::expand(&arg.buffer, builder);
-            let layout = VirtualLayout::<C, Coords1d>::expand(&arg.layout, builder);
-            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
-            ViewExpand::<E, C, IO> {
-                inner: ViewType::ReadWrite(Arc::new(view)),
-                _io: PhantomData,
+            match arg {
+                ViewCompilationArg::Array(buffer, layout) => {
+                    let buffer = Array::<E>::expand(buffer, builder);
+                    let layout = VirtualLayout::<C, Coords1d>::expand(layout, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::TensorMap(buffer, layout) => {
+                    let buffer = TensorMap::<E>::expand(buffer, builder);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::expand(layout, builder);
+                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
+                        buffer, layout,
+                    );
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
             }
         }
         fn expand_output(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let buffer = Array::<E>::expand_output(&arg.buffer, builder);
-            let layout = VirtualLayout::<C, Coords1d>::expand_output(&arg.layout, builder);
-            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
-            ViewExpand::<E, C, IO> {
-                inner: ViewType::ReadWrite(Arc::new(view)),
-                _io: PhantomData,
+            match arg {
+                ViewCompilationArg::Array(buffer, layout) => {
+                    let buffer = Array::<E>::expand_output(buffer, builder);
+                    let layout = VirtualLayout::<C, Coords1d>::expand_output(layout, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::TensorMap(buffer, layout) => {
+                    let buffer = TensorMap::<E>::expand_output(buffer, builder);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::expand_output(layout, builder);
+                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
+                        buffer, layout,
+                    );
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
             }
         }
     }

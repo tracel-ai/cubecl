@@ -522,13 +522,14 @@ where
         // We use the same profiling lock to make sure no other task is currently using the current
         // device. Meaning that the current persistent memory strategy will only be used for the
         // provided function.
-
         #[cfg(multi_threading)]
         let stream_id = self.profile_acquire();
 
         self.channel
             .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
+
         let output = func(input);
+
         self.channel
             .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
 
@@ -656,11 +657,21 @@ where
         alloc
     }
 
-    #[cfg(not(multi_threading))]
-    fn profile_guard(&self) {}
+    /// Waits until the current device can be used without impacting profiling.
+    ///
+    /// All tasks registered on the same stream currently profiling won't wait, to allow recursive
+    /// profiling.
+    ///
+    /// # Warning
+    ///
+    /// This function normally shouldn't be used except in internal code.
+    pub fn profile_guard(&self) {
+        #[cfg(multi_threading)]
+        self.profile_guard_inner();
+    }
 
     #[cfg(multi_threading)]
-    fn profile_guard(&self) {
+    fn profile_guard_inner(&self) {
         let current = self.state.current_profiling.read();
 
         if let Some(current_stream_id) = current.as_ref() {

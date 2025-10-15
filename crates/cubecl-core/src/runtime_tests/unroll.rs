@@ -14,7 +14,7 @@ pub fn unroll_add<F: Float>(output: &mut Array<Line<F>>) {
 
     let mut out = Line::empty(4u32);
     #[unroll]
-    for i in 0..4 {
+    for i in 0..4u32 {
         out[i] = c[i];
     }
 

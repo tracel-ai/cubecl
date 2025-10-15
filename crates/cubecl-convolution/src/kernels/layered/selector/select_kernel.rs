@@ -4,15 +4,17 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         InputArg, InputRuntimeArg, MatmulLineSizes, MatmulSelection, MatmulSpec, OutputArg,
-        OutputRuntimeArg,
-        global::{GlobalConfig as _, args::ConcreteOutputFactory},
+        OutputRuntimeArg, global::GlobalConfig as _,
     },
 };
 
 use crate::{
     components::{
         ConvSetupError, ConvolutionProblem,
-        global::{args::ConcreteInputsFactory, entry_point::ConvolutionLaunch},
+        global::{
+            args::{ConcreteInputsFactory, ConcreteOutputFactory},
+            entry_point::ConvolutionLaunch,
+        },
     },
     kernels::layered::algorithm::Algorithm,
 };
@@ -38,18 +40,22 @@ where
     let config = A::setup::<R, MS::Precision>(client, &problem, &selection, &line_sizes)?;
 
     let input = <InputArg<MS> as ConcreteInputsFactory>::create(
+        client,
         input,
         weight,
         bias.as_ref(),
         &selection,
         &problem,
         &line_sizes,
+        config,
     );
     let output = <OutputArg<MS> as ConcreteOutputFactory>::create(
+        client,
         out,
         &selection,
-        &problem.as_matmul_problem(),
+        &problem,
         &line_sizes,
+        config,
     );
 
     unsafe {

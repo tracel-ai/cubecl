@@ -9,7 +9,10 @@ use crate::components::{AccG, batch::partitioned_matmul::config::PartitionedBatc
 use crate::components::{LhsG, MatmulPrecision, RhsG};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::{View, layout::Coords3d},
+};
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.
@@ -33,16 +36,14 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
     type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
-        a: VirtualTensor<LhsG<MP>>,
-        b: VirtualTensor<RhsG<MP>>,
-        c: CubeOption<VirtualTensor<AccG<MP>>>,
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
+        a: View<Line<LhsG<MP>>, Coords3d>,
+        b: View<Line<RhsG<MP>>, Coords3d>,
+        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
+        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        let lhs_rank = a.rank();
-
-        let problem_k = a.shape(lhs_rank - 1);
+        let (_, _, problem_k) = a.shape();
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();
