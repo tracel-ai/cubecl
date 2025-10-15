@@ -44,6 +44,7 @@ pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
 impl State for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
         let device = AmdDevice::from_id(device_id);
+
         #[allow(unused_assignments)]
         let mut prop_warp_size = 0;
         #[allow(unused_assignments)]
