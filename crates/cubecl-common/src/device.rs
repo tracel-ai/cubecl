@@ -10,7 +10,7 @@ pub struct DeviceId {
 }
 
 /// Device trait for all cubecl devices.
-pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync {
+pub trait Device: Default + Clone + core::fmt::Debug + Send + Sync + 'static {
     /// Create a device from its [id](DeviceId).
     fn from_id(device_id: DeviceId) -> Self;
     /// Retrieve the [device id](DeviceId) from the device.
@@ -66,6 +66,15 @@ mod state {
         _phantom: PhantomData<S>,
     }
 
+    impl<S: Send + 'static + Default> Clone for DeviceState<S> {
+        fn clone(&self) -> Self {
+            Self {
+                lock: self.lock.clone(),
+                _phantom: self._phantom.clone(),
+            }
+        }
+    }
+
     /// Guard providing mutable access to device state of type `S`.
     ///
     /// Automatically releases the lock when dropped.
@@ -75,10 +84,23 @@ mod state {
         _phantom: PhantomData<S>,
     }
 
+    /// Guard providing mutable access to device state of type `S`.
+    ///
+    /// Automatically releases the lock when dropped.
+    pub struct DeviceGuard<'a> {
+        guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
+    }
+
     impl<'a, S: Default + Send + 'static> Drop for DeviceStateGuard<'a, S> {
         fn drop(&mut self) {
             // Important to drop the ref before.
             self.guard_ref = None;
+            self.guard_mutex = None;
+        }
+    }
+
+    impl<'a> Drop for DeviceGuard<'a> {
+        fn drop(&mut self) {
             self.guard_mutex = None;
         }
     }
@@ -103,6 +125,15 @@ mod state {
         /// Registers the device-type combination globally if needed.
         pub fn locate<D: Device + 'static>(device: &D) -> Self {
             DeviceStateLock::locate(device)
+        }
+
+        /// TODO
+        pub fn lock_device(&self) -> DeviceGuard<'_> {
+            let state = self.lock.lock.lock();
+
+            DeviceGuard {
+                guard_mutex: Some(state),
+            }
         }
 
         /// Acquires exclusive mutable access to the state.

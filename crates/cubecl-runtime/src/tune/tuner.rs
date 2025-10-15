@@ -11,7 +11,6 @@ use core::time::Duration;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
-use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::config::{Logger, autotune::AutotuneLogLevel};
 use crate::server::ComputeServer;
@@ -191,7 +190,6 @@ impl<K: AutotuneKey> Tuner<K> {
     /// Execute benchmarks to find out what the fastest operation is.
     pub fn prepare_autotune<
         S: ComputeServer + 'static,
-        C: ComputeChannel<S> + 'static,
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
     >(
@@ -199,7 +197,7 @@ impl<K: AutotuneKey> Tuner<K> {
         key: K,
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
-        client: &ComputeClient<S, C>,
+        client: &ComputeClient<S>,
     ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
 
@@ -285,10 +283,9 @@ impl<K: AutotuneKey> Tuner<K> {
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
         S: ComputeServer + 'static,
-        C: ComputeChannel<S> + 'static,
     >(
         key: K,
-        client: &ComputeClient<S, C>,
+        client: &ComputeClient<S>,
         mut plan: TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: In,
@@ -331,9 +328,8 @@ impl<K: AutotuneKey> Tuner<K> {
         In: Clone + Send + 'static,
         Out: AutotuneOutput,
         S: ComputeServer + 'static,
-        C: ComputeChannel<S> + 'static,
     >(
-        client: &ComputeClient<S, C>,
+        client: &ComputeClient<S>,
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,

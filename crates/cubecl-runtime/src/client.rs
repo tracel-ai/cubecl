@@ -1,6 +1,5 @@
 use crate::{
     DeviceProperties,
-    channel::ComputeChannel,
     config::{TypeNameFormatLevel, type_name_format},
     kernel::KernelMetadata,
     logging::{ProfileLevel, ServerLogger},
@@ -15,7 +14,13 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
-use cubecl_common::{ExecutionMode, bytes::Bytes, profile::ProfileDuration};
+use core::ops::DerefMut;
+use cubecl_common::{
+    ExecutionMode,
+    bytes::Bytes,
+    device::{Device, DeviceState},
+    profile::ProfileDuration,
+};
 
 #[allow(unused)]
 use cubecl_common::profile::TimingMethod;
@@ -23,14 +28,14 @@ use cubecl_common::stream_id::StreamId;
 
 /// The ComputeClient is the entry point to require tasks from the ComputeServer.
 /// It should be obtained for a specific device via the Compute struct.
-pub struct ComputeClient<Server: ComputeServer, Channel> {
-    channel: Channel,
-    state: Arc<ComputeClientState<Server>>,
+pub struct ComputeClient<Server: ComputeServer> {
+    state: DeviceState<Server>,
+    stateless: Arc<ComputeClientData<Server>>,
     stream_id: Option<StreamId>,
 }
 
 #[derive(new)]
-struct ComputeClientState<Server: ComputeServer> {
+struct ComputeClientData<Server: ComputeServer> {
     #[cfg(feature = "profile-tracy")]
     epoch_time: web_time::Instant,
 
@@ -40,48 +45,44 @@ struct ComputeClientState<Server: ComputeServer> {
     properties: DeviceProperties,
     info: Server::Info,
     logger: Arc<ServerLogger>,
-
-    #[cfg(multi_threading)]
-    current_profiling: spin::RwLock<Option<StreamId>>,
 }
 
-impl<S, C> Clone for ComputeClient<S, C>
+impl<S> Clone for ComputeClient<S>
 where
     S: ComputeServer,
-    C: ComputeChannel<S>,
 {
     fn clone(&self) -> Self {
         Self {
-            channel: self.channel.clone(),
             state: self.state.clone(),
+            stateless: self.stateless.clone(),
             stream_id: self.stream_id,
         }
     }
 }
 
-impl<Server, Channel> ComputeClient<Server, Channel>
+impl<Server> ComputeClient<Server>
 where
     Server: ComputeServer,
-    Channel: ComputeChannel<Server>,
 {
     /// Get the info of the current backend.
     pub fn info(&self) -> &Server::Info {
-        &self.state.info
+        &self.stateless.info
     }
 
     /// Create a new client.
-    pub fn new(channel: Channel, properties: DeviceProperties, info: Server::Info) -> Self {
-        let logger = channel.logger();
-
+    pub fn new<D: Device>(
+        device: &D,
+        logger: Arc<ServerLogger>,
+        properties: DeviceProperties,
+        info: Server::Info,
+    ) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
 
-        let state = ComputeClientState {
+        let state = ComputeClientData {
             properties,
             logger,
-            #[cfg(multi_threading)]
-            current_profiling: spin::RwLock::new(None),
             // Create the GPU client if needed.
             #[cfg(feature = "profile-tracy")]
             gpu_client: client
@@ -100,8 +101,8 @@ where
         };
 
         Self {
-            channel,
-            state: Arc::new(state),
+            state: DeviceState::<Server>::locate(device),
+            stateless: Arc::new(state),
             stream_id: None,
         }
     }
@@ -123,10 +124,8 @@ where
     }
 
     async fn do_read(&self, descriptors: Vec<CopyDescriptor<'_>>) -> Result<Vec<Bytes>, IoError> {
-        self.profile_guard();
-
         let stream_id = self.stream_id();
-        self.channel.read(descriptors, stream_id).await
+        self.state.lock().read(descriptors, stream_id).await
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -207,10 +206,8 @@ where
         &self,
         binding: Binding,
     ) -> BindingResource<<Server::Storage as ComputeStorage>::Resource> {
-        self.profile_guard();
-
         let stream_id = self.stream_id();
-        self.channel.get_resource(binding, stream_id)
+        self.state.lock().get_resource(binding, stream_id)
     }
 
     fn do_create(
@@ -218,9 +215,8 @@ where
         descriptors: Vec<AllocationDescriptor<'_>>,
         data: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
-        self.profile_guard();
-
-        let allocations = self.channel.create(descriptors.clone(), self.stream_id())?;
+        let mut state = self.state.lock();
+        let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
             .zip(allocations.iter())
@@ -238,7 +234,7 @@ where
             })
             .collect();
         let stream_id = self.stream_id();
-        self.channel.write(descriptors, stream_id)?;
+        state.write(descriptors, stream_id)?;
         Ok(allocations)
     }
 
@@ -301,9 +297,7 @@ where
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
     ) -> Result<Vec<Allocation>, IoError> {
-        self.profile_guard();
-
-        self.channel.create(descriptors, self.stream_id())
+        self.state.lock().create(descriptors, self.stream_id())
     }
 
     /// Reserves `size` bytes in the storage, and returns a handle over them.
@@ -331,7 +325,7 @@ where
         let shape = [src.size() as usize];
         let src_descriptor = src.copy_descriptor(&shape, &[1], 1);
 
-        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
+        if Server::SERVER_COMM_ENABLED {
             self.to_client_tensor(src_descriptor, dst_server)
         } else {
             let alloc_desc = AllocationDescriptor::new(
@@ -351,10 +345,13 @@ where
         src_descriptor: CopyDescriptor<'_>,
         dst_server: &Self,
     ) -> Allocation {
-        if Channel::SERVER_COMM_SUPPORTED && Server::SERVER_COMM_ENABLED {
-            Channel::copy(
-                &self.channel,
-                &dst_server.channel,
+        if Server::SERVER_COMM_ENABLED {
+            let mut server_src = self.state.lock();
+            let mut server_dst = dst_server.state.lock();
+
+            Server::copy(
+                server_src.deref_mut(),
+                server_dst.deref_mut(),
                 src_descriptor,
                 self.stream_id(),
                 dst_server.stream_id(),
@@ -379,22 +376,18 @@ where
         mode: ExecutionMode,
         stream_id: StreamId,
     ) {
-        let level = self.state.logger.profile_level();
+        let level = self.stateless.logger.profile_level();
+        let mut state = self.state.lock();
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
-                self.profile_guard();
-
                 let name = kernel.name();
 
-                unsafe {
-                    self.channel
-                        .execute(kernel, count, bindings, mode, stream_id)
-                };
+                unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
-                    self.state.logger.register_execution(info);
+                    self.stateless.logger.register_execution(info);
                 }
             }
             Some(level) => {
@@ -403,8 +396,7 @@ where
                 let profile = self
                     .profile(
                         || unsafe {
-                            self.channel
-                                .execute(kernel, count.clone(), bindings, mode, stream_id)
+                            state.execute(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
                     )
@@ -415,7 +407,7 @@ where
                     }
                     _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
-                self.state.logger.register_profiled(info, profile);
+                self.stateless.logger.register_profiled(info, profile);
             }
         }
     }
@@ -463,38 +455,32 @@ where
 
     /// Flush all outstanding commands.
     pub fn flush(&self) {
-        self.profile_guard();
-
         let stream_id = self.stream_id();
-        self.channel.flush(stream_id);
+        self.state.lock().flush(stream_id);
     }
 
     /// Wait for the completion of every task in the server.
     pub async fn sync(&self) {
-        self.profile_guard();
-
         let stream_id = self.stream_id();
-        self.channel.sync(stream_id).await;
-        self.state.logger.profile_summary();
+        self.state.lock().sync(stream_id).await;
+        self.stateless.logger.profile_summary();
     }
 
     /// Get the features supported by the compute server.
     pub fn properties(&self) -> &DeviceProperties {
-        &self.state.properties
+        &self.stateless.properties
     }
 
     /// # Warning
     ///
     /// For private use only.
     pub fn properties_mut(&mut self) -> Option<&mut DeviceProperties> {
-        Arc::get_mut(&mut self.state).map(|state| &mut state.properties)
+        Arc::get_mut(&mut self.stateless).map(|state| &mut state.properties)
     }
 
     /// Get the current memory usage of this client.
     pub fn memory_usage(&self) -> MemoryUsage {
-        self.profile_guard();
-
-        self.channel.memory_usage(self.stream_id())
+        self.state.lock().memory_usage(self.stream_id())
     }
 
     /// Change the memory allocation mode.
@@ -503,9 +489,7 @@ where
     ///
     /// This function isn't thread safe and might create memory leaks.
     pub unsafe fn allocation_mode(&self, mode: MemoryAllocationMode) {
-        self.profile_guard();
-
-        self.channel.allocation_mode(mode, self.stream_id())
+        self.state.lock().allocation_mode(mode, self.stream_id())
     }
 
     /// Use a persistent memory strategy to execute the provided function.
@@ -519,22 +503,19 @@ where
         input: Input,
         func: Func,
     ) -> Output {
-        // We use the same profiling lock to make sure no other task is currently using the current
-        // device. Meaning that the current persistent memory strategy will only be used for the
-        // provided function.
-        #[cfg(multi_threading)]
-        let stream_id = self.profile_acquire();
+        let device_guard = self.state.lock_device();
 
-        self.channel
+        self.state
+            .lock()
             .allocation_mode(MemoryAllocationMode::Persistent, self.stream_id());
 
         let output = func(input);
 
-        self.channel
+        self.state
+            .lock()
             .allocation_mode(MemoryAllocationMode::Auto, self.stream_id());
 
-        #[cfg(multi_threading)]
-        self.profile_release(stream_id);
+        core::mem::drop(device_guard);
 
         output
     }
@@ -544,9 +525,7 @@ where
     /// Nb: Results will vary on what the memory allocator deems beneficial,
     /// so it's not guaranteed any memory is freed.
     pub fn memory_cleanup(&self) {
-        self.profile_guard();
-
-        self.channel.memory_cleanup(self.stream_id())
+        self.state.lock().memory_cleanup(self.stream_id())
     }
 
     /// Measure the execution time of some inner operations.
@@ -571,8 +550,7 @@ where
             0,
         );
 
-        #[cfg(multi_threading)]
-        let stream_id = self.profile_acquire();
+        let device_guard = self.state.lock_device();
 
         #[cfg(feature = "profile-tracy")]
         let gpu_span = if self.state.properties.timing_method == TimingMethod::Device {
@@ -586,12 +564,11 @@ where
             None
         };
 
-        let token = self.channel.start_profile(self.stream_id());
+        let token = self.state.lock().start_profile(self.stream_id());
 
         let out = func();
 
-        #[allow(unused_mut)]
-        let mut result = self.channel.end_profile(self.stream_id(), token);
+        let result = self.state.lock().end_profile(self.stream_id(), token);
 
         core::mem::drop(out);
 
@@ -614,9 +591,7 @@ where
                 )
             });
         }
-
-        #[cfg(multi_threading)]
-        self.profile_release(stream_id);
+        core::mem::drop(device_guard);
 
         result
     }
@@ -634,12 +609,13 @@ where
 
         // Allocate destination
         let alloc = dst_server
-            .channel
+            .state
+            .lock()
             .create(vec![alloc_descriptor], self.stream_id())
             .unwrap()
             .remove(0);
 
-        let read = self.channel.read(vec![src_descriptor], stream_id);
+        let read = self.state.lock().read(vec![src_descriptor], stream_id);
         let data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
@@ -650,112 +626,11 @@ where
         };
 
         dst_server
-            .channel
+            .state
+            .lock()
             .write(vec![(desc_descriptor, &data[0])], stream_id)
             .unwrap();
 
         alloc
-    }
-
-    /// Waits until the current device can be used without impacting profiling.
-    ///
-    /// All tasks registered on the same stream currently profiling won't wait, to allow recursive
-    /// profiling.
-    ///
-    /// # Warning
-    ///
-    /// This function normally shouldn't be used except in internal code.
-    pub fn profile_guard(&self) {
-        #[cfg(multi_threading)]
-        self.profile_guard_inner();
-    }
-
-    #[cfg(multi_threading)]
-    fn profile_guard_inner(&self) {
-        let current = self.state.current_profiling.read();
-
-        if let Some(current_stream_id) = current.as_ref() {
-            let stream_id = self.stream_id();
-
-            if current_stream_id == &stream_id {
-                return;
-            }
-
-            core::mem::drop(current);
-
-            loop {
-                std::thread::sleep(core::time::Duration::from_millis(10));
-
-                let current = self.state.current_profiling.read();
-                match current.as_ref() {
-                    Some(current_stream_id) => {
-                        if current_stream_id == &stream_id {
-                            return;
-                        }
-                    }
-                    None => {
-                        return;
-                    }
-                }
-            }
-        }
-    }
-
-    #[cfg(multi_threading)]
-    fn profile_acquire(&self) -> Option<StreamId> {
-        let stream_id = self.stream_id();
-        let mut current = self.state.current_profiling.write();
-
-        match current.as_mut() {
-            Some(current_stream_id) => {
-                if current_stream_id == &stream_id {
-                    return None;
-                }
-
-                core::mem::drop(current);
-
-                loop {
-                    std::thread::sleep(core::time::Duration::from_millis(10));
-
-                    let mut current = self.state.current_profiling.write();
-
-                    match current.as_mut() {
-                        Some(current_stream_id) => {
-                            if current_stream_id == &stream_id {
-                                return None;
-                            }
-                        }
-                        None => {
-                            *current = Some(stream_id);
-                            return Some(stream_id);
-                        }
-                    }
-                }
-            }
-            None => {
-                *current = Some(stream_id);
-                Some(stream_id)
-            }
-        }
-    }
-
-    #[cfg(multi_threading)]
-    fn profile_release(&self, stream_id: Option<StreamId>) {
-        let stream_id = match stream_id {
-            Some(val) => val,
-            None => return, // No releasing
-        };
-        let mut current = self.state.current_profiling.write();
-
-        match current.as_mut() {
-            Some(current_stream_id) => {
-                if current_stream_id != &stream_id {
-                    panic!("Can't release a different profiling guard.");
-                } else {
-                    *current = None;
-                }
-            }
-            None => panic!("Can't release an empty profiling guard"),
-        }
     }
 }

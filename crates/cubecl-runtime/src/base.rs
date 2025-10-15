@@ -1,29 +1,27 @@
-use crate::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
+use crate::{client::ComputeClient, server::ComputeServer};
 use core::ops::DerefMut;
 use hashbrown::HashMap;
 
 /// The compute type has the responsibility to retrieve the correct compute client based on the
 /// given device.
-pub struct ComputeRuntime<Device, Server: ComputeServer, Channel> {
-    clients: spin::Mutex<Option<HashMap<Device, ComputeClient<Server, Channel>>>>,
+pub struct ComputeRuntime<Device, Server: ComputeServer> {
+    clients: spin::Mutex<Option<HashMap<Device, ComputeClient<Server>>>>,
 }
 
-impl<Device, Server, Channel> Default for ComputeRuntime<Device, Server, Channel>
+impl<Device, Server> Default for ComputeRuntime<Device, Server>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,
     Server: ComputeServer,
-    Channel: ComputeChannel<Server>,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<Device, Server, Channel> ComputeRuntime<Device, Server, Channel>
+impl<Device, Server> ComputeRuntime<Device, Server>
 where
     Device: core::hash::Hash + PartialEq + Eq + Clone + core::fmt::Debug,
     Server: ComputeServer,
-    Channel: ComputeChannel<Server>,
 {
     /// Create a new compute.
     pub const fn new() -> Self {
@@ -35,9 +33,9 @@ where
     /// Get the compute client for the given device.
     ///
     /// Provide the init function to create a new client if it isn't already initialized.
-    pub fn client<Init>(&self, device: &Device, init: Init) -> ComputeClient<Server, Channel>
+    pub fn client<Init>(&self, device: &Device, init: Init) -> ComputeClient<Server>
     where
-        Init: Fn() -> ComputeClient<Server, Channel>,
+        Init: Fn() -> ComputeClient<Server>,
     {
         let mut clients = self.clients.lock();
 
@@ -68,7 +66,7 @@ where
     /// # Panics
     ///
     /// If a client is already registered for the given device.
-    pub fn register(&self, device: &Device, client: ComputeClient<Server, Channel>) {
+    pub fn register(&self, device: &Device, client: ComputeClient<Server>) {
         let mut clients = self.clients.lock();
 
         Self::register_inner(device, client, &mut clients);
@@ -76,8 +74,8 @@ where
 
     fn register_inner(
         device: &Device,
-        client: ComputeClient<Server, Channel>,
-        clients: &mut Option<HashMap<Device, ComputeClient<Server, Channel>>>,
+        client: ComputeClient<Server>,
+        clients: &mut Option<HashMap<Device, ComputeClient<Server>>>,
     ) {
         if clients.is_none() {
             *clients = Some(HashMap::new());
