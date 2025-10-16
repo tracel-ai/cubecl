@@ -221,7 +221,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: MatmulInputHandle<R, LhsG<MP>>,
     rhs: MatmulInputHandle<R, RhsG<MP>>,
     out: TensorHandle<R, AccG<MP>>,
@@ -238,7 +238,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision>(
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<R>,
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,

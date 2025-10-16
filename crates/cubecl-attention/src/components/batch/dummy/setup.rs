@@ -22,7 +22,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
     type Config = DummyBatchConfig<GA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -44,10 +44,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
         AS: crate::components::AttentionSpec,
         R: cubecl_core::Runtime,
     >(
-        client: &cubecl_core::prelude::ComputeClient<
-            <R as cubecl_core::Runtime>::Server,
-            <R as cubecl_core::Runtime>::Channel,
-        >,
+        client: &cubecl_core::prelude::ComputeClient<<R as cubecl_core::Runtime>::Server>,
         cube_dim: cubecl_core::CubeDim,
         cube_count: cubecl_core::CubeCount,
         input: crate::components::InputRuntimeArg<'a, AS, R>,

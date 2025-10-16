@@ -24,7 +24,7 @@ pub enum Strategy {
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, AP: AttentionPrecision>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     query: TensorHandle<R, QG<AP>>,
     key: TensorHandle<R, KG<AP>>,
     value: TensorHandle<R, VG<AP>>,
@@ -43,7 +43,7 @@ pub fn launch<R: Runtime, AP: AttentionPrecision>(
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
@@ -55,7 +55,7 @@ pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
 }
 
 pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,

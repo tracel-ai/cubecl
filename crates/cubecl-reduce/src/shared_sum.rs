@@ -53,7 +53,7 @@ use crate::ReduceError;
 /// }
 /// ```
 pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     cube_count: u32,

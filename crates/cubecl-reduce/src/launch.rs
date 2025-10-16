@@ -15,7 +15,7 @@ use crate::{LineMode, ReduceConfig, ReduceStrategy};
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
 pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: ReduceFamily>(
-    client: &ComputeClient<Run::Server, Run::Channel>,
+    client: &ComputeClient<Run::Server>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,

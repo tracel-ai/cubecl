@@ -20,7 +20,7 @@ pub struct StridedLayout {
 
 impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
     pub fn from_shape_strides(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         strides: &[usize],
         line_size: u8,
@@ -36,7 +36,7 @@ impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
     }
 
     pub fn from_handle(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         line_size: u8,
     ) -> Self {

@@ -104,7 +104,7 @@ impl Layout for WeightLayout {
 
 impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

@@ -27,7 +27,7 @@ pub fn test_kernel_const_match<
     F: Float + CubeElement,
     U: Int + hash::Hash + Eq + Debug,
 >(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     let handle = client.create(as_bytes![F: 0.0, 1.0]);
 

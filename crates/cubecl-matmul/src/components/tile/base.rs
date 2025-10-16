@@ -47,7 +47,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,

@@ -165,7 +165,7 @@ fn dequantize_symmetric_native_kernel<F: Float, FS: CubePrimitive, Q: CubePrimit
 #[allow(clippy::result_large_err)]
 /// Convert the tensor back to a higher precision data type.
 pub fn launch_ref<R: Runtime, F: Float>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     values: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     params: &TensorHandleRef<'_, R>,
@@ -238,7 +238,7 @@ pub fn launch_ref<R: Runtime, F: Float>(
 }
 
 fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -288,7 +288,7 @@ fn dequantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
 }
 
 fn dequantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,

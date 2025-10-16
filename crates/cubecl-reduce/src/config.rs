@@ -1,6 +1,5 @@
 use cubecl_core::{
-    channel::ComputeChannel, prelude::*, server::ComputeServer, tensor_line_size_parallel,
-    tensor_line_size_perpendicular,
+    prelude::*, server::ComputeServer, tensor_line_size_parallel, tensor_line_size_perpendicular,
 };
 use cubecl_std::tensor::is_contiguous;
 
@@ -43,7 +42,7 @@ pub struct ReduceConfig {
 
 impl ReduceConfig {
     pub(crate) fn generate<R: Runtime, In: CubePrimitive>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
         axis: usize,
@@ -167,9 +166,9 @@ impl ReduceConfig {
         self
     }
 
-    pub fn generate_cube_dim<S: ComputeServer, C: ComputeChannel<S>>(
+    pub fn generate_cube_dim<S: ComputeServer>(
         mut self,
-        client: &ComputeClient<S, C>,
+        client: &ComputeClient<S>,
         use_planes: bool,
     ) -> Self {
         self.cube_dim = if use_planes {

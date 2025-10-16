@@ -39,7 +39,7 @@ impl Algorithm for DoubleUnitAlgorithm {
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
@@ -58,7 +58,7 @@ impl Algorithm for DoubleUnitAlgorithm {
         ))
     }
 
-    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> u32 {
         client.properties().hardware.plane_size_min
     }
 }

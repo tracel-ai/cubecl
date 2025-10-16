@@ -28,7 +28,7 @@ impl<
 > ConvolutionLaunch<GlobalConfig<Self>> for MultiStageTmaConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,

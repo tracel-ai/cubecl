@@ -17,7 +17,7 @@ pub trait Algorithm {
     type BatchMatmul: BatchMatmulFamily;
 
     fn setup<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -26,7 +26,7 @@ pub trait Algorithm {
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
@@ -42,7 +42,7 @@ pub trait Algorithm {
         ))
     }
 
-    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> u32 {
         client.properties().hardware.plane_size_max
     }
 }

@@ -54,7 +54,7 @@ impl<S: Default> Default for Selection<S> {
 /// Will fail if unavailable
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: MatmulInputHandle<R, LhsG<MP>>,
     rhs: MatmulInputHandle<R, RhsG<MP>>,
     out: TensorHandle<R, AccG<MP>>,
@@ -80,7 +80,7 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 /// otherwise it will fall back on a non-cmma implementation
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -135,7 +135,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs_handle: &MatmulInputHandleRef<'_, R>,
     rhs_handle: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -217,7 +217,7 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -273,7 +273,7 @@ fn launch_inner_ref_fix_dtype<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs_handle: &MatmulInputHandleRef<'_, R>,
     rhs_handle: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -383,7 +383,7 @@ pub fn matmul_cmma_tma_ref_no_check<R: Runtime, MP: MatmulPrecision, A: Algorith
 
 #[allow(clippy::too_many_arguments, clippy::result_large_err)]
 pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
     input: InputRuntimeArg<'a, MS, R>,

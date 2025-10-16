@@ -23,7 +23,7 @@ use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_tma_matmul_algorithm<A, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
@@ -137,7 +137,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

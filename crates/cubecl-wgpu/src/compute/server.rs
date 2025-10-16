@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication};
+use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
@@ -36,6 +36,7 @@ pub struct WgpuServer {
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
+    pub(crate) utilities: Arc<ServerUtilities<Self>>,
 }
 
 impl ServerCommunication for WgpuServer {
@@ -54,7 +55,7 @@ impl WgpuServer {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        logger: Arc<ServerLogger>,
+        utilities: ServerUtilities<Self>,
     ) -> Self {
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
@@ -63,7 +64,7 @@ impl WgpuServer {
             memory_config,
             timing_method,
             tasks_max,
-            logger.clone(),
+            utilities.logger.clone(),
         );
 
         let config = GlobalConfig::get();
@@ -74,7 +75,7 @@ impl WgpuServer {
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
-                logger,
+                utilities.logger.clone(),
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
                     max_streams,
@@ -83,6 +84,7 @@ impl WgpuServer {
                 },
             ),
             backend,
+            utilities: Arc::new(utilities),
         }
     }
 
@@ -163,6 +165,10 @@ impl ComputeServer for WgpuServer {
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.scheduler.logger.clone()
+    }
+
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn create(

@@ -122,7 +122,7 @@ pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -159,7 +159,7 @@ pub fn test_plane_inclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -201,7 +201,7 @@ pub fn test_plane_exclusive_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -243,7 +243,7 @@ pub fn test_plane_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -285,7 +285,7 @@ pub fn test_plane_inclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -331,7 +331,7 @@ pub fn test_plane_exclusive_prod<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -377,7 +377,7 @@ pub fn test_plane_max<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -416,7 +416,7 @@ pub fn test_plane_min<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -455,7 +455,7 @@ pub fn test_plane_all<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -496,7 +496,7 @@ pub fn test_plane_any<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -533,9 +533,7 @@ pub fn test_plane_any<
     );
 }
 
-pub fn test_plane_ballot<TestRuntime: Runtime>(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
-) {
+pub fn test_plane_ballot<TestRuntime: Runtime>(client: ComputeClient<TestRuntime::Server>) {
     if !client.properties().features.plane.contains(Plane::Ops) {
         // Can't execute the test.
         return;
@@ -563,7 +561,7 @@ pub fn test_plane_elect<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -595,7 +593,7 @@ pub fn test_plane_broadcast<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     vectorization: u8,
 ) {
     let plane_size = 32;
@@ -634,7 +632,7 @@ fn test_plane_operation<
     input: &[F],
     expected: &[F],
     vectorization: u8,
-    client: ComputeClient<TestRuntime::Server, TestRuntime::Channel>,
+    client: ComputeClient<TestRuntime::Server>,
     launch: Launch,
 ) where
     Launch: Fn(CubeCount, TensorArg<'_, TestRuntime>),

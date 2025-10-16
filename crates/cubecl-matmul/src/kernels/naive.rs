@@ -77,7 +77,7 @@ fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: MatmulInputHandle<R, EI>,
     rhs: MatmulInputHandle<R, EI>,
     out: &TensorHandleRef<'_, R>,
@@ -87,7 +87,7 @@ pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
 
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -187,7 +187,7 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     *rhs.data_mut() = rhs_data.as_ref();
 
     fn view<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &'a MatmulInputHandleRef<'a, R>,
         layout: MatrixLayout,
         line_size: u8,

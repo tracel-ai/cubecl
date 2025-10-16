@@ -42,7 +42,7 @@ use cubecl_matmul::{
 pub trait ConcreteInputsFactory: LaunchArg {
     #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
@@ -57,7 +57,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
         selection: &MatmulSelection,
         problem: &ConvolutionProblem,
@@ -68,7 +68,7 @@ pub trait ConcreteOutputFactory: LaunchArg {
 
 impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorInputs<Lhs, Rhs, EO> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,
@@ -120,7 +120,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
 
 impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
         _selection: &MatmulSelection,
         problem: &ConvolutionProblem,
@@ -144,7 +144,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
     for TensorMapInputs<Lhs, Rhs, EO>
 {
     fn create<'a, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
         rhs: &'a MatmulInputHandleRef<'a, R>,
         bias: Option<&'a TensorHandleRef<'a, R>>,

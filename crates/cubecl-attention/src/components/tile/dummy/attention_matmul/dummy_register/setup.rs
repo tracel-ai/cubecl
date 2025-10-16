@@ -24,7 +24,7 @@ impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {
     }
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,

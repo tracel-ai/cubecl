@@ -28,7 +28,7 @@ pub trait ConvolutionLaunch<Config> {
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
@@ -107,7 +107,7 @@ pub(crate) fn implicit_conv<
 }
 
 pub(crate) fn shape_divmod<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     shape: &[usize],
 ) -> SequenceArg<'a, R, FastDivmod> {
     shape
