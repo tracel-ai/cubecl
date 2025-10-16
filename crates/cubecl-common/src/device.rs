@@ -46,17 +46,132 @@ impl PartialOrd for DeviceId {
 
 pub use context::*;
 
+#[cfg(feature = "std")]
+mod reentrant {
+    pub use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
+}
+
+// MutCell and MutGuard differs in implementation whether `std` is activated.
+
+#[cfg(feature = "std")]
+mod cell {
+    use core::cell::{RefCell, RefMut};
+    use core::ops::DerefMut;
+
+    pub type MutCell<T> = RefCell<T>;
+    pub type MutGuard<'a, T> = RefMut<'a, T>;
+
+    pub unsafe fn borrow_mut_split<'a, T>(cell: &MutCell<T>) -> (&'a mut T, MutGuard<'_, T>) {
+        let mut guard = cell.borrow_mut();
+        let item = guard.deref_mut();
+        let item = unsafe { core::mem::transmute(item) };
+
+        (item, guard)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+mod cell {
+    use core::ops::{Deref, DerefMut};
+
+    pub struct MutGuard<'a, T> {
+        guard: spin::MutexGuard<'a, T>,
+    }
+
+    pub struct MutCell<T> {
+        lock: spin::Mutex<T>,
+    }
+
+    impl<T> MutCell<T> {
+        pub fn new(item: T) -> Self {
+            Self {
+                lock: spin::Mutex::new(item),
+            }
+        }
+    }
+
+    impl<'a, T> Deref for MutGuard<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.guard.deref()
+        }
+    }
+
+    impl<'a, T> DerefMut for MutGuard<'a, T> {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            self.guard.deref_mut()
+        }
+    }
+
+    impl<T> MutCell<T> {
+        pub fn try_borrow_mut(&self) -> Result<MutGuard<'_, T>, ()> {
+            match self.lock.try_lock() {
+                Some(guard) => Ok(MutGuard { guard }),
+                None => Err(()),
+            }
+        }
+    }
+
+    pub unsafe fn borrow_mut_split<'a, T>(
+        cell: &MutCell<T>,
+    ) -> (&'a mut T, spin::MutexGuard<'_, T>) {
+        let mut guard = cell.lock.lock();
+        let item = guard.deref_mut();
+        let item = unsafe { core::mem::transmute(item) };
+
+        (item, guard)
+    }
+}
+
+#[cfg(not(feature = "std"))]
+mod reentrant {
+    use core::ops::Deref;
+
+    pub struct ReentrantMutex<T> {
+        inner: spin::RwLock<T>,
+    }
+
+    impl<T> ReentrantMutex<T> {
+        pub fn new(item: T) -> Self {
+            Self {
+                inner: spin::RwLock::new(item),
+            }
+        }
+    }
+
+    pub struct ReentrantMutexGuard<'a, T> {
+        guard: spin::RwLockReadGuard<'a, T>,
+    }
+
+    impl<'a, T> Deref for ReentrantMutexGuard<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &Self::Target {
+            self.guard.deref()
+        }
+    }
+
+    impl<T> ReentrantMutex<T> {
+        pub fn lock(&self) -> ReentrantMutexGuard<'_, T> {
+            let guard = self.inner.read();
+            ReentrantMutexGuard { guard }
+        }
+    }
+}
+
 mod context {
+    use super::cell::{MutCell, MutGuard};
     use alloc::boxed::Box;
     use core::{
         any::{Any, TypeId},
-        cell::{RefCell, RefMut, UnsafeCell},
         marker::PhantomData,
     };
     use hashbrown::HashMap;
-    use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 
-    use crate::stub::Arc;
+    use super::reentrant::{ReentrantMutex, ReentrantMutexGuard};
+
+    use crate::{device::cell::borrow_mut_split, stub::Arc};
 
     use super::{Device, DeviceId};
 
@@ -73,8 +188,8 @@ mod context {
         _phantom: PhantomData<S>,
     }
 
+    /// There is nothing to read without a lock, and it's fine to allow locking a context reference.
     unsafe impl<S: DeviceState> Sync for DeviceContext<S> {}
-    unsafe impl<S: DeviceState> Send for DeviceContext<S> {}
 
     impl<S: DeviceState> Clone for DeviceContext<S> {
         fn clone(&self) -> Self {
@@ -90,7 +205,7 @@ mod context {
     ///
     /// Automatically releases the lock when dropped.
     pub struct DeviceStateGuard<'a, S: DeviceState> {
-        guard_ref: Option<RefMut<'a, Box<dyn Any + Send + 'static>>>,
+        guard_ref: Option<MutGuard<'a, Box<dyn Any + Send + 'static>>>,
         guard_mutex: Option<ReentrantMutexGuard<'a, DeviceStateMap>>,
         _phantom: PhantomData<S>,
     }
@@ -160,11 +275,8 @@ mod context {
 
             let state = lock.lock.lock.lock();
 
-            // It is safe for multiple reasons for the same reason enumerated in the lock function.
-            let map = unsafe {
-                let ptr = state.map.get();
-                ptr.as_mut().unwrap()
-            };
+            // It is safe for the same reasons enumerated in the lock function.
+            let (map, map_guard) = unsafe { borrow_mut_split(&state.map) };
 
             if map.contains_key(&id) {
                 return Err(alloc::format!(
@@ -174,10 +286,11 @@ mod context {
             }
 
             let any: Box<dyn Any + Send + 'static> = Box::new(state_new);
-            let cell = RefCell::new(any);
+            let cell = MutCell::new(any);
 
             map.insert(id, cell);
 
+            core::mem::drop(map_guard);
             core::mem::drop(state);
 
             Ok(lock)
@@ -216,15 +329,12 @@ mod context {
             // The reason why unsafe is necessary is that the [DeviceStateGuard] doesn't keep track
             // of the borrowed map entry lifetime. But since it keeps track of both the [RefCell]
             // and the [ReentrantMutex] guards, it is fine to erase the lifetime here.
-            let map = unsafe {
-                let ptr = state.map.get();
-                ptr.as_mut().unwrap()
-            };
+            let (map, map_guard) = unsafe { borrow_mut_split(&state.map) };
 
             if !map.contains_key(&key) {
                 let state_default = S::init(self.device_id);
                 let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
-                let cell = RefCell::new(any);
+                let cell = MutCell::new(any);
 
                 map.insert(key, cell);
             }
@@ -243,6 +353,8 @@ mod context {
                 #[cfg(not(feature = "std"))]
                 Err(_) => panic!("State {} is already borrowed", core::any::type_name::<S>(),),
             };
+
+            core::mem::drop(map_guard);
 
             DeviceStateGuard {
                 guard_ref: Some(ref_guard),
@@ -266,7 +378,7 @@ mod context {
     }
 
     struct DeviceStateMap {
-        map: UnsafeCell<HashMap<TypeId, RefCell<Box<dyn Any + Send + 'static>>>>,
+        map: MutCell<HashMap<TypeId, MutCell<Box<dyn Any + Send + 'static>>>>,
     }
 
     impl DeviceStateLock {
@@ -308,7 +420,7 @@ mod context {
     impl DeviceStateMap {
         fn new() -> Self {
             Self {
-                map: UnsafeCell::new(HashMap::new()),
+                map: MutCell::new(HashMap::new()),
             }
         }
     }
