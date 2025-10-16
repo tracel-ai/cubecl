@@ -271,6 +271,21 @@ pub struct BlockScaledLayout {
 }
 
 #[cube]
+impl BlockScaledLayout {
+    pub fn new(
+        shape: Coords2d,
+        scales_layout: BatchedGlobalLayout,
+        #[comptime] block_size: Coords2d,
+    ) -> Self {
+        BlockScaledLayout {
+            shape,
+            scales_layout,
+            block_size,
+        }
+    }
+}
+
+#[cube]
 impl Layout for BatchedGlobalScaleLayout {
     type Coordinates = Coords3d;
     type SourceCoordinates = Coords1d;

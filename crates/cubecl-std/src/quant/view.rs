@@ -28,7 +28,7 @@ use half::{bf16, f16};
 /// this.
 #[expect(dead_code, reason = "only used in expand")]
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
-pub struct QuantizedView<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static> {
+pub struct QuantizedView<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> {
     values: View<Line<Q>, C>,
     scales: View<S, C>,
     #[cube(comptime)]
@@ -38,7 +38,7 @@ pub struct QuantizedView<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordi
 }
 
 #[cube]
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
     QuantizedView<Q, S, F, C>
 {
     pub fn new(
@@ -55,7 +55,7 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
     }
 }
 
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
     QuantizedView<Q, S, F, C>
 {
     pub fn view(self) -> View<Line<F>, C> {
@@ -70,7 +70,7 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
     }
 }
 
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
     QuantizedViewExpand<Q, S, F, C>
 {
     pub fn new(
@@ -91,11 +91,11 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
     }
 }
 
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static> Lined
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> Lined
     for QuantizedView<Q, S, F, C>
 {
 }
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static> LinedExpand
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> LinedExpand
     for QuantizedViewExpand<Q, S, F, C>
 {
     fn line_size(&self) -> u32 {
@@ -103,12 +103,12 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static> Lin
     }
 }
 
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
     ViewOperations<Line<F>, C> for QuantizedView<Q, S, F, C>
 {
 }
 
-impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
+impl<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static>
     ViewOperationsExpand<Line<F>, C> for QuantizedViewExpand<Q, S, F, C>
 {
     fn __expand_read_method(
@@ -215,6 +215,55 @@ impl<Q: CubePrimitive, S: CubePrimitive, F: Float, C: Coordinates + 'static>
     }
 }
 
+struct ExpandDynamic<'a, E: Numeric, C: Coordinates + 'static> {
+    values: &'a ViewCompilationArg<C>,
+    scales: &'a ViewCompilationArg<C>,
+    scheme: QuantScheme,
+    builder: &'a mut KernelBuilder,
+    _ty: PhantomData<E>,
+}
+
+impl<'a, E: Numeric, C: Coordinates + 'static> RunWithQuantType for ExpandDynamic<'a, E, C> {
+    type Output = ViewExpand<Line<E>, C>;
+
+    fn execute<Q: CubePrimitive, S: CubePrimitive>(self) -> Self::Output {
+        let values = View::<Line<Q>, C>::expand(self.values, self.builder);
+        let scales = View::<S, C>::expand(self.scales, self.builder);
+        let view = QuantizedViewExpand::new(values, scales, self.scheme);
+        ViewExpand::new(view)
+    }
+}
+
+pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
+    fn run_with_q<F: RunWithQuantType, Q: CubePrimitive>(
+        func: F,
+        scheme: QuantScheme,
+    ) -> F::Output {
+        match scheme.param {
+            QuantParam::F32 => func.execute::<Q, f32>(),
+            QuantParam::F16 => func.execute::<Q, f16>(),
+            QuantParam::BF16 => func.execute::<Q, bf16>(),
+            QuantParam::UE8M0 => func.execute::<Q, ue8m0>(),
+            QuantParam::UE4M3 => func.execute::<Q, e4m3>(),
+        }
+    }
+
+    let run_q = match scheme.store {
+        QuantStore::Native => match scheme.value {
+            QuantValue::Q8F => run_with_q::<F, i8>,
+            QuantValue::Q8S => run_with_q::<F, i8>,
+            QuantValue::E5M2 => run_with_q::<F, e5m2>,
+            QuantValue::E4M3 => run_with_q::<F, e4m3>,
+            QuantValue::E2M1 => run_with_q::<F, e2m1x2>,
+            QuantValue::Q4F | QuantValue::Q4S | QuantValue::Q2F | QuantValue::Q2S => {
+                panic!("Sub-byte quantization can't be native")
+            }
+        },
+        QuantStore::U32 => run_with_q::<F, u32>,
+    };
+    run_q(func, scheme)
+}
+
 /// Dynamically expand based on the quantization scheme. Ugly, but the only way to fully hide the
 /// quantization from the kernel using the view.
 pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility>(
@@ -226,59 +275,20 @@ pub(crate) fn expand_dynamic<E: CubePrimitive, C: Coordinates + 'static, IO: Sli
     use core::mem::transmute as t;
 
     // To specify tighter trait bounds
-    fn expand_dynamic_f<F: Float, C: Coordinates + 'static>(
+    fn expand_dynamic_f<F: Numeric, C: Coordinates + 'static>(
         values: &ViewCompilationArg<C>,
         scales: &ViewCompilationArg<C>,
         scheme: QuantScheme,
         builder: &mut KernelBuilder,
     ) -> ViewExpand<Line<F>, C> {
-        let expand_q = match scheme.store {
-            QuantStore::Native => match scheme.value {
-                QuantValue::Q8F => expand_dynamic_q::<F, i8, C>,
-                QuantValue::Q8S => expand_dynamic_q::<F, i8, C>,
-                QuantValue::E5M2 => expand_dynamic_q::<F, e5m2, C>,
-                QuantValue::E4M3 => expand_dynamic_q::<F, e4m3, C>,
-                QuantValue::E2M1 => expand_dynamic_q::<F, e2m1x2, C>,
-                QuantValue::Q4F | QuantValue::Q4S | QuantValue::Q2F | QuantValue::Q2S => {
-                    panic!("Sub-byte quantization can't be native")
-                }
-            },
-            QuantStore::U32 => expand_dynamic_q::<F, u32, C>,
-        };
-        expand_q(values, scales, scheme, builder)
-    }
-
-    fn expand_dynamic_q<F: Float, Q: CubePrimitive, C: Coordinates + 'static>(
-        values: &ViewCompilationArg<C>,
-        scales: &ViewCompilationArg<C>,
-        scheme: QuantScheme,
-        builder: &mut KernelBuilder,
-    ) -> ViewExpand<Line<F>, C> {
-        let expand_s = match scheme.param {
-            QuantParam::F32 => expand_dynamic_s::<F, Q, f32, C>,
-            QuantParam::F16 => expand_dynamic_s::<F, Q, f16, C>,
-            QuantParam::BF16 => expand_dynamic_s::<F, Q, bf16, C>,
-            QuantParam::UE8M0 => expand_dynamic_s::<F, Q, ue8m0, C>,
-            QuantParam::UE4M3 => expand_dynamic_s::<F, Q, e4m3, C>,
-        };
-        expand_s(values, scales, scheme, builder)
-    }
-
-    fn expand_dynamic_s<F: Float, Q: CubePrimitive, S: CubePrimitive, C: Coordinates + 'static>(
-        values: &ViewCompilationArg<C>,
-        scales: &ViewCompilationArg<C>,
-        scheme: QuantScheme,
-        builder: &mut KernelBuilder,
-    ) -> ViewExpand<Line<F>, C> {
-        let values = View::<Line<Q>, C>::expand(values, builder);
-        let scales = View::<S, C>::expand(scales, builder);
-        let view = QuantizedViewExpand {
+        let func = ExpandDynamic {
             values,
             scales,
             scheme,
-            _ty: PhantomData,
+            builder,
+            _ty: PhantomData::<F>,
         };
-        ViewExpand::new(view)
+        run_with_quant_type(func, scheme)
     }
 
     #[allow(clippy::missing_transmute_annotations)]

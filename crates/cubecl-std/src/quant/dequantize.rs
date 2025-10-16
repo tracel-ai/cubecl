@@ -6,7 +6,7 @@ use cubecl_core as cubecl;
 /// Dequantize a line of values, where `line_size * num_quants` is a power of two.
 /// Unaligned values can't be dequantized in place.
 #[cube]
-pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Float>(
+pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Numeric>(
     value: Line<Q>,
     scale: S,
     #[comptime] scheme: QuantScheme,
@@ -24,7 +24,7 @@ pub fn dequantize_aligned<Q: CubePrimitive, S: CubePrimitive, F: Float>(
 
 /// Unpack a set of values from u32, and convert to the specified floating point format.
 #[cube]
-pub fn unpack_cast_u32<F: Float>(value: Line<u32>, #[comptime] scheme: QuantScheme) -> Line<F> {
+pub fn unpack_cast_u32<F: Numeric>(value: Line<u32>, #[comptime] scheme: QuantScheme) -> Line<F> {
     let num_quants = comptime![scheme.num_quants() as u32];
     let native_packing = comptime![scheme.native_packing() as u32];
     let out_line_size = comptime![value.line_size() * num_quants];
@@ -73,7 +73,7 @@ fn packing_mask(scheme: QuantScheme) -> u32 {
 /// # Returns
 /// Two floating point numbers for `e2m1`, one for all other formats.
 #[cube]
-fn cast_masked<F: Float>(value: u32, #[comptime] scheme: QuantScheme) -> Line<F> {
+fn cast_masked<F: Numeric>(value: u32, #[comptime] scheme: QuantScheme) -> Line<F> {
     match scheme.value {
         // For minifloat we can assume if they're supported then u8 is supported
         QuantValue::E5M2 => Line::<F>::cast_from(e5m2::reinterpret(value as u8)),
