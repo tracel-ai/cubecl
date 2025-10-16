@@ -64,7 +64,7 @@ mod cell {
     pub unsafe fn borrow_mut_split<'a, T>(cell: &MutCell<T>) -> (&'a mut T, MutGuard<'_, T>) {
         let mut guard = cell.borrow_mut();
         let item = guard.deref_mut();
-        let item = unsafe { core::mem::transmute(item) };
+        let item: &'a mut T = unsafe { core::mem::transmute(item) };
 
         (item, guard)
     }
@@ -118,7 +118,7 @@ mod cell {
     ) -> (&'a mut T, spin::MutexGuard<'_, T>) {
         let mut guard = cell.lock.lock();
         let item = guard.deref_mut();
-        let item = unsafe { core::mem::transmute(item) };
+        let item: &'a mut T = unsafe { core::mem::transmute(item) };
 
         (item, guard)
     }
