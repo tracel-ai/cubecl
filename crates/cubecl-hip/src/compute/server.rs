@@ -12,6 +12,7 @@ use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::compute::CubeTask;
 use cubecl_core::server::ServerCommunication;
+use cubecl_core::server::ServerUtilities;
 use cubecl_core::server::{
     Allocation, AllocationKind, CopyDescriptor, IoError, ProfileError, ProfilingToken,
 };
@@ -31,6 +32,7 @@ pub struct HipServer {
     ctx: HipContext,
     streams: MultiStream<HipStreamBackend>,
     mem_alignment: usize,
+    utilities: Arc<ServerUtilities<Self>>,
 }
 
 unsafe impl Send for HipServer {}
@@ -42,6 +44,10 @@ impl ComputeServer for HipServer {
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
+    }
+
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn create(
@@ -260,19 +266,25 @@ impl HipServer {
         mem_props: MemoryDeviceProperties,
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
+        utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
 
-        let logger = Arc::new(ServerLogger::default());
         Self {
             ctx,
             mem_alignment,
             streams: MultiStream::new(
-                logger.clone(),
-                HipStreamBackend::new(mem_props, mem_config, mem_alignment, logger),
+                utilities.logger.clone(),
+                HipStreamBackend::new(
+                    mem_props,
+                    mem_config,
+                    mem_alignment,
+                    utilities.logger.clone(),
+                ),
                 max_streams,
             ),
+            utilities: Arc::new(utilities),
         }
     }
 

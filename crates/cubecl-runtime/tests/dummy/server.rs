@@ -1,13 +1,14 @@
-use cubecl_common::ExecutionMode;
 use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
+use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{
-    Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication,
+    Bindings, CopyDescriptor, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
 };
 use cubecl_runtime::timestamp_profiler::TimestampProfiler;
+use cubecl_runtime::{DeviceProperties, Features};
 use cubecl_runtime::{id::KernelId, server::IoError};
 use cubecl_runtime::{
     kernel::KernelMetadata,
@@ -16,7 +17,9 @@ use cubecl_runtime::{
 use std::sync::Arc;
 
 use super::DummyKernel;
-use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
+use cubecl_runtime::memory_management::{
+    HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
+};
 use cubecl_runtime::server::CubeCount;
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
@@ -31,7 +34,7 @@ use cubecl_runtime::{
 pub struct DummyServer {
     memory_management: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
-    logger: Arc<ServerLogger>,
+    utilities: Arc<ServerUtilities<Self>>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +74,11 @@ impl ComputeServer for DummyServer {
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
-        self.logger.clone()
+        self.utilities.logger.clone()
+    }
+
+    fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn create(
@@ -225,10 +232,31 @@ impl ComputeServer for DummyServer {
 }
 
 impl DummyServer {
-    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
+    pub fn new(
+        memory_management: MemoryManagement<BytesStorage>,
+        mem_props: MemoryDeviceProperties,
+    ) -> Self {
+        let hardware = HardwareProperties {
+            plane_size_min: 32,
+            plane_size_max: 32,
+            max_bindings: 32,
+            max_shared_memory_size: 48000,
+            max_cube_count: CubeCount::new_3d(u16::MAX as u32, u16::MAX as u32, u16::MAX as u32),
+            max_units_per_cube: 1024,
+            max_cube_dim: CubeDim::new_3d(1024, 1024, 64),
+            num_streaming_multiprocessors: None,
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+        };
+        let features = Features::default();
+        let timing_method = cubecl_common::profile::TimingMethod::System;
+        let props = DeviceProperties::new(features, mem_props, hardware, timing_method);
+        let logger = Arc::new(ServerLogger::default());
+
+        let utilities = Arc::new(ServerUtilities::new(props, logger, ()));
         Self {
-            logger: Arc::new(ServerLogger::default()),
             memory_management,
+            utilities,
             timestamps: TimestampProfiler::default(),
         }
     }

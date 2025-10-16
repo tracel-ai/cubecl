@@ -115,7 +115,7 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
     /// - CubeDim is too big
     /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,

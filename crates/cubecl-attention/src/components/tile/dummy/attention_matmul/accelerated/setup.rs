@@ -22,7 +22,7 @@ impl AttentionMatmulFamily for AcceleratedAttentionMatmul {
     }
 
     fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
-        _client: &cubecl_core::prelude::ComputeClient<R::Server, R::Channel>,
+        _client: &cubecl_core::prelude::ComputeClient<R::Server>,
         problem: &crate::components::AttentionProblem,
         selection: &crate::components::AttentionSelection,
         line_sizes: &crate::components::AttentionLineSizes,

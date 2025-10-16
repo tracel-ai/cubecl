@@ -72,7 +72,7 @@ impl MatmulAutotuneKey {
     /// used for the calculation.
     #[allow(clippy::too_many_arguments)]
     pub fn generate<R: Runtime>(
-        _client: &ComputeClient<R::Server, R::Channel>,
+        _client: &ComputeClient<R::Server>,
         lhs_shape: &[usize],
         rhs_shape: &[usize],
         lhs_strides: &[usize],

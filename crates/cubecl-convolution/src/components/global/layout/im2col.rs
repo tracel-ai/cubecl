@@ -119,7 +119,7 @@ impl Layout for Im2colLayout {
 
 impl<'a, R: Runtime> Im2colLayoutLaunch<'a, R> {
     pub fn from_args(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
         config: GlobalMemoryConfig,

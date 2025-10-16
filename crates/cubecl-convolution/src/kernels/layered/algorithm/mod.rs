@@ -60,7 +60,7 @@ pub trait Algorithm {
 
     /// Make a convolution config from a convolution problem, and launch options
     fn setup<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -75,13 +75,13 @@ pub trait Algorithm {
     }
 
     fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
     ) -> TensorHandle<R, E>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
         matmul_elems: MatmulElems,

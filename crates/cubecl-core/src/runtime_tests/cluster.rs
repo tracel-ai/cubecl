@@ -20,7 +20,7 @@ fn cluster_meta_kernel(out: &mut Array<u32>) {
     }
 }
 
-pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_cluster_meta<R: Runtime>(client: ComputeClient<R::Server>) {
     if !client.properties().features.cube_cluster {
         return;
     }

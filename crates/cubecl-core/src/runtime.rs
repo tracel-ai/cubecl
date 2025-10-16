@@ -2,9 +2,8 @@ use crate::codegen::Compiler;
 use crate::compute::CubeTask;
 use cubecl_common::device::Device;
 use cubecl_ir::{StorageType, TargetProperties};
-use cubecl_runtime::{channel::ComputeChannel, client::ComputeClient, server::ComputeServer};
+use cubecl_runtime::{client::ComputeClient, server::ComputeServer};
 
-pub use cubecl_runtime::channel;
 pub use cubecl_runtime::client;
 pub use cubecl_runtime::server;
 pub use cubecl_runtime::tune;
@@ -19,16 +18,14 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     type Compiler: Compiler;
     /// The compute server used to run kernels and perform autotuning.
     type Server: ComputeServer<Kernel = Box<dyn CubeTask<Self::Compiler>>>;
-    /// The channel used to communicate with the compute server.
-    type Channel: ComputeChannel<Self::Server>;
     /// The device used to retrieve the compute client.
     type Device: Device;
 
     /// Retrieve the compute client from the runtime device.
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel>;
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server>;
 
     /// The runtime name on the given device.
-    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str;
+    fn name(client: &ComputeClient<Self::Server>) -> &'static str;
 
     /// Return true if global input array lengths should be added to kernel info.
     fn require_array_lengths() -> bool {

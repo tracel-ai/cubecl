@@ -29,7 +29,7 @@ impl<R: Runtime> Clone for FastDivmodArgs<'_, R> {
 impl<R: Runtime> Copy for FastDivmodArgs<'_, R> {}
 
 impl<R: Runtime> FastDivmodArgs<'_, R> {
-    pub fn new(client: &ComputeClient<R::Server, R::Channel>, divisor: u32) -> Self {
+    pub fn new(client: &ComputeClient<R::Server>, divisor: u32) -> Self {
         debug_assert!(divisor != 0);
 
         if !u64::supported_uses(client).contains(TypeUsage::Arithmetic) {
