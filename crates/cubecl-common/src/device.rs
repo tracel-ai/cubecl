@@ -44,9 +44,9 @@ impl PartialOrd for DeviceId {
     }
 }
 
-pub use state::*;
+pub use context::*;
 
-mod state {
+mod context {
     use alloc::boxed::Box;
     use core::{
         any::{Any, TypeId},
@@ -60,13 +60,13 @@ mod state {
 
     use super::{Device, DeviceId};
 
-    /// A state that can be saved inside the [DeviceState].
+    /// A state that can be saved inside the [DeviceContext].
     pub trait DeviceState: Send + 'static {
         /// Initialize a new state on the given device.
         fn init(device_id: DeviceId) -> Self;
     }
 
-    /// Handle for accessing type `S` state associated with a specific device.
+    /// Handle for accessing a [DeviceState] associated with a specific device.
     pub struct DeviceContext<S: DeviceState> {
         lock: DeviceStateLock,
         device_id: DeviceId,
@@ -86,7 +86,7 @@ mod state {
         }
     }
 
-    /// Guard providing mutable access to device state of type `S`.
+    /// Guard providing mutable access to [DeviceState].
     ///
     /// Automatically releases the lock when dropped.
     pub struct DeviceStateGuard<'a, S: DeviceState> {
@@ -95,7 +95,7 @@ mod state {
         _phantom: PhantomData<S>,
     }
 
-    /// Guard providing mutable access to device state of type `S`.
+    /// Guard making sure only the locked device can be used.
     ///
     /// Automatically releases the lock when dropped.
     pub struct DeviceGuard<'a> {
@@ -146,7 +146,11 @@ mod state {
             DeviceStateLock::locate(device)
         }
 
-        /// TODO
+        /// Inserts a new state associated with the device.
+        ///
+        /// # Returns
+        ///
+        /// An error if the device already has a registered state.
         pub fn insert<D: Device + 'static>(
             device: &D,
             state_new: S,
@@ -179,7 +183,7 @@ mod state {
             Ok(lock)
         }
 
-        /// TODO
+        /// Locks the current device making sure this device can be used.
         pub fn lock_device(&self) -> DeviceGuard<'_> {
             let state = self.lock.lock.lock();
 
@@ -188,7 +192,7 @@ mod state {
             }
         }
 
-        /// Acquires exclusive mutable access to the state.
+        /// Acquires exclusive mutable access to the [DeviceState].
         ///
         /// The same device can lock multiple types at the same time.
         ///
