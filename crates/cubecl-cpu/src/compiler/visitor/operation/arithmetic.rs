@@ -40,6 +40,15 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Trunc(trunc) => {
+                let value = self.get_variable(trunc.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_trunc(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Clamp(clamp) => {
                 let value = self.get_variable(clamp.input);
                 let mut min = self.get_variable(clamp.min_value);

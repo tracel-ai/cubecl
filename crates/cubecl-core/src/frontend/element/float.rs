@@ -32,6 +32,7 @@ pub trait Float:
     + Round
     + Floor
     + Ceil
+    + Trunc
     + Erf
     + Recip
     + Magnitude

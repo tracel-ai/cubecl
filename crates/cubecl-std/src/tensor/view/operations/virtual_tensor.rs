@@ -24,11 +24,8 @@ impl<T: Numeric, IO: Clone> ViewOperationsExpand<Line<T>, Coords1d> for VirtualT
         scope: &mut Scope,
         pos: ExpandElementTyped<u32>,
     ) -> <Line<T> as CubeType>::ExpandType {
-        let len = self.clone().__expand_buffer_len_method(scope);
-        let in_bounds = lt::expand(scope, pos.clone(), len);
-        let slice = self.clone().__expand_to_slice_method(scope);
         let zero = Line::__expand_cast_from(scope, 0.into());
-        read_masked::expand::<Line<T>>(scope, in_bounds, slice, pos, zero)
+        self.__expand_read_masked_method(scope, pos, zero)
     }
 
     fn __expand_read_masked_method(
@@ -37,8 +34,7 @@ impl<T: Numeric, IO: Clone> ViewOperationsExpand<Line<T>, Coords1d> for VirtualT
         pos: ExpandElementTyped<u32>,
         mask_value: <Line<T> as CubeType>::ExpandType,
     ) -> <Line<T> as CubeType>::ExpandType {
-        let len = self.__expand_len_method(scope);
-        let in_bounds = lt::expand(scope, pos.clone(), len);
+        let in_bounds = self.__expand_is_in_bounds_method(scope, pos.clone());
         let slice = self.clone().__expand_to_slice_method(scope);
         read_masked::expand::<Line<T>>(scope, in_bounds, slice, pos, mask_value)
     }

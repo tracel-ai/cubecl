@@ -33,6 +33,7 @@ mod tests {
     cubecl_core::testgen_all!();
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
+    cubecl_std::testgen_quantized_view!(f32);
     cubecl_matmul::testgen_matmul_simple!([flex32, f32]);
     cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
@@ -53,6 +54,7 @@ mod tests_spirv {
     cubecl_core::testgen_all!(f32: [f16, flex32, f32], i32: [i8, i16, i32, i64], u32: [u8, u16, u32, u64]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
+    cubecl_std::testgen_quantized_view!(f16);
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_matmul::testgen_matmul_simple!([f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();
@@ -73,6 +75,7 @@ mod tests_msl {
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([f16, flex32, f32, u32]);
+    cubecl_std::testgen_quantized_view!(f16);
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16]);
     cubecl_matmul::testgen_matmul_simple!([f16, f32]);
     cubecl_matmul::testgen_matmul_plane_accelerated!();

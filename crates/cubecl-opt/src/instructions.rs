@@ -97,6 +97,7 @@ impl Optimizer {
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)
             | Arithmetic::Ceil(unary_operator)
+            | Arithmetic::Trunc(unary_operator)
             | Arithmetic::Erf(unary_operator)
             | Arithmetic::Recip(unary_operator)
             | Arithmetic::Neg(unary_operator)
