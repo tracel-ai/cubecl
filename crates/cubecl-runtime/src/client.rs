@@ -201,7 +201,6 @@ where
         data: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut state = self.context.lock();
-        println!("do_create");
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
@@ -276,7 +275,6 @@ where
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
-        println!("create_tensors");
         self.do_create(descriptors, data).unwrap()
     }
 
@@ -285,7 +283,6 @@ where
         descriptors: Vec<AllocationDescriptor<'_>>,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut state = self.context.lock();
-        println!("do_empty");
         state.create(descriptors, self.stream_id())
     }
 
@@ -367,7 +364,6 @@ where
     ) {
         let level = self.utilities.logger.profile_level();
         let mut state = self.context.lock();
-        println!("execute_inner");
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
@@ -453,7 +449,6 @@ where
     pub fn sync(&self) -> DynFut<()> {
         let stream_id = self.stream_id();
         let mut state = self.context.lock();
-        println!("sync");
         let fut = state.sync(stream_id);
         core::mem::drop(state);
         self.utilities.logger.profile_summary();
@@ -499,7 +494,6 @@ where
         func: Func,
     ) -> Output {
         let device_guard = self.context.lock_device();
-        println!("memory_persistent_allocation");
 
         self.context
             .lock()
