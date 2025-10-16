@@ -237,6 +237,8 @@ impl<'a, E: Numeric, C: Coordinates + 'static> RunWithQuantType for ExpandDynami
     }
 }
 
+/// Run a function with the quantization storage type and scale. Useful when concrete types are
+/// required but aren't available, and only the dynamic schema is known.
 pub fn run_with_quant_type<F: RunWithQuantType>(func: F, scheme: QuantScheme) -> F::Output {
     fn run_with_q<F: RunWithQuantType, Q: CubePrimitive>(
         func: F,

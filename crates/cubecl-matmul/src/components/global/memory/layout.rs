@@ -238,8 +238,11 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
                 QuantLevel::Tensor => BatchedGlobalScaleLayoutArgs::PerTensor { shape },
                 QuantLevel::Block(block_size) => {
                     let [block_row, block_col] = block_size.as_dim();
-                    let mut config = config;
-                    config.global_line_size = 1;
+                    // Scales are never vectorized because we require that `block_size >= line_size * num_quants`
+                    let config = GlobalMemoryConfig {
+                        global_line_size: 1,
+                        ..config
+                    };
                     let scales_layout =
                         BatchedGlobalLayoutLaunch::from_handle(client, scales, problem, config);
                     BatchedGlobalScaleLayoutArgs::BlockScaled(BlockScaledLayoutLaunch::new(
