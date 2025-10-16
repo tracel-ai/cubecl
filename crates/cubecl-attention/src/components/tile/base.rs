@@ -54,7 +54,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: AttentionMatmulConfig;
 
-    type QueryTile: QueryTile<QT<AP>>;
+    type QueryTile: QueryTile<AP, Config = Self::Config>;
     type KeyValueTile: KeyValueTile<KVT<AP>>;
     type SoftmaxTile: SoftmaxTile<AP>;
     type AccumulatorTile: AccumulatorTile<AP>;
@@ -74,38 +74,42 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile;
 
-    fn init_query(tile: &StridedTile<QG<AP>>, #[comptime] config: Self::Config) -> Self::QueryTile;
+    fn init_query(#[comptime] config: Self::Config) -> Self::QueryTile;
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
     fn init_key(#[comptime] config: Self::Config) -> Self::KeyValueTile;
     fn init_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
 
     fn init_mask(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
+        #[comptime] partition_pos: Coords2d,
         #[comptime] config: Self::Config,
     ) -> Self::MaskTile;
     fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile;
 
     fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
 
+    fn fill_query<E: Float>(
+        tile: &StridedTile<E>,
+        registers: &mut Self::QueryTile,
+        #[comptime] config: Self::Config,
+    );
+
     fn fill_key<E: Float>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValueTile,
+        registers: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
     fn fill_value<E: Float>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValueTile,
+        registers: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     );
 
     fn fill_mask<E: Numeric>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::MaskTile,
+        registers: &mut Self::MaskTile,
         #[comptime] config: Self::Config,
     );
 

@@ -65,57 +65,58 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
 
-    type QueryPartition: CubeType;
-    type KeyValuePartition: CubeType;
-    type SoftmaxPartition: CubeType;
-    type AccumulatorPartition: CubeType;
-    type MaskPartition: CubeType;
+    type QueryRegisters: CubeType;
+    type KeyValueRegisters: CubeType;
+    type SoftmaxRegisters: CubeType;
+    type AccumulatorRegisters: CubeType;
+    type MaskRegisters: CubeType;
 
     fn init_state(#[comptime] config: Self::Config) -> Sequence<RunningState<SM<AP>>>;
 
     fn execute(
-        key_reader: &Self::KeyStage,
-        value_reader: &Self::ValueStage,
-        mask_reader: &MaskReader<AP>,
-        query: &Self::QueryPartition,
-        key_value: &mut Self::KeyValuePartition,
-        score: &mut Self::SoftmaxPartition,
-        mask_partition: &mut Self::MaskPartition,
-        accumulator: &mut Self::AccumulatorPartition,
+        query: &Self::QueryRegisters,
+        key_stage: &Self::KeyStage,
+        value_stage: &Self::ValueStage,
+        key_value: &mut Self::KeyValueRegisters,
+        mask_partition: &Self::MaskRegisters,
+        score: &mut Self::SoftmaxRegisters,
+        accumulator: &mut Self::AccumulatorRegisters,
         prev_state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 
     fn rescale(
-        acc: &mut Self::AccumulatorPartition,
+        acc: &mut Self::AccumulatorRegisters,
         state: Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     );
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
-        acc: &Self::AccumulatorPartition,
+        acc: &Self::AccumulatorRegisters,
         stage: &mut Self::OutStage,
         writer: &mut W,
         #[comptime] tile_config: Self::Config,
     );
 
-    fn init_partitions(
-        query_loader: QueryReader<AP>,
-        #[comptime] config: Self::Config,
-    ) -> (
-        Self::QueryPartition,
-        Self::KeyValuePartition,
-        Self::SoftmaxPartition,
-        Self::AccumulatorPartition,
-    );
-
+    fn init_query(#[comptime] config: Self::Config) -> Self::QueryRegisters;
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueRegisters;
     fn init_mask(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
         #[comptime] config: Self::Config,
-    ) -> Self::MaskPartition;
+    ) -> Self::MaskRegisters;
+    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxRegisters;
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorRegisters;
+
+    fn read_query(
+        reader: &QueryReader<AP>,
+        registers: &mut Self::QueryRegisters,
+        #[comptime] config: Self::Config,
+    );
+    fn read_mask(
+        reader: &MaskReader<AP>,
+        registers: &mut Self::MaskRegisters,
+        #[comptime] config: Self::Config,
+    );
 }
 
 /// Configuration for the Tile Attention level

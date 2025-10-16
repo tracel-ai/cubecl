@@ -9,6 +9,7 @@ use std::marker::PhantomData;
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::dummy::MaskReader;
+use crate::components::global::dummy::reader::{AttentionReader, AttentionReaderExpand};
 use crate::components::global::dummy::writer::DummyWriter;
 use crate::components::global::{
     AttentionGlobalLayout,
@@ -55,59 +56,61 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        let key_stage = key_reader.stage();
-        let value_stage = value_reader.stage();
+        let mut key_stage = key_reader.init_stage(config);
+        let mut value_stage = value_reader.init_stage(config);
+
+        let mut query_registers = SA::init_query(config.stage_config());
+        let mut key_value_registers = SA::init_key_value(config.stage_config());
+        let mut mask_registers =
+            SA::init_mask(CubeOption::new_Some((seq_q, seq_kv)), config.stage_config());
+        let mut softmax_registers = SA::init_softmax(config.stage_config());
+        let mut accumulator_registers = SA::init_accumulator(config.stage_config());
 
         let mut stage_state = SA::init_state(config.stage_config());
-
-        let (query, mut key_value, mut softmax, mut accumulator) =
-            SA::init_partitions(query_reader, config.stage_config());
 
         let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
 
         let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
 
-        let mask = SA::init_mask(
-            // TODO origin
-            (0u32, 0u32).runtime(),
-            config.causal_mask(),
-            CubeOption::new_Some((seq_q, seq_kv)),
-            has_mask,
-            config.stage_config(),
-        );
+        SA::read_query(&query_reader, &mut query_registers, config.stage_config());
 
         for _ in 0..num_stage_iterations {
-            key_reader.read_transposed(config);
-            value_reader.read(config);
+            key_reader.read_global(&mut key_stage, config);
+            value_reader.read_global(&mut value_stage, config);
+
+            SA::read_mask(&mask_reader, &mut mask_registers, config.stage_config());
 
             sync_cube();
 
             SA::execute(
+                &query_registers,
                 &key_stage,
                 &value_stage,
-                &mask_reader,
-                &query,
-                &mut key_value,
-                &mut softmax,
-                &mut mask,
-                &mut accumulator,
+                &mut key_value_registers,
+                &mask_registers,
+                &mut softmax_registers,
+                &mut accumulator_registers,
                 &mut stage_state,
                 config.stage_config(),
             );
 
             sync_cube();
+
             key_reader.advance_view();
             value_reader.advance_view();
-
             mask_reader.advance_view();
         }
 
-        SA::rescale(&mut accumulator, stage_state, config.stage_config());
+        SA::rescale(
+            &mut accumulator_registers,
+            stage_state,
+            config.stage_config(),
+        );
 
         let mut out_stage = writer.stage();
 
         SA::write::<Self::Writer, Self::Config>(
-            &accumulator,
+            &accumulator_registers,
             &mut out_stage,
             &mut writer,
             config.stage_config(),
@@ -135,7 +138,7 @@ impl<
         let step = reduction_step::<Self::Config>(config);
         let layout =
             AttentionGlobalLayout::new(&key, 0, config.global_memory_config(AttentionIdent::Key));
-        DummyKeyReader::new(key.view(layout), step, config)
+        DummyKeyReader::new(key.view(layout), step)
     }
 
     fn init_value_reader(
@@ -148,7 +151,7 @@ impl<
             0,
             config.global_memory_config(AttentionIdent::Value),
         );
-        DummyValueReader::new(value.view(layout), step, config)
+        DummyValueReader::new(value.view(layout), step)
     }
 
     fn init_mask_reader(
@@ -166,9 +169,9 @@ impl<
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
-                MaskReader::new_Materialized(q_offset, mask.view(layout), step)
+                MaskReader::new_materialized(q_offset, mask.view(layout), step)
             }
-            CubeOption::None => MaskReader::new_Logical(),
+            CubeOption::None => MaskReader::new_logical(q_offset, step),
         }
     }
 

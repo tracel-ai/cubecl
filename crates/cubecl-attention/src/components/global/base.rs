@@ -1,5 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+
+use crate::components::global::dummy::AttentionReader;
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
@@ -42,9 +44,9 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     type Writer: CubeType;
 
     /// Loads to SMEM transposed
-    type KeyReader: CubeType;
+    type KeyReader: AttentionReader<KS<AP>, Self::Config>;
     /// Loads to SMEM as is
-    type ValueReader: CubeType;
+    type ValueReader: AttentionReader<VS<AP>, Self::Config>;
     /// Loads to SMEM as is
     type MaskReader: CubeType;
 

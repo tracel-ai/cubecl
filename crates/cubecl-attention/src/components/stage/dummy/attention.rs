@@ -7,16 +7,19 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
+use crate::components::attention_types::*;
+use crate::components::global::dummy::MaskReader;
 use crate::components::global::dummy::QueryReader;
 use crate::components::stage::dummy::MaskPartition;
 use crate::components::stage::dummy::SoftmaxPartition;
-use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, Queries};
+use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, QueryPartition};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::TileAttention;
+use crate::components::tile::{MaskTile, MaskTileExpand};
+use crate::components::tile::{QueryTile, QueryTileExpand};
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
-use crate::components::{attention_types::*, global::dummy::MaskReader};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -39,21 +42,20 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type QueryPartition = Queries<AP, TA, Self::Config>;
-    type KeyValuePartition = KeyValues<AP, TA, Self::Config>;
-    type SoftmaxPartition = SoftmaxPartition<AP, TA, Self::Config>;
-    type AccumulatorPartition = Accumulators<AP, TA, Self::Config>;
-    type MaskPartition = MaskPartition<AP, TA, Self::Config>;
+    type QueryRegisters = QueryPartition<AP, TA, Self::Config>;
+    type KeyValueRegisters = KeyValues<AP, TA, Self::Config>;
+    type SoftmaxRegisters = SoftmaxPartition<AP, TA, Self::Config>;
+    type AccumulatorRegisters = Accumulators<AP, TA, Self::Config>;
+    type MaskRegisters = MaskPartition<AP, TA, Self::Config>;
 
     fn execute(
-        key_reader: &Self::KeyStage,
-        value_reader: &Self::ValueStage,
-        mask_reader: &MaskReader<AP>,
-        query_partition: &Self::QueryPartition,
-        key_value_partition: &mut Self::KeyValuePartition,
-        softmax_partition: &mut Self::SoftmaxPartition,
-        mask_partition: &mut Self::MaskPartition,
-        accumulator_partition: &mut Self::AccumulatorPartition,
+        query_partition: &Self::QueryRegisters,
+        key_stage: &Self::KeyStage,
+        value_stage: &Self::ValueStage,
+        key_value_partition: &mut Self::KeyValueRegisters,
+        mask_partition: &Self::MaskRegisters,
+        softmax_partition: &mut Self::SoftmaxRegisters,
+        accumulator_partition: &mut Self::AccumulatorRegisters,
         state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
@@ -74,7 +76,7 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.head_dim {
-                let key_tile = SK::tile(key_reader, (hd, kv).runtime());
+                let key_tile = SK::tile(key_stage, (hd, kv).runtime());
 
                 TA::fill_key(
                     &key_tile,
@@ -94,12 +96,7 @@ impl<
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
                 TA::zero_softmax(softmax_tile, config.tile_config());
 
-                let mask_tile = mask_partition.get_at_mut(q, kv, config.tiling_scheme());
-                TA::fill_mask(
-                    &mask_reader.get_tile((q, kv), config),
-                    mask_tile,
-                    config.tile_config(),
-                );
+                let mask_tile = mask_partition.get_at(q, kv, config.tiling_scheme());
 
                 let mut hd = comptime![0u32];
 
@@ -134,7 +131,7 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
-                let value_tile = SV::tile(value_reader, (kv, vd).runtime());
+                let value_tile = SV::tile(value_stage, (kv, vd).runtime());
 
                 TA::fill_value(
                     &value_tile,
@@ -175,7 +172,7 @@ impl<
     }
 
     fn rescale(
-        acc: &mut Self::AccumulatorPartition,
+        acc: &mut Self::AccumulatorRegisters,
         state: Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
@@ -192,7 +189,7 @@ impl<
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..p.val_dim {
                 TA::rescale(
-                    Self::AccumulatorPartition::get_at_mut(acc, q, vd, config),
+                    Self::AccumulatorRegisters::get_at_mut(acc, q, vd, config),
                     state.index(q),
                     config.tile_config(),
                 );
@@ -217,7 +214,7 @@ impl<
     }
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
-        acc: &Self::AccumulatorPartition,
+        acc: &Self::AccumulatorRegisters,
         stage: &mut Self::OutStage,
         writer: &mut W,
         #[comptime] stage_config: Self::Config,
@@ -240,7 +237,7 @@ impl<
 
                 TA::write_results(
                     &mut tile,
-                    Self::AccumulatorPartition::get_at(acc, q, kv, stage_config),
+                    Self::AccumulatorRegisters::get_at(acc, q, kv, stage_config),
                     stage_config.tile_config(),
                 );
 
@@ -255,30 +252,83 @@ impl<
         W::on_event(writer, WriteEvent::new_Finish());
     }
 
-    fn init_partitions(
-        query_loader: QueryReader<AP>,
-        #[comptime] config: Self::Config,
-    ) -> (
-        Self::QueryPartition,
-        Self::KeyValuePartition,
-        Self::SoftmaxPartition,
-        Self::AccumulatorPartition,
-    ) {
-        (
-            Self::QueryPartition::new(query_loader, config),
-            Self::KeyValuePartition::new(config),
-            Self::SoftmaxPartition::new(config),
-            Self::AccumulatorPartition::new(config),
-        )
+    fn init_query(#[comptime] config: Self::Config) -> Self::QueryRegisters {
+        Self::QueryRegisters::new(config)
+    }
+
+    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueRegisters {
+        Self::KeyValueRegisters::new(config)
+    }
+
+    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxRegisters {
+        Self::SoftmaxRegisters::new(config)
+    }
+
+    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorRegisters {
+        Self::AccumulatorRegisters::new(config)
     }
 
     fn init_mask(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
         #[comptime] config: Self::Config,
-    ) -> Self::MaskPartition {
-        Self::MaskPartition::new(origin, causal, out_of_bounds, materialized, config)
+    ) -> Self::MaskRegisters {
+        Self::MaskRegisters::new(out_of_bounds, config)
+    }
+
+    fn read_query(
+        reader: &QueryReader<AP>,
+        registers: &mut Self::QueryRegisters,
+        #[comptime] config: Self::Config,
+    ) {
+        let p = config.tiling_scheme().partition_size;
+
+        let mut q = comptime![0u32];
+
+        #[unroll]
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..p.seq_q {
+            let mut hd = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..p.head_dim {
+                let tile_to_write = registers.get_at_mut(q, hd, config);
+                let tile_read = reader.get_tile::<Self::Config>((q, hd).runtime(), config);
+
+                tile_to_write.update(tile_read, config.tile_config());
+
+                comptime![hd += 1];
+            }
+
+            comptime![q += 1];
+        }
+    }
+
+    fn read_mask(
+        reader: &MaskReader<AP>,
+        registers: &mut Self::MaskRegisters,
+        #[comptime] config: Self::Config,
+    ) {
+        let p = config.tiling_scheme().partition_size;
+
+        let mut q = comptime![0u32];
+
+        #[unroll]
+        #[allow(clippy::explicit_counter_loop)]
+        for _ in 0..p.seq_q {
+            let mut kv = comptime![0u32];
+
+            #[unroll]
+            #[allow(clippy::explicit_counter_loop)]
+            for _ in 0..p.seq_kv {
+                let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
+
+                mask_tile.update(reader.read());
+
+                comptime![kv += 1];
+            }
+
+            comptime![q += 1];
+        }
     }
 }

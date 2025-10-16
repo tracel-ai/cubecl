@@ -19,6 +19,8 @@ pub struct DummyRegisterAttentionMatmulConfig {
     cast_query: bool,
     check_bounds: bool,
     inner_layout: InnerLayout,
+    causal_mask: bool,
+    materialized_mask: bool,
 }
 
 impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
@@ -59,6 +61,14 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
             InnerLayout::SplitRows => 2u32,
         }
     }
+
+    fn causal_mask(&self) -> bool {
+        self.causal_mask
+    }
+
+    fn materialized_mask(&self) -> bool {
+        self.materialized_mask
+    }
 }
 
 impl DummyRegisterAttentionMatmulConfig {
@@ -70,6 +80,8 @@ impl DummyRegisterAttentionMatmulConfig {
         key_value_stage_line_size: u32,
         check_bounds: bool,
         two_rows_in_array_tile: bool,
+        causal_mask: bool,
+        materialized_mask: bool,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             plane_dim,
@@ -85,6 +97,8 @@ impl DummyRegisterAttentionMatmulConfig {
             } else {
                 InnerLayout::Contiguous
             },
+            causal_mask,
+            materialized_mask,
         }
         .validate()
     }

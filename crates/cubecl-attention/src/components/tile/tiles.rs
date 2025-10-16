@@ -6,10 +6,17 @@ use crate::components::attention_types::*;
 use crate::components::tile::FragmentMask;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{FragmentOps, RowWise, RunningState};
+use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
 #[cube]
-pub trait QueryTile<E: Float>: CubeType {}
+pub trait QueryTile<AP: AttentionPrecision>: CubeType {
+    type Fragment: CubeType;
+    type Config: AttentionMatmulConfig;
+
+    fn fragment_mut(&mut self) -> &mut Self::Fragment;
+    fn update(&mut self, tile: StridedTile<QG<AP>>, #[comptime] config: Self::Config);
+}
 
 #[cube]
 pub trait KeyValueTile<E: Float>: CubeType {
@@ -62,6 +69,7 @@ pub trait AccumulatorTile<AP: AttentionPrecision>: CubeType {
 pub trait MaskTile: CubeType {
     type Fragment: CubeType;
 
-    fn apply<E: Float>(this: &Self, pos: Coords2d) -> E;
+    fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E;
     fn fragment_mut(&mut self) -> &mut Self::Fragment;
+    fn update(&mut self, new_origin: Coords2d);
 }

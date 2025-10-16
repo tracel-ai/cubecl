@@ -5,14 +5,42 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::tile::dummy::AttentionMatmul;
+use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
 use crate::components::tile::row::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile, MaskTileExpand};
 
 use cubecl_std::tensor::layout::Coordinates;
 
 #[derive(CubeType)]
+pub struct LogicalIterOrigin {
+    row: RuntimeCell<u32>,
+    col: RuntimeCell<u32>,
+}
+
+#[cube]
+impl LogicalIterOrigin {
+    fn dummy() -> LogicalIterOrigin {
+        LogicalIterOrigin {
+            row: RuntimeCell::new(0),
+            col: RuntimeCell::new(0),
+        }
+    }
+
+    fn read(&self) -> Coords2d {
+        (self.row.read(), self.col.read())
+    }
+
+    fn update(&mut self, new: Coords2d) {
+        self.row.store(new.0);
+        self.col.store(new.1);
+    }
+}
+
+#[derive(CubeType)]
 pub struct LogicalTileMask<F: FragmentLayout> {
-    origin: Coords2d,
+    logical_iter_origin: LogicalIterOrigin,
+    #[cube(comptime)]
+    partition_pos: Coords2d,
     #[cube(comptime)]
     causal: bool,
     out_of_bounds: CubeOption<Coords2d>,
@@ -24,7 +52,10 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
         let pos_in_tile = self.fragment_layout.absolute_pos(local_pos);
 
-        let pos = Coords2d::add(self.origin, pos_in_tile);
+        let pos = Coords2d::add(
+            self.logical_iter_origin.read(),
+            Coords2d::add(self.partition_pos.runtime(), pos_in_tile),
+        );
 
         let causal_masked = self.causal && pos.0 < pos.1;
 
@@ -34,6 +65,10 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
         };
 
         causal_masked || oob_masked
+    }
+
+    pub fn update_origin(&mut self, new_origin: Coords2d) {
+        self.logical_iter_origin.update(new_origin);
     }
 }
 
@@ -62,20 +97,19 @@ pub enum MaskFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
     pub fn new(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
+        #[comptime] partition_pos: Coords2d,
         #[comptime] config: AM::Config,
     ) -> MaskFragment<AP, AM> {
         let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
-            origin,
-            causal,
+            logical_iter_origin: LogicalIterOrigin::dummy(),
+            partition_pos,
+            causal: config.causal_mask(),
             out_of_bounds,
             fragment_layout: AM::softmax_layout(config),
         };
 
-        if materialized {
+        if config.materialized_mask() {
             MaskFragment::new_Materialized(MaterializedTileMask::<AP, AM> {
                 fragment: AM::allocate_mask(config),
                 logical_mask,
@@ -109,6 +143,18 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
             MaskFragment::Logical(_) => {
                 panic!("Tried to get fragment of logical mask")
             }
+        }
+    }
+
+    fn update(&mut self, new_origin: Coords2d) {
+        match self {
+            MaskFragment::Materialized(materialized_tile_mask) => {
+                // TODO read the tile
+                materialized_tile_mask
+                    .logical_mask
+                    .update_origin(new_origin)
+            }
+            MaskFragment::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
         }
     }
 }

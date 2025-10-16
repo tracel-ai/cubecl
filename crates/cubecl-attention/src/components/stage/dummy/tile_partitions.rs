@@ -65,7 +65,7 @@ impl<
 }
 
 #[derive(CubeType)]
-pub struct Queries<
+pub struct QueryPartition<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
     S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
@@ -80,9 +80,9 @@ impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
     S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> Queries<AP, TA, S>
+> QueryPartition<AP, TA, S>
 {
-    pub fn new(query_loader: QueryReader<AP>, #[comptime] config: S) -> Queries<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> QueryPartition<AP, TA, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
@@ -96,8 +96,7 @@ impl<
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for _ in 0..comptime!(p.head_dim) {
-                let tile = query_loader.get_tile::<S>((q, hd).runtime(), config);
-                sequence.push(TA::init_query(&tile, config.tile_config()));
+                sequence.push(TA::init_query(config.tile_config()));
 
                 comptime![hd += 1];
             }
@@ -105,7 +104,7 @@ impl<
             comptime![q += 1];
         }
 
-        Queries::<AP, TA, S> {
+        QueryPartition::<AP, TA, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -119,6 +118,16 @@ impl<
     ) -> &TA::QueryTile {
         let p = config.tiling_scheme().partition_size;
         self.sequence.index(comptime!(q * p.head_dim + hd))
+    }
+
+    pub fn get_at_mut(
+        &mut self,
+        #[comptime] q: u32,
+        #[comptime] hd: u32,
+        #[comptime] config: S,
+    ) -> &mut TA::QueryTile {
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index_mut(comptime!(q * p.head_dim + hd))
     }
 }
 
@@ -317,24 +326,26 @@ impl<
 > MaskPartition<AP, TA, S>
 {
     pub fn new(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
         #[comptime] config: S,
     ) -> MaskPartition<AP, TA, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
+        let mut q = comptime![0];
+
         #[unroll]
-        for _ in 0..comptime!(p.seq_q * p.seq_kv) {
-            sequence.push(TA::init_mask(
-                origin,
-                causal,
-                out_of_bounds,
-                materialized,
-                config.tile_config(),
-            ));
+        for _ in 0..p.seq_q {
+            let mut kv = comptime![0];
+
+            #[unroll]
+            for _ in 0..p.seq_kv {
+                sequence.push(TA::init_mask(out_of_bounds, (q, kv), config.tile_config()));
+
+                comptime![kv += 1];
+            }
+
+            comptime![q += 1];
         }
 
         MaskPartition::<AP, TA, S> {

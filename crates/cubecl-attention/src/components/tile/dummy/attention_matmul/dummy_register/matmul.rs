@@ -441,23 +441,25 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         ))
     }
 
-    fn allocate_fill_query<EI: Float>(
-        tile: &StridedTile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query {
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query {
         let seq_q = config.attention_tile_size().seq_q;
         let head_dim = config.attention_tile_size().head_dim;
 
-        let mut query = ArrayTile::new(ArrayTileLayout::new(
+        ArrayTile::new(ArrayTileLayout::new(
             (seq_q, head_dim),
             config.plane_dim(),
             config.inner_layout(),
-        ));
+        ))
+    }
 
-        strided_tile_to_array_tile(tile, &mut query);
+    fn fill_query<E: Numeric>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::Query,
+        #[comptime] config: Self::Config,
+    ) {
+        strided_tile_to_array_tile(tile, fragment);
 
         sync_cube();
-        query
     }
 
     fn fill_key_value<E: Float>(

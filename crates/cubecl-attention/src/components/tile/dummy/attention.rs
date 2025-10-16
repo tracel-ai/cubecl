@@ -13,6 +13,7 @@ use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::tiles::{MaskTile, MaskTileExpand};
+use crate::components::tile::tiles::{QueryTile, QueryTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
@@ -57,8 +58,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         Self::AccumulatorTile::new(config)
     }
 
-    fn init_query(tile: &StridedTile<QG<AP>>, #[comptime] config: Self::Config) -> Self::QueryTile {
-        Self::QueryTile::new(tile, config)
+    fn init_query(#[comptime] config: Self::Config) -> Self::QueryTile {
+        Self::QueryTile::new(config)
     }
 
     fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile {
@@ -74,13 +75,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     }
 
     fn init_mask(
-        origin: Coords2d,
-        #[comptime] causal: bool,
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] materialized: bool,
+        #[comptime] partition_pos: Coords2d,
         #[comptime] config: Self::Config,
     ) -> Self::MaskTile {
-        Self::MaskTile::new(origin, causal, out_of_bounds, materialized, config)
+        Self::MaskTile::new(out_of_bounds, partition_pos, config)
     }
 
     fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile {
@@ -91,20 +90,28 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         RunningState::<SM<AP>>::init(config.num_rows_per_unit())
     }
 
-    fn fill_key<E: Float>(
+    fn fill_query<E: Float>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValueTile,
+        registers: &mut Self::QueryTile,
         #[comptime] config: Self::Config,
     ) {
-        AM::fill_key_value(tile, rhs.key_mut(), config);
+        AM::fill_query(tile, registers.fragment_mut(), config);
+    }
+
+    fn fill_key<E: Float>(
+        tile: &StridedTile<E>,
+        registers: &mut Self::KeyValueTile,
+        #[comptime] config: Self::Config,
+    ) {
+        AM::fill_key_value(tile, registers.key_mut(), config);
     }
 
     fn fill_value<E: Float>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValueTile,
+        registers: &mut Self::KeyValueTile,
         #[comptime] config: Self::Config,
     ) {
-        AM::fill_key_value(tile, rhs.value_mut(), config);
+        AM::fill_key_value(tile, registers.value_mut(), config);
     }
 
     fn fill_mask<E: Numeric>(

@@ -38,11 +38,6 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_fill_query<EI: Float>(
-        tile: &StridedTile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query;
-
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
@@ -57,6 +52,13 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     fn fill_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
+        #[comptime] config: Self::Config,
+    );
+
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query;
+    fn fill_query<E: Numeric>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::Query,
         #[comptime] config: Self::Config,
     );
 
@@ -91,6 +93,9 @@ pub trait AttentionMatmulConfig:
     fn check_bounds(&self) -> bool;
 
     fn num_rows_per_unit(&self) -> u32;
+
+    fn causal_mask(&self) -> bool;
+    fn materialized_mask(&self) -> bool;
 }
 
 pub trait AttentionMatmulFamily: Send + Sync + 'static {

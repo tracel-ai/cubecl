@@ -93,40 +93,28 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         cmma::execute::<SM<AP>, KVT<AP>, ACC<AP>, ACC<AP>>(lhs, rhs, out, out);
     }
 
-    fn allocate_fill_query<EI: Numeric>(
-        tile: &StridedTile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query {
-        let (slice, stride) = tile.as_unlined();
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query {
         let size = config.attention_tile_size().to_score_matmul_tile_size();
 
-        if config.cast_query() {
-            let query = unsafe {
-                cmma::Matrix::<QT<AP>>::uninitialized(
-                    cmma::MatrixIdent::A,
-                    size.m(),
-                    size.n(),
-                    size.k(),
-                    cmma::MatrixLayout::RowMajor,
-                )
-            };
-
-            cmma::load(&query, &slice, stride);
-            query
-        } else {
-            let tmp = unsafe {
-                cmma::Matrix::<EI>::uninitialized(
-                    cmma::MatrixIdent::A,
-                    size.m(),
-                    size.n(),
-                    size.k(),
-                    cmma::MatrixLayout::RowMajor,
-                )
-            };
-
-            cmma::load(&tmp, &slice, stride);
-            cmma::cast::<EI, QT<AP>>(&tmp)
+        unsafe {
+            cmma::Matrix::<QT<AP>>::uninitialized(
+                cmma::MatrixIdent::A,
+                size.m(),
+                size.n(),
+                size.k(),
+                cmma::MatrixLayout::RowMajor,
+            )
         }
+    }
+
+    fn fill_query<E: Numeric>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::Query,
+        #[comptime] config: Self::Config,
+    ) {
+        let (slice, stride) = tile.as_unlined();
+
+        cmma::load(&fragment, &slice, stride);
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
