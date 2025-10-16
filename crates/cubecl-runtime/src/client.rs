@@ -108,7 +108,7 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub fn read_async(&self, handles: Vec<Handle>) -> DynFut<Vec<Bytes>> {
+    pub fn read_async(&self, handles: Vec<Handle>) -> impl Future<Output = Vec<Bytes>> + Send {
         let strides = [1];
         let shapes = handles
             .iter()
@@ -126,7 +126,7 @@ where
 
         let fut = self.do_read(descriptors);
 
-        Box::pin(async move { fut.await.unwrap() })
+        async move { fut.await.unwrap() }
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -147,10 +147,13 @@ where
     }
 
     /// Given bindings, returns owned resources as bytes.
-    pub fn read_tensor_async(&self, descriptors: Vec<CopyDescriptor<'_>>) -> DynFut<Vec<Bytes>> {
+    pub fn read_tensor_async(
+        &self,
+        descriptors: Vec<CopyDescriptor<'_>>,
+    ) -> impl Future<Output = Vec<Bytes>> + Send {
         let fut = self.do_read(descriptors);
 
-        Box::pin(async move { fut.await.unwrap() })
+        async move { fut.await.unwrap() }
     }
 
     /// Given bindings, returns owned resources as bytes.
@@ -171,10 +174,13 @@ where
 
     /// Given a binding, returns owned resource as bytes.
     /// See [ComputeClient::read_tensor]
-    pub fn read_one_tensor_async(&self, descriptor: CopyDescriptor<'_>) -> DynFut<Bytes> {
+    pub fn read_one_tensor_async(
+        &self,
+        descriptor: CopyDescriptor<'_>,
+    ) -> impl Future<Output = Bytes> + Send {
         let fut = self.read_tensor_async(vec![descriptor]);
 
-        Box::pin(async { fut.await.remove(0) })
+        async { fut.await.remove(0) }
     }
 
     /// Given a binding, returns owned resource as bytes.
