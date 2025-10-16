@@ -32,19 +32,24 @@ pub enum ProfileError {
 }
 
 #[derive(Debug)]
+/// Contains many different types that are useful for server implementations and compute clients.
 pub struct ServerUtilities<Server: ComputeServer> {
+    /// The time when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub epoch_time: web_time::Instant,
-
+    /// The GPU client when `profile-tracy` is activated.
     #[cfg(feature = "profile-tracy")]
     pub gpu_client: tracy_client::GpuContext,
-
+    /// Information shared between all servers.
     pub properties: DeviceProperties,
+    /// Information specific to the current server.
     pub info: Server::Info,
+    /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
 }
 
 impl<S: ComputeServer> ServerUtilities<S> {
+    /// Creates a new server utilities.
     pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]

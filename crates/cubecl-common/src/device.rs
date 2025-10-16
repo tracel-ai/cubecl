@@ -80,8 +80,8 @@ mod state {
         fn clone(&self) -> Self {
             Self {
                 lock: self.lock.clone(),
-                _phantom: self._phantom.clone(),
-                device_id: self.device_id.clone(),
+                _phantom: self._phantom,
+                device_id: self.device_id,
             }
         }
     }
@@ -120,13 +120,21 @@ mod state {
         type Target = S;
 
         fn deref(&self) -> &Self::Target {
-            self.guard_ref.as_ref().unwrap().downcast_ref().unwrap()
+            self.guard_ref
+                .as_ref()
+                .expect("The guard to not be dropped")
+                .downcast_ref()
+                .expect("The type to be correct")
         }
     }
 
     impl<'a, S: DeviceState> core::ops::DerefMut for DeviceStateGuard<'a, S> {
         fn deref_mut(&mut self) -> &mut Self::Target {
-            self.guard_ref.as_mut().unwrap().downcast_mut().unwrap()
+            self.guard_ref
+                .as_mut()
+                .expect("The guard to not be dropped")
+                .downcast_mut()
+                .expect("The type to be correct")
         }
     }
 
@@ -190,7 +198,7 @@ mod state {
         /// This can only happen with recursive locking of the same state, which isn't allowed
         /// since having multiple mutable references to the same state isn't valid.
         pub fn lock(&self) -> DeviceStateGuard<'_, S> {
-            let id = TypeId::of::<S>();
+            let key = TypeId::of::<S>();
             let state = self.lock.lock.lock();
 
             // It is safe for multiple reasons.
@@ -209,15 +217,17 @@ mod state {
                 ptr.as_mut().unwrap()
             };
 
-            if !map.contains_key(&id) {
+            if !map.contains_key(&key) {
                 let state_default = S::init(self.device_id);
                 let any: Box<dyn Any + Send + 'static> = Box::new(state_default);
                 let cell = RefCell::new(any);
 
-                map.insert(id, cell);
+                map.insert(key, cell);
             }
 
-            let value = map.get(&id).unwrap();
+            let value = map
+                .get(&key)
+                .expect("Just validated the map contains the key.");
             let ref_guard = match value.try_borrow_mut() {
                 Ok(guard) => guard,
                 #[cfg(feature = "std")]
@@ -265,21 +275,21 @@ mod state {
                 Some(state) => state,
                 None => {
                     global.state = Some(HashMap::default());
-                    global.state.as_mut().unwrap()
+                    global.state.as_mut().expect("Just created Option::Some")
                 }
             };
 
             let lock = match map.get(&key) {
                 Some(value) => value.clone(),
                 None => {
-                    let state = DeviceStateMap::new::<S>();
+                    let state = DeviceStateMap::new();
 
                     let value = DeviceStateLock {
                         lock: Arc::new(ReentrantMutex::new(state)),
                     };
 
                     map.insert(key, value);
-                    map.get(&key).unwrap().clone()
+                    map.get(&key).expect("Just inserted the key/value").clone()
                 }
             };
 
@@ -292,7 +302,7 @@ mod state {
     }
 
     impl DeviceStateMap {
-        fn new<S: DeviceState>() -> Self {
+        fn new() -> Self {
             Self {
                 map: UnsafeCell::new(HashMap::new()),
             }
