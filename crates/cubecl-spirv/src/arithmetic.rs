@@ -384,6 +384,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
+            Arithmetic::Trunc(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    T::trunc(b, ty, input, out);
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Arithmetic::Clamp(op) => {
                 let input = self.compile_variable(op.input);
                 let min = self.compile_variable(op.min_value);

@@ -154,6 +154,7 @@ function!(Sin, "sin");
 function!(Sqrt, "sqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");
+function!(Trunc, "trunc");
 function!(Floor, "floor");
 function!(Round, "rint");
 

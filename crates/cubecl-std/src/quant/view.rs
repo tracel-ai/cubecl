@@ -24,8 +24,11 @@ use half::{bf16, f16};
 
 /// View that dequantizes after loads. Scales layout should take values coordinates and map them
 /// to the corresponding scale.
+///
+/// # Warning
 /// Assumes only one scale maps to a single load. Adjust line size of values or block size to ensure
 /// this.
+/// Must ensure `block_size.is_multiple_of(line_size * scheme.num_quants())`.
 #[expect(dead_code, reason = "only used in expand")]
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
 pub struct QuantizedView<Q: CubePrimitive, S: CubePrimitive, F: Numeric, C: Coordinates + 'static> {
