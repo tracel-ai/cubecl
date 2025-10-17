@@ -222,6 +222,7 @@ impl ComputeServer for WgpuServer {
 
         self.scheduler.execute_streams(streams);
         let stream = self.scheduler.stream(&stream_id);
+        stream.flush();
         stream.read_resources(resources)
     }
 

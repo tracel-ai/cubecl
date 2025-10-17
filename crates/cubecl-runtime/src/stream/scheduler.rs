@@ -18,6 +18,8 @@ pub trait SchedulerStreamBackend {
 
     /// Enqueues a task onto a given stream for execution.
     fn enqueue(task: Self::Task, stream: &mut Self::Stream);
+    /// Flush the inner stream queue to ensure ordering between different streams.
+    fn flush(stream: &mut Self::Stream);
     /// Returns a mutable reference to the stream factory.
     fn factory(&mut self) -> &mut Self::Factory;
 }
@@ -219,6 +221,9 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
                 // Enqueue each task on the stream.
                 B::enqueue(task, &mut stream.stream);
             }
+
+            // Makes sure the tasks are ordered on the compute queue.
+            B::flush(&mut stream.stream);
         }
     }
 
@@ -241,6 +246,12 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
                     B::enqueue(task, &mut stream.stream);
                 }
             }
+        }
+
+        // Makes sure the tasks are ordered on the compute queue.
+        for schedule in schedules.iter_mut() {
+            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
+            B::flush(&mut stream.stream);
         }
     }
 }
