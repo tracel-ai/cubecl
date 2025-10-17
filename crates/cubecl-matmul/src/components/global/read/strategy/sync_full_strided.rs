@@ -52,9 +52,9 @@ impl SyncFullLoadingStrategy for SyncFullStridedLoading {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
-        let line_size = config.global_line_size(ident);
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);

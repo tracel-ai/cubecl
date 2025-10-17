@@ -97,9 +97,9 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> SyncPartialTilewiseJob {
-        let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();

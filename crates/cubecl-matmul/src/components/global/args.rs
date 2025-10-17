@@ -15,8 +15,8 @@ use crate::{
         global::{
             GlobalConfig,
             memory::{
-                BatchedGlobalLayout, BatchedGlobalLayoutLaunch, SimpleTmaGlobalLayout,
-                SimpleTmaGlobalLayoutLaunch,
+                BatchedGlobalLayout, BatchedGlobalLayoutLaunch, BatchedGlobalScaleLayout,
+                SimpleTmaGlobalLayout, SimpleTmaGlobalLayoutLaunch,
             },
         },
     },
@@ -128,19 +128,44 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         config: impl BatchConfig,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
-        let view = |handle, ident, line_size| {
-            let layout = BatchedGlobalLayoutLaunch::from_handle(
-                client,
-                handle,
-                problem,
-                config.global_memory_config(ident),
-            );
-            ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
+        let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
+            MatmulInputHandleRef::Normal(handle) => {
+                let layout = BatchedGlobalLayoutLaunch::from_handle(
+                    client,
+                    handle,
+                    problem,
+                    config.global_memory_config(ident),
+                );
+                ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
+            }
+            MatmulInputHandleRef::Quantized {
+                data,
+                scale,
+                shape,
+                scheme,
+            } => {
+                let (data_layout, scales_layout) = BatchedGlobalLayoutLaunch::from_quantized_handle(
+                    client,
+                    data,
+                    scale,
+                    shape,
+                    problem,
+                    config.global_memory_config(ident),
+                    **scheme,
+                );
+                let data_view =
+                    ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
+                let scales_view = ViewArg::new::<BatchedGlobalScaleLayout>(
+                    scale.as_array_arg(line_size),
+                    scales_layout,
+                );
+                ViewArg::new_quantized(data_view, scales_view, **scheme)
+            }
         };
 
         TensorInputsLaunch::new(
-            view(lhs.data(), MatmulIdent::Lhs, line_sizes.lhs),
-            view(rhs.data(), MatmulIdent::Rhs, line_sizes.rhs),
+            view(lhs, MatmulIdent::Lhs, line_sizes.lhs),
+            view(rhs, MatmulIdent::Rhs, line_sizes.rhs),
             CubeOptionArgs::None,
         )
     }
