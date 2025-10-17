@@ -47,6 +47,23 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<VS<AP>, G
 
     fn read_global(&mut self, stage: &mut Self::Stage, #[comptime] config: G) {
         if UNIT_POS_Y == 0 {
+            // let memory_config = config.global_memory_config(AttentionIdent::Value);
+            // let tile_rows = memory_config.elements_in_tile_row;
+            // let tile_cols = memory_config.elements_in_tile_col;
+            // let mut slice = stage.as_slice_mut(1u32);
+
+            // for row in 0..tile_rows {
+            //     for col in 0..tile_cols {
+            //         let eye_value = if row == col {
+            //             VG::<AP>::from_int(1)
+            //         } else {
+            //             VG::<AP>::from_int(0)
+            //         };
+
+            //         slice[row * tile_cols + col] = Line::cast_from(eye_value);
+            //     }
+            // }
+
             // TODO this reader is bad, it's not coalesced
             let memory_config = config.global_memory_config(AttentionIdent::Value);
             let mut slice = stage.as_slice_mut(1u32);
