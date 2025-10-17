@@ -323,7 +323,8 @@ impl<
             for _ in 0..p.seq_kv {
                 let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
 
-                mask_tile.update(reader.read());
+                let (new_origin, tile) = reader.read::<Self::Config>((q, kv), config);
+                mask_tile.update(new_origin, tile);
 
                 comptime![kv += 1];
             }

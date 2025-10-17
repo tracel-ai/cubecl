@@ -57,10 +57,19 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
     }
 
     // TODO read tile too
-    pub fn read(&self) -> Coords2d {
+    pub fn read<S: StageAttentionConfig>(
+        &self,
+        #[comptime] pos_in_partition: Coords2d,
+        #[comptime] config: S,
+    ) -> (Coords2d, CubeOption<StridedTile<MSK<AP>>>) {
         match self {
-            MaskReader::Materialized(global_iterator, logical_iterator) => logical_iterator.read(),
-            MaskReader::Logical(logical_iterator) => logical_iterator.read(),
+            MaskReader::Materialized(global_iterator, logical_iterator) => (
+                logical_iterator.read(),
+                CubeOption::new_Some(get_tile::<AP, S>(global_iterator, pos_in_partition, config)),
+            ),
+            MaskReader::Logical(logical_iterator) => {
+                (logical_iterator.read(), CubeOption::new_None())
+            }
         }
     }
 
@@ -75,86 +84,31 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
     }
 }
 
-// if UNIT_POS_Y == 0 {
-//     // TODO this reader is bad, it's not coalesced
-//     let memory_config = config.global_memory_config(AttentionIdent::Value);
-//     let mut slice = self.stage_memory.as_slice_mut(1u32);
+#[cube]
+pub fn get_tile<AP: AttentionPrecision, S: StageAttentionConfig>(
+    global_iter: &GlobalIterator<Line<MSK<AP>>>,
+    #[comptime] tile: Coords2d,
+    #[comptime] config: S,
+) -> StridedTile<MSK<AP>> {
+    let (row_in_partition, col) = tile;
+    let attention_tile_size = config.tiling_scheme().tile_size;
 
-//     let tile_rows = memory_config.elements_in_tile_row;
-//     let tile_cols = memory_config.elements_in_tile_col;
-//     let partition_rows = memory_config.elements_in_stage_row / tile_rows;
-//     let partition_cols = memory_config.elements_in_stage_col / tile_cols;
+    let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
-//     let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
-//     let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
+    let tile = StridedTile::<MSK<AP>>::new_strided(
+        global_iter
+            .view()
+            .slice(
+                (
+                    row * attention_tile_size.seq_q,
+                    col.runtime() * attention_tile_size.seq_kv,
+                ),
+                (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
+            )
+            .to_linear_slice(),
+        config.tiling_scheme().elements_in_partition_seq_kv(),
+        MatrixLayout::RowMajor,
+    );
 
-//     let row_in_tile = UNIT_POS_X / units_per_tile_row;
-//     let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
-
-//     // Assumes row tiling order
-//     let num_elements_per_tile = tile_rows * tile_cols;
-//     let tile_row_stride = partition_cols * num_elements_per_tile;
-//     let tile_col_stride = num_elements_per_tile;
-
-//     let layout = TiledLayout::new(memory_config);
-//     let view = self.global_iter.view().view(layout);
-
-//     #[unroll]
-//     for tile_row in 0..partition_rows {
-//         #[unroll]
-//         for tile_col in 0..partition_cols {
-//             if row_in_tile < tile_rows {
-//                 #[unroll]
-//                 for i in 0..tile_cols_per_unit {
-//                     let col = col_in_tile_start + i;
-
-//                     if col < tile_cols {
-//                         let tile_row_offset = tile_row * tile_row_stride;
-//                         let tile_col_offset = tile_col * tile_col_stride;
-//                         let offset = tile_row_offset + tile_col_offset;
-
-//                         let index = row_in_tile * tile_cols + col;
-
-//                         slice[index + offset] = Line::cast_from(
-//                             view.read_checked(((tile_row, tile_col), index)),
-//                         );
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
-
-// pub fn get_tile<S: StageAttentionConfig>(
-//     &self,
-//     tile: Coords2d,
-//     #[comptime] config: S,
-// ) -> CubeOption<StridedTile<MSK<AP>>> {
-//     match self {
-//         MaskReader::Logical(logical_iter) => CubeOption::new_None(),
-//         MaskReader::Materialized(global_iter, logical_iter) => {
-//             let (row_in_partition, col) = tile;
-//             let attention_tile_size = config.tiling_scheme().tile_size;
-
-//             let row =
-//                 row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
-
-//             let tile = StridedTile::<MSK<AP>>::new_strided(
-//                 global_iter
-//                     .view()
-//                     .slice(
-//                         (
-//                             row * attention_tile_size.seq_q,
-//                             col * attention_tile_size.seq_kv,
-//                         ),
-//                         (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
-//                     )
-//                     .to_linear_slice(),
-//                 config.tiling_scheme().elements_in_partition_seq_kv(),
-//                 MatrixLayout::RowMajor,
-//             );
-
-//             CubeOption::new_Some(tile)
-//         }
-//     }
-// }
+    tile
+}

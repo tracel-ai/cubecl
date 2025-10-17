@@ -4,10 +4,12 @@ use cubecl_std::tensor::layout::Coords2d;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
+use crate::components::attention_types::MSK;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
 use crate::components::tile::row::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile, MaskTileExpand};
+use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;
 
@@ -86,6 +88,10 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
 
         logical_masked || materialized_masked
     }
+
+    pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
+
+    }
 }
 
 #[derive(CubeType)]
@@ -123,6 +129,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<AP, AM> {
     type Fragment = AM::Mask;
+    type MaskPrecision = MSK<AP>;
 
     fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
         let should_mask = match this {
@@ -146,13 +153,15 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
         }
     }
 
-    fn update(&mut self, new_origin: Coords2d) {
+    fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<Self::MaskPrecision>>) {
         match self {
             MaskFragment::Materialized(materialized_tile_mask) => {
                 // TODO read the tile
                 materialized_tile_mask
                     .logical_mask
-                    .update_origin(new_origin)
+                    .update_origin(new_origin);
+
+                materialized_tile_mask.update_tile(tile.unwrap())
             }
             MaskFragment::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
         }
