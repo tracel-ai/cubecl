@@ -120,7 +120,6 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
         let len = L::Job::task_count(&loading_job);
 
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for task_id in 0..len {
             L::Job::<IP>::execute_task::<G>(

@@ -86,7 +86,6 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
         for _ in 0..comptime!(p.seq_q * p.head_dim) {
             sequence.push(TA::init_query(config.tile_config()));
         }

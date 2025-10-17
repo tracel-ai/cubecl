@@ -59,18 +59,14 @@ impl<
         state: &mut Sequence<RunningState<SM<AP>>>,
         #[comptime] config: Self::Config,
     ) {
-        // let partition_mask = mask.to_partition(UNIT_POS_Y);
-
         let p = config.tiling_scheme().partition_size;
 
         let mut max_placeholder = TA::init_max_placeholder(config.num_rows_per_unit());
         let mut sum_placeholder = TA::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
         for kv in 0..p.seq_kv {
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for hd in 0..p.head_dim {
                 let key_tile = SK::tile(key_stage, (hd, kv).runtime());
 
@@ -84,7 +80,6 @@ impl<
             let mut scales = Sequence::<RowWise<SM<AP>>>::new();
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
                 TA::zero_softmax(softmax_tile, config.tile_config());
@@ -92,7 +87,6 @@ impl<
                 let mask_tile = mask_partition.get_at(q, kv, config.tiling_scheme());
 
                 #[unroll]
-                #[allow(clippy::explicit_counter_loop)]
                 for hd in 0..p.head_dim {
                     let query_tile = query_partition.get_at(q, hd, config);
                     let key_tile = key_value_partition.get_key_at(hd, kv, config);
@@ -114,7 +108,6 @@ impl<
             }
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for vd in 0..p.val_dim {
                 let value_tile = SV::tile(value_stage, (kv, vd).runtime());
 
@@ -126,12 +119,10 @@ impl<
             }
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at(q, kv, config);
 
                 #[unroll]
-                #[allow(clippy::explicit_counter_loop)]
                 for vd in 0..p.val_dim {
                     TA::accumulate_value(
                         softmax_tile,
@@ -152,26 +143,16 @@ impl<
     ) {
         let p = config.tiling_scheme().partition_size;
 
-        let mut q = comptime!(0u32);
-
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_q {
-            let mut vd = comptime!(0u32);
-
+        for q in 0..p.seq_q {
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.val_dim {
+            for vd in 0..p.val_dim {
                 TA::rescale(
                     Self::AccumulatorRegisters::get_at_mut(acc, q, vd, config),
                     state.index(q),
                     config.tile_config(),
                 );
-
-                comptime![vd += 1];
             }
-
-            comptime![q += 1];
         }
     }
 
@@ -194,33 +175,24 @@ impl<
         #[comptime] stage_config: Self::Config,
     ) {
         let p = stage_config.tiling_scheme().partition_size;
-        let mut q = comptime!(0u32);
 
         W::on_event(writer, WriteEvent::new_Begin());
 
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_q {
-            let mut kv = comptime!(0u32);
-
+        for q in 0..p.seq_q {
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.val_dim {
-                let tile_pos = (q + UNIT_POS_Y * p.seq_q, kv.runtime());
+            for vd in 0..p.val_dim {
+                let tile_pos = (q + UNIT_POS_Y * p.seq_q, vd.runtime());
                 let mut tile = Self::OutStage::tile(stage, tile_pos);
 
                 TA::write_results(
                     &mut tile,
-                    Self::AccumulatorRegisters::get_at(acc, q, kv, stage_config),
+                    Self::AccumulatorRegisters::get_at(acc, q, vd, stage_config),
                     stage_config.tile_config(),
                 );
 
                 W::on_event(writer, WriteEvent::new_TileStored(tile_pos));
-
-                comptime![kv += 1];
             }
-
-            comptime![q += 1];
         }
 
         W::on_event(writer, WriteEvent::new_Finish());
@@ -256,25 +228,15 @@ impl<
     ) {
         let p = config.tiling_scheme().partition_size;
 
-        let mut q = comptime![0u32];
-
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..p.seq_q {
-            let mut hd = comptime![0u32];
-
+        for q in 0..p.seq_q {
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..p.head_dim {
+            for hd in 0..p.head_dim {
                 let tile_to_write = registers.get_at_mut(q, hd, config);
                 let tile_read = reader.get_tile::<Self::Config>((q, hd).runtime(), config);
 
                 tile_to_write.update(tile_read);
-
-                comptime![hd += 1];
             }
-
-            comptime![q += 1];
         }
     }
 
@@ -286,10 +248,8 @@ impl<
         let p = config.tiling_scheme().partition_size;
 
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
         for q in 0..p.seq_q {
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for kv in 0..p.seq_kv {
                 let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
 

@@ -348,7 +348,7 @@ where
 {
     let batch = problem.batch;
     let seq_q = problem.seq_q;
-    let seq_k = problem.seq_kv;
+    let seq_kv = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
     let val_dim = problem.val_dim;
@@ -382,8 +382,8 @@ where
 
                 // For each K/V block
                 let mut k_block_start = 0usize;
-                while k_block_start < seq_k {
-                    let k_block_end = std::cmp::min(seq_k, k_block_start + seq_k);
+                while k_block_start < seq_kv {
+                    let k_block_end = std::cmp::min(seq_kv, k_block_start + seq_kv);
                     let cur_block_len = k_block_end - k_block_start;
 
                     // Step A: compute S_block[j'] = Q_i · K_{j'}  for j' in block
