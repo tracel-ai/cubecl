@@ -452,10 +452,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
         ))
     }
 
-    fn fill_query<E: Numeric>(
-        tile: &StridedTile<E>,
-        fragment: &mut Self::Query,
-    ) {
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         strided_tile_to_array_tile(tile, fragment);
 
         sync_cube();

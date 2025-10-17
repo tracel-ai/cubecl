@@ -45,11 +45,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<KS<AP>, G
         StridedStage::new(StageIdent::Rhs, config.score_stage_memory_config())
     }
 
-    fn read_global(
-        &mut self,
-        stage: &mut Self::Stage,
-        #[comptime] config: G,
-    ) {
+    fn read_global(&mut self, stage: &mut Self::Stage, #[comptime] config: G) {
         // TODO this reader is bad
         if UNIT_POS_Y == 0 {
             let memory_config = config.global_memory_config(AttentionIdent::Key);

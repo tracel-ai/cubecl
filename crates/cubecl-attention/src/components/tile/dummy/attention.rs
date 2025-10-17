@@ -90,10 +90,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         RunningState::<SM<AP>>::init(config.num_rows_per_unit())
     }
 
-    fn fill_query<E: Float>(
-        tile: &StridedTile<E>,
-        registers: &mut Self::QueryTile,
-    ) {
+    fn fill_query<E: Float>(tile: &StridedTile<E>, registers: &mut Self::QueryTile) {
         AM::fill_query(tile, registers.fragment_mut());
     }
 
