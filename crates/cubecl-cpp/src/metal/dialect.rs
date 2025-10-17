@@ -147,7 +147,6 @@ impl DialectIncludes<Self> for MslDialect {
             f,
             "
 #include <metal_stdlib>
-#include <metal_simdgroup>
 using namespace metal;
 "
         )?;
