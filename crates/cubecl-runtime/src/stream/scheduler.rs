@@ -227,8 +227,22 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
         }
     }
 
-    /// Executes schedules in an interleaved manner, alternating tasks across streams.
+    //// Executes schedules in an interleaved manner, alternating tasks from different streams.
+    ///
+    /// We chose the first stream as the one executing the tasks, ensuring proper ordering by
+    /// flushing all other streams first and flushing the execution stream at the end.
+    /// This way, we ensure that most tasks are actually interleaved on the real compute queue
+    /// shared across all streams.
     fn execute_schedules_interleave(&mut self, mut schedules: Vec<Schedule<B>>) {
+        // Makes sure the tasks are ordered on the compute queue.
+        for schedule in schedules.iter_mut().skip(1) {
+            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
+            B::flush(&mut stream.stream);
+        }
+
+        let execution_index = schedules.first().expect("At least one stream").stream_index;
+        let stream = unsafe { self.pool.get_mut_index(execution_index) };
+
         // Find the maximum number of tasks across all schedules.
         let num_tasks_max = schedules
             .iter()
@@ -241,18 +255,13 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             for schedule in schedules.iter_mut() {
                 // If there are tasks remaining in the schedule, enqueue the next one.
                 if let Some(task) = schedule.tasks.next() {
-                    // Note: `unsafe` usage assumes valid index.
-                    let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
                     B::enqueue(task, &mut stream.stream);
                 }
             }
         }
 
-        // Makes sure the tasks are ordered on the compute queue.
-        for schedule in schedules.iter_mut() {
-            let stream = unsafe { self.pool.get_mut_index(schedule.stream_index) };
-            B::flush(&mut stream.stream);
-        }
+        // Making sure all tasks are registered to the queue.
+        B::flush(&mut stream.stream);
     }
 }
 
