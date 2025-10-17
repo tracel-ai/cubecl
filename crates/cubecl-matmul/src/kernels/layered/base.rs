@@ -142,10 +142,10 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
-    let lhs = lhs_handle.data();
-    let rhs = rhs_handle.data();
+    let lhs_shape = lhs_handle.shape();
+    let rhs_shape = rhs_handle.shape();
 
-    let rank = lhs.strides.len();
+    let rank = lhs_shape.len();
     let lhs_elem = LhsG::<MP>::as_type_native().expect("To be a native type");
     let rhs_elem = RhsG::<MP>::as_type_native().expect("To be a native type");
     let acc_elem = AccG::<MP>::as_type_native().expect("To be a native type");
@@ -163,9 +163,9 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         ));
     }
 
-    let m = lhs.shape[rank - 2] as u32;
-    let k = lhs.shape[rank - 1] as u32;
-    let n = rhs.shape[rank - 1] as u32;
+    let m = lhs_shape[rank - 2] as u32;
+    let k = lhs_shape[rank - 1] as u32;
+    let n = rhs_shape[rank - 1] as u32;
 
     let lhs_layout = match transposed.0 {
         true => MatrixLayout::ColMajor,
@@ -181,12 +181,15 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         m: m as usize,
         n: n as usize,
         k: k as usize,
-        lhs_batches: lhs.shape[..lhs.shape.len() - 2].to_vec(),
-        rhs_batches: rhs.shape[..rhs.shape.len() - 2].to_vec(),
+        lhs_batches: lhs_shape[..lhs_shape.len() - 2].to_vec(),
+        rhs_batches: rhs_shape[..rhs_shape.len() - 2].to_vec(),
         out_batches: out.shape[..out.shape.len() - 2].to_vec(),
         lhs_layout,
         rhs_layout,
     };
+
+    let lhs = lhs_handle.data();
+    let rhs = rhs_handle.data();
 
     let line_sizes = AvailableLineSizes::from_types::<R>(&lhs_elem, &rhs_elem, &acc_elem);
     let line_sizes = A::filter_line_sizes(line_sizes);

@@ -224,6 +224,9 @@ pub struct BlockSize {
 }
 
 impl BlockSize {
+    /// Max number of dimensions for block size
+    pub const MAX_DIMS: usize = MAX_DIMS;
+
     /// Create a new blocksize from a set of values. The number of values must be `<= MAX_DIMS`.
     pub fn new(values: impl AsRef<[u8]>) -> Self {
         let values = values.as_ref();

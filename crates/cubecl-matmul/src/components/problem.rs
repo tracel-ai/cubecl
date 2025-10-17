@@ -147,10 +147,11 @@ impl From<&MatmulProblem> for MatmulKind {
     }
 }
 
-#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 /// Layout of a 2D structure such as a tensor, shared memory or slice,
 /// used within any matmul kernel level
 pub enum MatrixLayout {
+    #[default]
     RowMajor,
     ColMajor,
 }

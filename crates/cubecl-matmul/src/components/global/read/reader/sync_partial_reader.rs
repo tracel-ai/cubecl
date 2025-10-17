@@ -35,6 +35,7 @@ pub trait SyncPartialLoadingStrategy:
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP>;
 }
@@ -77,8 +78,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
         let loading_job = match config.precompute_job() {
             true => CubeOption::new_Some((
-                L::new_job::<IP, G>(0u32, ident, config),
-                L::new_job::<IP, G>(1u32, ident, config),
+                L::new_job::<IP, G>(0u32, ident, tensor.line_size(), config),
+                L::new_job::<IP, G>(1u32, ident, tensor.line_size(), config),
             )),
             false => CubeOption::new_None(),
         };
@@ -107,14 +108,15 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(&mut self, #[comptime] stage_buffer: StageBuffer, #[comptime] config: G) {
+        let view = self.global_iter.view();
         let mut loading_job = match self.loading_job {
             CubeOption::Some(job) => match stage_buffer {
                 StageBuffer::A => job.0,
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
-                StageBuffer::A => L::new_job::<IP, G>(0u32, self.ident, config),
-                StageBuffer::B => L::new_job::<IP, G>(1u32, self.ident, config),
+                StageBuffer::A => L::new_job::<IP, G>(0u32, self.ident, view.line_size(), config),
+                StageBuffer::B => L::new_job::<IP, G>(1u32, self.ident, view.line_size(), config),
             },
         };
 
@@ -145,14 +147,15 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
+        let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(job) => match stage_buffer {
                 StageBuffer::A => job.0,
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
-                StageBuffer::A => L::new_job::<IP, G>(0u32, this.ident, config),
-                StageBuffer::B => L::new_job::<IP, G>(1u32, this.ident, config),
+                StageBuffer::A => L::new_job::<IP, G>(0u32, this.ident, view.line_size(), config),
+                StageBuffer::B => L::new_job::<IP, G>(1u32, this.ident, view.line_size(), config),
             },
         };
 
