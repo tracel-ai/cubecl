@@ -110,7 +110,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         let (slice, stride) = tile.as_unlined();
 
-        cmma::load(&fragment, &slice, stride);
+        cmma::load(fragment, &slice, stride);
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {

@@ -94,7 +94,7 @@ pub fn get_tile<AP: AttentionPrecision, S: StageAttentionConfig>(
 
     let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
-    let tile = StridedTile::<MSK<AP>>::new_strided(
+    StridedTile::<MSK<AP>>::new_strided(
         global_iter
             .view()
             .slice(
@@ -107,7 +107,5 @@ pub fn get_tile<AP: AttentionPrecision, S: StageAttentionConfig>(
             .to_linear_slice(),
         config.tiling_scheme().elements_in_partition_seq_kv(),
         MatrixLayout::RowMajor,
-    );
-
-    tile
+    )
 }

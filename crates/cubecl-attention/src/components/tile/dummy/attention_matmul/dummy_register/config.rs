@@ -72,6 +72,7 @@ impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
 }
 
 impl DummyRegisterAttentionMatmulConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
