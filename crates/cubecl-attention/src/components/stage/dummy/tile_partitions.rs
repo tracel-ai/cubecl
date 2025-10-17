@@ -5,7 +5,6 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::AttentionTilingScheme;
-use crate::components::global::dummy::QueryReader;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -86,22 +85,10 @@ impl<
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
-        let mut q = comptime!(0u32);
-
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
-            let mut hd = comptime!(0u32);
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(p.head_dim) {
-                sequence.push(TA::init_query(config.tile_config()));
-
-                comptime![hd += 1];
-            }
-
-            comptime![q += 1];
+        for _ in 0..comptime!(p.seq_q * p.head_dim) {
+            sequence.push(TA::init_query(config.tile_config()));
         }
 
         QueryPartition::<AP, TA, S> {

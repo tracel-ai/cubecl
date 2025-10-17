@@ -1,5 +1,4 @@
 use crate::components::attention_types::*;
-use crate::components::tile::MaskTile;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
