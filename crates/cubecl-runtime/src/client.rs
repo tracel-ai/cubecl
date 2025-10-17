@@ -532,7 +532,6 @@ where
         func: impl FnOnce() -> O,
         #[allow(unused)] func_name: &str,
     ) -> Result<ProfileDuration, ProfileError> {
-        println!("Profiling ...");
         // Get the outer caller. For execute() this points straight to the
         // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]
