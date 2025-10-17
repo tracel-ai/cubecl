@@ -78,6 +78,8 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
 pub struct MaterializedTileMask<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     fragment: AM::Mask,
     logical_mask: LogicalTileMask<AM::FragmentLayout>,
+    #[cube(comptime)]
+    config: AM::Config,
 }
 
 #[cube]
@@ -90,7 +92,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
     }
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
-
+        AM::fill_mask(&tile, &mut self.fragment, self.config);
     }
 }
 
@@ -119,6 +121,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
             MaskFragment::new_Materialized(MaterializedTileMask::<AP, AM> {
                 fragment: AM::allocate_mask(config),
                 logical_mask,
+                config,
             })
         } else {
             MaskFragment::new_Logical(logical_mask)
