@@ -141,7 +141,7 @@ fn matvec_unit_selector(
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout, options.tile) {
-        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 4), (1, 1, 4)),
+        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 8), (1, 1, 16)),
         _ => ((4, 1, 4), (1, 1, 4)),
     };
 
@@ -150,10 +150,10 @@ fn matvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 8 },
+        StageSelection::Fixed { m: plane_dim, n: 1 },
         num_sms,
         GlobalOrderSelection::Default,
-        options.stage,
+        StageScaling::Disabled,
     )
 }
 
