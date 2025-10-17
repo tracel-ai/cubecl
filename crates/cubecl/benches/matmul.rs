@@ -139,7 +139,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [false, true] {
+        for tr in [false] {
             for (b, m, n, k) in [
                 // (2, 8192, 1, 8192),
                 (2, 1, 8192, 8192),
@@ -393,7 +393,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
     // run_algos_unit::<R, MP>();
-    run_algos_wmma::<R, MP>();
+    // run_algos_wmma::<R, MP>();
     run_algos_vecmat::<R, MP>();
 }
 

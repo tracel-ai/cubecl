@@ -52,9 +52,14 @@ pub fn unit_matmul_selection<R: Runtime>(
         MatmulKind::General => {
             general_unit_selector(problem, plane_dim, double_buffering, num_sms, options)
         }
-        MatmulKind::MatVec => {
-            matvec_unit_selector(problem, plane_dim, double_buffering, num_sms, options)
-        }
+        MatmulKind::MatVec => matvec_unit_selector(
+            problem,
+            plane_dim,
+            double_buffering,
+            line_sizes,
+            num_sms,
+            options,
+        ),
         MatmulKind::VecMat => {
             vecmat_unit_selector(problem, plane_dim, double_buffering, line_sizes, num_sms)
         }
@@ -139,13 +144,18 @@ fn matvec_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    line_sizes: &MatmulLineSizes,
     num_sms: Option<u32>,
     options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
     use MatrixLayout::*;
+    let ls = u32::max(line_sizes.lhs as u32, line_sizes.rhs as u32);
+    let ls = u32::max(ls, line_sizes.out as u32);
+    let ls = u32::max(ls, 4);
+
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout, options.tile) {
-        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 8), (1, 1, 16)),
-        _ => ((4, 1, 4), (1, 1, 4)),
+        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, ls), (1, 1, 16)),
+        _ => ((4, 1, ls), (1, 1, 4)),
     };
 
     selection(
@@ -385,7 +395,7 @@ fn selection(
         .partition_buffering(buffering)
         .hypercube_config(hypercube)
         .build();
-    // println!("{selec:?}");
+    println!("{selec:?}");
     selec
 }
 
@@ -402,7 +412,6 @@ pub fn closest_factor_pair(n: u32) -> (u32, u32) {
 }
 
 fn scale_partition(setting: PartitionScaling, axis: usize, max_exp: u32, div_exp: u32) -> u32 {
-    println!("Scale partition");
     if let PartitionScaling::Disabled = setting {
         return 2u32.pow(max_exp);
     }
