@@ -135,6 +135,10 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
         stream.enqueue_task(task);
     }
 
+    fn flush(stream: &mut Self::Stream) {
+        stream.flush();
+    }
+
     fn factory(&mut self) -> &mut Self::Factory {
         &mut self.factory
     }
