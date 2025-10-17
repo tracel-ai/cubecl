@@ -369,10 +369,10 @@ where
         stream_id: StreamId,
     ) {
         let level = self.utilities.logger.profile_level();
-        let mut state = self.context.lock();
 
         match level {
             None | Some(ProfileLevel::ExecutionOnly) => {
+                let mut state = self.context.lock();
                 let name = kernel.name();
 
                 unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
@@ -388,6 +388,7 @@ where
                 let profile = self
                     .profile(
                         || unsafe {
+                            let mut state = self.context.lock();
                             state.execute(kernel, count.clone(), bindings, mode, stream_id)
                         },
                         name,
