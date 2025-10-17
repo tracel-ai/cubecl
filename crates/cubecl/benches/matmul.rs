@@ -139,10 +139,11 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [false] {
+        for tr in [false, true] {
             for (b, m, n, k) in [
-                // entry(8192, 8192, 8192),
-                entry(6144, 6144, 6144),
+                // (2, 8192, 1, 8192),
+                (2, 1, 8192, 8192),
+                // entry(6144, 6144, 6144),
                 // entry(4096, 4096, 4096),
                 // entry(2048, 2048, 2048),
                 // entry(1024, 1024, 1024),
@@ -292,11 +293,11 @@ fn run_algos_vecmat<R: Runtime, MP: MatmulPrecision>() {
         })),
     );
 
-    println!("Simple Unit Max");
+    println!("Double Unit Min");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
+        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+            tile_size: TileSizeSelection::MinTileSize,
         })),
     );
 }
@@ -328,45 +329,45 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
-    println!("Double Unit Max");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
-        })),
-    );
+    // println!("Double Unit Max");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MaxTileSize,
+    //     })),
+    // );
 }
 
 #[allow(unused)]
 fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     let client = R::client(&Default::default());
 
-    println!("Simple");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: false }),
-        ),
-    );
+    //println!("Simple");
+    //run::<R, MP>(
+    //    Default::default(),
+    //    matmul::Strategy::Simple(
+    //        SyncReadingStrategy::Cyclic,
+    //        Selection::Inferred(SimpleArgs { multi_rows: false }),
+    //    ),
+    //);
 
-    println!("Simple multi rows");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::Simple(
-            SyncReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
-    );
+    //println!("Simple multi rows");
+    //run::<R, MP>(
+    //    Default::default(),
+    //    matmul::Strategy::Simple(
+    //        SyncReadingStrategy::Cyclic,
+    //        Selection::Inferred(SimpleArgs { multi_rows: true }),
+    //    ),
+    //);
 
-    println!("Double Buffering");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            SyncPartialReadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-        ),
-    );
+    //println!("Double Buffering");
+    //run::<R, MP>(
+    //    Default::default(),
+    //    matmul::Strategy::DoubleBuffering(
+    //        SyncPartialReadingStrategy::Tilewise,
+    //        Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+    //    ),
+    //);
 
     println!("Double Buffering Specialized");
     run::<R, MP>(
@@ -377,15 +378,15 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
         ),
     );
 
-    println!("Double Buffering Ordered");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
-    );
+    // println!("Double Buffering Ordered");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
+    //         row_count: Some(8),
+    //         rows_per_plane: Some(2),
+    //         partition_k: Some(2),
+    //     })),
+    // );
 }
 
 #[allow(unused)]
@@ -393,7 +394,7 @@ fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
     // run_algos_unit::<R, MP>();
     run_algos_wmma::<R, MP>();
-    // run_algos_vecmat::<R, MP>();
+    run_algos_vecmat::<R, MP>();
 }
 
 fn main() {

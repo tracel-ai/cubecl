@@ -1,7 +1,7 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::components::{
-    MatmulKind, MatmulProblem, MatmulSelection, MatrixLayout, TilingScheme,
+    MatmulKind, MatmulLineSizes, MatmulProblem, MatmulSelection, MatrixLayout, TilingScheme,
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::PartitionBuffering,
 };
@@ -42,6 +42,7 @@ pub fn unit_matmul_selection<R: Runtime>(
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
+    line_sizes: &MatmulLineSizes,
     options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
     let kind: MatmulKind = problem.into();
@@ -54,7 +55,9 @@ pub fn unit_matmul_selection<R: Runtime>(
         MatmulKind::MatVec => {
             matvec_unit_selector(problem, plane_dim, double_buffering, num_sms, options)
         }
-        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::VecMat => {
+            vecmat_unit_selector(problem, plane_dim, double_buffering, line_sizes, num_sms)
+        }
         MatmulKind::ScalarVec => {
             scalarvec_unit_selector(problem, plane_dim, double_buffering, num_sms)
         }
@@ -161,33 +164,38 @@ fn matvec_unit_selector(
 fn vecmat_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
-    _double_buffering: bool,
+    double_buffering: bool,
+    line_sizes: &MatmulLineSizes,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
-    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => (
-            (1, 4, 4),
-            (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
-        ),
-        (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => (
-            (1, 4, 4),
-            (
-                2,
-                1,
-                scale_partition(PartitionScaling::Enabled, problem.k, 3, 7),
-            ),
-        ),
-    };
+
+    let ls = u32::max(line_sizes.lhs as u32, line_sizes.rhs as u32);
+    let ls = u32::max(ls, line_sizes.out as u32);
+    let k = 2 / (double_buffering as u32 + 1);
+
+    let (tile_size, partition_size) = ((1, ls, ls), (1, 1, k));
+    // let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
+    //     (RowMajor, RowMajor) => ((1, lsn, lsk), (1, 1, k)),
+    //     (RowMajor, ColMajor) => (
+    //         (1, lsn, lsk),
+    //         (1, 1, k),
+    //         // (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
+    //     ),
+    //     (ColMajor, RowMajor) => ((1, lz, lz), (1, 1, k)),
+    //     (ColMajor, ColMajor) => (
+    //         (1, lz, lz),
+    //         (1, 1, k),
+    //         // (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
+    //     ),
+    // };
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 8 },
+        StageSelection::Fixed { m: 1, n: plane_dim },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -373,10 +381,12 @@ fn selection(
         .cube_count_plan(cube_count_plan)
         .build();
 
-    MatmulSelection::builder(tiling_scheme, plane_dim)
+    let selec = MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(buffering)
         .hypercube_config(hypercube)
-        .build()
+        .build();
+    // println!("{selec:?}");
+    selec
 }
 
 /// Returns the factor pair `(a, b)` of `n` minimizing their difference,
@@ -392,6 +402,7 @@ pub fn closest_factor_pair(n: u32) -> (u32, u32) {
 }
 
 fn scale_partition(setting: PartitionScaling, axis: usize, max_exp: u32, div_exp: u32) -> u32 {
+    println!("Scale partition");
     if let PartitionScaling::Disabled = setting {
         return 2u32.pow(max_exp);
     }

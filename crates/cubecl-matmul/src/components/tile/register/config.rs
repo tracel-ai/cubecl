@@ -109,7 +109,8 @@ impl RegisterConfig {
 
     pub fn product_type(&self) -> ProductType {
         // TODO: Make it configurable.
-        ProductType::Outer
+        // ProductType::Outer
+        ProductType::Inner
     }
 
     fn validate(self) -> Result<Self, MatmulSetupError> {
