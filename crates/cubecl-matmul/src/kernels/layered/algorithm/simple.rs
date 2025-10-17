@@ -67,7 +67,7 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
@@ -93,7 +93,7 @@ where
 }
 
 fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
     elems: MatmulElems,

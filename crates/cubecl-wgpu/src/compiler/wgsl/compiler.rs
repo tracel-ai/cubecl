@@ -787,6 +787,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Trunc(op) => instructions.push(wgsl::Instruction::Trunc {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Erf(op) => {
                 let mut scope = scope.child();
                 expand_erf(&mut scope, op.input, out);

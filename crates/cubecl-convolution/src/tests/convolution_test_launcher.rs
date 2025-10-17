@@ -5,14 +5,17 @@ use cubecl_matmul::components::MatmulSelection;
 use cubecl_matmul::components::global::GlobalConfig;
 use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
-use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
 use cubecl_matmul::tests::test_utils::Sample;
 
 use crate::{
     components::{
         ConvGemmConfig as _, ConvolutionProblem,
-        global::{args::ConcreteInputsFactory, entry_point::ConvolutionLaunch},
+        global::{
+            args::{ConcreteInputsFactory, ConcreteOutputFactory},
+            entry_point::ConvolutionLaunch,
+        },
     },
     kernels::layered::algorithm::Algorithm,
 };
@@ -25,7 +28,7 @@ type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, Args, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
@@ -105,18 +108,22 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let rhs_handle = MatmulInputHandleRef::new(rhs_handle.as_ref());
 
     let inputs = <Input<Args, P::EG, P::EG, P::EG> as ConcreteInputsFactory>::create(
+        &client,
         &lhs_handle,
         &rhs_handle,
         None,
         &selection,
         &problem,
         &config.line_sizes(),
+        config,
     );
     let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
+        &client,
         &out_handle,
         &selection,
-        &problem.as_matmul_problem(),
+        &problem,
         &config.line_sizes(),
+        config,
     );
 
     unsafe {
@@ -146,7 +153,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

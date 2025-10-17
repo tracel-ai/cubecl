@@ -146,7 +146,6 @@ where
         let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
         let k_iterations = config.tiling_scheme().tiles_in_stage_partition_k();
 
-        let mut k_iter = comptime![0u32];
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
         let mut execute_counter = comptime![0];
@@ -156,13 +155,12 @@ where
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 0..k_iterations {
-            let mut m_iter = comptime![0u32];
+        for k_iter in 0..k_iterations {
             let k_load_iter = partition_scheduler.map_k(k_iter);
 
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
-            for _ in 0..m_iterations {
+            for m_iter in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
                 let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
@@ -180,15 +178,11 @@ where
                     config,
                 );
                 comptime!(lhs_load_counter += 1);
-
-                comptime![m_iter += 1];
             }
-
-            let mut n_iter = comptime![0u32];
 
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..n_iterations {
+            for n_iter in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
                 let rhs_tile_next = StageRhs::tile(rhs_stage, (k_load_iter, n_load_iter));
@@ -203,11 +197,9 @@ where
                 );
                 comptime!(rhs_load_counter += 1);
 
-                let mut m_iter = comptime![0u32];
-
                 #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
-                for _ in 0..m_iterations {
+                for m_iter in 0..m_iterations {
                     let accumulator =
                         Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
                     TM::execute(
@@ -225,14 +217,8 @@ where
                         config,
                     );
                     comptime!(execute_counter += 1);
-
-                    comptime![m_iter += 1];
                 }
-
-                comptime![n_iter += 1];
             }
-
-            comptime![k_iter += 1];
         }
 
         assert!(lhs_load_counter == lhs_load_total);
@@ -261,8 +247,6 @@ where
         let n_iterations = config.tiling_scheme().tiles_in_stage_partition_n();
         let k_iterations = config.tiling_scheme().tiles_in_stage_partition_k();
 
-        let mut k_iter = comptime![0u32];
-
         let mut lhs_load_counter = comptime![0];
         let mut rhs_load_counter = comptime![0];
         let mut execute_counter = comptime![0];
@@ -272,13 +256,12 @@ where
 
         #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 0..k_iterations {
-            let mut m_iter = comptime![0u32];
+        for k_iter in 0..k_iterations {
             let k_load_iter = partition_scheduler.map_k(k_iter);
 
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
-            for _ in 0..m_iterations {
+            for m_iter in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
 
                 let tile_lhs = StageLhs::tile(lhs_stage, (m_load_iter, k_load_iter));
@@ -296,8 +279,6 @@ where
                     config,
                 );
                 comptime!(lhs_load_counter += 1);
-
-                comptime![m_iter += 1];
             }
 
             let mut n_iter = comptime![0u32];
@@ -337,11 +318,9 @@ where
                 );
                 comptime!(rhs_load_counter += 1);
 
-                let mut m_iter = comptime![0u32];
-
                 #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
-                for _ in 0..m_iterations {
+                for m_iter in 0..m_iterations {
                     let accumulator =
                         Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
 
@@ -360,8 +339,6 @@ where
                         config,
                     );
                     comptime!(execute_counter += 1);
-
-                    comptime![m_iter += 1];
                 }
 
                 comptime![n_iter += 1];
@@ -373,11 +350,9 @@ where
                 &mut rhs_fragments.1
             };
 
-            let mut m_iter = comptime![0u32];
-
             #[allow(clippy::explicit_counter_loop)]
             #[unroll]
-            for _ in 0..m_iterations {
+            for m_iter in 0..m_iterations {
                 let accumulator =
                     Accumulators::<MP, TM, S>::get_at_mut(acc, m_iter, n_iter, config);
                 TM::execute(
@@ -395,11 +370,7 @@ where
                     config,
                 );
                 comptime!(execute_counter += 1);
-
-                comptime![m_iter += 1];
             }
-
-            comptime![k_iter += 1];
         }
 
         assert!(lhs_load_counter == lhs_load_total);

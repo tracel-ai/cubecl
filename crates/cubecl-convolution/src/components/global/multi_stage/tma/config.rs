@@ -10,7 +10,7 @@ const NUM_STAGES_MAX: u32 = 8;
 const MIN_STAGES_PER_PIPELINE: u32 = 32;
 
 pub(crate) fn num_stages<R: Runtime, MP: MatmulPrecision>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     num_planes: u32,
     tiling_scheme: &TilingScheme,

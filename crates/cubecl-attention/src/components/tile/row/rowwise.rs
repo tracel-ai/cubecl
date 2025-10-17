@@ -33,13 +33,10 @@ impl<E: Numeric> RowWise<E> {
     }
 
     pub fn copy_from(&mut self, other: &RowWise<E>) {
-        let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
             row_val.val = other.index(i);
-
-            comptime![i += 1];
         }
     }
 
@@ -48,46 +45,34 @@ impl<E: Numeric> RowWise<E> {
     }
 
     pub fn fill(&mut self, val: E) {
-        let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
             row_val.val = val;
-
-            comptime![i += 1];
         }
     }
 
     pub fn add_inplace(&mut self, other: &RowWise<E>) {
-        let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
             row_val.val += other.index(i);
-
-            comptime![i += 1];
         }
     }
 
     pub fn mul_inplace(&mut self, other: &RowWise<E>) {
-        let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
             row_val.val *= other.index(i);
-
-            comptime![i += 1];
         }
     }
 
     pub fn max_inplace(&mut self, other: &RowWise<E>) {
-        let mut i = comptime![0u32];
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let row_val = self.vals.index_mut(i);
             row_val.val = Max::max(row_val.val, other.index(i));
-
-            comptime![i += 1];
         }
     }
 
@@ -98,14 +83,11 @@ impl<E: Numeric> RowWise<E> {
 
     pub fn cast_from<E2: Float>(&self) -> RowWise<E2> {
         let mut vals = Sequence::new();
-        let mut i = comptime![0u32];
 
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let val = E2::cast_from(self.index(i));
             vals.push(RowVal::<E2> { val });
-
-            comptime![i += 1];
         }
 
         RowWise::<E2> {
@@ -116,14 +98,11 @@ impl<E: Numeric> RowWise<E> {
 
     pub fn mul(&self, other: &RowWise<E>) -> RowWise<E> {
         let mut vals = Sequence::new();
-        let mut i = comptime![0u32];
 
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let val = self.index(i) * other.index(i);
             vals.push(RowVal::<E> { val });
-
-            comptime![i += 1];
         }
 
         RowWise::<E> {
@@ -134,14 +113,11 @@ impl<E: Numeric> RowWise<E> {
 
     pub fn add(&self, other: &RowWise<E>) -> RowWise<E> {
         let mut vals = Sequence::new();
-        let mut i = comptime![0u32];
 
         #[unroll]
-        for _ in 0..self.num_rows {
+        for i in 0..self.num_rows {
             let val = self.index(i) + other.index(i);
             vals.push(RowVal::<E> { val });
-
-            comptime![i += 1];
         }
 
         RowWise::<E> {

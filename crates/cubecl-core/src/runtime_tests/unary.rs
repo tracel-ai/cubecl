@@ -9,7 +9,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: Handle,
     expected: &[F],
     epsilon: F,
@@ -46,7 +46,7 @@ macro_rules! test_unary_impl {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -89,7 +89,7 @@ macro_rules! test_unary_impl_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -134,7 +134,7 @@ macro_rules! test_unary_impl_int {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$int_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -180,7 +180,7 @@ macro_rules! test_unary_impl_int_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -303,6 +303,29 @@ test_unary_impl!(
             expected: as_type![F: f32::NAN, f32::NAN, 1., 0.]
         }
     ]
+);
+
+test_unary_impl!(
+    test_trunc,
+    F,
+    F::trunc,
+    [{
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: -1.2, -1., -0., 0.],
+        expected: as_type![F: -1., -1., -0., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: f32::NAN, 1., 1.2, 1.9],
+        expected: as_type![F: f32::NAN, 1., 1., 1.0]
+    },{
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -0.9, 0.2, f32::NAN, 1.99],
+        expected: as_type![F: -0., 0., f32::NAN, 1.]
+    }]
 );
 
 test_unary_impl_fixed!(
@@ -479,6 +502,7 @@ macro_rules! testgen_unary {
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_abs);
+            add_test!(test_trunc);
             add_test!(test_is_nan);
             add_test!(test_is_inf);
         }

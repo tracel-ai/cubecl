@@ -6,7 +6,7 @@ use crate::compute::stream::CudaStreamBackend;
 use crate::compute::sync::Fence;
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::ir::{ElemType, IntKind, UIntKind};
-use cubecl_core::server::{Binding, ServerCommunication};
+use cubecl_core::server::{Binding, ServerCommunication, ServerUtilities};
 use cubecl_core::{MemoryConfiguration, prelude::*};
 use cubecl_core::{compute::CubeTask, server::IoError};
 use cubecl_core::{
@@ -45,6 +45,7 @@ pub struct CudaServer {
     streams: MultiStream<CudaStreamBackend>,
     peer_activated: bool,
     mem_alignment: usize,
+    utilities: Arc<ServerUtilities<Self>>,
 }
 
 unsafe impl Send for CudaServer {}
@@ -56,6 +57,10 @@ impl ComputeServer for CudaServer {
 
     fn logger(&self) -> Arc<ServerLogger> {
         self.streams.logger.clone()
+    }
+
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn read(
@@ -256,7 +261,6 @@ impl ComputeServer for CudaServer {
                     TensorMapFormat::Tiled { tile_size } => unsafe {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
-                        println!("ptr: {:x}", resource.ptr);
 
                         cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
@@ -449,6 +453,7 @@ impl CudaServer {
         mem_config: MemoryConfiguration,
         mem_alignment: usize,
         device_id: i32,
+        utilities: ServerUtilities<Self>,
     ) -> Self {
         let config = GlobalConfig::get();
         let max_streams = config.streaming.max_streams;
@@ -469,10 +474,16 @@ impl CudaServer {
             ctx,
             peer_activated,
             streams: MultiStream::new(
-                Arc::new(ServerLogger::default()),
-                CudaStreamBackend::new(mem_props, mem_config, mem_alignment),
+                utilities.logger.clone(),
+                CudaStreamBackend::new(
+                    mem_props,
+                    mem_config,
+                    mem_alignment,
+                    utilities.logger.clone(),
+                ),
                 max_streams,
             ),
+            utilities: Arc::new(utilities),
         }
     }
 

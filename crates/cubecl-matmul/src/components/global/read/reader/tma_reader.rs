@@ -62,7 +62,7 @@ impl TilingOrder for TmaTilingOrder {
 #[derive(CubeType)]
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
 pub struct TmaGlobalReader<IP: MatrixPrecision> {
-    global_iter: GlobalIterator<IP::Global>,
+    global_iter: GlobalIterator<Line<IP::Global>>,
     stage: StridedStage<IP::Stage, TmaTiling>,
     #[cube(comptime)]
     config: StageMemoryConfig,
@@ -72,7 +72,7 @@ pub struct TmaGlobalReader<IP: MatrixPrecision> {
 impl<IP: MatrixPrecision> TmaGlobalReader<IP> {
     /// Create a TmaGlobalReader
     pub fn new(
-        global_view: View<IP::Global, Coords2d>,
+        global_view: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: StageMemoryConfig,

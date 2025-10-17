@@ -17,7 +17,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -51,13 +51,22 @@ where
         config.cube_dim(),
         cube_count_plan.resolve(),
         <InputArg<MS> as ConcreteInputsFactory>::create(
+            client,
             lhs,
             rhs,
             &selection,
             &problem,
             &line_sizes,
+            config,
         ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(out, &selection, &problem, &line_sizes),
+        <OutputArg<MS> as ConcreteOutputFactory>::create(
+            client,
+            out,
+            &selection,
+            &problem,
+            &line_sizes,
+            config,
+        ),
         cube_count_plan.as_args(),
         config,
     )
@@ -65,7 +74,7 @@ where
 
 /// Select which kernel to launch for the given Algorithm.
 pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,

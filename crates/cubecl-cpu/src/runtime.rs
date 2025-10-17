@@ -1,13 +1,16 @@
-use cubecl_common::profile::TimingMethod;
+use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    channel::MpscComputeChannel,
     client::ComputeClient,
     ir::{StorageType, TargetProperties},
+    server::ServerUtilities,
 };
 use cubecl_runtime::{
-    ComputeRuntime, DeviceProperties,
-    memory_management::{HardwareProperties, MemoryDeviceProperties, MemoryManagement},
+    DeviceProperties,
+    logging::ServerLogger,
+    memory_management::{
+        HardwareProperties, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+    },
     storage::BytesStorage,
 };
 use cubecl_std::tensor::is_contiguous;
@@ -30,69 +33,71 @@ pub struct RuntimeOptions {
 #[derive(Debug)]
 pub struct CpuRuntime;
 
-static RUNTIME: ComputeRuntime<CpuDevice, Server, Channel> = ComputeRuntime::new();
-
 pub type CpuCompiler = MlirCompiler;
 
-type Server = CpuServer;
-type Channel = MpscComputeChannel<Server>;
+impl DeviceState for CpuServer {
+    fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
+        let options = RuntimeOptions::default();
+        let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
+        let max_cube_count = CubeCount::Static(64, 64, 64);
+        let system = System::new_all();
+        let max_shared_memory_size = system
+            .cgroup_limits()
+            .map(|g| g.total_memory)
+            .unwrap_or(system.total_memory()) as usize;
+        let logger = cubecl_common::stub::Arc::new(ServerLogger::default());
 
-fn create_client(options: RuntimeOptions) -> ComputeClient<Server, Channel> {
-    let max_cube_dim = CubeDim::new(u32::MAX, u32::MAX, u32::MAX);
-    let max_cube_count = CubeCount::Static(64, 64, 64);
-    let system = System::new_all();
-    let max_shared_memory_size = system
-        .cgroup_limits()
-        .map(|g| g.total_memory)
-        .unwrap_or(system.total_memory()) as usize;
+        let topology = HardwareProperties {
+            plane_size_min: 1,
+            plane_size_max: 1,
+            max_bindings: u32::MAX,
+            max_shared_memory_size,
+            max_cube_count,
+            max_units_per_cube: u32::MAX,
+            max_cube_dim,
+            num_streaming_multiprocessors: None,
+            num_tensor_cores: None,
+            min_tensor_cores_dim: None,
+        };
+        let storage = BytesStorage::default();
 
-    let topology = HardwareProperties {
-        plane_size_min: 1,
-        plane_size_max: 1,
-        max_bindings: u32::MAX,
-        max_shared_memory_size,
-        max_cube_count,
-        max_units_per_cube: u32::MAX,
-        max_cube_dim,
-        num_streaming_multiprocessors: None,
-        num_tensor_cores: None,
-        min_tensor_cores_dim: None,
-    };
-    let storage = BytesStorage::default();
+        const ALIGNMENT: u64 = 4;
+        let mem_properties = MemoryDeviceProperties {
+            max_page_size: max_shared_memory_size as u64,
+            alignment: ALIGNMENT,
+        };
 
-    const ALIGNMENT: u64 = 4;
-    let mem_properties = MemoryDeviceProperties {
-        max_page_size: max_shared_memory_size as u64,
-        alignment: ALIGNMENT,
-    };
+        let memory_management = MemoryManagement::from_configuration(
+            storage,
+            &mem_properties,
+            options.memory_config,
+            logger.clone(),
+            MemoryManagementOptions::new("test"),
+        );
+        let mut device_props = DeviceProperties::new(
+            Default::default(),
+            mem_properties,
+            topology,
+            TimingMethod::Device,
+        );
+        register_supported_types(&mut device_props);
 
-    let memory_management =
-        MemoryManagement::from_configuration(storage, &mem_properties, options.memory_config);
-    let mut device_props = DeviceProperties::new(
-        Default::default(),
-        mem_properties,
-        topology,
-        TimingMethod::Device,
-    );
-    register_supported_types(&mut device_props);
-
-    let ctx = CpuContext::new(memory_management);
-    let server = CpuServer::new(ctx);
-    ComputeClient::new(Channel::new(server), device_props, ())
+        let ctx = CpuContext::new(memory_management);
+        let utilities = ServerUtilities::new(device_props, logger, ());
+        CpuServer::new(ctx, utilities)
+    }
 }
 
 impl Runtime for CpuRuntime {
     type Compiler = CpuCompiler;
     type Server = CpuServer;
-
-    type Channel = Channel;
     type Device = CpuDevice;
 
-    fn client(_device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        RUNTIME.client(_device, move || create_client(RuntimeOptions::default()))
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+        ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
         "cpu"
     }
 

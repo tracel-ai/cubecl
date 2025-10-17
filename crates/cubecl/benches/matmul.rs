@@ -1,5 +1,6 @@
 use core::marker::PhantomData;
 use cubecl::prelude::*;
+use cubecl_matmul::AsyncReadingStrategy;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
@@ -11,17 +12,10 @@ use cubecl_matmul::kernels::layered::double_unit::DoubleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::ordered_double_buffering::OrderedSelectionArgs;
 use cubecl_matmul::kernels::layered::simple::SimpleArgs;
 use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
-use cubecl_matmul::kernels::layered::{
-    MatmulSelection, MultiRowStrategy, Selection, TileSizeSelection, closest_factor_pair,
-};
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
-use cubecl_matmul::{self as matmul};
 use cubecl_matmul::{
     self as matmul, MatmulInputHandle, SyncPartialReadingStrategy, SyncReadingStrategy,
 };
-use cubecl_matmul::{self as matmul, SyncPartialReadingStrategy, SyncReadingStrategy};
-use cubecl_matmul::{AsyncReadingStrategy, components::MatmulPrecision};
-use cubecl_matmul::{SyncPartialReadingStrategy, SyncReadingStrategy};
 use std::collections::BTreeMap;
 use std::time::Duration;
 
@@ -98,8 +92,8 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for MatmulBench<R, MP> {
             matmul_elems.rhs_global,
             matmul_elems.rhs_stage,
             matmul_elems.rhs_register,
-            matmul_elems.acc,
-            matmul_elems.out,
+            matmul_elems.acc_register,
+            matmul_elems.acc_global,
             self.strategy
         )
         .to_lowercase()
@@ -127,7 +121,7 @@ struct MatmulBench<R: Runtime, MP> {
     tr: bool,
     strategy: matmul::Strategy,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _mp: PhantomData<MP>,
 }
 
@@ -145,13 +139,13 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [false] {
-        for tr in [true] {
+        for tr in [false] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
-                // entry(6144, 6144, 6144),
+                entry(6144, 6144, 6144),
                 // entry(4096, 4096, 4096),
                 // entry(2048, 2048, 2048),
-                entry(1024, 1024, 1024),
+                // entry(1024, 1024, 1024),
                 // entry(512, 512, 512),
                 // entry(64, 1024, 64),
                 // entry(32, 1024, 32),
@@ -397,7 +391,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
-    run_algos_unit::<R, MP>();
+    // run_algos_unit::<R, MP>();
     run_algos_wmma::<R, MP>();
     // run_algos_vecmat::<R, MP>();
 }

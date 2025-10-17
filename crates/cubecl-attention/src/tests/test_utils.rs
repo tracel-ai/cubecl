@@ -33,7 +33,7 @@ pub trait TestPrecision {
         value: &[Self::EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -58,7 +58,7 @@ where
         value: &[EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -100,7 +100,7 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],
@@ -238,7 +238,7 @@ impl CastInto<u8> for i32 {
 
 pub trait Sampleable: Sized + CubePrimitive {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R, Self>;
@@ -249,7 +249,7 @@ macro_rules! sample_float {
         $(
             impl Sampleable for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
                     cubecl_random::seed(seed);
                     let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
 
@@ -269,7 +269,7 @@ sample_float!(f64);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R, Self> {
@@ -289,7 +289,7 @@ impl Sampleable for flex32 {
 
 impl Sampleable for tf32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R, Self> {
@@ -309,7 +309,7 @@ impl Sampleable for tf32 {
 
 impl Sampleable for bool {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R, Self> {
@@ -324,7 +324,7 @@ impl Sampleable for bool {
 
 impl Sampleable for u8 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
     ) -> TensorHandle<R, Self> {

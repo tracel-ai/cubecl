@@ -75,7 +75,7 @@ pub(crate) fn find_stage_size_m_n(
 }
 
 pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     plane_dim: u32,
     matmul_elems: MatmulElems,

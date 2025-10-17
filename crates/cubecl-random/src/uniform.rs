@@ -83,7 +83,7 @@ impl<E: Numeric> PrngArgs<E> for Uniform<E> {
 
 /// Pseudo-random generator with uniform distribution
 pub fn random_uniform<R: Runtime, E: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     lower_bound: E,
     upper_bound: E,
     out: TensorHandleRef<R>,

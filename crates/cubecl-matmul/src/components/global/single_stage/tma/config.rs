@@ -118,7 +118,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
     /// - CubeDim is too big
     /// - TMA is not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -154,7 +154,7 @@ impl<S: stage::StageConfig> SimpleTmaConfig<S> {
 
     fn check_availability<MP: MatmulPrecision, R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
         let lhs_g_id = TypeId::of::<LhsG<MP>>();
         let lhs_s_id = TypeId::of::<LhsS<MP>>();

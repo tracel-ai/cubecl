@@ -7,7 +7,7 @@ use cubecl_core::{
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken, ServerCommunication,
+        IoError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -25,13 +25,13 @@ use super::scheduler::Scheduler;
 pub struct CpuServer {
     ctx: CpuContext,
     scheduler: Scheduler,
-    logger: Arc<ServerLogger>,
+    utilities: Arc<ServerUtilities<Self>>,
 }
 
 impl CpuServer {
-    pub fn new(ctx: CpuContext) -> Self {
+    pub fn new(ctx: CpuContext, utilities: ServerUtilities<Self>) -> Self {
         Self {
-            logger: Arc::new(ServerLogger::default()),
+            utilities: Arc::new(utilities),
             scheduler: Scheduler::default(),
             ctx,
         }
@@ -88,7 +88,11 @@ impl ComputeServer for CpuServer {
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
-        self.logger.clone()
+        self.utilities.logger.clone()
+    }
+
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn create(
@@ -187,7 +191,7 @@ impl ComputeServer for CpuServer {
     fn flush(&mut self, _stream_id: StreamId) {}
 
     fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        self.logger.profile_summary();
+        self.utilities.logger.profile_summary();
         Box::pin(async move {})
     }
 
@@ -201,7 +205,7 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.logger.profile_summary();
+        self.utilities.logger.profile_summary();
         cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.stop(token)
     }

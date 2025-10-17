@@ -198,7 +198,8 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
             #[unroll]
             for c in 0..this.layout.unit_size.1 {
                 let index = row_offset + c;
-                this.array[index] = this.array[index] * scale + M::apply::<E>(mask, (r, c));
+                this.array[index] =
+                    this.array[index] * scale + M::apply::<E>(mask, (r, c).runtime());
             }
         }
     }

@@ -91,7 +91,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<KS<AP>, G
                                 let index_store = col_load * tile_rows_load + row_load_in_tile;
 
                                 slice[index_store + store_offset] = Line::cast_from(
-                                    view.read_checked(((tile_row_load, tile_col_load), index_load)),
+                                    view.read_checked(((tile_row_load, tile_col_load).runtime(), index_load)),
                                 );
                             }
                         }

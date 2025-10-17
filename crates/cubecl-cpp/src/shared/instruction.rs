@@ -200,6 +200,7 @@ pub enum Instruction<D: Dialect> {
     },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
+    Trunc(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
     Warp(WarpInstruction<D>),
     Wmma(WmmaInstruction<D>),
@@ -538,6 +539,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
             Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
+            Instruction::Trunc(it) => Trunc::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
             Instruction::SliceLength { input, out } => {
                 let out = out.fmt_left();

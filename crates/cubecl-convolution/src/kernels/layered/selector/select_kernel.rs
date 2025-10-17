@@ -4,15 +4,17 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         InputArg, InputRuntimeArg, MatmulLineSizes, MatmulSelection, MatmulSpec, OutputArg,
-        OutputRuntimeArg,
-        global::{GlobalConfig as _, args::ConcreteOutputFactory},
+        OutputRuntimeArg, global::GlobalConfig as _,
     },
 };
 
 use crate::{
     components::{
         ConvSetupError, ConvolutionProblem,
-        global::{args::ConcreteInputsFactory, entry_point::ConvolutionLaunch},
+        global::{
+            args::{ConcreteInputsFactory, ConcreteOutputFactory},
+            entry_point::ConvolutionLaunch,
+        },
     },
     kernels::layered::algorithm::Algorithm,
 };
@@ -22,7 +24,7 @@ use crate::{
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -38,18 +40,22 @@ where
     let config = A::setup::<R, MS::Precision>(client, &problem, &selection, &line_sizes)?;
 
     let input = <InputArg<MS> as ConcreteInputsFactory>::create(
+        client,
         input,
         weight,
         bias.as_ref(),
         &selection,
         &problem,
         &line_sizes,
+        config,
     );
     let output = <OutputArg<MS> as ConcreteOutputFactory>::create(
+        client,
         out,
         &selection,
-        &problem.as_matmul_problem(),
+        &problem,
         &line_sizes,
+        config,
     );
 
     unsafe {
@@ -69,7 +75,7 @@ where
 
 /// Select which kernel to launch for the given Algorithm.
 pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: ConvolutionProblem,

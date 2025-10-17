@@ -11,7 +11,7 @@ pub mod quantize;
 #[cfg(feature = "kernels")]
 pub mod layout;
 
-pub mod scheme;
+pub use cubecl_common::quant::scheme;
 
 #[cfg(feature = "export_tests")]
 pub mod tests;

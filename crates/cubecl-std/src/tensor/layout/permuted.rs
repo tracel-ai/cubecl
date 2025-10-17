@@ -24,25 +24,21 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shape_strides(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         strides: &[usize],
         line_size: u8,
     ) -> Self {
         let len = shape.iter().product::<usize>() / line_size as usize;
 
-        let shape = SequenceArg {
-            values: shape
-                .iter()
-                .map(|it| FastDivmodArgs::new(client, *it as u32))
-                .collect(),
-        };
-        let strides = SequenceArg {
-            values: strides
-                .iter()
-                .map(|it| ScalarArg::new(*it as u32))
-                .collect(),
-        };
+        let shape = shape
+            .iter()
+            .map(|it| FastDivmodArgs::new(client, *it as u32))
+            .collect();
+        let strides = strides
+            .iter()
+            .map(|it| ScalarArg::new(*it as u32))
+            .collect();
 
         Self::new(shape, strides, ScalarArg::new(len as u32), line_size as u32)
     }
@@ -50,7 +46,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shapes_strides_ref(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
@@ -78,7 +74,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     }
 
     pub fn from_handles_ref(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         reference_handle: &TensorHandleRef<'_, R>,
         line_size: u8,
@@ -93,7 +89,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     }
 
     pub fn from_handle(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         line_size: u8,
     ) -> Self {
