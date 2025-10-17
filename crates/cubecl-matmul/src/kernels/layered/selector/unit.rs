@@ -141,7 +141,7 @@ fn matvec_unit_selector(
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout, options.tile) {
-        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 4), (1, 1, 4)),
+        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 8), (1, 1, 16)),
         _ => ((4, 1, 4), (1, 1, 4)),
     };
 
@@ -150,10 +150,11 @@ fn matvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 8 },
+        // StageSelection::Fixed { m: 8, n: 1 },
+        StageSelection::Fixed { m: plane_dim, n: 1 },
         num_sms,
         GlobalOrderSelection::Default,
-        options.stage,
+        StageScaling::Disabled,
     )
 }
 
@@ -314,6 +315,7 @@ fn scalar_product_unit_selector(
     )
 }
 
+#[derive(Debug)]
 enum StageSelection {
     WithPlane { plane_dim: u32, num_plane: u32 },
     Fixed { m: u32, n: u32 },
@@ -373,10 +375,12 @@ fn selection(
         .cube_count_plan(cube_count_plan)
         .build();
 
-    MatmulSelection::builder(tiling_scheme, plane_dim)
+    let selecton = MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(buffering)
         .hypercube_config(hypercube)
-        .build()
+        .build();
+    println!("{selecton:?}");
+    selecton
 }
 
 /// Returns the factor pair `(a, b)` of `n` minimizing their difference,
