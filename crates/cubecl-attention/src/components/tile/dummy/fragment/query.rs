@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{QueryTile, QueryTileExpand};
 use cubecl_matmul::components::tile::StridedTile;
 
@@ -25,13 +24,12 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryFragment<AP, AM> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryTile<AP> for QueryFragment<AP, AM> {
     type Fragment = AM::Query;
-    type Config = AM::Config;
 
     fn fragment_mut(&mut self) -> &mut Self::Fragment {
         &mut self.fragment
     }
 
-    fn update(&mut self, tile: StridedTile<QG<AP>>, #[comptime] config: Self::Config) {
-        AM::fill_query(&tile, &mut self.fragment, config)
+    fn update(&mut self, tile: StridedTile<QG<AP>>) {
+        AM::fill_query(&tile, &mut self.fragment)
     }
 }

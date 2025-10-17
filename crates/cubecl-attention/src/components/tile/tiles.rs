@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentMask;
 use crate::components::tile::dummy::AttentionMatmulConfig;
 use crate::components::tile::{FragmentOps, RowWise, RunningState};
 use cubecl_matmul::components::tile::StridedTile;
@@ -13,10 +12,9 @@ use cubecl_std::tensor::layout::Coords2d;
 #[cube]
 pub trait QueryTile<AP: AttentionPrecision>: CubeType {
     type Fragment: CubeType;
-    type Config: AttentionMatmulConfig;
 
     fn fragment_mut(&mut self) -> &mut Self::Fragment;
-    fn update(&mut self, tile: StridedTile<QG<AP>>, #[comptime] config: Self::Config);
+    fn update(&mut self, tile: StridedTile<QG<AP>>);
 }
 
 #[cube]

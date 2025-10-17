@@ -107,11 +107,7 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         }
     }
 
-    fn fill_query<E: Numeric>(
-        tile: &StridedTile<E>,
-        fragment: &mut Self::Query,
-        #[comptime] config: Self::Config,
-    ) {
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         let (slice, stride) = tile.as_unlined();
 
         cmma::load(&fragment, &slice, stride);
@@ -183,8 +179,8 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     }
 
     fn fill_mask<E: Numeric>(
-        tile: &StridedTile<E>,
-        mask: &mut Self::Mask,
+        _tile: &StridedTile<E>,
+        _mask: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
         todo!()

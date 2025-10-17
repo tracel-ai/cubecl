@@ -93,9 +93,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
     fn fill_query<E: Float>(
         tile: &StridedTile<E>,
         registers: &mut Self::QueryTile,
-        #[comptime] config: Self::Config,
     ) {
-        AM::fill_query(tile, registers.fragment_mut(), config);
+        AM::fill_query(tile, registers.fragment_mut());
     }
 
     fn fill_key<E: Float>(

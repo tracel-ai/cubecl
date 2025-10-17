@@ -56,11 +56,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
     );
 
     fn allocate_query(#[comptime] config: Self::Config) -> Self::Query;
-    fn fill_query<E: Numeric>(
-        tile: &StridedTile<E>,
-        fragment: &mut Self::Query,
-        #[comptime] config: Self::Config,
-    );
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);

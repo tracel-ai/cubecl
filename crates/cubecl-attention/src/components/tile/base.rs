@@ -54,7 +54,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// The configuration type associated with this Attention.
     type Config: AttentionMatmulConfig;
 
-    type QueryTile: QueryTile<AP, Config = Self::Config>;
+    type QueryTile: QueryTile<AP>;
     type KeyValueTile: KeyValueTile<KVT<AP>>;
     type SoftmaxTile: SoftmaxTile<AP>;
     type AccumulatorTile: AccumulatorTile<AP>;
@@ -89,11 +89,7 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
 
-    fn fill_query<E: Float>(
-        tile: &StridedTile<E>,
-        registers: &mut Self::QueryTile,
-        #[comptime] config: Self::Config,
-    );
+    fn fill_query<E: Float>(tile: &StridedTile<E>, registers: &mut Self::QueryTile);
 
     fn fill_key<E: Float>(
         tile: &StridedTile<E>,
