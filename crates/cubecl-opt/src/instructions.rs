@@ -261,7 +261,11 @@ impl Optimizer {
     fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut Self, &mut Variable)) {
         match plane {
             Plane::Elect => {}
-            Plane::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Plane::Broadcast(binary_operator)
+            | Plane::Shuffle(binary_operator)
+            | Plane::ShuffleXor(binary_operator)
+            | Plane::ShuffleUp(binary_operator)
+            | Plane::ShuffleDown(binary_operator) => self.visit_binop(binary_operator, visit_read),
             Plane::All(unary_operator)
             | Plane::Any(unary_operator)
             | Plane::Sum(unary_operator)
