@@ -205,7 +205,7 @@ impl<
 }
 
 /// Input argument
-pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>>;
+pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>, MSK<AS>>;
 
 /// Output argument
 pub type OutputArg<AS> = <Args<AS> as AttentionArgs>::Output<OG<AS>>;
