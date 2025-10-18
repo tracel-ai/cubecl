@@ -1198,7 +1198,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO debug"]
             fn attention_masked_oob() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -1238,7 +1237,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO debug"]
             fn attention_masked_larger() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
