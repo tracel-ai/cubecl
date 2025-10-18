@@ -182,9 +182,8 @@ fn vecmat_unit_selector(
 
     let ls = u32::max(line_sizes.lhs as u32, line_sizes.rhs as u32);
     let ls = u32::max(ls, line_sizes.out as u32);
-    let k = 2 / (double_buffering as u32 + 1);
 
-    let (tile_size, partition_size) = ((1, ls, ls), (1, 1, k));
+    let (tile_size, partition_size) = ((1, ls, ls), (1, 1, 1));
     // let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
     //     (RowMajor, RowMajor) => ((1, lsn, lsk), (1, 1, k)),
     //     (RowMajor, ColMajor) => (
@@ -207,7 +206,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 1, n: plane_dim },
         num_sms,
-        GlobalOrderSelection::Default,
+        GlobalOrderSelection::Fixed(crate::components::batch::GlobalOrder::ColMajor),
         StageScaling::Disabled,
     )
 }
