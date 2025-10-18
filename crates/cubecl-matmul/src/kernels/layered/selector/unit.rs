@@ -172,32 +172,17 @@ fn matvec_unit_selector(
 
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector(
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
-    double_buffering: bool,
+    _double_buffering: bool,
     line_sizes: &MatmulLineSizes,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
-    use MatrixLayout::*;
-
     let ls = u32::max(line_sizes.lhs as u32, line_sizes.rhs as u32);
     let ls = u32::max(ls, line_sizes.out as u32);
+    let k = 8 / ls;
 
-    let (tile_size, partition_size) = ((1, ls, ls), (1, 1, 1));
-    // let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-    //     (RowMajor, RowMajor) => ((1, lsn, lsk), (1, 1, k)),
-    //     (RowMajor, ColMajor) => (
-    //         (1, lsn, lsk),
-    //         (1, 1, k),
-    //         // (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
-    //     ),
-    //     (ColMajor, RowMajor) => ((1, lz, lz), (1, 1, k)),
-    //     (ColMajor, ColMajor) => (
-    //         (1, lz, lz),
-    //         (1, 1, k),
-    //         // (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
-    //     ),
-    // };
+    let (tile_size, partition_size) = ((1, ls, ls), (1, 1, k));
 
     selection(
         tile_size,
@@ -206,7 +191,7 @@ fn vecmat_unit_selector(
         plane_dim,
         StageSelection::Fixed { m: 1, n: plane_dim },
         num_sms,
-        GlobalOrderSelection::Fixed(crate::components::batch::GlobalOrder::ColMajor),
+        GlobalOrderSelection::SwizzleCol { n: 4, w: 4 },
         StageScaling::Disabled,
     )
 }
