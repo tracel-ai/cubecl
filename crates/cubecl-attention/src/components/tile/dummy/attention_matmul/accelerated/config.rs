@@ -53,6 +53,14 @@ impl AttentionMatmulConfig for AcceleratedAttentionMatmulConfig {
     fn num_rows_per_unit(&self) -> u32 {
         todo!()
     }
+
+    fn causal_mask(&self) -> bool {
+        todo!()
+    }
+
+    fn materialized_mask(&self) -> bool {
+        todo!()
+    }
 }
 
 impl AcceleratedAttentionMatmulConfig {

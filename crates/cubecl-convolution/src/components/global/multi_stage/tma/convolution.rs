@@ -113,7 +113,6 @@ where
 
         // Create barriers and prefetch each stage
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
         for stage in 0..num_stages {
             let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
 
@@ -133,7 +132,6 @@ where
 
             // Loop through all stages
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for stage in 0..num_stages {
                 let k = k + stage;
                 let next_k = k + num_stages;

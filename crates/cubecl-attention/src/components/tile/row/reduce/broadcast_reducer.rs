@@ -4,7 +4,8 @@ use cubecl_core::prelude::*;
 use crate::components::tile::ReduceOp;
 use crate::components::tile::Reducer;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::row::base::FragmentLayout;
+use crate::components::tile::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 #[derive(CubeType)]
@@ -12,12 +13,12 @@ pub struct BroadcastReducer {}
 
 #[cube]
 impl Reducer for BroadcastReducer {
-    fn reduce<E: Float, PL: PlaneLayout<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
-        data: &PL,
+        data: &F,
         #[comptime] config: TC,
     ) {
-        let num_units_per_row = data.num_units_per_row();
+        let num_units_per_row = data.layout().num_units_per_row();
         let num_shares_within_plane = comptime!((num_units_per_row as f32).log2().ceil() as u32);
 
         let unit_pos = UNIT_POS_X;
@@ -25,7 +26,7 @@ impl Reducer for BroadcastReducer {
 
         let mut fpb = FakePlaneBroadcast::<E>::new(config.plane_dim(), config.num_planes());
 
-        RO::reduce_local_store::<PL>(data, vals);
+        RO::reduce_local_store::<F>(data, vals);
 
         for i in 0..num_shares_within_plane {
             let offset = num_units_per_row >> (i + 1);

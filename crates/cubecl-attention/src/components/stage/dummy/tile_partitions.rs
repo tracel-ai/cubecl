@@ -4,8 +4,10 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::global::dummy::QueryReader;
+use crate::components::AttentionTilingScheme;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
+use cubecl_std::CubeOption;
+use cubecl_std::tensor::layout::Coords2d;
 
 #[derive(CubeType)]
 pub struct Accumulators<
@@ -62,7 +64,7 @@ impl<
 }
 
 #[derive(CubeType)]
-pub struct Queries<
+pub struct QueryPartition<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
     S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
@@ -77,32 +79,18 @@ impl<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
     S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> Queries<AP, TA, S>
+> QueryPartition<AP, TA, S>
 {
-    pub fn new(query_loader: QueryReader<AP>, #[comptime] config: S) -> Queries<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> QueryPartition<AP, TA, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
-        let mut q = comptime!(0u32);
-
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime!(p.seq_q) {
-            let mut hd = comptime!(0u32);
-
-            #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime!(p.head_dim) {
-                let tile = query_loader.get_tile::<S>((q, hd).runtime(), config);
-                sequence.push(TA::init_query(&tile, config.tile_config()));
-
-                comptime![hd += 1];
-            }
-
-            comptime![q += 1];
+        for _ in 0..comptime!(p.seq_q * p.head_dim) {
+            sequence.push(TA::init_query(config.tile_config()));
         }
 
-        Queries::<AP, TA, S> {
+        QueryPartition::<AP, TA, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -302,5 +290,73 @@ impl<
     ) -> &mut TA::SoftmaxTile {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
         self.sequence.index_mut(index)
+    }
+}
+
+#[derive(CubeType)]
+pub struct MaskPartition<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> {
+    sequence: Sequence<TA::MaskTile>,
+    #[cube(comptime)]
+    _phantom: PhantomData<S>,
+}
+
+#[cube]
+impl<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> MaskPartition<AP, TA, S>
+{
+    pub fn new(
+        out_of_bounds: CubeOption<Coords2d>,
+        #[comptime] config: S,
+    ) -> MaskPartition<AP, TA, S> {
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        let mut q = comptime![0];
+
+        #[unroll]
+        for _ in 0..p.seq_q {
+            let mut kv = comptime![0];
+
+            #[unroll]
+            for _ in 0..p.seq_kv {
+                sequence.push(TA::init_mask(out_of_bounds, (q, kv), config.tile_config()));
+
+                comptime![kv += 1];
+            }
+
+            comptime![q += 1];
+        }
+
+        MaskPartition::<AP, TA, S> {
+            sequence,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_at(
+        &self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] tiling_scheme: AttentionTilingScheme,
+    ) -> &TA::MaskTile {
+        let p = tiling_scheme.partition_size;
+        self.sequence.index(comptime!(q * p.seq_kv + kv))
+    }
+
+    pub fn get_at_mut(
+        &mut self,
+        #[comptime] q: u32,
+        #[comptime] kv: u32,
+        #[comptime] tiling_scheme: AttentionTilingScheme,
+    ) -> &mut TA::MaskTile {
+        let p = tiling_scheme.partition_size;
+        self.sequence.index_mut(comptime!(q * p.seq_kv + kv))
     }
 }
