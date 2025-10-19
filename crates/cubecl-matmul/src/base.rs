@@ -1,11 +1,11 @@
-use cubecl_common::quant::scheme::QuantScheme;
+use cubecl_common::quant::scheme::{QuantScheme, QuantStore, QuantValue};
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
     prelude::{CubePrimitive, Numeric, TensorHandleRef},
 };
 
-use cubecl_std::tensor::TensorHandle;
+use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
 
 use crate::{
     components::{
@@ -122,6 +122,52 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
             },
         }
     }
+
+    pub fn from_ref(handle: &MatmulInputHandleRef<'_, R>) -> Self {
+        match handle {
+            MatmulInputHandleRef::Normal(handle) => {
+                MatmulInputHandle::Normal(TensorHandle::from_ref(handle))
+            }
+            MatmulInputHandleRef::Quantized {
+                data,
+                scale,
+                shape,
+                scheme,
+            } => MatmulInputHandle::Quantized {
+                data: TensorHandle::from_ref(data),
+                scale: TensorHandle::from_ref(scale),
+                shape: shape.to_vec(),
+                scheme: **scheme,
+            },
+        }
+    }
+
+    pub fn data(&self) -> &TensorHandle<R, E> {
+        match self {
+            MatmulInputHandle::Normal(handle) => handle,
+            MatmulInputHandle::Quantized { data, .. } => data,
+        }
+    }
+
+    pub fn swap_dims(&mut self, dim0: usize, dim1: usize) {
+        match self {
+            MatmulInputHandle::Normal(handle) => {
+                handle.shape.swap(dim0, dim1);
+                handle.strides.swap(dim0, dim1);
+            }
+            MatmulInputHandle::Quantized {
+                data, scale, shape, ..
+            } => {
+                data.shape.swap(dim0, dim1);
+                data.strides.swap(dim0, dim1);
+                if scale.shape.len() == data.shape.len() {
+                    scale.shape.swap(dim0, dim1);
+                    scale.strides.swap(dim0, dim1);
+                }
+                shape.swap(dim0, dim1);
+            }
+        }
+    }
 }
 
 impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
@@ -214,6 +260,49 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         match self {
             MatmulInputHandleRef::Normal(handle) => handle.shape,
             MatmulInputHandleRef::Quantized { shape, .. } => shape,
+        }
+    }
+
+    pub fn into_contiguous<E: Numeric>(
+        &self,
+        client: &ComputeClient<R::Server>,
+    ) -> MatmulInputHandle<R, E> {
+        match self {
+            MatmulInputHandleRef::Normal(data) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R, E>(client, data))
+            }
+            MatmulInputHandleRef::Quantized {
+                data,
+                scale,
+                shape,
+                scheme,
+            } => {
+                let data = match scheme.store {
+                    // e2m1 has native packing so also needs to be re-packed
+                    QuantStore::Native if scheme.value == QuantValue::E2M1 => {
+                        let data = into_contiguous_packed::<R, u8>(client, data, shape, 2);
+                        // Unsafely cast to E
+                        TensorHandle::from_ref(&data.as_ref())
+                    }
+                    QuantStore::U32 => {
+                        let data = into_contiguous_packed::<R, u32>(
+                            client,
+                            data,
+                            shape,
+                            scheme.num_quants() as u32,
+                        );
+                        // Unsafely cast to E
+                        TensorHandle::from_ref(&data.as_ref())
+                    }
+                    _ => into_contiguous_pitched::<R, E>(client, data),
+                };
+                MatmulInputHandle::Quantized {
+                    data,
+                    scale: TensorHandle::from_ref(scale),
+                    shape: shape.to_vec(),
+                    scheme: **scheme,
+                }
+            }
         }
     }
 }
