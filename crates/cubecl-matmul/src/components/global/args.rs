@@ -134,7 +134,8 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                     client,
                     handle,
                     problem,
-                    config.global_memory_config(ident),
+                    line_size,
+                    config.global_memory_config(ident).into(),
                 );
                 ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
             }
@@ -150,8 +151,9 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                     scale,
                     shape,
                     problem,
-                    config.global_memory_config(ident),
                     **scheme,
+                    line_size,
+                    config.global_memory_config(ident).into(),
                 );
                 let data_view =
                     ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
@@ -185,7 +187,8 @@ impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> 
             client,
             out,
             problem,
-            config.global_memory_config(MatmulIdent::Out),
+            line_sizes.out,
+            config.global_memory_config(MatmulIdent::Out).into(),
         );
         ViewArg::new::<BatchedGlobalLayout>(out.as_array_arg(line_sizes.out), layout)
     }
