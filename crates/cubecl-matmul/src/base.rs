@@ -278,7 +278,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                 scheme,
             } => {
                 let data = match scheme.store {
-                    // e2m1 has native packing so also needs to be re-packed
+                    // e2m1 has native packing (e2m1x2) so also needs to be re-packed
                     QuantStore::Native if scheme.value == QuantValue::E2M1 => {
                         let data = into_contiguous_packed::<R, u8>(client, data, shape, 2);
                         // Unsafely cast to E

@@ -149,6 +149,8 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
     }
 }
 
+/// Fetch all values required contained in a given position, unpack them, then repack them to their
+/// new position.
 #[cube]
 fn index_packed<N: Int>(
     tensor: &Tensor<N>,
