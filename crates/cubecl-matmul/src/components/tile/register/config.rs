@@ -159,7 +159,7 @@ impl RegisterConfig {
             MatrixLayout::RowMajor => {
                 if !n.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
+                        "HHHHHHHHHHHHHHH: Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
                     ))));
                 }
             }
@@ -174,7 +174,7 @@ impl RegisterConfig {
 
         if !n.is_multiple_of(out) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
+                "OUT Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
             ))));
         }
 

@@ -138,8 +138,8 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
-    for tl in [false] {
-        for tr in [false] {
+    for tl in [true, false] {
+        for tr in [true] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
                 // entry(6144, 6144, 6144),
@@ -161,8 +161,9 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // (16, 1, 512, 4096),
                 // (2, 8192, 8192, 1), // Outer
                 (2, 8192, 1, 8192), // MatVec
-                                    // (2, 1, 8192, 8192), // VecMat
+                (2, 1, 8192, 8192), // VecMat
             ] {
+                println!("-------------------");
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
         }

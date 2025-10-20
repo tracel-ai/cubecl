@@ -168,7 +168,7 @@ fn matvec_unit_selector(
         // ),
         (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ((tile_size, 1, tile_size), (1, 1, 1)),
         // _ => ((1, 1, tile_size), (1, 1, 16)),
-        _ => ((tile_size, 1, tile_size), (1, 1, 1)),
+        _ => ((1, 1, tile_size), (1, 1, tile_size)),
     };
     println!("MatVec {tile_size:?} - {partition_size:?}");
 
@@ -177,9 +177,10 @@ fn matvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: plane_dim, n: 1 },
+        StageSelection::Fixed { m: 8, n: 4 },
         num_sms,
-        GlobalOrderSelection::Default,
+        GlobalOrderSelection::SwizzleRow { m: 2, w: 2 },
+        // GlobalOrderSelection::Default,
         StageScaling::Disabled,
     )
 }
@@ -193,34 +194,36 @@ fn vecmat_unit_selector(
     num_sms: Option<u32>,
     options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
-    let (tile_size, partition_size) = match problem.rhs_layout {
-        MatrixLayout::ColMajor => (
-            (1, tile_size, tile_size),
-            (
-                1,
-                1,
-                scale_partition(
-                    options.partition,
-                    problem.k,
-                    match double_buffering {
-                        true => 2,
-                        false => 3,
-                    },
-                    10,
-                ),
-            ),
-        ),
-        _ => ((1, tile_size, tile_size), (1, 1, 1)),
-    };
+    let (tile_size, partition_size) = ((1, 1, tile_size), (1, 1, tile_size * 2));
+    // let (tile_size, partition_size) = match problem.rhs_layout {
+    //     MatrixLayout::ColMajor => (
+    //         (1, tile_size, tile_size),
+    //         (
+    //             1,
+    //             1,
+    //             scale_partition(
+    //                 options.partition,
+    //                 problem.k,
+    //                 match double_buffering {
+    //                     true => 2,
+    //                     false => 3,
+    //                 },
+    //                 10,
+    //             ),
+    //         ),
+    //     ),
+    //     _ => ((1, tile_size, tile_size), (1, 1, 1)),
+    // };
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 1, n: plane_dim },
+        StageSelection::Fixed { m: 4, n: 8 },
         num_sms,
-        GlobalOrderSelection::Default,
+        // GlobalOrderSelection::Default,
+        GlobalOrderSelection::SwizzleCol { n: 4, w: 4 },
         StageScaling::Disabled,
     )
 }
@@ -399,7 +402,7 @@ fn selection(
     let cube_count_plan = match num_sms {
         Some(num_sms) => CubeCountPlanSelection::Sm {
             num_sms,
-            sm_usage: SmAllocation::Exact,
+            sm_usage: SmAllocation::Full,
             cubes_first: false,
         },
         None => CubeCountPlanSelection::Flattened,

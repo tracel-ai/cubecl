@@ -53,8 +53,8 @@ where
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
-        // .filter_lhs(|ls| *ls <= 4)
-        // .filter_rhs(|ls| *ls <= 4)
-        // .filter_out(|ls| *ls <= 4)
+            // .filter_lhs(|ls| *ls <= 4)
+            // .filter_rhs(|ls| *ls <= 4)
+            .filter_out(|ls| *ls <= 1)
     }
 }
