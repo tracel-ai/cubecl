@@ -420,6 +420,34 @@ impl<D: Dialect> CppCompiler<D> {
                             out,
                         }))
                     }
+                    gpu::Plane::Shuffle(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::Shuffle {
+                            input: self.compile_variable(op.lhs),
+                            src_lane: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleXor(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleXor {
+                            input: self.compile_variable(op.lhs),
+                            mask: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleUp(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleUp {
+                            input: self.compile_variable(op.lhs),
+                            delta: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleDown(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleDown {
+                            input: self.compile_variable(op.lhs),
+                            delta: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
                 }
             }
             gpu::Operation::CoopMma(cmma) => instructions.push(self.compile_cmma(cmma, out)),
