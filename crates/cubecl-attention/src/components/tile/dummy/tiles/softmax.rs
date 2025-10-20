@@ -3,14 +3,13 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::fragment::AttentionMatmul;
+use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::BroadcastReducer;
 use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
-use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
-use crate::components::tile::{
-    RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul,
-};
+use crate::components::tile::{RunningState, SoftmaxTile, SoftmaxTileExpand};
 use crate::components::tile::{row_max, row_sum};
 
 #[derive(CubeType)]

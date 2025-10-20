@@ -2,7 +2,7 @@ use cubecl_matmul::components::ComputeResources;
 
 use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
-    tile::dummy::{
+    fragment::{
         AttentionMatmulFamily,
         accelerated::{AcceleratedAttentionMatmul, AcceleratedAttentionMatmulConfig},
     },

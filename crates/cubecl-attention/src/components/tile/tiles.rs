@@ -3,8 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{FragmentOps, RowWise, RunningState};
+use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentOps;
+use crate::components::tile::{RowWise, RunningState};
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;

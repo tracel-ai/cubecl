@@ -1,15 +1,12 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
+use crate::components::fragment::accelerated::AcceleratedAttentionMatmul;
+use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
 use crate::{
     components::{
-        AvailableLineSizes,
-        batch::dummy::DummyBatchAttentionFamily,
-        global::dummy::DummyGlobalAttentionFamily,
-        stage::dummy::DummyStageAttentionFamily,
-        tile::dummy::{
-            DummyTileAttentionFamily, accelerated::AcceleratedAttentionMatmul,
-            dummy_register::DummyRegisterAttentionMatmul,
-        },
+        AvailableLineSizes, batch::dummy::DummyBatchAttentionFamily,
+        global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
+        tile::dummy::DummyTileAttentionFamily,
     },
     kernels::Algorithm,
 };

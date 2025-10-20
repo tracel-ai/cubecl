@@ -2,10 +2,10 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::attention_types::*;
-use crate::components::tile::dummy::dummy_register::InnerLayout;
+use crate::components::fragment::dummy_register::InnerLayout;
+use crate::components::fragment::AttentionMatmulConfig;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
-    tile::dummy::AttentionMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 

@@ -1,13 +1,11 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
+use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
+use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError,
-    tile::dummy::{
-        AttentionMatmulFamily,
-        dummy_register::{DummyRegisterAttentionMatmul, DummyRegisterAttentionMatmulConfig},
-    },
+    AttentionSetupError, InvalidConfigError, fragment::AttentionMatmulFamily,
 };
 
 impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {

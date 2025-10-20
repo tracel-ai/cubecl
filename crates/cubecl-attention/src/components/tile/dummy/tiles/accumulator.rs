@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::fragment::AttentionMatmul;
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
-use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {

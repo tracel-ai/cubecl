@@ -1,5 +1,6 @@
 pub mod args;
 pub mod batch;
+pub mod fragment;
 pub mod global;
 pub mod stage;
 pub mod tile;

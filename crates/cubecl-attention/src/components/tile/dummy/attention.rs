@@ -4,18 +4,19 @@ use cubecl_matmul::components::tile::StridedTile;
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
+use crate::components::fragment::AttentionMatmul;
+use crate::components::fragment::AttentionMatmulConfig;
 use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
-use crate::components::tile::dummy::MaskFragment;
-use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
-use crate::components::tile::dummy::{AttentionMatmul, DummySoftmax};
+use crate::components::tile::dummy::DummySoftmax;
+use crate::components::tile::dummy::DummyMask;
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
     AttentionPrecision,
-    tile::dummy::{KeyValueFragment, QueryFragment},
+    tile::dummy::{DummyKeyValue, DummyQuery},
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -30,11 +31,11 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
 {
     type Config = AM::Config;
 
-    type QueryTile = QueryFragment<AP, AM>;
-    type KeyValueTile = KeyValueFragment<AP, AM>;
+    type QueryTile = DummyQuery<AP, AM>;
+    type KeyValueTile = DummyKeyValue<AP, AM>;
     type SoftmaxTile = DummySoftmax<AP, AM>;
     type AccumulatorTile = DummyAccumulator<AP, AM>;
-    type MaskTile = MaskFragment<AP, AM>;
+    type MaskTile = DummyMask<AP, AM>;
 
     fn rescale(
         acc: &mut Self::AccumulatorTile,

@@ -1,9 +1,9 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use crate::components::fragment::AttentionMatmulConfig;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize, attention_types::*,
-    tile::dummy::AttentionMatmulConfig,
 };
 use cubecl_core::frontend::CubePrimitive;
 

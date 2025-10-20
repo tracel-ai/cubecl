@@ -4,13 +4,13 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::fragment::accelerated::AcceleratedAttentionMatmulConfig;
+use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
-use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
-use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
-use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
-use crate::components::tile::{FragmentMask, FragmentMaskExpand};
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 use cubecl_std::tensor::layout::Coords2d;
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob

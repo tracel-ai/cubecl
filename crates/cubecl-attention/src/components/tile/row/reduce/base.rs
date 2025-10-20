@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::FragmentOps;
+use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentOps;
 use crate::components::tile::RowMax;
 use crate::components::tile::RowSum;
 use crate::components::tile::RowWise;
-use crate::components::tile::dummy::AttentionMatmulConfig;
 
 #[cube]
 /// Computes the sum of rows on a fragment, using the Reducer's strategy

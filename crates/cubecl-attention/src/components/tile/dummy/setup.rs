@@ -6,10 +6,8 @@ use cubecl_matmul::components::ComputeResources;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, InvalidConfigError,
-    tile::{
-        TileAttentionFamily,
-        dummy::{AttentionMatmulFamily, DummyTileAttention},
-    },
+    fragment::AttentionMatmulFamily,
+    tile::{TileAttentionFamily, dummy::DummyTileAttention},
 };
 
 pub struct DummyTileAttentionFamily<FM: AttentionMatmulFamily> {

@@ -12,7 +12,8 @@ use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
-    tile::{KeyValueTile, QueryTile, RowWise, RunningState, dummy::AttentionMatmulConfig},
+    fragment::AttentionMatmulConfig,
+    tile::{KeyValueTile, QueryTile, RowWise, RunningState},
 };
 use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use cubecl_std::CubeOption;

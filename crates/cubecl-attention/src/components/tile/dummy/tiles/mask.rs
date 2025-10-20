@@ -5,10 +5,11 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
-use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
-use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile, MaskTileExpand};
-use crate::components::tile::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig};
+use crate::components::fragment::{
+    FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
+};
+use crate::components::tile::{MaskTile, MaskTileExpand};
 use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;
@@ -97,18 +98,18 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
 }
 
 #[derive(CubeType)]
-pub enum MaskFragment<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+pub enum DummyMask<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     Materialized(MaterializedTileMask<AP, AM>),
     Logical(LogicalTileMask<AM::FragmentLayout>),
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyMask<AP, AM> {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] partition_pos: Coords2d,
         #[comptime] config: AM::Config,
-    ) -> MaskFragment<AP, AM> {
+    ) -> DummyMask<AP, AM> {
         let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
             logical_iter_origin: LogicalIterOrigin::dummy(),
             partition_pos,
@@ -118,28 +119,28 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskFragment<AP, AM> {
         };
 
         if config.materialized_mask() {
-            MaskFragment::new_Materialized(MaterializedTileMask::<AP, AM> {
+            DummyMask::new_Materialized(MaterializedTileMask::<AP, AM> {
                 fragment: AM::allocate_mask(config),
                 logical_mask,
                 config,
             })
         } else {
-            MaskFragment::new_Logical(logical_mask)
+            DummyMask::new_Logical(logical_mask)
         }
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for DummyMask<AP, AM> {
     type Fragment = AM::Mask;
     type MaskPrecision = MSK<AP>;
 
     fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
         let should_mask = match this {
-            MaskFragment::Materialized(materialized_tile_mask) => {
+            DummyMask::Materialized(materialized_tile_mask) => {
                 materialized_tile_mask.should_mask(local_pos)
             }
-            MaskFragment::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
+            DummyMask::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
         };
 
         E::cast_from(should_mask) * E::min_value()
@@ -147,7 +148,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
 
     fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<Self::MaskPrecision>>) {
         match self {
-            MaskFragment::Materialized(materialized_tile_mask) => {
+            DummyMask::Materialized(materialized_tile_mask) => {
                 // TODO read the tile
                 materialized_tile_mask
                     .logical_mask
@@ -155,7 +156,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
 
                 materialized_tile_mask.update_tile(tile.unwrap())
             }
-            MaskFragment::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
+            DummyMask::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
         }
     }
 }

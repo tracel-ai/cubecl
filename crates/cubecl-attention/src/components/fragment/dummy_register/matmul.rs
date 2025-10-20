@@ -7,14 +7,14 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
+use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::MaskTile;
-use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::tile::dummy::dummy_register::DummyRegisterAttentionMatmulConfig;
-use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
-use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
+use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
+use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 
 pub struct DummyRegisterAttentionMatmul;
 

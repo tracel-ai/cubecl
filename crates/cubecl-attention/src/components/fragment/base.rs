@@ -4,9 +4,7 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentLayout;
-use crate::components::tile::FragmentMask;
-use crate::components::tile::FragmentOps;
+use crate::components::fragment::{FragmentLayout, FragmentMask, FragmentOps};
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,

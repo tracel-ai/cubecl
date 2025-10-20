@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::FragmentLayout;
+use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentLayout;
+use crate::components::fragment::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
 use crate::components::tile::Reducer;
-use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 #[derive(CubeType)]

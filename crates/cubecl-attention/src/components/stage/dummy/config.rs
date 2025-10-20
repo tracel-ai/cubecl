@@ -1,8 +1,8 @@
 use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
-    tile::dummy::AttentionMatmulConfig,
+    AttentionSetupError, AttentionTilingScheme, fragment::AttentionMatmulConfig,
+    stage::StageAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

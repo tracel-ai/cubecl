@@ -1,9 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
 use crate::components::tile::RowWise;
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 /// Max reduction operation
