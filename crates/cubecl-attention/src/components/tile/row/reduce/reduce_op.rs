@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::tile::ReduceOp;
 use crate::components::tile::RowWise;
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 pub struct RowMax {}
@@ -13,12 +13,12 @@ pub struct RowSum {}
 
 #[cube]
 impl<E: Float> ReduceOp<E> for RowMax {
-    fn reduce_local<PL: PlaneLayout<E>>(data: &PL) -> RowWise<E> {
+    fn reduce_local<F: FragmentOps<E>>(data: &F) -> RowWise<E> {
         data.rowwise_max()
     }
 
-    fn reduce_local_store<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
-        acc.max_inplace(&Self::reduce_local::<PL>(data))
+    fn reduce_local_store<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
+        acc.max_inplace(&Self::reduce_local::<F>(data))
     }
 
     fn reduce_step_rowwise(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {
@@ -35,12 +35,12 @@ impl<E: Float> ReduceOp<E> for RowMax {
 
 #[cube]
 impl<E: Float> ReduceOp<E> for RowSum {
-    fn reduce_local<PL: PlaneLayout<E>>(data: &PL) -> RowWise<E> {
+    fn reduce_local<F: FragmentOps<E>>(data: &F) -> RowWise<E> {
         data.rowwise_sum()
     }
 
-    fn reduce_local_store<PL: PlaneLayout<E>>(data: &PL, acc: &mut RowWise<E>) {
-        acc.add_inplace(&Self::reduce_local::<PL>(data))
+    fn reduce_local_store<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
+        acc.add_inplace(&Self::reduce_local::<F>(data))
     }
 
     fn reduce_step_rowwise(acc: &mut RowWise<E>, elem: &RowWise<E>, mask: bool) {

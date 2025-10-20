@@ -56,7 +56,7 @@ where
         query: &[EG],
         key: &[EG],
         value: &[EG],
-        mask: Option<&[u8]>,
+        mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
         client: &ComputeClient<R::Server>,
         out: server::Handle,
@@ -266,7 +266,6 @@ sample_float!(half::f16);
 sample_float!(half::bf16);
 sample_float!(f32);
 sample_float!(f64);
-sample_float!(u8);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
@@ -323,6 +322,21 @@ impl Sampleable for bool {
     }
 }
 
+impl Sampleable for u8 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R, Self> {
+        cubecl_random::seed(seed);
+        let output = TensorHandle::<R, u8>::empty(client, shape.to_vec());
+
+        cubecl_random::random_bernoulli::<R, u8>(client, 0.5, output.as_ref());
+
+        output
+    }
+}
+
 pub(crate) fn flash_attention_v2_cpu<P: TestPrecision>(
     query: &[P::EG],
     key: &[P::EG],
@@ -334,11 +348,15 @@ where
 {
     let batch = problem.batch;
     let seq_q = problem.seq_q;
-    let seq_k = problem.seq_kv;
+    let seq_kv = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
     let val_dim = problem.val_dim;
+
     let masked = mask.is_some();
+    println!("{:?}", problem.masked);
+    println!("{:?}", mask);
+    assert!(problem.masked == masked);
 
     // Precompute strides for indexing
     let query_strides = strides(problem, AttentionIdent::Query);
@@ -364,8 +382,8 @@ where
 
                 // For each K/V block
                 let mut k_block_start = 0usize;
-                while k_block_start < seq_k {
-                    let k_block_end = std::cmp::min(seq_k, k_block_start + seq_k);
+                while k_block_start < seq_kv {
+                    let k_block_end = std::cmp::min(seq_kv, k_block_start + seq_kv);
                     let cur_block_len = k_block_end - k_block_start;
 
                     // Step A: compute S_block[j'] = Q_i · K_{j'}  for j' in block
@@ -390,13 +408,15 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
-                        // apply mask (for masked positions set -inf)
-                        let s_val = if masked {
+                        let s_val = if problem.causal && j > i {
+                            P::EA::new(f32::NEG_INFINITY)
+                        } else if masked {
                             let m_idx = b * mask_strides[0]
                                 + i * mask_strides[1]
                                 + h * mask_strides[2]
                                 + j * mask_strides[3];
                             let m_val = mask.unwrap()[m_idx].cast_into();
+
                             if m_val != P::EM::from_int(0) {
                                 P::EA::new(f32::NEG_INFINITY)
                             } else {

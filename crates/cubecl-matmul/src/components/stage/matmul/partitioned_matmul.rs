@@ -177,12 +177,10 @@ where
 
         // Iterate over each tile in the partition
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
         for m_iter in 0..m_iterations {
             let m_load_iter = partition_scheduler.map_m(m_iter);
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for n_iter in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
