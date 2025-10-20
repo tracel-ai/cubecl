@@ -46,18 +46,15 @@ impl MslDialect {
 
         f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
 
-        if vectorization > 1 {
-            for k in 0..vectorization - 1 {
-                f.write_fmt(format_args!(
-                    "{simd_op_prefix}{input}.i_{k}{simd_op_suffix},\n"
-                ))?;
-            }
-            f.write_fmt(format_args!(
-                "{simd_op_prefix}{input}.i_{}{simd_op_suffix}\n",
-                vectorization - 1
-            ))?;
-        } else {
-            f.write_fmt(format_args!("{simd_op_prefix}{input}{simd_op_suffix}\n"))?;
+        for k in 0..vectorization {
+            let index = if vectorization > 1 {
+                format!(".i_{k}")
+            } else {
+                String::new()
+            };
+            let comma = if k + 1 < vectorization { "," } else { "" };
+
+            writeln!(f, "{simd_op_prefix}{input}{index}{simd_op_suffix}{comma}")?;
         }
 
         f.write_fmt(format_args!("}};\n"))
