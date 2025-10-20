@@ -10,8 +10,8 @@ use crate::components::tile::AccumulatorTile as _;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::SoftmaxTileExpand;
 use crate::components::tile::dummy::DummyAccumulator;
-use crate::components::tile::dummy::DummySoftmax;
 use crate::components::tile::dummy::DummyMask;
+use crate::components::tile::dummy::DummySoftmax;
 use crate::components::tile::tiles::{KeyValueTile, KeyValueTileExpand};
 use crate::components::tile::{RowWise, RunningState, SoftmaxTile, TileAttention};
 use crate::components::{
