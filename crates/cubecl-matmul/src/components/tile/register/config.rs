@@ -9,6 +9,7 @@ use crate::components::tile::TileConfig;
 use crate::components::{MatrixLayout, StageIdent, TileSize};
 
 /// Execution mode for the RegisterMatmul
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ProductType {
     /// Computes the Tile Matmul as m*n inner products of length k.
     ///
@@ -108,8 +109,13 @@ impl RegisterConfig {
     }
 
     pub fn product_type(&self) -> ProductType {
-        // TODO: Make it configurable.
-        ProductType::Outer
+        // TODO: We know what's the best
+        match (self.lhs_layout, self.rhs_layout) {
+            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Outer,
+            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
+            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
+        }
     }
 
     fn validate(self) -> Result<Self, MatmulSetupError> {
