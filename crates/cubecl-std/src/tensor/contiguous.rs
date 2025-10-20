@@ -9,7 +9,6 @@ use crate::{
 use super::TensorHandle;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, calculate_cube_count_elemwise, tensor_line_size_parallel};
-use cubecl_runtime::DeviceProperties;
 
 pub const NUM_SM_APPROX: u32 = 50;
 
@@ -95,50 +94,49 @@ fn into_contiguous_kernel<N: CubePrimitive>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
-    #[comptime] lines_per_unit: u32,
+    #[comptime] elems_per_thread: u32,
 ) {
-    let offset_output = ABSOLUTE_POS * lines_per_unit;
+    let offset_output = ABSOLUTE_POS * elems_per_thread;
     let line_size = input.line_size();
 
-    let mut registers = Array::<Line<N>>::vectorized(lines_per_unit, line_size);
+    let mut registers = Array::<Line<N>>::vectorized(elems_per_thread, line_size);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..elems_per_thread {
         registers[i] = input[offset_output + i];
     }
 
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..elems_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
 
 #[cube(launch)]
 fn into_contiguous_kernel_pack<N: CubePrimitive>(
-    input: &LinearView<N>,
+    input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
-    #[comptime] lines_per_unit: u32,
+    #[comptime] elems_per_thread: u32,
 ) {
     let line_size = output.line_size();
-    // This is incorrect but a temp fix for `cubecl-cpu`
-    let lines_per_unit = comptime![lines_per_unit / line_size];
+    let lines_per_thread = comptime![elems_per_thread / line_size];
 
-    let offset_output = ABSOLUTE_POS * lines_per_unit;
+    let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;
 
-    let mut registers = Array::<Line<N>>::vectorized(lines_per_unit, line_size);
+    let mut registers = Array::<Line<N>>::vectorized(lines_per_thread, line_size);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..lines_per_thread {
         let offset = i * line_size;
         let mut reg = Line::<N>::empty(line_size);
         #[unroll]
         for k in 0..line_size {
             let offset_input = offset_input + offset + k;
-            reg[k] = input[offset_input];
+            reg[k] = input[offset_input][0];
         }
         registers[i] = reg;
     }
@@ -146,7 +144,7 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..lines_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -204,23 +202,22 @@ fn into_contiguous_kernel_packed<N: Int>(
     #[comptime] packed_dim: u32,
     #[comptime] packing: u32,
     #[comptime] rank: u32,
-    #[comptime] lines_per_unit: u32,
+    #[comptime] elems_per_thread: u32,
 ) {
     let line_size = output.line_size();
-    // This is incorrect but a temp fix for `cubecl-cpu`
-    let lines_per_unit = comptime![lines_per_unit / line_size];
+    let lines_per_thread = comptime![elems_per_thread / line_size];
 
-    let offset_output = ABSOLUTE_POS * lines_per_unit;
+    let offset_output = ABSOLUTE_POS * lines_per_thread;
     let offset_input = offset_output * line_size;
 
     if offset_output >= output.len() {
         terminate!()
     }
 
-    let mut registers = Array::<Line<N>>::vectorized(lines_per_unit, line_size);
+    let mut registers = Array::<Line<N>>::vectorized(lines_per_thread, line_size);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..lines_per_thread {
         let offset = i * line_size;
         let mut reg = Line::<N>::empty(line_size);
         #[unroll]
@@ -235,7 +232,7 @@ fn into_contiguous_kernel_packed<N: Int>(
     let offset_output = out_layout.to_source_pos(offset_output);
 
     #[unroll]
-    for i in 0..lines_per_unit {
+    for i in 0..lines_per_thread {
         output[offset_output + i] = registers[i];
     }
 }
@@ -313,44 +310,54 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&E::as_type_native_unchecked()),
+        R::supported_line_sizes().iter().cloned(),
         input.shape,
         input.strides,
         rank - 1,
     );
+    let num_vecs = num_elems / line_size as usize;
+    let num_sm = client
+        .properties()
+        .hardware
+        .num_streaming_multiprocessors
+        .unwrap_or(NUM_SM_APPROX);
+    let simul_vecs = num_sm * CubeDim::default().num_elems();
+    let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
+        0..2 => 1,
+        2..4 => 2,
+        4..8 => 4,
+        8.. => 8,
+    };
+
+    let mut num_elems_per_unit = line_size as u32 * elems_per_unit;
 
     let last_dim = output.shape[rank - 1];
     let is_padded = rank > 1 && last_dim != output.strides[rank - 2];
 
-    let out_line_size = if line_size > 1 {
-        line_size
-    } else {
-        tensor_line_size_parallel(
-            R::io_optimized_line_sizes(&E::as_type_native_unchecked()),
-            output.shape,
-            output.strides,
-            rank - 1,
-        )
-    };
-
-    let mut lines_per_unit =
-        lines_per_unit::<E>(num_elems as u32, out_line_size as u32, client.properties());
-    let mut elems_per_unit = out_line_size as u32 * lines_per_unit;
-
     // If tensor is strided, elems_per_unit must be compatible with last dim
-    while is_padded && !last_dim.is_multiple_of(elems_per_unit as usize) {
-        lines_per_unit /= 2;
+    while is_padded && !last_dim.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
+        num_elems_per_unit /= 2;
     }
 
+    let out_vec = if line_size > 1 {
+        line_size
+    } else {
+        *R::supported_line_sizes()
+            .iter()
+            .filter(|it| num_elems_per_unit.is_multiple_of(**it as u32))
+            .max()
+            .unwrap_or(&1)
+    };
+
     let input = linear_view(client, input, line_size);
-    let out_layout = LinearLayoutArgs::from_handle(client, output, out_line_size);
+    let out_layout = LinearLayoutArgs::from_handle(client, output, out_vec);
 
     let cube_dim = CubeDim::default();
     let cube_count =
-        calculate_cube_count_elemwise(num_elems.div_ceil(elems_per_unit as usize), cube_dim);
+        calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
-    let launch = if line_size != out_line_size && out_line_size > 1 {
+    let launch = if line_size != out_vec && out_vec > 1 {
         into_contiguous_kernel_pack::launch::<E, R>
     } else {
         into_contiguous_kernel::launch::<E, R>
@@ -361,9 +368,9 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
         cube_count,
         cube_dim,
         input,
-        output.as_tensor_arg(out_line_size),
+        output.as_tensor_arg(out_vec),
         out_layout,
-        lines_per_unit,
+        elems_per_unit,
     );
 }
 
@@ -385,10 +392,21 @@ pub fn into_contiguous_packed_ref<R: Runtime, E: Int>(
         output.strides,
         rank - 1,
     );
+    let num_vecs = num_elems / line_size as usize;
+    let num_sm = client
+        .properties()
+        .hardware
+        .num_streaming_multiprocessors
+        .unwrap_or(NUM_SM_APPROX);
+    let simul_vecs = num_sm * CubeDim::default().num_elems();
+    let mut elems_per_unit = match num_vecs as u32 / simul_vecs {
+        0..2 => 1,
+        2..4 => 2,
+        4..8 => 4,
+        8.. => 8,
+    };
 
-    let mut lines_per_unit =
-        lines_per_unit::<E>(num_elems as u32, line_size as u32, client.properties());
-    let mut elems_per_unit = line_size as u32 * lines_per_unit;
+    let mut num_elems_per_unit = line_size as u32 * elems_per_unit;
 
     let last_dim = output.shape[rank - 1];
     let packed_dim = input
@@ -401,16 +419,16 @@ pub fn into_contiguous_packed_ref<R: Runtime, E: Int>(
         .0;
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
-    while !last_dim.is_multiple_of(elems_per_unit as usize) {
-        lines_per_unit /= 2;
+    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
+        num_elems_per_unit /= 2;
     }
 
     let out_layout = LinearLayoutArgs::from_handle(client, output, line_size);
 
     let cube_dim = CubeDim::default();
     let cube_count =
-        calculate_cube_count_elemwise(num_elems.div_ceil(elems_per_unit as usize), cube_dim);
+        calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
     let in_shape = shape
         .iter()
@@ -428,31 +446,8 @@ pub fn into_contiguous_packed_ref<R: Runtime, E: Int>(
         packed_dim as u32,
         packing,
         rank as u32,
-        lines_per_unit,
+        elems_per_unit,
     );
-}
-
-fn lines_per_unit<E: CubePrimitive>(
-    num_elems: u32,
-    line_size: u32,
-    properties: &DeviceProperties,
-) -> u32 {
-    // Fine-tune this heuristic later
-    const MAX_REGISTERS: u32 = 32;
-
-    // Can probably schedule more than one cube per SM, but assume each SM is fully loaded from
-    // just one cube.
-    let num_sm = properties
-        .hardware
-        .num_streaming_multiprocessors
-        .unwrap_or(NUM_SM_APPROX);
-    let total_units = num_sm * CubeDim::default().num_elems();
-    let num_lines = num_elems / line_size;
-    let ratio = num_lines.div_ceil(total_units);
-    let lines_per_unit = 1u32 << ratio.ilog2();
-    let line_size_bits = E::elem_size_bits() * line_size;
-    let max_lines_per_unit = (MAX_REGISTERS * 32) / line_size_bits;
-    Ord::min(lines_per_unit, max_lines_per_unit)
 }
 
 /// Checks if the tensor associated with the given shape and strides is contiguous.
