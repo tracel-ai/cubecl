@@ -118,6 +118,40 @@ pub fn kernel_ballot(output: &mut Tensor<Line<u32>>) {
     }
 }
 
+#[cube(launch)]
+pub fn kernel_shuffle<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_shuffle(val, 0); // All lanes read from lane 0
+
+    if UNIT_POS == 0 {
+        output[0] = val2;
+    }
+}
+
+#[cube(launch)]
+pub fn kernel_shuffle_xor<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_shuffle_xor(val, 1);
+
+    output[UNIT_POS] = val2;
+}
+
+#[cube(launch)]
+pub fn kernel_shuffle_up<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_shuffle_up(val, 1);
+
+    output[UNIT_POS] = val2;
+}
+
+#[cube(launch)]
+pub fn kernel_shuffle_down<F: Float>(output: &mut Tensor<F>) {
+    let val = output[UNIT_POS];
+    let val2 = plane_shuffle_down(val, 1);
+
+    output[UNIT_POS] = val2;
+}
+
 pub fn test_plane_sum<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -624,6 +658,167 @@ pub fn test_plane_broadcast<
     );
 }
 
+pub fn test_plane_shuffle<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = input.clone();
+
+    // All lanes read from lane 0 (same as broadcast(value, 0))
+    for v in 0..vectorization as usize {
+        expected[v] = input[v]; // Lane 0's value
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_shuffle::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_shuffle_xor<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = input.clone();
+
+    // XOR with mask=1: lane i gets value from lane (i XOR 1)
+    // So lane 0 <-> 1, lane 2 <-> 3, lane 4 <-> 5, etc.
+    for lane in 0..plane_size as usize {
+        let partner = lane ^ 1;
+        for v in 0..vectorization as usize {
+            expected[lane * vectorization as usize + v] =
+                input[partner * vectorization as usize + v];
+        }
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_shuffle_xor::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_shuffle_up<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = input.clone();
+
+    // Shuffle up with delta=1: lane i gets value from lane (i - 1)
+    // Lane 0 stays the same, lanes 1..31 shift down
+    for lane in 1..plane_size as usize {
+        for v in 0..vectorization as usize {
+            expected[lane * vectorization as usize + v] =
+                input[(lane - 1) * vectorization as usize + v];
+        }
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_shuffle_up::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
+pub fn test_plane_shuffle_down<
+    TestRuntime: Runtime,
+    F: Float + num_traits::Float + CubeElement + Display,
+>(
+    client: ComputeClient<TestRuntime::Server>,
+    vectorization: u8,
+) {
+    let plane_size = 32;
+    let input: Vec<f32> = (0..plane_size * vectorization as u32)
+        .map(|x| x as f32)
+        .collect();
+    let mut expected = input.clone();
+
+    // Shuffle down with delta=1: lane i gets value from lane (i + 1)
+    // Lanes 0..30 shift up, lane 31 stays the same
+    for lane in 0..(plane_size - 1) as usize {
+        for v in 0..vectorization as usize {
+            expected[lane * vectorization as usize + v] =
+                input[(lane + 1) * vectorization as usize + v];
+        }
+    }
+
+    let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
+    let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
+
+    test_plane_operation::<TestRuntime, F, _>(
+        &input,
+        &expected,
+        vectorization,
+        client.clone(),
+        |cube_count, handle| {
+            kernel_shuffle_down::launch::<F, TestRuntime>(
+                &client,
+                cube_count,
+                CubeDim::new(plane_size, 1, 1),
+                handle,
+            )
+        },
+    );
+}
+
 fn test_plane_operation<
     TestRuntime: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
@@ -908,6 +1103,86 @@ macro_rules! testgen_plane {
         fn test_plane_ballot() {
             let client = TestRuntime::client(&Default::default());
             cubecl_core::runtime_tests::plane::test_plane_ballot::<TestRuntime>(client.clone());
+        }
+
+        fn impl_test_plane_shuffle(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_shuffle_vec1() {
+            impl_test_plane_shuffle(1);
+        }
+        #[test]
+        fn test_plane_shuffle_vec2() {
+            impl_test_plane_shuffle(2);
+        }
+        #[test]
+        fn test_plane_shuffle_vec4() {
+            impl_test_plane_shuffle(4);
+        }
+
+        fn impl_test_plane_shuffle_xor(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle_xor::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_shuffle_xor_vec1() {
+            impl_test_plane_shuffle_xor(1);
+        }
+        #[test]
+        fn test_plane_shuffle_xor_vec2() {
+            impl_test_plane_shuffle_xor(2);
+        }
+        #[test]
+        fn test_plane_shuffle_xor_vec4() {
+            impl_test_plane_shuffle_xor(4);
+        }
+
+        fn impl_test_plane_shuffle_up(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle_up::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_shuffle_up_vec1() {
+            impl_test_plane_shuffle_up(1);
+        }
+        #[test]
+        fn test_plane_shuffle_up_vec2() {
+            impl_test_plane_shuffle_up(2);
+        }
+        #[test]
+        fn test_plane_shuffle_up_vec4() {
+            impl_test_plane_shuffle_up(4);
+        }
+
+        fn impl_test_plane_shuffle_down(vectorization: u8) {
+            let client = TestRuntime::client(&Default::default());
+            cubecl_core::runtime_tests::plane::test_plane_shuffle_down::<TestRuntime, FloatType>(
+                client.clone(),
+                vectorization,
+            );
+        }
+        #[test]
+        fn test_plane_shuffle_down_vec1() {
+            impl_test_plane_shuffle_down(1);
+        }
+        #[test]
+        fn test_plane_shuffle_down_vec2() {
+            impl_test_plane_shuffle_down(2);
+        }
+        #[test]
+        fn test_plane_shuffle_down_vec4() {
+            impl_test_plane_shuffle_down(4);
         }
     };
 }

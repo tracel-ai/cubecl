@@ -56,6 +56,26 @@ pub enum Subgroup {
         input: Variable,
         out: Variable,
     },
+    Shuffle {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    ShuffleXor {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    ShuffleUp {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
+    ShuffleDown {
+        lhs: Variable,
+        rhs: Variable,
+        out: Variable,
+    },
 }
 
 impl Display for Subgroup {
@@ -158,6 +178,22 @@ impl Display for Subgroup {
             Subgroup::Max { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = subgroupMax({input});")
+            }
+            Subgroup::Shuffle { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffle({lhs}, {rhs});")
+            }
+            Subgroup::ShuffleXor { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffleXor({lhs}, {rhs});")
+            }
+            Subgroup::ShuffleUp { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffleUp({lhs}, {rhs});")
+            }
+            Subgroup::ShuffleDown { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = subgroupShuffleDown({lhs}, {rhs});")
             }
         }
     }

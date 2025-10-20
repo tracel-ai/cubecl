@@ -183,6 +183,34 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     .unwrap();
                 });
             }
+            Plane::Shuffle(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.group_non_uniform_shuffle(ty, Some(out), subgroup, lhs, rhs)
+                        .unwrap();
+                });
+            }
+            Plane::ShuffleXor(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.group_non_uniform_shuffle_xor(ty, Some(out), subgroup, lhs, rhs)
+                        .unwrap();
+                });
+            }
+            Plane::ShuffleUp(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.group_non_uniform_shuffle_up(ty, Some(out), subgroup, lhs, rhs)
+                        .unwrap();
+                });
+            }
+            Plane::ShuffleDown(op) => {
+                self.capabilities.insert(Capability::GroupNonUniformShuffle);
+                self.compile_binary_op_no_cast(op, out, uniform, |b, _, ty, lhs, rhs, out| {
+                    b.group_non_uniform_shuffle_down(ty, Some(out), subgroup, lhs, rhs)
+                        .unwrap();
+                });
+            }
         }
     }
 
