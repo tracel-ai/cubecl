@@ -1,0 +1,16 @@
+[package]
+name = "transpose"
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[features]
+default = []
+std = ["cubecl/std"]
+cuda = ["cubecl/cuda"]
+wgpu = ["cubecl/wgpu"]
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", version = "0.7.0" }
