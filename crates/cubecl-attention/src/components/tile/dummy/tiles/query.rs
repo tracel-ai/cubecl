@@ -24,6 +24,6 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyQuery<AP, AM> {
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryTile<AP> for DummyQuery<AP, AM> {
     fn update(&mut self, tile: &StridedTile<QG<AP>>) {
-        AM::fill_query(&tile, &mut self.fragment)
+        AM::fill_query(tile, &mut self.fragment)
     }
 }

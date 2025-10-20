@@ -70,7 +70,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
 
         let exp_m_diff = state.m().exp_diff(new_m);
 
-        let new_l = exp_m_diff.mul(&state.l()).add(rowsum_placeholder);
+        let new_l = exp_m_diff.mul(state.l()).add(rowsum_placeholder);
 
         state.update(new_m, &new_l);
 

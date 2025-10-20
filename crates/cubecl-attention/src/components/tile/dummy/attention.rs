@@ -42,7 +42,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
         prev_state: &RunningState<SM<AP>>,
         #[comptime] _config: Self::Config,
     ) {
-        acc.scale_div(&prev_state.l());
+        acc.scale_div(prev_state.l());
     }
 
     fn write_results(
@@ -138,7 +138,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP>
             mask,
         );
 
-        softmax.row_max::<Self::Config>(max_placeholder, &state.m(), config);
+        softmax.row_max::<Self::Config>(max_placeholder, state.m(), config);
 
         softmax.to_prob::<Self::Config>(state, max_placeholder, sum_placeholder, config)
     }
