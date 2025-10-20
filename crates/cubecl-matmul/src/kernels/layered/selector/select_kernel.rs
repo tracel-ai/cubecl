@@ -32,19 +32,26 @@ where
 {
     let elems = MatmulElems::new::<MS::Precision>();
 
+    let mut view_line_sizes = line_sizes;
+
+    if let MatmulInputHandleRef::Quantized { scheme, .. } = lhs {
+        view_line_sizes.lhs *= scheme.num_quants() as u8;
+    }
+    if let MatmulInputHandleRef::Quantized { scheme, .. } = rhs {
+        view_line_sizes.rhs *= scheme.num_quants() as u8;
+    }
+
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &line_sizes, elems, args)?
+            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, elems, args)?
         }
     };
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &view_line_sizes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
     );
-
-    let line_sizes = config.line_sizes();
 
     launch_with_config::<MS, R, A>(
         client,
@@ -78,7 +85,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     input: InputRuntimeArg<'a, MS, R>,
     output: OutputRuntimeArg<'a, MS, R>,
     problem: MatmulProblem,
-    line_sizes: MatmulLineSizes,
+    view_line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
 ) -> Result<(), MatmulSetupError> {
@@ -87,10 +94,10 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &line_sizes, elems, args)?
+            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, elems, args)?
         }
     };
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &line_sizes)?;
+    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &view_line_sizes)?;
 
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,

@@ -672,9 +672,7 @@ pub fn test_plane_shuffle<
     let mut expected = input.clone();
 
     // All lanes read from lane 0 (same as broadcast(value, 0))
-    for v in 0..vectorization as usize {
-        expected[v] = input[v]; // Lane 0's value
-    }
+    expected[..vectorization as usize].copy_from_slice(&input[..vectorization as usize]);
 
     let input: Vec<F> = input.into_iter().map(|x| F::new(x)).collect();
     let expected: Vec<F> = expected.into_iter().map(|x| F::new(x)).collect();
