@@ -123,6 +123,8 @@ fn into_contiguous_kernel_pack<N: CubePrimitive>(
     #[comptime] lines_per_unit: u32,
 ) {
     let line_size = output.line_size();
+    // This is incorrect but a temp fix for `cubecl-cpu`
+    let lines_per_unit = comptime![lines_per_unit / line_size];
 
     let offset_output = ABSOLUTE_POS * lines_per_unit;
     let offset_input = offset_output * line_size;
@@ -205,6 +207,8 @@ fn into_contiguous_kernel_packed<N: Int>(
     #[comptime] lines_per_unit: u32,
 ) {
     let line_size = output.line_size();
+    // This is incorrect but a temp fix for `cubecl-cpu`
+    let lines_per_unit = comptime![lines_per_unit / line_size];
 
     let offset_output = ABSOLUTE_POS * lines_per_unit;
     let offset_input = offset_output * line_size;
