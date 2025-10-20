@@ -6,16 +6,14 @@ use cubecl_matmul::components::{
     tile::StridedTile,
 };
 
-use crate::components::tile::MaskTile;
-use crate::components::tile::SoftmaxTile;
+use crate::components::InvalidConfigError;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes,
     attention_types::*,
     fragment::AttentionMatmulConfig,
-    tile::{KeyValueTile, QueryTile, RowWise, RunningState},
+    tile::{RowWise, RunningState},
 };
-use crate::components::{InvalidConfigError, tile::AccumulatorTile};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 

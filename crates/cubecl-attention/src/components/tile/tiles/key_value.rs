@@ -7,14 +7,18 @@ use crate::components::fragment::AttentionMatmul;
 use crate::components::tile::{KeyValueTile, KeyValueTileExpand};
 
 #[derive(CubeType)]
-pub enum DummyKeyValue<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+/// Key and Value inputs to the Tile Attention
+///
+/// Key and Value share the same trait because they may
+/// be the same reused underlying fragment
+pub enum KeyValueTile<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     Reuse(ReuseKV<AP, AM>),
     Key(Key<AP, AM>),
     Value(Value<AP, AM>),
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyKeyValue<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueTile<AP, AM> {
     pub fn new_key_value(#[comptime] config: AM::Config) -> Self {
         Self::new_Reuse(ReuseKV::new(config))
     }
@@ -26,44 +30,40 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyKeyValue<AP, AM> {
     pub fn new_value(#[comptime] config: AM::Config) -> Self {
         Self::new_Value(Value::new(config))
     }
-}
 
-#[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueTile<KVT<AP>>
-    for DummyKeyValue<AP, AM>
-{
-    type KeyFragment = AM::KeyValue;
-    type ValueFragment = AM::KeyValue;
-
-    fn key(&self) -> &AM::KeyValue {
+    /// Get the underlying key as readable
+    pub fn key(&self) -> &AM::KeyValue {
         match self {
-            DummyKeyValue::Reuse(reuse_kv) => &reuse_kv.fragment,
-            DummyKeyValue::Key(key) => &key.fragment,
-            DummyKeyValue::Value(_) => panic!("Tried to access key on value-only fragment"),
+            KeyValueTile::Reuse(reuse_kv) => &reuse_kv.fragment,
+            KeyValueTile::Key(key) => &key.fragment,
+            KeyValueTile::Value(_) => panic!("Tried to access key on value-only fragment"),
         }
     }
 
-    fn key_mut(&mut self) -> &mut AM::KeyValue {
+    /// Get the underlying key as writable
+    pub fn key_mut(&mut self) -> &mut AM::KeyValue {
         match self {
-            DummyKeyValue::Reuse(reuse_kv) => &mut reuse_kv.fragment,
-            DummyKeyValue::Key(key) => &mut key.fragment,
-            DummyKeyValue::Value(_) => panic!("Tried to access key on value-only fragment"),
+            KeyValueTile::Reuse(reuse_kv) => &mut reuse_kv.fragment,
+            KeyValueTile::Key(key) => &mut key.fragment,
+            KeyValueTile::Value(_) => panic!("Tried to access key on value-only fragment"),
         }
     }
 
-    fn value(&self) -> &AM::KeyValue {
+    /// Get the underlying value as readable
+    pub fn value(&self) -> &AM::KeyValue {
         match self {
-            DummyKeyValue::Reuse(reuse_kv) => &reuse_kv.fragment,
-            DummyKeyValue::Key(_) => panic!("Tried to access value on key-only fragment"),
-            DummyKeyValue::Value(value) => &value.fragment,
+            KeyValueTile::Reuse(reuse_kv) => &reuse_kv.fragment,
+            KeyValueTile::Key(_) => panic!("Tried to access value on key-only fragment"),
+            KeyValueTile::Value(value) => &value.fragment,
         }
     }
 
-    fn value_mut(&mut self) -> &mut AM::KeyValue {
+    /// Get the underlying value as writable
+    pub fn value_mut(&mut self) -> &mut AM::KeyValue {
         match self {
-            DummyKeyValue::Reuse(reuse_kv) => &mut reuse_kv.fragment,
-            DummyKeyValue::Key(_) => panic!("Tried to access value on key-only fragment"),
-            DummyKeyValue::Value(value) => &mut value.fragment,
+            KeyValueTile::Reuse(reuse_kv) => &mut reuse_kv.fragment,
+            KeyValueTile::Key(_) => panic!("Tried to access value on key-only fragment"),
+            KeyValueTile::Value(value) => &mut value.fragment,
         }
     }
 }

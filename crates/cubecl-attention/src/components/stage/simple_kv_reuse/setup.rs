@@ -11,7 +11,7 @@ use crate::components::{
     AttentionSetupError,
     stage::{
         StageAttentionFamily,
-        dummy::{AttentionStageMemoryConfig, DummyStageAttention, DummyStageConfig},
+        simple_kv_reuse::{AttentionStageMemoryConfig, DummyStageAttention, DummyStageConfig},
     },
     tile::{AttentionTilingLayout, TileAttentionFamily},
 };

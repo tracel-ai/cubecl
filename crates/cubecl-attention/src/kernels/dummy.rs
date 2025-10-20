@@ -4,8 +4,8 @@ use crate::components::fragment::accelerated::AcceleratedAttentionMatmul;
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
 use crate::{
     components::{
-        AvailableLineSizes, batch::dummy::DummyBatchAttentionFamily,
-        global::dummy::DummyGlobalAttentionFamily, stage::dummy::DummyStageAttentionFamily,
+        AvailableLineSizes, batch::simple::DummyBatchAttentionFamily,
+        global::simple::DummyGlobalAttentionFamily, stage::simple_kv_reuse::DummyStageAttentionFamily,
         tile::dummy::DummyTileAttentionFamily,
     },
     kernels::Algorithm,

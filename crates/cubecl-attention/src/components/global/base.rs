@@ -1,14 +1,14 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::dummy::AttentionReader;
+use crate::components::global::simple::AttentionReader;
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, attention_types::*,
-    global::dummy::QueryReader, stage::StageAttentionConfig,
+    global::simple::QueryReader, stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 

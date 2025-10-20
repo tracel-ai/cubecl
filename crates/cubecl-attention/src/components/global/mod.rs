@@ -1,4 +1,4 @@
-pub mod dummy;
+pub mod simple;
 
 mod base;
 mod layout;

@@ -1,5 +1,5 @@
 use crate::components::attention_types::*;
-use crate::components::global::dummy::reader::{AttentionReader, AttentionReaderExpand};
+use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::StageIdent;

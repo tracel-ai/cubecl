@@ -13,32 +13,40 @@ use crate::components::tile::{RunningState, SoftmaxTile, SoftmaxTileExpand};
 use crate::components::tile::{row_max, row_sum};
 
 #[derive(CubeType)]
-pub struct DummySoftmax<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+/// Softmax tile for the Tile Attention
+///
+/// This tile is neither an input nor an output,
+/// but the intermediate step where the softmax part of attention happens
+pub struct SoftmaxTile<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     pub fragment: AM::Softmax,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP, AM> {
     pub fn new(#[comptime] config: AM::Config) -> Self {
         let mut fragment = AM::allocate_softmax(config);
         AM::zero_softmax(&mut fragment, config);
 
-        DummySoftmax::<AP, AM> { fragment }
+        SoftmaxTile::<AP, AM> { fragment }
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for SoftmaxTile<AP, AM> {
     type Fragment = AM::Softmax;
 
+    /// Init the running state used in softmax
     fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
         RunningState::<SM<AP>>::init(num_rows)
     }
 
+    /// Scale the tile by a constant factor and apply the mask
     fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: SM<AP>, mask: &M) {
         Self::Fragment::scale_and_mask::<M>(&mut this.fragment, scale, mask);
     }
 
+    /// Compute the max of each row, starting with base
+    /// as first element of the reduction, and storing result in placeholder
     fn row_max<TC: AttentionMatmulConfig>(
         &self,
         placeholder: &mut RowWise<SM<AP>>,
@@ -53,6 +61,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         )
     }
 
+    /// Converts scores into (unnormalized) probabilities, updates running state,
+    /// and returns the factor needed to scale the accumulator
     fn to_prob<TC: AttentionMatmulConfig>(
         &mut self,
         state: &mut RunningState<SM<AP>>,

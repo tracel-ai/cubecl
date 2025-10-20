@@ -7,18 +7,18 @@ use crate::components::{
     AttentionPrecision,
     attention_types::*,
     batch::{
-        BatchAttention, BatchAttentionConfig, CubeCountInput, dummy::config::DummyBatchConfig,
+        BatchAttention, BatchAttentionConfig, CubeCountInput, simple::config::DummyBatchConfig,
     },
     global::{GlobalAttention, GlobalAttentionConfig as _},
 };
 
-pub struct DummyBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {
+pub struct SimpleBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>> {
     _phantom: PhantomData<(AP, GA)>,
 }
 
 #[cube]
 impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
-    for DummyBatchAttention<AP, GA>
+    for SimpleBatchAttention<AP, GA>
 {
     type Config = DummyBatchConfig<GA::Config>;
 

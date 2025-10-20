@@ -8,19 +8,19 @@ use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::dummy::MaskReader;
-use crate::components::global::dummy::reader::{AttentionReader, AttentionReaderExpand};
-use crate::components::global::dummy::writer::DummyWriter;
+use crate::components::global::simple::MaskReader;
+use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
+use crate::components::global::simple::writer::DummyWriter;
 use crate::components::global::{
     AttentionGlobalLayout,
-    dummy::{DummyKeyReader, DummyValueReader},
+    simple::{DummyKeyReader, DummyValueReader},
 };
 use crate::components::stage::StageAttention;
 use crate::components::tile::AttentionTilingLayout;
-use crate::components::{AttentionIdent, global::dummy::QueryReader};
+use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,
-    global::{GlobalAttention, dummy::config::DummyGlobalConfig},
+    global::{GlobalAttention, simple::config::DummyGlobalConfig},
 };
 
 pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {

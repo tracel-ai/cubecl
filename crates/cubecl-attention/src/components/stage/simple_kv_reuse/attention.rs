@@ -8,11 +8,13 @@ use cubecl_matmul::components::{
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
-use crate::components::global::dummy::MaskReader;
-use crate::components::global::dummy::QueryReader;
-use crate::components::stage::dummy::MaskPartition;
-use crate::components::stage::dummy::SoftmaxPartition;
-use crate::components::stage::dummy::{Accumulators, DummyStageConfig, KeyValues, QueryPartition};
+use crate::components::global::simple::MaskReader;
+use crate::components::global::simple::QueryReader;
+use crate::components::stage::simple_kv_reuse::MaskPartition;
+use crate::components::stage::simple_kv_reuse::SoftmaxPartition;
+use crate::components::stage::simple_kv_reuse::{
+    AccumulatorPartition, DummyStageConfig, KeyValues, QueryPartition,
+};
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
@@ -45,7 +47,7 @@ impl<
     type QueryRegisters = QueryPartition<AP, TA, Self::Config>;
     type KeyValueRegisters = KeyValues<AP, TA, Self::Config>;
     type SoftmaxRegisters = SoftmaxPartition<AP, TA, Self::Config>;
-    type AccumulatorRegisters = Accumulators<AP, TA, Self::Config>;
+    type AccumulatorRegisters = AccumulatorPartition<AP, TA, Self::Config>;
     type MaskRegisters = MaskPartition<AP, TA, Self::Config>;
 
     fn execute(

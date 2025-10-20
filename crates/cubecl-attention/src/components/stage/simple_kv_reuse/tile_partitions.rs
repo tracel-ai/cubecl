@@ -10,60 +10,6 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 #[derive(CubeType)]
-pub struct Accumulators<
-    AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> {
-    sequence: Sequence<TA::AccumulatorTile>,
-    #[cube(comptime)]
-    _phantom: PhantomData<S>,
-}
-
-#[cube]
-impl<
-    AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> Accumulators<AP, TA, S>
-{
-    pub fn new(#[comptime] config: S) -> Accumulators<AP, TA, S> {
-        let p = config.tiling_scheme().partition_size;
-        let mut sequence = Sequence::new();
-
-        #[unroll]
-        for _ in 0..comptime!(p.seq_q * p.val_dim) {
-            sequence.push(TA::init_accumulator(config.tile_config()));
-        }
-
-        Accumulators::<AP, TA, S> {
-            sequence,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn get_at(
-        &self,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
-        #[comptime] config: S,
-    ) -> &TA::AccumulatorTile {
-        let p = config.tiling_scheme().partition_size;
-        self.sequence.index(comptime!(i * p.val_dim + j))
-    }
-
-    pub fn get_at_mut(
-        &mut self,
-        #[comptime] i: u32,
-        #[comptime] j: u32,
-        #[comptime] config: S,
-    ) -> &mut TA::AccumulatorTile {
-        let p = config.tiling_scheme().partition_size;
-        self.sequence.index_mut(comptime!(i * p.val_dim + j))
-    }
-}
-
-#[derive(CubeType)]
 pub struct QueryPartition<
     AP: AttentionPrecision,
     TA: TileAttention<AP>,
@@ -358,5 +304,59 @@ impl<
     ) -> &mut TA::MaskTile {
         let p = tiling_scheme.partition_size;
         self.sequence.index_mut(comptime!(q * p.seq_kv + kv))
+    }
+}
+
+#[derive(CubeType)]
+pub struct AccumulatorPartition<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> {
+    sequence: Sequence<TA::AccumulatorTile>,
+    #[cube(comptime)]
+    _phantom: PhantomData<S>,
+}
+
+#[cube]
+impl<
+    AP: AttentionPrecision,
+    TA: TileAttention<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+> AccumulatorPartition<AP, TA, S>
+{
+    pub fn new(#[comptime] config: S) -> AccumulatorPartition<AP, TA, S> {
+        let p = config.tiling_scheme().partition_size;
+        let mut sequence = Sequence::new();
+
+        #[unroll]
+        for _ in 0..comptime!(p.seq_q * p.val_dim) {
+            sequence.push(TA::init_accumulator(config.tile_config()));
+        }
+
+        AccumulatorPartition::<AP, TA, S> {
+            sequence,
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn get_at(
+        &self,
+        #[comptime] i: u32,
+        #[comptime] j: u32,
+        #[comptime] config: S,
+    ) -> &TA::AccumulatorTile {
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index(comptime!(i * p.val_dim + j))
+    }
+
+    pub fn get_at_mut(
+        &mut self,
+        #[comptime] i: u32,
+        #[comptime] j: u32,
+        #[comptime] config: S,
+    ) -> &mut TA::AccumulatorTile {
+        let p = config.tiling_scheme().partition_size;
+        self.sequence.index_mut(comptime!(i * p.val_dim + j))
     }
 }

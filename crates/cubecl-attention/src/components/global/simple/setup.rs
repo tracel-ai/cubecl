@@ -8,7 +8,7 @@ use crate::components::{
     AttentionSetupError,
     global::{
         GlobalAttentionFamily,
-        dummy::{DummyGlobalAttention, config::DummyGlobalConfig},
+        simple::{DummyGlobalAttention, config::DummyGlobalConfig},
     },
     stage::{StageAttentionConfig as _, StageAttentionFamily},
 };

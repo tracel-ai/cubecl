@@ -6,15 +6,15 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::global::dummy::MaskReader;
-use crate::components::stage::dummy::AttentionStageMemoryConfig;
+use crate::components::global::simple::MaskReader;
+use crate::components::stage::simple_kv_reuse::AttentionStageMemoryConfig;
 use crate::components::tile::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
     tile::AttentionTilingLayout,
 };
-use crate::components::{AttentionTilingScheme, global::dummy::QueryReader};
+use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
 use crate::components::{attention_types::*, fragment::AttentionMatmulConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;

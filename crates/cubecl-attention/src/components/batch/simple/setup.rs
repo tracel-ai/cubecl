@@ -7,7 +7,7 @@ use crate::components::{
     attention_types::*,
     batch::{
         BatchAttentionFamily,
-        dummy::{DummyBatchAttention, config::DummyBatchConfig},
+        simple::{SimpleBatchAttention, config::DummyBatchConfig},
         entry_point::attention,
     },
     global::GlobalAttentionFamily,
@@ -18,7 +18,7 @@ pub struct DummyBatchAttentionFamily<GA: GlobalAttentionFamily> {
 }
 
 impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFamily<GA> {
-    type Attention<AP: AttentionPrecision> = DummyBatchAttention<AP, GA::Attention<AP>>;
+    type Attention<AP: AttentionPrecision> = SimpleBatchAttention<AP, GA::Attention<AP>>;
     type Config = DummyBatchConfig<GA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(

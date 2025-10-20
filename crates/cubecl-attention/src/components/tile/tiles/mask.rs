@@ -15,6 +15,73 @@ use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coordinates;
 
 #[derive(CubeType)]
+/// Mask tile for Tile Attention
+/// It is an additive mask, which means the result of apply should be added, not multiplied
+pub enum MaskTile<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    Materialized(MaterializedTileMask<AP, AM>),
+    Logical(LogicalTileMask<AM::FragmentLayout>),
+}
+
+#[cube]
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile<AP, AM> {
+    pub fn new(
+        out_of_bounds: CubeOption<Coords2d>,
+        #[comptime] partition_pos: Coords2d,
+        #[comptime] config: AM::Config,
+    ) -> MaskTile<AP, AM> {
+        let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
+            logical_iter_origin: LogicalIterOrigin::dummy(),
+            partition_pos,
+            causal: config.causal_mask(),
+            out_of_bounds,
+            fragment_layout: AM::softmax_layout(config),
+        };
+
+        if config.materialized_mask() {
+            MaskTile::new_Materialized(MaterializedTileMask::<AP, AM> {
+                fragment: AM::allocate_mask(config),
+                logical_mask,
+                config,
+            })
+        } else {
+            MaskTile::new_Logical(logical_mask)
+        }
+    }
+
+    /// Returns -infinity if masked at local_pos, or zero if not
+    pub fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
+        let should_mask = match this {
+            MaskTile::Materialized(materialized_tile_mask) => {
+                materialized_tile_mask.should_mask(local_pos)
+            }
+            MaskTile::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
+        };
+
+        E::cast_from(should_mask) * E::min_value()
+    }
+
+    /// Loads the mask data into the fragment, if a tile is given, otherwise only
+    /// updates the logical mask
+    pub fn update(
+        &mut self,
+        new_origin: Coords2d,
+        tile: CubeOption<StridedTile<Self::MaskPrecision>>,
+    ) {
+        match self {
+            MaskTile::Materialized(materialized_tile_mask) => {
+                // TODO read the tile
+                materialized_tile_mask
+                    .logical_mask
+                    .update_origin(new_origin);
+
+                materialized_tile_mask.update_tile(tile.unwrap())
+            }
+            MaskTile::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
+        }
+    }
+}
+
+#[derive(CubeType)]
 pub struct LogicalIterOrigin {
     row: RuntimeCell<u32>,
     col: RuntimeCell<u32>,
@@ -94,69 +161,5 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
         AM::fill_mask(&tile, &mut self.fragment, self.config);
-    }
-}
-
-#[derive(CubeType)]
-pub enum DummyMask<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
-    Materialized(MaterializedTileMask<AP, AM>),
-    Logical(LogicalTileMask<AM::FragmentLayout>),
-}
-
-#[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummyMask<AP, AM> {
-    pub fn new(
-        out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] partition_pos: Coords2d,
-        #[comptime] config: AM::Config,
-    ) -> DummyMask<AP, AM> {
-        let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
-            logical_iter_origin: LogicalIterOrigin::dummy(),
-            partition_pos,
-            causal: config.causal_mask(),
-            out_of_bounds,
-            fragment_layout: AM::softmax_layout(config),
-        };
-
-        if config.materialized_mask() {
-            DummyMask::new_Materialized(MaterializedTileMask::<AP, AM> {
-                fragment: AM::allocate_mask(config),
-                logical_mask,
-                config,
-            })
-        } else {
-            DummyMask::new_Logical(logical_mask)
-        }
-    }
-}
-
-#[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for DummyMask<AP, AM> {
-    type Fragment = AM::Mask;
-    type MaskPrecision = MSK<AP>;
-
-    fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
-        let should_mask = match this {
-            DummyMask::Materialized(materialized_tile_mask) => {
-                materialized_tile_mask.should_mask(local_pos)
-            }
-            DummyMask::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
-        };
-
-        E::cast_from(should_mask) * E::min_value()
-    }
-
-    fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<Self::MaskPrecision>>) {
-        match self {
-            DummyMask::Materialized(materialized_tile_mask) => {
-                // TODO read the tile
-                materialized_tile_mask
-                    .logical_mask
-                    .update_origin(new_origin);
-
-                materialized_tile_mask.update_tile(tile.unwrap())
-            }
-            DummyMask::Logical(logical_tile_mask) => logical_tile_mask.update_origin(new_origin),
-        }
     }
 }
