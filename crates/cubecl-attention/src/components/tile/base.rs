@@ -89,8 +89,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
 
-    fn fill_query<E: Float>(tile: &StridedTile<E>, registers: &mut Self::QueryTile);
-
     fn fill_key<E: Float>(
         tile: &StridedTile<E>,
         registers: &mut Self::KeyValueTile,
@@ -100,12 +98,6 @@ pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         registers: &mut Self::KeyValueTile,
-        #[comptime] config: Self::Config,
-    );
-
-    fn fill_mask<E: Numeric>(
-        tile: &StridedTile<E>,
-        registers: &mut Self::MaskTile,
         #[comptime] config: Self::Config,
     );
 

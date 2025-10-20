@@ -23,13 +23,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryFragment<AP, AM> {
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> QueryTile<AP> for QueryFragment<AP, AM> {
-    type Fragment = AM::Query;
-
-    fn fragment_mut(&mut self) -> &mut Self::Fragment {
-        &mut self.fragment
-    }
-
-    fn update(&mut self, tile: StridedTile<QG<AP>>) {
+    fn update(&mut self, tile: &StridedTile<QG<AP>>) {
         AM::fill_query(&tile, &mut self.fragment)
     }
 }

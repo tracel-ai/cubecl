@@ -16,9 +16,6 @@ use crate::components::tile::{row_max, row_sum};
 #[derive(CubeType)]
 pub struct DummySoftmax<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
     pub fragment: AM::Softmax,
-
-    #[cube(comptime)]
-    config: AM::Config,
 }
 
 #[cube]
@@ -27,28 +24,20 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
         let mut fragment = AM::allocate_softmax(config);
         AM::zero_softmax(&mut fragment, config);
 
-        DummySoftmax::<AP, AM> { fragment, config }
+        DummySoftmax::<AP, AM> { fragment }
     }
 }
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
-    type FragmentOps = AM::Softmax;
+    type Fragment = AM::Softmax;
 
     fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
         RunningState::<SM<AP>>::init(num_rows)
     }
 
-    fn init_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>> {
-        RowWise::new_filled(num_rows, SM::<AP>::min_value())
-    }
-
-    fn zero(&mut self) {
-        AM::zero_softmax(&mut self.fragment, self.config);
-    }
-
     fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: SM<AP>, mask: &M) {
-        Self::FragmentOps::scale_and_mask::<M>(&mut this.fragment, scale, mask);
+        Self::Fragment::scale_and_mask::<M>(&mut this.fragment, scale, mask);
     }
 
     fn row_max<TC: AttentionMatmulConfig>(
@@ -57,7 +46,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<SM<AP>, Self::FragmentOps, BroadcastReducer, TC>(
+        row_max::<SM<AP>, Self::Fragment, BroadcastReducer, TC>(
             placeholder,
             base,
             &self.fragment,
@@ -72,17 +61,17 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         rowsum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) -> RowWise<SM<AP>> {
-        self.fragment.exp_m_diff(new_m);
+        self.fragment.exp_diff(new_m);
 
-        row_sum::<SM<AP>, Self::FragmentOps, BroadcastReducer, TC>(
+        row_sum::<SM<AP>, Self::Fragment, BroadcastReducer, TC>(
             rowsum_placeholder,
             &self.fragment,
             config,
         );
 
-        let exp_m_diff = state.m.exp_m_diff(new_m);
+        let exp_m_diff = state.m().exp_diff(new_m);
 
-        let new_l = exp_m_diff.mul(&state.l).add(rowsum_placeholder);
+        let new_l = exp_m_diff.mul(&state.l()).add(rowsum_placeholder);
 
         state.update(new_m, &new_l);
 

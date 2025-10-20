@@ -7,8 +7,8 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
 use crate::components::tile::dummy::AttentionMatmul;
 use crate::components::tile::dummy::attention_matmul::AttentionMatmulConfig;
-use crate::components::tile::row::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand, MaskTile, MaskTileExpand};
+use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;
@@ -143,17 +143,6 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile for MaskFragment<
         };
 
         E::cast_from(should_mask) * E::min_value()
-    }
-
-    fn fragment_mut(&mut self) -> &mut Self::Fragment {
-        match self {
-            MaskFragment::Materialized(materialized_tile_mask) => {
-                &mut materialized_tile_mask.fragment
-            }
-            MaskFragment::Logical(_) => {
-                panic!("Tried to get fragment of logical mask")
-            }
-        }
     }
 
     fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<Self::MaskPrecision>>) {

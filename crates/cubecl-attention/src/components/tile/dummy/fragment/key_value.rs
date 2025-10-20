@@ -32,8 +32,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueFragment<AP, AM> {
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> KeyValueTile<KVT<AP>>
     for KeyValueFragment<AP, AM>
 {
-    type Key = AM::KeyValue;
-    type Value = AM::KeyValue;
+    type KeyFragment = AM::KeyValue;
+    type ValueFragment = AM::KeyValue;
 
     fn key(&self) -> &AM::KeyValue {
         match self {

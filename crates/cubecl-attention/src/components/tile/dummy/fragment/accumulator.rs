@@ -7,7 +7,7 @@ use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::row::{FragmentOps, FragmentOpsExpand};
+use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
@@ -29,12 +29,13 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> AccumulatorTile<AP>
     for DummyAccumulator<AP, AM>
 {
     fn scale_mul(&mut self, scale: &RowWise<SM<AP>>) {
-        self.fragment.scale(&RowWise::<SM<AP>>::cast_from(scale));
+        self.fragment
+            .rowwise_scale(&RowWise::<SM<AP>>::cast_from(scale));
     }
 
     fn scale_div(&mut self, scale: &RowWise<SM<AP>>) {
         let mut scale = RowWise::<SM<AP>>::cast_from(scale);
         scale.recip_inplace();
-        self.fragment.scale(&scale);
+        self.fragment.rowwise_scale(&scale);
     }
 }

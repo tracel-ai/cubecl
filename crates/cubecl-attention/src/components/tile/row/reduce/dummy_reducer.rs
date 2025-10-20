@@ -1,14 +1,15 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::tile::FragmentLayout;
 use crate::components::tile::ReduceOp;
 use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::row::base::FragmentLayout;
 use crate::components::tile::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
+/// Naive row reducer using shared memory
 pub struct DummyReducer {}
 
 #[cube]

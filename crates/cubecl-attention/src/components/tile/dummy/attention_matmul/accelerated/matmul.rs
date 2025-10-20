@@ -41,7 +41,7 @@ impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale(&mut self, _val: &RowWise<E>) {
+    fn rowwise_scale(&mut self, _val: &RowWise<E>) {
         todo!()
     }
 
@@ -49,7 +49,7 @@ impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn exp_m_diff(&mut self, _val: &RowWise<E>) {
+    fn exp_diff(&mut self, _val: &RowWise<E>) {
         todo!()
     }
 

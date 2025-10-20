@@ -235,7 +235,7 @@ impl<
                 let tile_to_write = registers.get_at_mut(q, hd, config);
                 let tile_read = reader.get_tile::<Self::Config>((q, hd).runtime(), config);
 
-                tile_to_write.update(tile_read);
+                tile_to_write.update(&tile_read);
             }
         }
     }

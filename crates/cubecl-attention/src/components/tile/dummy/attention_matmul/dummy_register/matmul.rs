@@ -40,8 +40,6 @@ pub enum InnerLayout {
     /// 20, 20, 21, 21, 22, 22, 23, 23,
     /// 24, 24, 25, 25, 26, 26, 27, 27,
     /// 28, 28, 29, 29, 30, 30, 31, 31,
-
-    /// ...
     Contiguous,
     /// Each unit spreads its elements along two rows
     ///
@@ -179,7 +177,7 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         }
     }
 
-    fn scale(&mut self, scale: &RowWise<E>) {
+    fn rowwise_scale(&mut self, scale: &RowWise<E>) {
         #[unroll]
         for r in 0..self.layout.unit_size.0 {
             let row_offset = r * self.layout.unit_size.1;
@@ -204,7 +202,7 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         }
     }
 
-    fn exp_m_diff(&mut self, val: &RowWise<E>) {
+    fn exp_diff(&mut self, val: &RowWise<E>) {
         #[unroll]
         for r in 0..self.layout.unit_size.0 {
             let row_offset = r * self.layout.unit_size.1;
