@@ -109,12 +109,24 @@ impl RegisterConfig {
     }
 
     pub fn product_type(&self) -> ProductType {
-        // TODO: We know what's the best
-        match (self.lhs_layout, self.rhs_layout) {
-            (MatrixLayout::RowMajor, MatrixLayout::RowMajor) => ProductType::Outer,
-            (MatrixLayout::RowMajor, MatrixLayout::ColMajor) => ProductType::Inner,
-            (MatrixLayout::ColMajor, MatrixLayout::RowMajor) => ProductType::Inner,
-            (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ProductType::Outer,
+        let lhs_preferred = match self.lhs_layout {
+            MatrixLayout::RowMajor => ProductType::Inner,
+            MatrixLayout::ColMajor => ProductType::Outer,
+        };
+        let rhs_preferred = match self.lhs_layout {
+            MatrixLayout::RowMajor => ProductType::Outer,
+            MatrixLayout::ColMajor => ProductType::Inner,
+        };
+
+        if lhs_preferred == rhs_preferred {
+            lhs_preferred
+        } else if self.tile_size.m() == 1 {
+            rhs_preferred
+        } else if self.tile_size.n() == 1 {
+            lhs_preferred
+        } else {
+            // No better solution
+            ProductType::Outer
         }
     }
 
