@@ -5,7 +5,7 @@ use cubecl_core::{
 use cubecl_core::{comptime, ir as core, prelude::*};
 use cubecl_core::{cube, ir::Bitwise};
 
-use crate::{SpirvCompiler, SpirvTarget};
+use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
     pub fn compile_bitwise(&mut self, op: Bitwise, out: Option<core::Variable>, uniform: bool) {
@@ -42,8 +42,14 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 })
             }
             Bitwise::ShiftRight(op) => {
-                self.compile_binary_op(op, out, uniform, |b, _, ty, lhs, rhs, out| {
-                    b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap();
+                self.compile_binary_op(op, out, uniform, |b, item, ty, lhs, rhs, out| {
+                    match item.elem() {
+                        // Match behaviour on most compilers
+                        Elem::Int(_, true) => {
+                            b.shift_right_arithmetic(ty, Some(out), lhs, rhs).unwrap()
+                        }
+                        _ => b.shift_right_logical(ty, Some(out), lhs, rhs).unwrap(),
+                    };
                 })
             }
 
