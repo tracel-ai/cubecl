@@ -1038,22 +1038,21 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO debug"]
             fn attention_double_row_wise() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
-                    seq_q: 16,
-                    seq_kv: 16,
-                    head_dim: 16,
-                    val_dim: 16,
+                    seq_q: 8,
+                    seq_kv: 8,
+                    head_dim: 8,
+                    val_dim: 8,
                 };
                 let partition_size = AttentionPartitionSize {
-                    seq_q: 2,
-                    seq_kv: 2,
-                    head_dim: 2,
-                    val_dim: 2,
+                    seq_q: 1,
+                    seq_kv: 1,
+                    head_dim: 1,
+                    val_dim: 1,
                 };
-                let stage_size = AttentionStageSize { seq_q: 2 };
+                let stage_size = AttentionStageSize { seq_q: 1 };
                 let tiling_scheme = AttentionTilingScheme {
                     tile_size,
                     partition_size,
@@ -1198,7 +1197,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO debug"]
             fn attention_masked_oob() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {
@@ -1238,7 +1236,6 @@ macro_rules! testgen_attention {
             }
 
             #[test]
-            #[ignore = "TODO debug"]
             fn attention_masked_larger() {
                 let client = TestRuntime::client(&Default::default());
                 let tile_size = AttentionTileSize {

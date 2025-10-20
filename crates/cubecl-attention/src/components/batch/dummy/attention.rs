@@ -47,7 +47,7 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
             GA::init_query_reader(q_offset, query, global_config),
             GA::init_key_reader(key, global_config),
             GA::init_value_reader(value, global_config),
-            GA::init_mask_reader(q_offset, mask, global_config),
+            GA::init_mask_reader(q_offset, mask, seq_kv, global_config),
             GA::init_writer(q_offset, out, global_config),
             seq_q,
             seq_kv,
