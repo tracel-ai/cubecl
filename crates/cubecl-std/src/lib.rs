@@ -13,5 +13,8 @@ pub use option::*;
 pub mod quant;
 pub mod tensor;
 
+/// Event utilities.
+pub mod event;
+
 #[cfg(feature = "export_tests")]
 pub mod tests;
