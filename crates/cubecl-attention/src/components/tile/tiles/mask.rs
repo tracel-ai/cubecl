@@ -151,7 +151,9 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> FragmentMask for MaskTile<AP, AM> {
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {
         match self {
-            MaskTile::Materialized(materialized_tile_mask) => materialized_tile_mask.should_mask(local_pos),
+            MaskTile::Materialized(materialized_tile_mask) => {
+                materialized_tile_mask.should_mask(local_pos)
+            }
             MaskTile::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
         }
     }

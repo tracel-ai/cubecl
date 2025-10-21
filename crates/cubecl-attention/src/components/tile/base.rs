@@ -1,22 +1,20 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    ComputeResources,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::StridedTile,
 };
 
 use crate::components::tile::{AccumulatorTile, KeyValueTile, MaskTile, QueryTile, SoftmaxTile};
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes,
+    AttentionPrecision,
     attention_types::*,
     fragment::AttentionMatmulConfig,
     tile::{RowWise, RunningState},
 };
 use std::marker::PhantomData;
 
-use crate::components::{InvalidConfigError, fragment::AttentionMatmul};
+use crate::components::fragment::AttentionMatmul;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 

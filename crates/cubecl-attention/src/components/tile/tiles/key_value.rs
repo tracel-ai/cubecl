@@ -2,7 +2,6 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
-use crate::components::attention_types::KVT;
 use crate::components::fragment::AttentionMatmul;
 
 #[derive(CubeType)]

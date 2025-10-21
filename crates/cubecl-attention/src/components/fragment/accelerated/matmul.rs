@@ -9,7 +9,6 @@ use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig as _};
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
-use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use cubecl_std::tensor::layout::Coords2d;
 

@@ -7,8 +7,8 @@ use crate::components::{
     attention_types::*,
     batch::{
         BatchAttentionFamily,
-        simple::{SimpleBatchAttention, config::DummyBatchConfig},
         entry_point::attention,
+        simple::{SimpleBatchAttention, config::DummyBatchConfig},
     },
     global::GlobalAttentionFamily,
 };

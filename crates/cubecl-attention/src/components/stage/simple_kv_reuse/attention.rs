@@ -20,8 +20,6 @@ use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::TileAttention;
-use crate::components::tile::{MaskTile, MaskTileExpand};
-use crate::components::tile::{QueryTile, QueryTileExpand};
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;

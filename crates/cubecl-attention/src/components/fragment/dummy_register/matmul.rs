@@ -8,7 +8,6 @@ use cubecl_std::tensor::layout::Coords2d;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
-use crate::components::tile::MaskTile;
 use crate::components::tile::{RowVal, RowWise};
 
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;

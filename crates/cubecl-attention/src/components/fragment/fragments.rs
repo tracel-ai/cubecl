@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use cubecl_std::tensor::layout::Coords2d;
 
