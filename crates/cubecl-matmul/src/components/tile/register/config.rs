@@ -143,14 +143,14 @@ impl RegisterConfig {
             MatrixLayout::RowMajor => {
                 if !k.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {k:?} should be divisible by line size {lhs:?}"
+                        "Tile shape in lined axis k({k:?}) should be divisible by line size lhs({lhs:?})"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
                 if !m.is_multiple_of(lhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {m:?} should be divisible by line size {lhs:?}"
+                        "Tile shape in lined axis m({m:?}) should be divisible by line size lhs({lhs:?})"
                     ))));
                 }
             }
@@ -159,14 +159,14 @@ impl RegisterConfig {
             MatrixLayout::RowMajor => {
                 if !n.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "HHHHHHHHHHHHHHH: Tile shape in lined axis {n:?} should be divisible by line size {rhs:?}"
+                        "Tile shape in lined axis n({n:?}) should be divisible by line size rhs({rhs:?})"
                     ))));
                 }
             }
             MatrixLayout::ColMajor => {
                 if !k.is_multiple_of(rhs) {
                     return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis {k:?} should be divisible by line size {rhs:?}"
+                        "Tile shape in lined axis k({k:?}) should be divisible by line size rhs({rhs:?})"
                     ))));
                 }
             }
@@ -174,7 +174,7 @@ impl RegisterConfig {
 
         if !n.is_multiple_of(out) {
             return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "OUT Tile shape in lined axis {n:?} should be divisible by line size {out:?}"
+                "Tile shape in lined axis n({n:?}) should be divisible by line size out({out:?})"
             ))));
         }
 

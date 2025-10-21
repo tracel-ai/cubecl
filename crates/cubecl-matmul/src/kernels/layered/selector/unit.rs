@@ -190,7 +190,7 @@ fn matvec_unit_selector(
 
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector(
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
     tile_size: u32,
@@ -235,7 +235,10 @@ fn scalarvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 1, n: plane_dim },
+        StageSelection::Fixed {
+            m: 2,
+            n: plane_dim / 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -257,7 +260,10 @@ fn vecscalar_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: plane_dim, n: 1 },
+        StageSelection::Fixed {
+            m: plane_dim / 2,
+            n: 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -285,7 +291,7 @@ fn inner_product_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: plane_dim, n: 1 }, // TODO: BAD
+        StageSelection::Fixed { m: plane_dim, n: 1 }, // TODO: most planes does nothing.
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -387,7 +393,7 @@ fn selection(
     let cube_count_plan = match num_sms {
         Some(num_sms) => CubeCountPlanSelection::Sm {
             num_sms,
-            sm_usage: SmAllocation::Full,
+            sm_usage: SmAllocation::Exact,
             cubes_first: false,
         },
         None => CubeCountPlanSelection::Flattened,
