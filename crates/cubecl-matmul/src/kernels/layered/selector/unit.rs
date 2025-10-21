@@ -129,9 +129,16 @@ fn general_unit_selector(
             ),
         };
 
-    // It seems to be faster, it's not a requirement of the algo.
-    if double_buffering && partition_size.2 > 2 {
-        partition_size.2 /= 2;
+    let mut num_plane = 8;
+
+    if double_buffering {
+        if partition_size.0 > 2 {
+            partition_size.0 /= 2;
+        }
+        if partition_size.2 > 2 {
+            partition_size.2 /= 2;
+        }
+        num_plane /= 2;
     }
 
     selection(
@@ -141,7 +148,7 @@ fn general_unit_selector(
         plane_dim,
         StageSelection::WithPlane {
             plane_dim,
-            num_plane: 8,
+            num_plane,
         },
         num_sms,
         GlobalOrderSelection::SwizzleRow {
@@ -159,28 +166,24 @@ fn matvec_unit_selector(
     _double_buffering: bool,
     tile_size: u32,
     num_sms: Option<u32>,
-    options: UnitMatmulSelectionOptions,
+    _options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        // MatrixLayout::RowMajor => (
-        //     (1, 1, tile_size),
-        //     (1, 1, scale_partition(options.partition, problem.k, 4, 10)),
-        // ),
-        (MatrixLayout::ColMajor, MatrixLayout::ColMajor) => ((tile_size, 1, tile_size), (1, 1, 1)),
-        // _ => ((1, 1, tile_size), (1, 1, 16)),
-        _ => ((1, 1, tile_size), (1, 1, tile_size)),
+        (MatrixLayout::RowMajor, _) => ((1, 1, tile_size), (1, 1, tile_size * 2)),
+        _ => ((tile_size, 1, tile_size), (1, 1, 1)),
     };
-    println!("MatVec {tile_size:?} - {partition_size:?}");
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 4 },
+        StageSelection::Fixed {
+            m: plane_dim / 2,
+            n: 2,
+        },
         num_sms,
-        GlobalOrderSelection::SwizzleRow { m: 2, w: 2 },
-        // GlobalOrderSelection::Default,
+        GlobalOrderSelection::Default,
         StageScaling::Disabled,
     )
 }
@@ -189,41 +192,24 @@ fn matvec_unit_selector(
 fn vecmat_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
-    double_buffering: bool,
+    _double_buffering: bool,
     tile_size: u32,
     num_sms: Option<u32>,
-    options: UnitMatmulSelectionOptions,
+    _options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
-    let (tile_size, partition_size) = ((1, 1, tile_size), (1, 1, tile_size * 2));
-    // let (tile_size, partition_size) = match problem.rhs_layout {
-    //     MatrixLayout::ColMajor => (
-    //         (1, tile_size, tile_size),
-    //         (
-    //             1,
-    //             1,
-    //             scale_partition(
-    //                 options.partition,
-    //                 problem.k,
-    //                 match double_buffering {
-    //                     true => 2,
-    //                     false => 3,
-    //                 },
-    //                 10,
-    //             ),
-    //         ),
-    //     ),
-    //     _ => ((1, tile_size, tile_size), (1, 1, 1)),
-    // };
+    let (tile_size, partition_size) = ((1, tile_size, tile_size), (1, 1, 1));
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 4, n: 8 },
+        StageSelection::Fixed {
+            m: 2,
+            n: plane_dim / 2,
+        },
         num_sms,
-        // GlobalOrderSelection::Default,
-        GlobalOrderSelection::SwizzleCol { n: 4, w: 4 },
+        GlobalOrderSelection::Default,
         StageScaling::Disabled,
     )
 }
@@ -314,7 +300,6 @@ fn outer_product_unit_selector(
     tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
-    println!("Outer");
     let (tile_size, partition_size) = ((tile_size, tile_size, 1), (1, 1, 1));
 
     selection(
@@ -413,12 +398,10 @@ fn selection(
         .cube_count_plan(cube_count_plan)
         .build();
 
-    let selector = MatmulSelection::builder(tiling_scheme, plane_dim)
+    MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(buffering)
         .hypercube_config(hypercube)
-        .build();
-    println!("{selector:?}");
-    selector
+        .build()
 }
 
 /// Returns the factor pair `(a, b)` of `n` minimizing their difference,
