@@ -104,7 +104,7 @@ tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
 # CubeCL-CUDA
-cudarc = { version = "0.17.2", features = [
+cudarc = { version = "0.17.3", features = [
     "std",
     "driver",
     "cuda-version-from-build-system",
