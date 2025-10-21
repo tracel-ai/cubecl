@@ -3,4 +3,4 @@ mod config;
 mod setup;
 
 pub use attention::*;
-pub use setup::DummyBatchAttentionFamily;
+pub use setup::SimpleBatchAttentionFamily;

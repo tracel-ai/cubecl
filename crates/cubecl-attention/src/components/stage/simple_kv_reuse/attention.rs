@@ -14,7 +14,7 @@ use crate::components::global::simple::QueryReader;
 use crate::components::stage::simple_kv_reuse::MaskPartition;
 use crate::components::stage::simple_kv_reuse::SoftmaxPartition;
 use crate::components::stage::simple_kv_reuse::{
-    AccumulatorPartition, DummyStageConfig, KeyValues, QueryPartition,
+    AccumulatorPartition, KeyValues, QueryPartition, SimpleKVReuseStageConfig,
 };
 use crate::components::stage::{StageAttention, StageAttentionConfig};
 use crate::components::tile::RowWise;
@@ -24,7 +24,8 @@ use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
-pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, AM: AttentionMatmul<AP>> {
+pub struct SimpleKVReuseStageAttention<AP: AttentionPrecision, SK, SV, SO, AM: AttentionMatmul<AP>>
+{
     _phantom: PhantomData<(AP, SK, SV, SO, AM)>,
 }
 
@@ -35,9 +36,9 @@ impl<
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
     AM: AttentionMatmul<AP>,
-> StageAttention<AP> for DummyStageAttention<AP, SK, SV, SO, AM>
+> StageAttention<AP> for SimpleKVReuseStageAttention<AP, SK, SV, SO, AM>
 {
-    type Config = DummyStageConfig<AM::Config>;
+    type Config = SimpleKVReuseStageConfig<AM::Config>;
 
     type KeyStage = SK;
     type ValueStage = SV;

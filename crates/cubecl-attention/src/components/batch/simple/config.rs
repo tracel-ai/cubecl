@@ -7,13 +7,13 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyBatchConfig<G: GlobalAttentionConfig> {
+pub struct SimpleBatchConfig<G: GlobalAttentionConfig> {
     global_config: G,
     hypercube_config: HypercubeConfig,
     seq_kv: u32,
 }
 
-impl<G: GlobalAttentionConfig> BatchAttentionConfig for DummyBatchConfig<G> {
+impl<G: GlobalAttentionConfig> BatchAttentionConfig for SimpleBatchConfig<G> {
     type GlobalConfig = G;
 
     fn global_config(&self) -> Self::GlobalConfig {
@@ -29,7 +29,7 @@ impl<G: GlobalAttentionConfig> BatchAttentionConfig for DummyBatchConfig<G> {
     }
 }
 
-impl<G: GlobalAttentionConfig> DummyBatchConfig<G> {
+impl<G: GlobalAttentionConfig> SimpleBatchConfig<G> {
     pub fn new(global_config: G, hypercube_config: HypercubeConfig, seq_kv: u32) -> Self {
         Self {
             global_config,

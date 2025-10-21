@@ -29,7 +29,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile<AP, AM> {
         #[comptime] config: AM::Config,
     ) -> MaskTile<AP, AM> {
         let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
-            logical_iter_origin: LogicalIterOrigin::dummy(),
+            logical_iter_origin: LogicalIterOrigin::init(),
             partition_pos,
             causal: config.causal_mask(),
             out_of_bounds,
@@ -72,7 +72,7 @@ pub struct LogicalIterOrigin {
 
 #[cube]
 impl LogicalIterOrigin {
-    fn dummy() -> LogicalIterOrigin {
+    fn init() -> LogicalIterOrigin {
         LogicalIterOrigin {
             row: RuntimeCell::new(0),
             col: RuntimeCell::new(0),

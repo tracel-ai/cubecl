@@ -8,12 +8,12 @@ use crate::components::{
     AttentionSetupError,
     global::{
         GlobalAttentionFamily,
-        simple::{DummyGlobalAttention, config::DummyGlobalConfig},
+        simple::{SimpleGlobalAttention, config::SimpleGlobalConfig},
     },
     stage::{StageAttentionConfig as _, StageAttentionFamily},
 };
 
-pub struct DummyGlobalAttentionFamily<SA: StageAttentionFamily> {
+pub struct SimpleGlobalAttentionFamily<SA: StageAttentionFamily> {
     _phantom: PhantomData<SA>,
 }
 
@@ -23,11 +23,11 @@ impl<
             ValueStage = StridedStageFamily,
             OutStage = PartitionedStageFamily,
         >,
-> GlobalAttentionFamily for DummyGlobalAttentionFamily<SA>
+> GlobalAttentionFamily for SimpleGlobalAttentionFamily<SA>
 {
-    type Attention<AP: AttentionPrecision> = DummyGlobalAttention<AP, SA::Attention<AP>>;
+    type Attention<AP: AttentionPrecision> = SimpleGlobalAttention<AP, SA::Attention<AP>>;
 
-    type Config = DummyGlobalConfig<SA::Config>;
+    type Config = SimpleGlobalConfig<SA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -37,6 +37,6 @@ impl<
     ) -> Result<Self::Config, AttentionSetupError> {
         let stage_config = SA::setup::<AP, R>(client, problem, selection, line_sizes)?;
 
-        DummyGlobalConfig::new(stage_config, stage_config.num_planes(), problem.causal)
+        SimpleGlobalConfig::new(stage_config, stage_config.num_planes(), problem.causal)
     }
 }

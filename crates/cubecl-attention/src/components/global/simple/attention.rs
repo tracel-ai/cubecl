@@ -10,7 +10,7 @@ use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
-use crate::components::global::simple::writer::DummyWriter;
+use crate::components::global::simple::writer::AttentionWriter;
 use crate::components::global::{
     AttentionGlobalLayout,
     simple::{DummyKeyReader, DummyValueReader},
@@ -20,10 +20,10 @@ use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,
-    global::{GlobalAttention, simple::config::DummyGlobalConfig},
+    global::{GlobalAttention, simple::config::SimpleGlobalConfig},
 };
 
-pub struct DummyGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
+pub struct SimpleGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
     _phantom: PhantomData<(AP, SA)>,
 }
 
@@ -36,15 +36,15 @@ impl<
             OutStage = PartitionedStage<OS<AP>>,
         >,
     AP: AttentionPrecision,
-> GlobalAttention<AP> for DummyGlobalAttention<AP, SA>
+> GlobalAttention<AP> for SimpleGlobalAttention<AP, SA>
 {
     type KeyReader = DummyKeyReader<AP, Self::Config>;
     type ValueReader = DummyValueReader<AP, Self::Config>;
     type MaskReader = MaskReader<AP>;
 
-    type Writer = DummyWriter<(OG<AP>, OS<AP>)>;
+    type Writer = AttentionWriter<(OG<AP>, OS<AP>)>;
 
-    type Config = DummyGlobalConfig<SA::Config>;
+    type Config = SimpleGlobalConfig<SA::Config>;
 
     fn execute(
         query_reader: QueryReader<AP>,

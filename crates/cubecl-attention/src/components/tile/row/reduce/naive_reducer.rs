@@ -10,10 +10,10 @@ use crate::components::tile::RowWise;
 
 #[derive(CubeType)]
 /// Naive row reducer using shared memory
-pub struct DummyReducer {}
+pub struct NaiveReducer {}
 
 #[cube]
-impl Reducer for DummyReducer {
+impl Reducer for NaiveReducer {
     fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
         vals: &mut RowWise<E>,
         data: &F,

@@ -9,13 +9,13 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyGlobalConfig<S: StageAttentionConfig> {
+pub struct SimpleGlobalConfig<S: StageAttentionConfig> {
     stage_config: S,
     num_planes: u32,
     causal_mask: bool,
 }
 
-impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
+impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     type StageConfig = S;
 
     fn score_stage_memory_config(&self) -> StageMemoryConfig {
@@ -73,7 +73,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     }
 }
 
-impl<S: StageAttentionConfig> DummyGlobalConfig<S> {
+impl<S: StageAttentionConfig> SimpleGlobalConfig<S> {
     pub fn new(
         stage_config: S,
         num_planes: u32,

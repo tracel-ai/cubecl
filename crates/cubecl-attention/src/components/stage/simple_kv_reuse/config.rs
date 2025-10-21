@@ -6,7 +6,7 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct DummyStageConfig<FC: AttentionMatmulConfig> {
+pub struct SimpleKVReuseStageConfig<FC: AttentionMatmulConfig> {
     tile_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
@@ -15,7 +15,7 @@ pub struct DummyStageConfig<FC: AttentionMatmulConfig> {
     num_planes: u32,
 }
 
-impl<FC: AttentionMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
+impl<FC: AttentionMatmulConfig> StageAttentionConfig for SimpleKVReuseStageConfig<FC> {
     type AttentionMatmulConfig = FC;
 
     fn plane_dim(&self) -> u32 {
@@ -51,7 +51,7 @@ impl<FC: AttentionMatmulConfig> StageAttentionConfig for DummyStageConfig<FC> {
     }
 }
 
-impl<FC: AttentionMatmulConfig> DummyStageConfig<FC> {
+impl<FC: AttentionMatmulConfig> SimpleKVReuseStageConfig<FC> {
     pub fn new(
         tile_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig,

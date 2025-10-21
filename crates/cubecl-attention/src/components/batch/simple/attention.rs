@@ -7,7 +7,7 @@ use crate::components::{
     AttentionPrecision,
     attention_types::*,
     batch::{
-        BatchAttention, BatchAttentionConfig, CubeCountInput, simple::config::DummyBatchConfig,
+        BatchAttention, BatchAttentionConfig, CubeCountInput, simple::config::SimpleBatchConfig,
     },
     global::{GlobalAttention, GlobalAttentionConfig as _},
 };
@@ -20,7 +20,7 @@ pub struct SimpleBatchAttention<AP: AttentionPrecision, GA: GlobalAttention<AP>>
 impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
     for SimpleBatchAttention<AP, GA>
 {
-    type Config = DummyBatchConfig<GA::Config>;
+    type Config = SimpleBatchConfig<GA::Config>;
 
     fn execute(
         query: VirtualTensor<QG<AP>>,

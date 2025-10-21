@@ -15,7 +15,7 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 use crate::components::stage::StageAttentionConfig;
 
 #[derive(CubeType)]
-pub struct DummyWriter<IP: MatrixPrecision> {
+pub struct AttentionWriter<IP: MatrixPrecision> {
     global: View<Line<IP::Global>, TiledCoords, ReadWrite>,
     stage: PartitionedStage<IP::Stage>,
     #[cube(comptime)]
@@ -25,7 +25,7 @@ pub struct DummyWriter<IP: MatrixPrecision> {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> DummyWriter<IP> {
+impl<IP: MatrixPrecision> AttentionWriter<IP> {
     pub fn new<S: StageAttentionConfig>(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
         #[comptime] global_config: GlobalMemoryConfig,
@@ -50,7 +50,7 @@ impl<IP: MatrixPrecision> DummyWriter<IP> {
 
         let stage = PartitionedStage::new((0u32, UNIT_POS_Y), stage_mem_config);
 
-        DummyWriter::<IP> {
+        AttentionWriter::<IP> {
             global: global.view_mut(TiledLayout::new(global_config)),
             stage,
             plane_dim: stage_config.plane_dim(),
@@ -74,7 +74,7 @@ impl<IP: MatrixPrecision> DummyWriter<IP> {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> WriteEventListener for DummyWriter<IP> {
+impl<IP: MatrixPrecision> WriteEventListener for AttentionWriter<IP> {
     fn on_event(this: &mut Self, event: WriteEvent) {
         #[allow(clippy::single_match)]
         match event {

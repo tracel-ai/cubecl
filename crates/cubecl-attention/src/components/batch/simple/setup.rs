@@ -8,18 +8,18 @@ use crate::components::{
     batch::{
         BatchAttentionFamily,
         entry_point::attention,
-        simple::{SimpleBatchAttention, config::DummyBatchConfig},
+        simple::{SimpleBatchAttention, config::SimpleBatchConfig},
     },
     global::GlobalAttentionFamily,
 };
 
-pub struct DummyBatchAttentionFamily<GA: GlobalAttentionFamily> {
+pub struct SimpleBatchAttentionFamily<GA: GlobalAttentionFamily> {
     _phantom: PhantomData<GA>,
 }
 
-impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFamily<GA> {
+impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFamily<GA> {
     type Attention<AP: AttentionPrecision> = SimpleBatchAttention<AP, GA::Attention<AP>>;
-    type Config = DummyBatchConfig<GA::Config>;
+    type Config = SimpleBatchConfig<GA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -29,7 +29,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for DummyBatchAttentionFami
     ) -> Result<Self::Config, crate::components::AttentionSetupError> {
         let global_config = GA::setup::<AP, R>(client, problem, selection, line_sizes)?;
 
-        DummyBatchConfig::new(
+        SimpleBatchConfig::new(
             global_config,
             selection
                 .hypercube_selection

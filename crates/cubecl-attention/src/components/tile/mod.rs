@@ -1,5 +1,3 @@
-pub mod dummy;
-
 mod base;
 mod row;
 mod tiles;

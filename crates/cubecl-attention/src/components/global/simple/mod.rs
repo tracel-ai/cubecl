@@ -6,4 +6,4 @@ mod writer;
 
 pub use attention::*;
 pub use reader::*;
-pub use setup::DummyGlobalAttentionFamily;
+pub use setup::SimpleGlobalAttentionFamily;

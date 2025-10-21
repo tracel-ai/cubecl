@@ -4,9 +4,9 @@ use crate::components::fragment::accelerated::AcceleratedAttentionMatmul;
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
 use crate::{
     components::{
-        AvailableLineSizes, batch::simple::DummyBatchAttentionFamily,
-        global::simple::DummyGlobalAttentionFamily,
-        stage::simple_kv_reuse::DummyStageAttentionFamily,
+        AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
+        global::simple::SimpleGlobalAttentionFamily,
+        stage::simple_kv_reuse::SimpleKVReuseStageAttentionFamily,
     },
     kernels::Algorithm,
 };
@@ -16,14 +16,14 @@ pub struct DummyAcceleratedAlgorithm {}
 
 impl Algorithm for DummyRegisterAlgorithm {
     type FragmentAttention = DummyRegisterAttentionMatmul;
-    type StageAttention = DummyStageAttentionFamily<
+    type StageAttention = SimpleKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,
         StridedStageFamily,
         PartitionedStageFamily,
     >;
-    type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
-    type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
+    type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
+    type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
     fn filter_line_sizes(_available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         AvailableLineSizes {
@@ -38,14 +38,14 @@ impl Algorithm for DummyRegisterAlgorithm {
 
 impl Algorithm for DummyAcceleratedAlgorithm {
     type FragmentAttention = AcceleratedAttentionMatmul;
-    type StageAttention = DummyStageAttentionFamily<
+    type StageAttention = SimpleKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,
         StridedStageFamily,
         PartitionedStageFamily,
     >;
-    type GlobalAttention = DummyGlobalAttentionFamily<Self::StageAttention>;
-    type BatchAttention = DummyBatchAttentionFamily<Self::GlobalAttention>;
+    type GlobalAttention = SimpleGlobalAttentionFamily<Self::StageAttention>;
+    type BatchAttention = SimpleBatchAttentionFamily<Self::GlobalAttention>;
 
     fn filter_line_sizes(_available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         AvailableLineSizes {

@@ -11,12 +11,14 @@ use crate::components::{
     AttentionSetupError,
     stage::{
         StageAttentionFamily,
-        simple_kv_reuse::{AttentionStageMemoryConfig, DummyStageAttention, DummyStageConfig},
+        simple_kv_reuse::{
+            AttentionStageMemoryConfig, SimpleKVReuseStageAttention, SimpleKVReuseStageConfig,
+        },
     },
     tile::AttentionTilingLayout,
 };
 
-pub struct DummyStageAttentionFamily<
+pub struct SimpleKVReuseStageAttentionFamily<
     AM: AttentionMatmulFamily,
     SK: StageFamily,
     SV: StageFamily,
@@ -30,9 +32,9 @@ impl<
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for DummyStageAttentionFamily<AM, SK, SV, SO>
+> StageAttentionFamily for SimpleKVReuseStageAttentionFamily<AM, SK, SV, SO>
 {
-    type Attention<AP: AttentionPrecision> = DummyStageAttention<
+    type Attention<AP: AttentionPrecision> = SimpleKVReuseStageAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
@@ -44,7 +46,7 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = DummyStageConfig<AM::Config>;
+    type Config = SimpleKVReuseStageConfig<AM::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -57,7 +59,7 @@ impl<
 
         let tile_config = AM::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
-        DummyStageConfig::new(
+        SimpleKVReuseStageConfig::new(
             tile_config,
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),
