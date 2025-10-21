@@ -108,21 +108,23 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(&mut self, #[comptime] stage_buffer: StageBuffer, #[comptime] config: G) {
-        let view = self.global_iter.view();
         let mut loading_job = match self.loading_job {
             CubeOption::Some(job) => match stage_buffer {
                 StageBuffer::A => job.0,
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
-                StageBuffer::A => L::new_job::<IP, G>(0u32, self.ident, view.line_size(), config),
-                StageBuffer::B => L::new_job::<IP, G>(1u32, self.ident, view.line_size(), config),
+                StageBuffer::A => {
+                    L::new_job::<IP, G>(0u32, self.ident, self.global_iter.line_size(), config)
+                }
+                StageBuffer::B => {
+                    L::new_job::<IP, G>(1u32, self.ident, self.global_iter.line_size(), config)
+                }
             },
         };
 
         let len = L::Job::task_count(&loading_job);
 
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for task_id in 0..len {
             L::Job::<IP>::execute_task::<G>(

@@ -7,7 +7,7 @@ use crate::components::tile::AccumulatorTile;
 use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmul;
-use crate::components::tile::row::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::row::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
 pub struct DummyAccumulator<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {

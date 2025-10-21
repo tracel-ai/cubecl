@@ -55,6 +55,23 @@ impl Layout for SimpleTmaGlobalLayout {
     }
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Default)]
+pub struct GlobalLayoutConfig {
+    pub matrix_layout: MatrixLayout,
+    pub check_row_bounds: bool,
+    pub check_col_bounds: bool,
+}
+
+impl From<GlobalMemoryConfig> for GlobalLayoutConfig {
+    fn from(value: GlobalMemoryConfig) -> Self {
+        GlobalLayoutConfig {
+            matrix_layout: value.matrix_layout,
+            check_row_bounds: value.check_row_bounds,
+            check_col_bounds: value.check_col_bounds,
+        }
+    }
+}
+
 /// Global layout that uses the last two dimensions and ignores all others.
 #[derive(CubeType, CubeLaunch, Clone)]
 pub struct BatchedGlobalLayout {
@@ -66,10 +83,13 @@ pub struct BatchedGlobalLayout {
 
     stride_row: u32,
     stride_col: u32,
+
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    line_size: u32,
     #[cube(comptime)]
     packing: u32,
+    #[cube(comptime)]
+    config: GlobalLayoutConfig,
 }
 
 #[cube]
@@ -83,8 +103,9 @@ impl BatchedGlobalLayout {
         shape_col: u32,
         stride_row: u32,
         stride_col: u32,
-        #[comptime] config: GlobalMemoryConfig,
+        #[comptime] line_size: u32,
         #[comptime] packing: u32,
+        #[comptime] config: GlobalLayoutConfig,
     ) -> Self {
         BatchedGlobalLayout {
             batch_shape,
@@ -93,8 +114,9 @@ impl BatchedGlobalLayout {
             cols: shape_col,
             stride_row,
             stride_col,
-            config,
+            line_size,
             packing,
+            config,
         }
     }
 }
@@ -105,7 +127,7 @@ impl Layout for BatchedGlobalLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
-        let line_size = comptime![self.config.global_line_size];
+        let line_size = comptime![self.line_size];
         let (mut batch, row, col) = coords;
 
         let (row, col) = match comptime![self.config.matrix_layout] {
@@ -158,7 +180,8 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
         client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
-        config: GlobalMemoryConfig,
+        line_size: u8,
+        config: GlobalLayoutConfig,
     ) -> Self {
         let rank = handle.shape.len();
         let rows = handle.shape[rank - 2];
@@ -185,19 +208,22 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
             ScalarArg::new(cols as u32),
             ScalarArg::new(stride_row as u32),
             ScalarArg::new(stride_col as u32),
-            config,
+            line_size as u32,
             1,
+            config,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn from_quantized_handle(
         client: &ComputeClient<R::Server>,
         values: &TensorHandleRef<'a, R>,
         scales: &TensorHandleRef<'a, R>,
         shape: &'a [usize],
         problem: &MatmulProblem,
-        config: GlobalMemoryConfig,
         scheme: QuantScheme,
+        line_size: u8,
+        config: GlobalLayoutConfig,
     ) -> (
         BatchedGlobalLayoutLaunch<'a, R>,
         BatchedGlobalScaleLayoutArgs<'a, R>,
@@ -226,8 +252,9 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
                 ScalarArg::new(cols as u32),
                 ScalarArg::new(stride_row as u32),
                 ScalarArg::new(stride_col as u32),
-                config,
+                line_size as u32,
                 scheme.num_quants() as u32,
+                config,
             )
         };
 
@@ -238,13 +265,9 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
                 QuantLevel::Tensor => BatchedGlobalScaleLayoutArgs::PerTensor { shape },
                 QuantLevel::Block(block_size) => {
                     let [block_row, block_col] = block_size.as_dim();
-                    // Scales are never vectorized because we require that `block_size >= line_size * num_quants`
-                    let config = GlobalMemoryConfig {
-                        global_line_size: 1,
-                        ..config
-                    };
+                    // Scales are never vectorized because we require that `block_size >= line_size * num_quants`.
                     let scales_layout =
-                        BatchedGlobalLayoutLaunch::from_handle(client, scales, problem, config);
+                        BatchedGlobalLayoutLaunch::from_handle(client, scales, problem, 1, config);
                     BatchedGlobalScaleLayoutArgs::BlockScaled(BlockScaledLayoutLaunch::new(
                         shape,
                         scales_layout,

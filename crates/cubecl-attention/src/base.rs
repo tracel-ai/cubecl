@@ -28,6 +28,7 @@ pub fn launch<R: Runtime, AP: AttentionPrecision>(
     query: TensorHandle<R, QG<AP>>,
     key: TensorHandle<R, KG<AP>>,
     value: TensorHandle<R, VG<AP>>,
+    mask: Option<TensorHandle<R, MSK<AP>>>,
     out: TensorHandle<R, OG<AP>>,
 ) -> Result<(), AttentionSetupError> {
     launch_ref::<R, AP>(
@@ -36,6 +37,7 @@ pub fn launch<R: Runtime, AP: AttentionPrecision>(
         &query.as_ref(),
         &key.as_ref(),
         &value.as_ref(),
+        &mask.as_ref().map(|m| m.as_ref()),
         &out.as_ref(),
     )
 }
@@ -47,10 +49,11 @@ pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
+    mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
-        Strategy::Tmp => launch_tmp::<R, AP>(client, query, key, value, out),
+        Strategy::Tmp => launch_tmp::<R, AP>(client, query, key, value, mask, out),
     }
 }
 
@@ -59,6 +62,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
+    mask: &Option<TensorHandleRef<R>>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
@@ -81,7 +85,8 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         num_heads: query.shape[2],
         head_dim: query.shape[3],
         val_dim: value.shape[3],
-        masked: false,
+        masked: mask.is_some(),
+        causal: false,
     };
 
     let tile_size = AttentionTileSize {
@@ -123,6 +128,9 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
                 query.as_tensor_arg(line_sizes.query),
                 key.as_tensor_arg(line_sizes.key),
                 value.as_tensor_arg(line_sizes.value),
+                mask.as_ref()
+                    .map(|it| it.as_tensor_arg(line_sizes.out))
+                    .into(),
             ),
             out.as_tensor_arg(line_sizes.out),
             cube_count_plan.as_args(),

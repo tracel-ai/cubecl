@@ -33,94 +33,104 @@ impl Dialect for MslDialect {
     type Architecture = MetalArchitecture;
 }
 
+impl MslDialect {
+    fn warp_op_vectorized(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+        simd_op_prefix: &str,
+        simd_op_suffix: &str,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        let vectorization = input.item().vectorization;
+
+        f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
+
+        for k in 0..vectorization {
+            let index = if vectorization > 1 {
+                format!(".i_{k}")
+            } else {
+                String::new()
+            };
+            let comma = if k + 1 < vectorization { "," } else { "" };
+
+            writeln!(f, "{simd_op_prefix}{input}{index}{simd_op_suffix}{comma}")?;
+        }
+
+        f.write_fmt(format_args!("}};\n"))
+    }
+}
+
 impl DialectWarpReduceCompiler<Self> for MslDialect {
     fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_sum(", ")")
     }
     fn warp_reduce_prod(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_product({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_product(", ")")
     }
     fn warp_reduce_max(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_max({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_max(", ")")
     }
     fn warp_reduce_min(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_min({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_min(", ")")
     }
     fn warp_reduce_all(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_and({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_and(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_any(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_or({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_or(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_sum_inclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_inclusive_sum({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_sum(", ")")
     }
     fn warp_reduce_prod_inclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_inclusive_product({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_product(", ")")
     }
     fn warp_reduce_sum_exclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_exclusive_sum({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_sum(", ")")
     }
     fn warp_reduce_prod_exclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_exclusive_product({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_product(", ")")
     }
 }
 

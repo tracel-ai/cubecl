@@ -12,6 +12,7 @@ use crate::components::{
 pub struct DummyGlobalConfig<S: StageAttentionConfig> {
     stage_config: S,
     num_planes: u32,
+    causal_mask: bool,
 }
 
 impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
@@ -66,13 +67,22 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for DummyGlobalConfig<S> {
     fn tiling_scheme(&self) -> AttentionTilingScheme {
         self.stage_config.tiling_scheme()
     }
+
+    fn causal_mask(&self) -> bool {
+        self.causal_mask
+    }
 }
 
 impl<S: StageAttentionConfig> DummyGlobalConfig<S> {
-    pub fn new(stage_config: S, num_planes: u32) -> Result<Self, AttentionSetupError> {
+    pub fn new(
+        stage_config: S,
+        num_planes: u32,
+        causal_mask: bool,
+    ) -> Result<Self, AttentionSetupError> {
         Self {
             stage_config,
             num_planes,
+            causal_mask,
         }
         .validate()
     }

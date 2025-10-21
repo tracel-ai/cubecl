@@ -3,7 +3,7 @@ use cubecl_core::{LineSizeError, Runtime, ir::StorageType, tensor_line_size_para
 use crate::components::{MatrixLayout, error::MatmulSetupError};
 use std::fmt::Debug;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 /// Line size used for each tensor in global memory accesses.
 /// Represents the number of elements processed per SIMD load/store.
 pub struct MatmulLineSizes {

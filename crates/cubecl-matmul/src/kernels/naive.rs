@@ -5,11 +5,11 @@ use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
     ir::{ElemType, IntKind, UIntKind},
+    tensor_line_size_parallel,
 };
 
 use cubecl_std::tensor::{
-    MatrixBatchLayout, TensorHandle, View, into_contiguous, launch::ViewArg, layout::Coords3d,
-    matrix_batch_layout,
+    MatrixBatchLayout, View, launch::ViewArg, layout::Coords3d, matrix_batch_layout,
 };
 
 use crate::{
@@ -18,10 +18,40 @@ use crate::{
         MatmulAvailabilityError, MatmulProblem, MatmulSetupError, MatrixLayout,
         global::memory::{
             BatchedGlobalLayout, BatchedGlobalLayoutLaunch, BatchedGlobalScaleLayout,
-            GlobalMemoryConfig,
+            GlobalLayoutConfig,
         },
     },
 };
+
+#[cube]
+fn load_unrolled<I: Numeric>(
+    view: &View<Line<I>, Coords3d>,
+    pos: Coords3d,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] line_size: u32,
+) -> Line<I> {
+    comptime![assert!(line_size <= view.line_size())];
+    let view_line_size = view.line_size();
+    if comptime![view.line_size() == line_size] {
+        view[pos]
+    } else {
+        let (b, row, col) = pos;
+        let mut out = Line::empty(line_size);
+        #[unroll]
+        for i in range_stepped(0, line_size, view_line_size) {
+            let pos = match layout {
+                MatrixLayout::RowMajor => (b, row, col + i),
+                MatrixLayout::ColMajor => (b, row + i, col),
+            };
+            let value = view[pos];
+            #[unroll]
+            for n in 0..view_line_size {
+                out[i + n] = value[n];
+            }
+        }
+        out
+    }
+}
 
 #[cube(launch_unchecked)]
 fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
@@ -43,16 +73,16 @@ fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
         terminate!();
     }
 
-    let line_size = lhs.line_size();
-
     let offset_out = batch * out.stride(rank - 2) * out.shape(rank - 2);
 
+    let line_size = comptime![Ord::max(lhs.line_size(), rhs.line_size())];
     let mut sum = Line::empty(line_size).fill(O::from_int(0));
 
     for k in range_stepped(0, k, line_size) {
-        sum += Line::cast_from(
-            Line::<M>::cast_from(lhs[(batch, m, k)]) * Line::<M>::cast_from(rhs[(batch, k, n)]),
-        );
+        let lhs = load_unrolled(lhs, (batch, m, k), MatrixLayout::RowMajor, line_size);
+        let rhs = load_unrolled(rhs, (batch, k, n), MatrixLayout::ColMajor, line_size);
+
+        sum += Line::cast_from(Line::<M>::cast_from(lhs) * Line::<M>::cast_from(rhs));
     }
 
     let mut out_index = m * out.stride(rank - 2) + n;
@@ -97,72 +127,65 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     let dim1 = rank - 1;
     let dim2 = rank - 2;
 
-    let mut lhs = *lhs;
-    let mut rhs = *rhs;
-
     let lhs_layout = matrix_batch_layout(lhs.data().strides);
     let rhs_layout = matrix_batch_layout(rhs.data().strides);
 
-    let lhs_data = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        into_contiguous::<R, EI>(client, lhs.data())
+    let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
+        lhs.into_contiguous::<EI>(client)
     } else {
-        TensorHandle::from_ref(lhs.data())
+        MatmulInputHandle::from_ref(lhs)
     };
-    let rhs_data = TensorHandle::from_ref(rhs.data());
+    let lhs = lhs.as_ref();
+    let rhs = MatmulInputHandle::from_ref(rhs);
 
     // we swap the dimensions to achieve memory-coalescing:
     // consecutive elements of a column in the original rhs tensor will now be stored
     // consecutively in memory, which allows to fetch them with fewer memory instructions
-    let correct_rhs_layout = |mut rhs: TensorHandle<R, EI>| {
-        let rhs_original_shape = rhs.shape.to_vec();
-        rhs.strides.swap(dim1, dim2);
-        rhs.shape.swap(dim1, dim2);
+    let correct_rhs_layout = |mut rhs: MatmulInputHandle<R, EI>| {
+        rhs.swap_dims(dim1, dim2);
 
-        let mut rhs = into_contiguous::<R, EI>(client, &rhs.as_ref());
+        let mut rhs = rhs.as_ref().into_contiguous::<EI>(client);
 
-        rhs.strides.swap(dim1, dim2);
-        rhs.shape.swap(dim1, dim2);
-
-        (rhs_original_shape, rhs)
+        rhs.swap_dims(dim1, dim2);
+        rhs
     };
 
-    let (rhs_original_shape, rhs_data) = match rhs_layout {
-        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs_data),
+    let rhs = match rhs_layout {
+        MatrixBatchLayout::Contiguous => correct_rhs_layout(rhs),
         MatrixBatchLayout::MildlyPermuted {
             transposed,
             batch_swap,
         } => {
             if transposed && !batch_swap {
-                let rhs_original_shape = rhs_data.shape.to_vec();
-                (rhs_original_shape, rhs_data)
+                rhs
             } else {
-                correct_rhs_layout(rhs_data)
+                correct_rhs_layout(rhs)
             }
         }
-        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs_data),
+        MatrixBatchLayout::HighlyPermuted => correct_rhs_layout(rhs),
     };
-
-    let cube_count = simple_cube_count(
-        &lhs_data.shape,
-        &rhs_original_shape,
-        out.shape,
-        cube_dim_x,
-        cube_dim_y,
-    )?;
-
-    let line_size = match lhs_data.shape[rank - 1] % 4 == 0 {
-        true => 4,
-        false => 1,
-    };
-    let line_size = if lhs.scale().is_some() || rhs.scale().is_some() {
-        1
-    } else {
-        line_size
-    };
+    let rhs = rhs.as_ref();
 
     let lhs_shape = lhs.shape();
     let rhs_shape = rhs.shape();
     let out_shape = out.shape;
+
+    let cube_count = simple_cube_count(lhs_shape, rhs_shape, out_shape, cube_dim_x, cube_dim_y)?;
+
+    let elem = EI::as_type_native_unchecked();
+    let lhs_line_size = tensor_line_size_parallel(
+        R::io_optimized_line_sizes(&elem),
+        lhs.data().shape,
+        lhs.data().strides,
+        rank - 1,
+    );
+    let rhs_line_size = tensor_line_size_parallel(
+        R::io_optimized_line_sizes(&elem),
+        rhs.data().shape,
+        rhs.data().strides,
+        rank - 2,
+    );
+
     let problem = MatmulProblem {
         m: out_shape[rank - 2],
         n: out_shape[rank - 1],
@@ -183,9 +206,6 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
         _ => matmul_kernel::launch_unchecked::<EI, EI, EO, R>,
     };
 
-    *lhs.data_mut() = lhs_data.as_ref();
-    *rhs.data_mut() = rhs_data.as_ref();
-
     fn view<'a, R: Runtime>(
         client: &ComputeClient<R::Server>,
         handle: &'a MatmulInputHandleRef<'a, R>,
@@ -194,15 +214,15 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
         problem: &MatmulProblem,
     ) -> ViewArg<'a, Coords3d, R> {
         // Checks off, other properties are unused
-        let mem_config = GlobalMemoryConfig {
-            global_line_size: line_size as u32,
+        let config = GlobalLayoutConfig {
             matrix_layout: layout,
             ..Default::default()
         };
         match handle {
             MatmulInputHandleRef::Normal(handle) => {
-                let layout =
-                    BatchedGlobalLayoutLaunch::from_handle(client, handle, problem, mem_config);
+                let layout = BatchedGlobalLayoutLaunch::from_handle(
+                    client, handle, problem, line_size, config,
+                );
                 ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
             }
             MatmulInputHandleRef::Quantized {
@@ -212,21 +232,31 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
                 scheme,
             } => {
                 let (data_layout, scales_layout) = BatchedGlobalLayoutLaunch::from_quantized_handle(
-                    client, data, scale, shape, problem, mem_config, **scheme,
+                    client, data, scale, shape, problem, **scheme, line_size, config,
                 );
                 let data_view =
                     ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
-                let scales_view = ViewArg::new::<BatchedGlobalScaleLayout>(
-                    scale.as_array_arg(line_size),
-                    scales_layout,
-                );
+                let scales_view =
+                    ViewArg::new::<BatchedGlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
                 ViewArg::new_quantized(data_view, scales_view, **scheme)
             }
         }
     }
 
-    let lhs_view = view(client, &lhs, MatrixLayout::RowMajor, line_size, &problem);
-    let rhs_view = view(client, &rhs, MatrixLayout::ColMajor, line_size, &problem);
+    let lhs_view = view(
+        client,
+        &lhs,
+        MatrixLayout::RowMajor,
+        lhs_line_size,
+        &problem,
+    );
+    let rhs_view = view(
+        client,
+        &rhs,
+        MatrixLayout::ColMajor,
+        rhs_line_size,
+        &problem,
+    );
 
     unsafe {
         launch(

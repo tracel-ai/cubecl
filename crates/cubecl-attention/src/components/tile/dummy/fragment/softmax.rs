@@ -4,14 +4,14 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::BroadcastReducer;
+use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
-use crate::components::tile::{row_max, row_sum};
-use crate::components::{
-    TileMask,
-    tile::{RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul},
+use crate::components::tile::{FragmentOps, FragmentOpsExpand};
+use crate::components::tile::{
+    RunningState, SoftmaxTile, SoftmaxTileExpand, dummy::AttentionMatmul,
 };
+use crate::components::tile::{row_max, row_sum};
 
 #[derive(CubeType)]
 pub struct DummySoftmax<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
@@ -33,7 +33,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> DummySoftmax<AP, AM> {
 
 #[cube]
 impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummySoftmax<AP, AM> {
-    type PlaneLayout = AM::Softmax;
+    type FragmentOps = AM::Softmax;
 
     fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
         RunningState::<SM<AP>>::init(num_rows)
@@ -47,8 +47,8 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         AM::zero_softmax(&mut self.fragment, self.config);
     }
 
-    fn scale_and_mask(&mut self, scale: SM<AP>, mask: TileMask) {
-        self.fragment.scale_and_mask(scale, mask);
+    fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: SM<AP>, mask: &M) {
+        Self::FragmentOps::scale_and_mask::<M>(&mut this.fragment, scale, mask);
     }
 
     fn row_max<TC: AttentionMatmulConfig>(
@@ -57,7 +57,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<SM<AP>, Self::PlaneLayout, BroadcastReducer, TC>(
+        row_max::<SM<AP>, Self::FragmentOps, BroadcastReducer, TC>(
             placeholder,
             base,
             &self.fragment,
@@ -74,7 +74,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP> for DummyS
     ) -> RowWise<SM<AP>> {
         self.fragment.exp_m_diff(new_m);
 
-        row_sum::<SM<AP>, Self::PlaneLayout, BroadcastReducer, TC>(
+        row_sum::<SM<AP>, Self::FragmentOps, BroadcastReducer, TC>(
             rowsum_placeholder,
             &self.fragment,
             config,

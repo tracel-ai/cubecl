@@ -153,12 +153,10 @@ where
         let rhs_load_total = comptime!(n_iterations * k_iterations);
         let execute_total = comptime!(m_iterations * n_iterations * k_iterations);
 
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for k_iter in 0..k_iterations {
             let k_load_iter = partition_scheduler.map_k(k_iter);
 
-            #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for m_iter in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
@@ -181,7 +179,6 @@ where
             }
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
             for n_iter in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
@@ -197,7 +194,6 @@ where
                 );
                 comptime!(rhs_load_counter += 1);
 
-                #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
                 for m_iter in 0..m_iterations {
                     let accumulator =
@@ -254,12 +250,10 @@ where
         let rhs_load_total = comptime!(n_iterations * k_iterations);
         let execute_total = comptime!(m_iterations * n_iterations * k_iterations);
 
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
         for k_iter in 0..k_iterations {
             let k_load_iter = partition_scheduler.map_k(k_iter);
 
-            #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for m_iter in 0..m_iterations {
                 let m_load_iter = partition_scheduler.map_m(m_iter);
@@ -318,7 +312,6 @@ where
                 );
                 comptime!(rhs_load_counter += 1);
 
-                #[allow(clippy::explicit_counter_loop)]
                 #[unroll]
                 for m_iter in 0..m_iterations {
                     let accumulator =
@@ -350,7 +343,6 @@ where
                 &mut rhs_fragments.1
             };
 
-            #[allow(clippy::explicit_counter_loop)]
             #[unroll]
             for m_iter in 0..m_iterations {
                 let accumulator =

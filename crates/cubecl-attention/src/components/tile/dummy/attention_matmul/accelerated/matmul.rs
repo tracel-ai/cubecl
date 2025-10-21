@@ -3,29 +3,35 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
-use crate::components::TileMask;
 use crate::components::attention_types::*;
+use crate::components::tile::MaskTile;
 use crate::components::tile::RowWise;
 use crate::components::tile::dummy::accelerated::AcceleratedAttentionMatmulConfig;
 use crate::components::tile::dummy::{AttentionMatmul, AttentionMatmulConfig as _};
-use crate::components::tile::{PlaneLayout, PlaneLayoutExpand};
+use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::tile::{FragmentMask, FragmentMaskExpand};
+use crate::components::tile::{FragmentOps, FragmentOpsExpand};
+use cubecl_std::tensor::layout::Coords2d;
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
 pub struct AcceleratedAttentionMatmul;
 
+#[derive(CubeType)]
+pub struct TODO;
+
 #[cube]
-impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
-    fn num_local_rows(&self) -> comptime_type!(u32) {
+impl FragmentLayout for TODO {
+    fn absolute_pos(&self, _local_pos: Coords2d) -> Coords2d {
         todo!()
     }
-
-    fn num_local_cols(&self) -> comptime_type!(u32) {
-        todo!()
-    }
-
     fn num_units_per_row(&self) -> comptime_type!(u32) {
         todo!()
     }
+}
+
+#[cube]
+impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
+    type Layout = TODO;
 
     fn rowwise_max(&self) -> RowWise<E> {
         todo!()
@@ -39,11 +45,22 @@ impl<E: Float> PlaneLayout<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_and_mask(&mut self, _scale: E, _mask: TileMask) {
+    fn scale_and_mask<M: MaskTile>(_this: &mut Self, _scale: E, _mask: &M) {
         todo!()
     }
 
     fn exp_m_diff(&mut self, _val: &RowWise<E>) {
+        todo!()
+    }
+
+    fn layout(&self) -> Self::Layout {
+        todo!()
+    }
+}
+
+#[cube]
+impl<E: Numeric> FragmentMask for cmma::Matrix<E> {
+    fn should_mask(&self, _local_pos: Coords2d) -> bool {
         todo!()
     }
 }
@@ -53,8 +70,10 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     type Config = AcceleratedAttentionMatmulConfig;
     type Query = cmma::Matrix<QT<AP>>;
     type KeyValue = cmma::Matrix<KVT<AP>>;
+    type Mask = cmma::Matrix<MSK<AP>>;
     type Softmax = cmma::Matrix<SM<AP>>;
     type Accumulator = cmma::Matrix<ACC<AP>>;
+    type FragmentLayout = TODO;
 
     fn score_matmul(
         lhs: &Self::Query,
@@ -74,40 +93,24 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         cmma::execute::<SM<AP>, KVT<AP>, ACC<AP>, ACC<AP>>(lhs, rhs, out, out);
     }
 
-    fn allocate_fill_query<EI: Numeric>(
-        tile: &StridedTile<EI>,
-        #[comptime] config: Self::Config,
-    ) -> Self::Query {
-        let (slice, stride) = tile.as_unlined();
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query {
         let size = config.attention_tile_size().to_score_matmul_tile_size();
 
-        if config.cast_query() {
-            let query = unsafe {
-                cmma::Matrix::<QT<AP>>::uninitialized(
-                    cmma::MatrixIdent::A,
-                    size.m(),
-                    size.n(),
-                    size.k(),
-                    cmma::MatrixLayout::RowMajor,
-                )
-            };
-
-            cmma::load(&query, &slice, stride);
-            query
-        } else {
-            let tmp = unsafe {
-                cmma::Matrix::<EI>::uninitialized(
-                    cmma::MatrixIdent::A,
-                    size.m(),
-                    size.n(),
-                    size.k(),
-                    cmma::MatrixLayout::RowMajor,
-                )
-            };
-
-            cmma::load(&tmp, &slice, stride);
-            cmma::cast::<EI, QT<AP>>(&tmp)
+        unsafe {
+            cmma::Matrix::<QT<AP>>::uninitialized(
+                cmma::MatrixIdent::A,
+                size.m(),
+                size.n(),
+                size.k(),
+                cmma::MatrixLayout::RowMajor,
+            )
         }
+    }
+
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
+        let (slice, stride) = tile.as_unlined();
+
+        cmma::load(fragment, &slice, stride);
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
@@ -153,6 +156,19 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
         }
     }
 
+    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
+        let size = config.attention_tile_size();
+        unsafe {
+            cmma::Matrix::<MSK<AP>>::uninitialized(
+                cmma::MatrixIdent::Accumulator,
+                size.seq_q,
+                size.seq_kv,
+                size.head_dim,
+                cmma::MatrixLayout::RowMajor,
+            )
+        }
+    }
+
     fn fill_key_value<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
@@ -160,6 +176,14 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
     ) {
         let (slice, stride) = tile.as_unlined();
         cmma::load(rhs, &slice, stride);
+    }
+
+    fn fill_mask<E: Numeric>(
+        _tile: &StridedTile<E>,
+        _mask: &mut Self::Mask,
+        #[comptime] _config: Self::Config,
+    ) {
+        todo!()
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
@@ -208,5 +232,9 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul 
             config.attention_tile_size().val_dim,
             cmma::MatrixLayout::RowMajor,
         );
+    }
+
+    fn softmax_layout(#[comptime] _config: Self::Config) -> Self::FragmentLayout {
+        todo!()
     }
 }
