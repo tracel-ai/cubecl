@@ -1,14 +1,16 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
 use crate::components::tile::RowWise;
-use crate::components::tile::{FragmentOps, FragmentOpsExpand};
 
 #[derive(CubeType)]
+/// Max reduction operation
 pub struct RowMax {}
 
 #[derive(CubeType)]
+/// Sum reduction operation
 pub struct RowSum {}
 
 #[cube]
@@ -17,7 +19,7 @@ impl<E: Float> ReduceOp<E> for RowMax {
         data.rowwise_max()
     }
 
-    fn reduce_local_store<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
+    fn reduce_local_accumulate<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
         acc.max_inplace(&Self::reduce_local::<F>(data))
     }
 
@@ -39,7 +41,7 @@ impl<E: Float> ReduceOp<E> for RowSum {
         data.rowwise_sum()
     }
 
-    fn reduce_local_store<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
+    fn reduce_local_accumulate<F: FragmentOps<E>>(data: &F, acc: &mut RowWise<E>) {
         acc.add_inplace(&Self::reduce_local::<F>(data))
     }
 
