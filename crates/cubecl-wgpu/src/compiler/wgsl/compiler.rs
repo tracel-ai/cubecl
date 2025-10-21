@@ -498,15 +498,18 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::Sum(op) => Subgroup::Sum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::ExclusiveSum(op) => Subgroup::ExclusiveSum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -533,6 +536,26 @@ impl WgslCompiler {
             },
             cube::Plane::Max(op) => Subgroup::Max {
                 input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::Shuffle(op) => Subgroup::Shuffle {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleXor(op) => Subgroup::ShuffleXor {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleUp(op) => Subgroup::ShuffleUp {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleDown(op) => Subgroup::ShuffleDown {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
         };

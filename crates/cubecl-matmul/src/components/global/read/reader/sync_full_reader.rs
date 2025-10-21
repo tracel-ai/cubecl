@@ -105,10 +105,11 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(&mut self, #[comptime] config: G) {
-        let view = self.global_iter.view();
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(self.ident, view.line_size(), config),
+            CubeOption::None => {
+                L::new_job::<IP, G>(self.ident, self.global_iter.line_size(), config)
+            }
         };
 
         let len = L::Job::task_count(&loading_job);

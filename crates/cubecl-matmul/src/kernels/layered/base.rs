@@ -15,9 +15,7 @@ use core::any::TypeId;
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
 use cubecl_core::{prelude::*, try_tensor_line_size_parallel};
 use cubecl_runtime::TypeUsage;
-use cubecl_std::tensor::{
-    MatrixBatchLayout, TensorHandle, into_contiguous_pitched, matrix_batch_layout,
-};
+use cubecl_std::tensor::{MatrixBatchLayout, TensorHandle, matrix_batch_layout};
 
 use super::Algorithm;
 
@@ -101,23 +99,13 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let lhs_owned;
     let rhs_owned;
     let lhs = if lhs_make_contiguous {
-        lhs_owned = match lhs {
-            MatmulInputHandleRef::Normal(data) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R, LhsG<MP>>(client, data))
-            }
-            MatmulInputHandleRef::Quantized { .. } => unimplemented!(),
-        };
+        lhs_owned = lhs.into_contiguous::<LhsG<MP>>(client);
         &lhs_owned.as_ref()
     } else {
         lhs
     };
     let rhs = if rhs_make_contiguous {
-        rhs_owned = match rhs {
-            MatmulInputHandleRef::Normal(data) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R, RhsG<MP>>(client, data))
-            }
-            MatmulInputHandleRef::Quantized { .. } => unimplemented!(),
-        };
+        rhs_owned = rhs.into_contiguous::<RhsG<MP>>(client);
         &rhs_owned.as_ref()
     } else {
         rhs

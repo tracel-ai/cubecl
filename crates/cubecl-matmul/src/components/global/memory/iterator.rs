@@ -75,4 +75,9 @@ impl<EG: CubePrimitive> GlobalIterator<EG> {
             self.global_view.slice_unchecked(offset, self.view_size)
         }
     }
+
+    /// Returns the line size of the global view
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        self.global_view.line_size()
+    }
 }
