@@ -45,7 +45,7 @@ impl<E: Float> FragmentOps<E> for cmma::Matrix<E> {
         todo!()
     }
 
-    fn scale_and_mask<M: MaskTile>(_this: &mut Self, _scale: E, _mask: &M) {
+    fn scale_and_mask<M: FragmentMask>(_this: &mut Self, _scale: E, _mask: &M) {
         todo!()
     }
 

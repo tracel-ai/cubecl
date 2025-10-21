@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::attention_types::*;
+use crate::components::{attention_types::*, fragment::AttentionMatmulFamily};
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
     GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
@@ -13,38 +13,38 @@ use crate::components::{
         StageAttentionFamily,
         simple_kv_reuse::{AttentionStageMemoryConfig, DummyStageAttention, DummyStageConfig},
     },
-    tile::{AttentionTilingLayout, TileAttentionFamily},
+    tile::AttentionTilingLayout,
 };
 
 pub struct DummyStageAttentionFamily<
-    TA: TileAttentionFamily,
+    AM: AttentionMatmulFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
 > {
-    _phantom: PhantomData<(TA, SK, SV, SO)>,
+    _phantom: PhantomData<(AM, SK, SV, SO)>,
 }
 
 impl<
-    TA: TileAttentionFamily,
+    AM: AttentionMatmulFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for DummyStageAttentionFamily<TA, SK, SV, SO>
+> StageAttentionFamily for DummyStageAttentionFamily<AM, SK, SV, SO>
 {
     type Attention<AP: AttentionPrecision> = DummyStageAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        TA::Attention<AP>,
+        AM::Matmul<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = DummyStageConfig<TA::Config>;
+    type Config = DummyStageConfig<AM::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -53,9 +53,9 @@ impl<
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
         let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * TA::computation_resources()?.num_planes(selection.plane_dim)?;
+            * AM::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config = TA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
+        let tile_config = AM::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
         DummyStageConfig::new(
             tile_config,

@@ -5,8 +5,6 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::AttentionMatmul;
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
-use crate::components::tile::AccumulatorTile;
-use crate::components::tile::AccumulatorTileExpand;
 use crate::components::tile::RowWise;
 
 #[derive(CubeType)]

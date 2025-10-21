@@ -9,7 +9,6 @@ use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig};
 use crate::components::fragment::{
     FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
 };
-use crate::components::tile::{MaskTile, MaskTileExpand};
 use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;
@@ -48,25 +47,9 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile<AP, AM> {
         }
     }
 
-    /// Returns -infinity if masked at local_pos, or zero if not
-    pub fn apply<E: Float>(this: &Self, local_pos: Coords2d) -> E {
-        let should_mask = match this {
-            MaskTile::Materialized(materialized_tile_mask) => {
-                materialized_tile_mask.should_mask(local_pos)
-            }
-            MaskTile::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
-        };
-
-        E::cast_from(should_mask) * E::min_value()
-    }
-
     /// Loads the mask data into the fragment, if a tile is given, otherwise only
     /// updates the logical mask
-    pub fn update(
-        &mut self,
-        new_origin: Coords2d,
-        tile: CubeOption<StridedTile<Self::MaskPrecision>>,
-    ) {
+    pub fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<MSK<AP>>>) {
         match self {
             MaskTile::Materialized(materialized_tile_mask) => {
                 // TODO read the tile
@@ -161,5 +144,15 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
         AM::fill_mask(&tile, &mut self.fragment, self.config);
+    }
+}
+
+#[cube]
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> FragmentMask for MaskTile<AP, AM> {
+    fn should_mask(&self, local_pos: (u32, u32)) -> bool {
+        match self {
+            MaskTile::Materialized(materialized_tile_mask) => materialized_tile_mask.should_mask(local_pos),
+            MaskTile::Logical(logical_tile_mask) => logical_tile_mask.should_mask(local_pos),
+        }
     }
 }

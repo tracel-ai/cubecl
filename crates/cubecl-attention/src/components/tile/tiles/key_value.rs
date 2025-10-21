@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::KVT;
 use crate::components::fragment::AttentionMatmul;
-use crate::components::tile::{KeyValueTile, KeyValueTileExpand};
 
 #[derive(CubeType)]
 /// Key and Value inputs to the Tile Attention

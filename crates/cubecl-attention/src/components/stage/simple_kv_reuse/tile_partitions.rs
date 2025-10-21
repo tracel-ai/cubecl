@@ -5,6 +5,12 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::AttentionTilingScheme;
+use crate::components::fragment::AttentionMatmul;
+use crate::components::tile::AccumulatorTile;
+use crate::components::tile::KeyValueTile;
+use crate::components::tile::MaskTile;
+use crate::components::tile::QueryTile;
+use crate::components::tile::SoftmaxTile;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -12,10 +18,10 @@ use cubecl_std::tensor::layout::Coords2d;
 #[derive(CubeType)]
 pub struct QueryPartition<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    sequence: Sequence<TA::QueryTile>,
+    sequence: Sequence<QueryTile<AP, AM>>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -23,20 +29,20 @@ pub struct QueryPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> QueryPartition<AP, TA, S>
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
+> QueryPartition<AP, AM, S>
 {
-    pub fn new(#[comptime] config: S) -> QueryPartition<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> QueryPartition<AP, AM, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.head_dim) {
-            sequence.push(TA::init_query(config.tile_config()));
+            sequence.push(TileAttention::init_query(config.tile_config()));
         }
 
-        QueryPartition::<AP, TA, S> {
+        QueryPartition::<AP, AM, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -47,7 +53,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] hd: u32,
         #[comptime] config: S,
-    ) -> &TA::QueryTile {
+    ) -> &QueryTile<AP, AM> {
         let p = config.tiling_scheme().partition_size;
         self.sequence.index(comptime!(q * p.head_dim + hd))
     }
@@ -57,7 +63,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] hd: u32,
         #[comptime] config: S,
-    ) -> &mut TA::QueryTile {
+    ) -> &mut QueryTile<AP, AM> {
         let p = config.tiling_scheme().partition_size;
         self.sequence.index_mut(comptime!(q * p.head_dim + hd))
     }
@@ -66,20 +72,20 @@ impl<
 #[derive(CubeType)]
 pub enum KeyValues<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    Reuse(KeyValueSequence<AP, TA, S>),
-    Separate(KeyValueSequence<AP, TA, S>, KeyValueSequence<AP, TA, S>),
+    Reuse(KeyValueSequence<AP, AM, S>),
+    Separate(KeyValueSequence<AP, AM, S>, KeyValueSequence<AP, AM, S>),
 }
 
 #[derive(CubeType)]
 pub struct KeyValueSequence<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    sequence: Sequence<TA::KeyValueTile>,
+    sequence: Sequence<KeyValueTile<AP, AM>>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -87,21 +93,21 @@ pub struct KeyValueSequence<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> KeyValues<AP, TA, S>
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
+> KeyValues<AP, AM, S>
 {
-    pub fn new(#[comptime] config: S) -> KeyValues<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> KeyValues<AP, AM, S> {
         if config.reuse_key_value() {
             let p = config.tiling_scheme().partition_size;
             let mut sequence = Sequence::new();
 
             #[unroll]
             for _ in 0..comptime!(p.seq_kv * max(p.head_dim, p.val_dim)) {
-                sequence.push(TA::init_key_value(config.tile_config()));
+                sequence.push(KeyValueTile::new_key_value(config.tile_config()));
             }
 
-            KeyValues::<AP, TA, S>::new_Reuse(KeyValueSequence::<AP, TA, S> {
+            KeyValues::<AP, AM, S>::new_Reuse(KeyValueSequence::<AP, AM, S> {
                 sequence,
                 _phantom: PhantomData,
             })
@@ -112,19 +118,19 @@ impl<
 
             #[unroll]
             for _ in 0..comptime!(p.head_dim * p.seq_kv) {
-                keys.push(TA::init_key(config.tile_config()));
+                keys.push(KeyValueTile::new_key(config.tile_config()));
             }
             #[unroll]
             for _ in 0..comptime!(p.seq_kv * p.val_dim) {
-                values.push(TA::init_value(config.tile_config()));
+                values.push(KeyValueTile::new_value(config.tile_config()));
             }
 
-            KeyValues::<AP, TA, S>::new_Separate(
-                KeyValueSequence::<AP, TA, S> {
+            KeyValues::<AP, AM, S>::new_Separate(
+                KeyValueSequence::<AP, AM, S> {
                     sequence: keys,
                     _phantom: PhantomData,
                 },
-                KeyValueSequence::<AP, TA, S> {
+                KeyValueSequence::<AP, AM, S> {
                     sequence: values,
                     _phantom: PhantomData,
                 },
@@ -137,7 +143,7 @@ impl<
         #[comptime] hd: u32,
         #[comptime] kv: u32,
         #[comptime] config: S,
-    ) -> &TA::KeyValueTile {
+    ) -> &KeyValueTile<AP, AM> {
         let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
         match self {
             KeyValues::Reuse(key_values) => key_values.sequence.index(index),
@@ -150,7 +156,7 @@ impl<
         #[comptime] hd: u32,
         #[comptime] kv: u32,
         #[comptime] config: S,
-    ) -> &mut TA::KeyValueTile {
+    ) -> &mut KeyValueTile<AP, AM> {
         let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
         match self {
             KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
@@ -163,7 +169,7 @@ impl<
         #[comptime] kv: u32,
         #[comptime] vd: u32,
         #[comptime] config: S,
-    ) -> &TA::KeyValueTile {
+    ) -> &KeyValueTile<AP, AM> {
         let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
         match self {
             KeyValues::Reuse(key_values) => key_values.sequence.index(index),
@@ -176,7 +182,7 @@ impl<
         #[comptime] kv: u32,
         #[comptime] vd: u32,
         #[comptime] config: S,
-    ) -> &mut TA::KeyValueTile {
+    ) -> &mut KeyValueTile<AP, AM> {
         let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
         match self {
             KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
@@ -188,10 +194,10 @@ impl<
 #[derive(CubeType)]
 pub struct SoftmaxPartition<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    sequence: Sequence<TA::SoftmaxTile>,
+    sequence: Sequence<SoftmaxTile<AP, AM>>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -199,20 +205,20 @@ pub struct SoftmaxPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> SoftmaxPartition<AP, TA, S>
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
+> SoftmaxPartition<AP, AM, S>
 {
-    pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, AM, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.seq_kv) {
-            sequence.push(TA::init_softmax(config.tile_config()));
+            sequence.push(SoftmaxTile::new(config.tile_config()));
         }
 
-        SoftmaxPartition::<AP, TA, S> {
+        SoftmaxPartition::<AP, AM, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -223,7 +229,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] kv: u32,
         #[comptime] config: S,
-    ) -> &TA::SoftmaxTile {
+    ) -> &SoftmaxTile<AP, AM> {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
         self.sequence.index(index)
     }
@@ -233,7 +239,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] kv: u32,
         #[comptime] config: S,
-    ) -> &mut TA::SoftmaxTile {
+    ) -> &mut SoftmaxTile<AP, AM> {
         let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
         self.sequence.index_mut(index)
     }
@@ -242,10 +248,10 @@ impl<
 #[derive(CubeType)]
 pub struct MaskPartition<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    sequence: Sequence<TA::MaskTile>,
+    sequence: Sequence<MaskTile<AP, AM>>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -253,14 +259,14 @@ pub struct MaskPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> MaskPartition<AP, TA, S>
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
+> MaskPartition<AP, AM, S>
 {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] config: S,
-    ) -> MaskPartition<AP, TA, S> {
+    ) -> MaskPartition<AP, AM, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
@@ -272,7 +278,7 @@ impl<
 
             #[unroll]
             for _ in 0..p.seq_kv {
-                sequence.push(TA::init_mask(out_of_bounds, (q, kv), config.tile_config()));
+                sequence.push(MaskTile::new(out_of_bounds, (q, kv), config.tile_config()));
 
                 comptime![kv += 1];
             }
@@ -280,7 +286,7 @@ impl<
             comptime![q += 1];
         }
 
-        MaskPartition::<AP, TA, S> {
+        MaskPartition::<AP, AM, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -291,7 +297,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] kv: u32,
         #[comptime] tiling_scheme: AttentionTilingScheme,
-    ) -> &TA::MaskTile {
+    ) -> &MaskTile<AP, AM> {
         let p = tiling_scheme.partition_size;
         self.sequence.index(comptime!(q * p.seq_kv + kv))
     }
@@ -301,7 +307,7 @@ impl<
         #[comptime] q: u32,
         #[comptime] kv: u32,
         #[comptime] tiling_scheme: AttentionTilingScheme,
-    ) -> &mut TA::MaskTile {
+    ) -> &mut MaskTile<AP, AM> {
         let p = tiling_scheme.partition_size;
         self.sequence.index_mut(comptime!(q * p.seq_kv + kv))
     }
@@ -310,10 +316,10 @@ impl<
 #[derive(CubeType)]
 pub struct AccumulatorPartition<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
 > {
-    sequence: Sequence<TA::AccumulatorTile>,
+    sequence: Sequence<AccumulatorTile<AP, AM>>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -321,20 +327,20 @@ pub struct AccumulatorPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    TA: TileAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = TA::Config>,
-> AccumulatorPartition<AP, TA, S>
+    AM: AttentionMatmul<AP>,
+    S: StageAttentionConfig<AttentionMatmulConfig = AM::Config>,
+> AccumulatorPartition<AP, AM, S>
 {
-    pub fn new(#[comptime] config: S) -> AccumulatorPartition<AP, TA, S> {
+    pub fn new(#[comptime] config: S) -> AccumulatorPartition<AP, AM, S> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.val_dim) {
-            sequence.push(TA::init_accumulator(config.tile_config()));
+            sequence.push(AccumulatorTile::new(config.tile_config()));
         }
 
-        AccumulatorPartition::<AP, TA, S> {
+        AccumulatorPartition::<AP, AM, S> {
             sequence,
             _phantom: PhantomData,
         }
@@ -345,7 +351,7 @@ impl<
         #[comptime] i: u32,
         #[comptime] j: u32,
         #[comptime] config: S,
-    ) -> &TA::AccumulatorTile {
+    ) -> &AccumulatorTile<AP, AM> {
         let p = config.tiling_scheme().partition_size;
         self.sequence.index(comptime!(i * p.val_dim + j))
     }
@@ -355,7 +361,7 @@ impl<
         #[comptime] i: u32,
         #[comptime] j: u32,
         #[comptime] config: S,
-    ) -> &mut TA::AccumulatorTile {
+    ) -> &mut AccumulatorTile<AP, AM> {
         let p = config.tiling_scheme().partition_size;
         self.sequence.index_mut(comptime!(i * p.val_dim + j))
     }

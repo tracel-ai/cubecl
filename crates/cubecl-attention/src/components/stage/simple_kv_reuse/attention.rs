@@ -8,6 +8,7 @@ use cubecl_matmul::components::{
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
+use crate::components::fragment::AttentionMatmul;
 use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::QueryReader;
 use crate::components::stage::simple_kv_reuse::MaskPartition;
@@ -25,8 +26,8 @@ use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
-pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, TA: TileAttention<AP>> {
-    _phantom: PhantomData<(AP, SK, SV, SO, TA)>,
+pub struct DummyStageAttention<AP: AttentionPrecision, SK, SV, SO, AM: AttentionMatmul<AP>> {
+    _phantom: PhantomData<(AP, SK, SV, SO, AM)>,
 }
 
 #[cube]
@@ -35,20 +36,20 @@ impl<
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
-    TA: TileAttention<AP>,
-> StageAttention<AP> for DummyStageAttention<AP, SK, SV, SO, TA>
+    AM: AttentionMatmul<AP>,
+> StageAttention<AP> for DummyStageAttention<AP, SK, SV, SO, AM>
 {
-    type Config = DummyStageConfig<TA::Config>;
+    type Config = DummyStageConfig<AM::Config>;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type QueryRegisters = QueryPartition<AP, TA, Self::Config>;
-    type KeyValueRegisters = KeyValues<AP, TA, Self::Config>;
-    type SoftmaxRegisters = SoftmaxPartition<AP, TA, Self::Config>;
-    type AccumulatorRegisters = AccumulatorPartition<AP, TA, Self::Config>;
-    type MaskRegisters = MaskPartition<AP, TA, Self::Config>;
+    type QueryRegisters = QueryPartition<AP, AM, Self::Config>;
+    type KeyValueRegisters = KeyValues<AP, AM, Self::Config>;
+    type SoftmaxRegisters = SoftmaxPartition<AP, AM, Self::Config>;
+    type AccumulatorRegisters = AccumulatorPartition<AP, AM, Self::Config>;
+    type MaskRegisters = MaskPartition<AP, AM, Self::Config>;
 
     fn execute(
         query_partition: &Self::QueryRegisters,
@@ -63,8 +64,10 @@ impl<
     ) {
         let p = config.tiling_scheme().partition_size;
 
-        let mut max_placeholder = TA::init_max_placeholder(config.num_rows_per_unit());
-        let mut sum_placeholder = TA::init_sum_placeholder(config.num_rows_per_unit());
+        let mut max_placeholder =
+            TileAttention::<AP, AM>::init_max_placeholder(config.num_rows_per_unit());
+        let mut sum_placeholder =
+            TileAttention::<AP, AM>::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         for kv in 0..p.seq_kv {
@@ -72,7 +75,7 @@ impl<
             for hd in 0..p.head_dim {
                 let key_tile = SK::tile(key_stage, (hd, kv).runtime());
 
-                TA::fill_key(
+                TileAttention::fill_key(
                     &key_tile,
                     key_value_partition.get_key_at_mut(hd, kv, config),
                     config.tile_config(),
@@ -84,7 +87,7 @@ impl<
             #[unroll]
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
-                TA::zero_softmax(softmax_tile, config.tile_config());
+                TileAttention::zero_softmax(softmax_tile, config.tile_config());
 
                 let mask_tile = mask_partition.get_at(q, kv, config.tiling_scheme());
 
@@ -93,12 +96,17 @@ impl<
                     let query_tile = query_partition.get_at(q, hd, config);
                     let key_tile = key_value_partition.get_key_at(hd, kv, config);
 
-                    TA::accumulate_score(query_tile, key_tile, softmax_tile, config.tile_config());
+                    TileAttention::accumulate_score(
+                        query_tile,
+                        key_tile,
+                        softmax_tile,
+                        config.tile_config(),
+                    );
                 }
 
                 let state_q = state.index_mut(q);
 
-                scales.push(TA::softmax(
+                scales.push(TileAttention::softmax(
                     softmax_tile,
                     mask_tile,
                     state_q,
@@ -113,7 +121,7 @@ impl<
             for vd in 0..p.val_dim {
                 let value_tile = SV::tile(value_stage, (kv, vd).runtime());
 
-                TA::fill_value(
+                TileAttention::fill_value(
                     &value_tile,
                     key_value_partition.get_value_at_mut(kv, vd, config),
                     config.tile_config(),
@@ -126,7 +134,7 @@ impl<
 
                 #[unroll]
                 for vd in 0..p.val_dim {
-                    TA::accumulate_value(
+                    TileAttention::accumulate_value(
                         softmax_tile,
                         key_value_partition.get_value_at(kv, vd, config),
                         accumulator_partition.get_at_mut(q, vd, config),
@@ -149,10 +157,9 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                TA::rescale(
+                TileAttention::<AP, AM>::rescale(
                     Self::AccumulatorRegisters::get_at_mut(acc, q, vd, config),
                     state.index(q),
-                    config.tile_config(),
                 );
             }
         }
@@ -164,7 +171,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TA::init_state(config.tile_config()));
+            sequence.push(TileAttention::<AP, AM>::init_state(config.tile_config()));
         }
 
         sequence
@@ -187,7 +194,7 @@ impl<
                 let tile_pos = (q + UNIT_POS_Y * p.seq_q, vd.runtime());
                 let mut tile = Self::OutStage::tile(stage, tile_pos);
 
-                TA::write_results(
+                TileAttention::write_results(
                     &mut tile,
                     Self::AccumulatorRegisters::get_at(acc, q, vd, stage_config),
                     stage_config.tile_config(),

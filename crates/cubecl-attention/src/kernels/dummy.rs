@@ -5,8 +5,8 @@ use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::DummyBatchAttentionFamily,
-        global::simple::DummyGlobalAttentionFamily, stage::simple_kv_reuse::DummyStageAttentionFamily,
-        tile::dummy::DummyTileAttentionFamily,
+        global::simple::DummyGlobalAttentionFamily,
+        stage::simple_kv_reuse::DummyStageAttentionFamily,
     },
     kernels::Algorithm,
 };
@@ -15,9 +15,9 @@ pub struct DummyRegisterAlgorithm {}
 pub struct DummyAcceleratedAlgorithm {}
 
 impl Algorithm for DummyRegisterAlgorithm {
-    type TileAttention = DummyTileAttentionFamily<DummyRegisterAttentionMatmul>;
+    type FragmentAttention = DummyRegisterAttentionMatmul;
     type StageAttention = DummyStageAttentionFamily<
-        Self::TileAttention,
+        Self::FragmentAttention,
         StridedStageFamily,
         StridedStageFamily,
         PartitionedStageFamily,
@@ -37,9 +37,9 @@ impl Algorithm for DummyRegisterAlgorithm {
 }
 
 impl Algorithm for DummyAcceleratedAlgorithm {
-    type TileAttention = DummyTileAttentionFamily<AcceleratedAttentionMatmul>;
+    type FragmentAttention = AcceleratedAttentionMatmul;
     type StageAttention = DummyStageAttentionFamily<
-        Self::TileAttention,
+        Self::FragmentAttention,
         StridedStageFamily,
         StridedStageFamily,
         PartitionedStageFamily,

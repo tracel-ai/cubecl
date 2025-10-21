@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::AttentionMatmul;
-use crate::components::tile::{QueryTile, QueryTileExpand};
 use cubecl_matmul::components::tile::StridedTile;
 
 #[derive(CubeType)]

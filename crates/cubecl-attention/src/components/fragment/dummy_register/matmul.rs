@@ -189,15 +189,15 @@ impl<E: Float> FragmentOps<E> for ArrayTile<E> {
         }
     }
 
-    fn scale_and_mask<M: MaskTile>(this: &mut Self, scale: E, mask: &M) {
+    fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M) {
         #[unroll]
         for r in 0..this.layout.unit_size.0 {
             let row_offset = r * this.layout.unit_size.1;
             #[unroll]
             for c in 0..this.layout.unit_size.1 {
                 let index = row_offset + c;
-                this.array[index] =
-                    this.array[index] * scale + M::apply::<E>(mask, (r, c).runtime());
+                this.array[index] = this.array[index] * scale
+                    + E::cast_from(mask.should_mask((r, c).runtime())) * E::min_value();
             }
         }
     }
