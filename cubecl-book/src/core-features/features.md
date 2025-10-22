@@ -83,5 +83,10 @@ Async tensor loading using the TMA accelerator available on Blackwell cards.
 Plane-level cooperative matrix multiply-add operations, with built-in block scaling. Available on
 Blackwell cards.
 
+---
+
 [^1]: fp8/fp6/fp4 types are supported only for conversion and MMA
+
+<!-- -->
+
 [^2]: bf16 is only supported for conversion, CMMA and, on some platforms, dot product
