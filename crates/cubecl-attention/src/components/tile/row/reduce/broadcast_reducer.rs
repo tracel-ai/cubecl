@@ -1,14 +1,18 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentLayout;
+use crate::components::fragment::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
 use crate::components::tile::Reducer;
-use crate::components::tile::dummy::AttentionMatmulConfig;
-use crate::components::tile::row::base::FragmentLayout;
-use crate::components::tile::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 #[derive(CubeType)]
+/// Applies reduction on rows, masking planes that do not participate in the row
+///
+/// TODO: uses shared memory to plane_broadcast, should be replaced with
+/// a plane primitive
 pub struct BroadcastReducer {}
 
 #[cube]
@@ -26,7 +30,7 @@ impl Reducer for BroadcastReducer {
 
         let mut fpb = FakePlaneBroadcast::<E>::new(config.plane_dim(), config.num_planes());
 
-        RO::reduce_local_store::<F>(data, vals);
+        RO::reduce_local_accumulate::<F>(data, vals);
 
         for i in 0..num_shares_within_plane {
             let offset = num_units_per_row >> (i + 1);

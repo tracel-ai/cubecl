@@ -58,7 +58,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         _elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -67,6 +67,7 @@ where
             problem,
             plane_dim,
             false,
+            line_sizes,
             UnitMatmulSelectionOptions {
                 tile: args.tile_size,
                 stage: match args.tile_size {

@@ -4,13 +4,15 @@ use cubecl_core::prelude::*;
 use crate::components::tile::RowWise;
 
 #[derive(CubeType)]
+/// Flash Attention's running state, per row
 pub struct RunningState<E: Float> {
-    pub m: RowWise<E>,
-    pub l: RowWise<E>,
+    m: RowWise<E>,
+    l: RowWise<E>,
 }
 
 #[cube]
 impl<E: Float> RunningState<E> {
+    /// Init the state with neutral values
     pub fn init(#[comptime] num_rows: u32) -> RunningState<E> {
         RunningState::<E> {
             m: RowWise::new_min_value(num_rows),
@@ -18,24 +20,19 @@ impl<E: Float> RunningState<E> {
         }
     }
 
+    /// Update the state for next iteration
     pub fn update(&mut self, new_m: &RowWise<E>, new_l: &RowWise<E>) {
         RowWise::copy_from(&mut self.m, new_m);
         RowWise::copy_from(&mut self.l, new_l);
     }
-}
 
-#[derive(CubeType)]
-pub struct RowStats<E: Float> {
-    pub score_max: RowWise<E>,
-    pub prob_sum: RowWise<E>,
-}
+    /// Get the running m
+    pub fn m(&self) -> &RowWise<E> {
+        &self.m
+    }
 
-#[cube]
-impl<E: Float> RowStats<E> {
-    pub fn new(score_max: RowWise<E>, prob_sum: RowWise<E>) -> RowStats<E> {
-        RowStats::<E> {
-            score_max,
-            prob_sum,
-        }
+    /// Get the running l
+    pub fn l(&self) -> &RowWise<E> {
+        &self.l
     }
 }

@@ -68,7 +68,7 @@ impl Profile {
                 &options.bench,
                 "--release",
                 "--features",
-                "cuda",
+                "cuda,random",
             ],
             None,
             None,
