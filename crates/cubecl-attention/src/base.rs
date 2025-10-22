@@ -14,7 +14,6 @@ use crate::{
 
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
-use cubecl_core::frontend::CubePrimitive;
 
 pub enum Strategy {
     /// Temporary implementation
@@ -66,9 +65,9 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &QG::<AP>::as_type_native_unchecked(),
-        &MSK::<AP>::as_type_native_unchecked(),
-        &OG::<AP>::as_type_native_unchecked(),
+        query.elem_size,
+        size_of::<MSK<AP>>(),
+        out.elem_size,
     );
     let line_sizes = DummyRegisterAlgorithm::filter_line_sizes(line_sizes)
         .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
