@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -35,6 +35,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             ));
             }
         }
+
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
 
         Ok(())
     }

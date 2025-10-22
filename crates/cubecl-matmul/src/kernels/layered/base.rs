@@ -182,11 +182,20 @@ fn launch_inner_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let line_sizes =
         AvailableLineSizes::from_type_sizes::<R>(lhs.elem_size, rhs.elem_size, out.elem_size);
     let line_sizes = A::filter_line_sizes(line_sizes);
-    let line_sizes = line_sizes
+    let mut line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)
         .filter_rhs_with_tensor(rhs.strides, rhs.shape, problem.rhs_layout)
         .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
+
+    // The large line size resulting from dequantizing ends up slower due to restrictions on
+    // algorithms. Use this as a quick and dirty fix.
+    if lhs_handle.scale().is_some() {
+        line_sizes.lhs = 1;
+    }
+    if rhs_handle.scale().is_some() {
+        line_sizes.rhs = 1;
+    }
 
     let fix_plane_dim = |plane_dim: u32| {
         // Sometimes the GPU doesn't support plane instructions and doesn't report the
