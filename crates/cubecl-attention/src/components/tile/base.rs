@@ -1,141 +1,157 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    ComputeResources,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
     tile::StridedTile,
 };
 
-use crate::components::tile::MaskTile;
-use crate::components::tile::SoftmaxTile;
+use crate::components::tile::{AccumulatorTile, KeyValueTile, MaskTile, QueryTile, SoftmaxTile};
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes,
+    AttentionPrecision,
     attention_types::*,
-    tile::{KeyValueTile, QueryTile, RowWise, RunningState, dummy::AttentionMatmulConfig},
+    fragment::AttentionMatmulConfig,
+    tile::{RowWise, RunningState},
 };
-use crate::components::{InvalidConfigError, tile::AccumulatorTile};
+use std::marker::PhantomData;
+
+use crate::components::fragment::AttentionMatmul;
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
-/// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
-pub trait TileAttentionFamily: Send + Sync + 'static {
-    /// The specific [TileAttention] implementation associated with this family.
-    type Attention<AP: AttentionPrecision>: TileAttention<AP, Config = Self::Config>;
-
-    /// The configuration type associated with this Attention family.
-    type Config: AttentionMatmulConfig;
-
-    /// Constructs the configuration based on the Attention problem, selection, and line sizes.
-    ///
-    /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<AP: AttentionPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        problem: &AttentionProblem,
-        selection: &AttentionSelection,
-        line_sizes: &AttentionLineSizes,
-        num_planes: u32,
-    ) -> Result<Self::Config, AttentionSetupError>;
-
-    /// Filters out line sizes that are incompatible with this Attention family.
-    ///
-    /// By default, returns the input unchanged.
-    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
-        available_line_sizes
-    }
-
-    fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
+#[derive(CubeType)]
+pub struct TileAttention<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
+    #[cube(comptime)]
+    _phantom: PhantomData<(AP, AM)>,
 }
 
 #[cube]
-pub trait TileAttention<AP: AttentionPrecision>: 'static + Send + Sync {
-    /// The configuration type associated with this Attention.
-    type Config: AttentionMatmulConfig;
+impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> TileAttention<AP, AM> {
+    pub fn rescale(acc: &mut AccumulatorTile<AP, AM>, prev_state: &RunningState<SM<AP>>) {
+        acc.scale_div(prev_state.l());
+    }
 
-    type QueryTile: QueryTile<AP>;
-    type KeyValueTile: KeyValueTile<KVT<AP>>;
-    type SoftmaxTile: SoftmaxTile<AP>;
-    type AccumulatorTile: AccumulatorTile<AP>;
-    type MaskTile: MaskTile<MaskPrecision = MSK<AP>>;
-
-    fn rescale(
-        acc: &mut Self::AccumulatorTile,
-        prev_state: &RunningState<SM<AP>>,
-        #[comptime] config: Self::Config,
-    );
-
-    fn write_results(
+    pub fn write_results(
         tile: &mut StridedTile<OS<AP>, ReadWrite>,
-        acc: &Self::AccumulatorTile,
-        #[comptime] tile_config: Self::Config,
-    );
+        acc: &AccumulatorTile<AP, AM>,
+        #[comptime] config: AM::Config,
+    ) {
+        AM::write_results(&acc.fragment, &mut tile.slice, config)
+    }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorTile;
+    pub fn init_accumulator(#[comptime] config: AM::Config) -> AccumulatorTile<AP, AM> {
+        AccumulatorTile::new(config)
+    }
 
-    fn init_query(#[comptime] config: Self::Config) -> Self::QueryTile;
+    pub fn init_query(#[comptime] config: AM::Config) -> QueryTile<AP, AM> {
+        QueryTile::new(config)
+    }
 
-    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
-    fn init_key(#[comptime] config: Self::Config) -> Self::KeyValueTile;
-    fn init_value(#[comptime] config: Self::Config) -> Self::KeyValueTile;
+    pub fn init_key_value(#[comptime] config: AM::Config) -> KeyValueTile<AP, AM> {
+        KeyValueTile::new_key_value(config)
+    }
 
-    fn init_mask(
+    pub fn init_key(#[comptime] config: AM::Config) -> KeyValueTile<AP, AM> {
+        KeyValueTile::new_key(config)
+    }
+
+    pub fn init_value(#[comptime] config: AM::Config) -> KeyValueTile<AP, AM> {
+        KeyValueTile::new_value(config)
+    }
+
+    pub fn init_mask(
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] partition_pos: Coords2d,
-        #[comptime] config: Self::Config,
-    ) -> Self::MaskTile;
-    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxTile;
+        #[comptime] config: AM::Config,
+    ) -> MaskTile<AP, AM> {
+        MaskTile::new(out_of_bounds, partition_pos, config)
+    }
 
-    fn init_state(#[comptime] config: Self::Config) -> RunningState<SM<AP>>;
+    pub fn init_softmax(#[comptime] config: AM::Config) -> SoftmaxTile<AP, AM> {
+        SoftmaxTile::new(config)
+    }
 
-    fn fill_query<E: Float>(tile: &StridedTile<E>, registers: &mut Self::QueryTile);
+    pub fn init_state(#[comptime] config: AM::Config) -> RunningState<SM<AP>> {
+        RunningState::<SM<AP>>::init(config.num_rows_per_unit())
+    }
 
-    fn fill_key<E: Float>(
+    pub fn fill_key<E: Float>(
         tile: &StridedTile<E>,
-        registers: &mut Self::KeyValueTile,
-        #[comptime] config: Self::Config,
-    );
+        registers: &mut KeyValueTile<AP, AM>,
+        #[comptime] config: AM::Config,
+    ) {
+        AM::fill_key_value(tile, registers.key_mut(), config);
+    }
 
-    fn fill_value<E: Float>(
+    pub fn fill_value<E: Float>(
         tile: &StridedTile<E>,
-        registers: &mut Self::KeyValueTile,
-        #[comptime] config: Self::Config,
-    );
+        registers: &mut KeyValueTile<AP, AM>,
+        #[comptime] config: AM::Config,
+    ) {
+        AM::fill_key_value(tile, registers.value_mut(), config);
+    }
 
-    fn fill_mask<E: Numeric>(
-        tile: &StridedTile<E>,
-        registers: &mut Self::MaskTile,
-        #[comptime] config: Self::Config,
-    );
+    pub fn zero_softmax(score: &mut SoftmaxTile<AP, AM>, #[comptime] config: AM::Config) {
+        AM::zero_softmax(&mut score.fragment, config);
+    }
 
-    fn zero_softmax(score: &mut Self::SoftmaxTile, #[comptime] config: Self::Config);
+    pub fn accumulate_score(
+        query: &QueryTile<AP, AM>,
+        key_value: &KeyValueTile<AP, AM>,
+        softmax: &mut SoftmaxTile<AP, AM>,
+        #[comptime] config: AM::Config,
+    ) {
+        AM::score_matmul(
+            &query.fragment,
+            key_value.key(),
+            &mut softmax.fragment,
+            config,
+        );
+    }
 
-    fn accumulate_score(
-        query: &Self::QueryTile,
-        key_value: &Self::KeyValueTile,
-        softmax: &mut Self::SoftmaxTile,
-        #[comptime] config: Self::Config,
-    );
-
-    fn softmax(
-        softmax: &mut Self::SoftmaxTile,
-        mask: &Self::MaskTile,
+    pub fn softmax(
+        softmax: &mut SoftmaxTile<AP, AM>,
+        mask: &MaskTile<AP, AM>,
         state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
         sum_placeholder: &mut RowWise<SM<AP>>,
         #[comptime] dk: u32,
-        #[comptime] config: Self::Config,
-    ) -> RowWise<SM<AP>>;
+        #[comptime] config: AM::Config,
+    ) -> RowWise<SM<AP>> {
+        SoftmaxTile::scale_and_mask(
+            softmax,
+            SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())),
+            mask,
+        );
 
-    fn accumulate_value(
-        softmax: &Self::SoftmaxTile,
-        key_value: &Self::KeyValueTile,
-        accumulator: &mut Self::AccumulatorTile,
+        softmax.row_max::<AM::Config>(max_placeholder, state.m(), config);
+
+        softmax.to_prob::<AM::Config>(state, max_placeholder, sum_placeholder, config)
+    }
+
+    pub fn accumulate_value(
+        softmax: &SoftmaxTile<AP, AM>,
+        key_value: &KeyValueTile<AP, AM>,
+        accumulator: &mut AccumulatorTile<AP, AM>,
         scale: &RowWise<SM<AP>>,
-        #[comptime] config: Self::Config,
-    );
+        #[comptime] config: AM::Config,
+    ) {
+        accumulator.scale_mul(scale);
 
-    fn init_max_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>>;
-    fn init_sum_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>>;
+        AM::value_matmul(
+            &softmax.fragment,
+            key_value.value(),
+            &mut accumulator.fragment,
+            config,
+        );
+    }
+
+    pub fn init_max_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>> {
+        RowWise::new_min_value(num_rows)
+    }
+
+    pub fn init_sum_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>> {
+        RowWise::new_zero(num_rows)
+    }
 }

@@ -138,14 +138,14 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
 
 #[allow(dead_code)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
-    for tl in [false] {
-        for tr in [false] {
+    for tl in [true, false] {
+        for tr in [true, false] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
-                entry(6144, 6144, 6144),
+                // entry(6144, 6144, 6144),
                 // entry(4096, 4096, 4096),
                 // entry(2048, 2048, 2048),
-                // entry(1024, 1024, 1024),
+                // (2, 1024, 1024, 1024),
                 // entry(512, 512, 512),
                 // entry(64, 1024, 64),
                 // entry(32, 1024, 32),
@@ -159,7 +159,11 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // (16, 1, 2048, 8192),
                 // (16, 1, 4096, 4096),
                 // (16, 1, 512, 4096),
+                // (2, 8192, 8192, 1), // Outer
+                // (2, 8192, 1, 8192), // MatVec
+                (2, 1, 8192, 8192), // VecMat
             ] {
+                println!("-------------------");
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
             }
         }
@@ -328,6 +332,7 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
             tile_size: TileSizeSelection::MinTileSize,
         })),
     );
+
     println!("Double Unit Max");
     run::<R, MP>(
         Default::default(),
@@ -391,7 +396,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
-    // run_algos_unit::<R, MP>();
+    run_algos_unit::<R, MP>();
     run_algos_wmma::<R, MP>();
     // run_algos_vecmat::<R, MP>();
 }

@@ -1,4 +1,4 @@
-pub mod dummy;
+pub mod simple_kv_reuse;
 
 mod base;
 

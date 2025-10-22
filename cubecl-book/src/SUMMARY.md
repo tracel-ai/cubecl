@@ -19,6 +19,3 @@
   - [Struct](./language-support/struct.md)
 - [Advanced Usage](./advanced-usage/summary.md)
   - [Configuration](./advanced-usage/config.md)
-- [Algorithm reference](./algorithms/summary.md)
-  - [Quantized matrix multiplication](./algorithms/quantized_matmul.md)
-  - [Pseudo Random Number Generator]()
