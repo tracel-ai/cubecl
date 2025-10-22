@@ -1,0 +1,10 @@
+[default]
+extend-ignore-identifiers-re = ["CU_DEVICE_ATTRIBUTE_*", "HSA_*"]
+
+[default.extend-identifiers]
+Olt = "Olt"
+UE4M3 = "UE4M3"
+UE8M0 = "UE8M0"
+arange = "arange"
+ue4m3 = "ue4m3"
+ue8m0 = "ue8m0"
