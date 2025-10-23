@@ -1,8 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent,
-    stage::{StageMemoryConfig, StridedStage, TilingLayout},
+    InvalidConfigError, MatrixLayout, StageIdent,
+    global::memory::GlobalMemoryConfig,
+    stage::{StageMemoryConfig, StridedStage, TilingLayout, TilingValidation},
     tile::StridedTile,
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -37,5 +38,15 @@ impl TilingLayout for BiasTilingLayout {
             0,
             MatrixLayout::RowMajor,
         )
+    }
+}
+
+impl TilingValidation for BiasTilingLayout {
+    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+        let stage_width = config.elements_in_stage_col;
+        if config.global_line_size > stage_width {
+            return Err(Box::new("Invalid line size"));
+        }
+        Ok(())
     }
 }

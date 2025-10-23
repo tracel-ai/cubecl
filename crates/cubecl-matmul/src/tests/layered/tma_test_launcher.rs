@@ -56,10 +56,10 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let line_sizes = AvailableLineSizes::from_types::<R>(
-        &P::EG::as_type_native_unchecked(),
-        &P::EG::as_type_native_unchecked(),
-        &P::EG::as_type_native_unchecked(),
+    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+        size_of::<P::EG>(),
+        size_of::<P::EG>(),
+        size_of::<P::EG>(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes

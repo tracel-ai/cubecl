@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncPartialLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -84,6 +84,8 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
             }
             MatmulIdent::Out => unreachable!(),
         }
+
+        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
 
         Ok(())
     }

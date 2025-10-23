@@ -111,8 +111,9 @@ impl Runtime for CpuRuntime {
         supported.iter().filter(move |v| **v <= max).cloned()
     }
 
-    fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
-        let max = LOAD_WIDTH / elem.size_bits();
+    fn io_optimized_line_sizes_unchecked(elem_size: usize) -> impl Iterator<Item = u8> + Clone {
+        let elem_size_bits = elem_size * 8;
+        let max = LOAD_WIDTH / elem_size_bits;
         (1..max as u8).rev().filter(|v| v.is_power_of_two())
     }
 

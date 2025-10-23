@@ -7,7 +7,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_tile},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
+    stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -33,6 +33,8 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
                 "Number of units ({total_units:?}) must divide number of slices ({num_slices:?}). Would require units doing different numbers of slices"
             )));
         }
+
+        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
 
         Ok(())
     }
