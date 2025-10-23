@@ -15,30 +15,30 @@ pub struct StridedLayout {
     stride: u32,
     len: u32,
     #[cube(comptime)]
-    line_size: u8,
+    line_size: u32,
 }
 
 impl<'a, R: Runtime> StridedLayoutLaunch<'a, R> {
     pub fn from_shape_strides(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         strides: &[usize],
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         let rank = shape.len();
-        let len = shape.iter().product::<usize>() / *line_size as usize;
+        let len = shape.iter().product::<usize>() / line_size as usize;
         Self::new(
             FastDivmodArgs::new(client, shape[rank - 1] as u32),
             ScalarArg::new(strides[rank - 2] as u32),
             ScalarArg::new(len as u32),
-            line_size,
+            line_size as u32,
         )
     }
 
     pub fn from_handle(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
-        line_size: &'a u8,
+        line_size: u8,
     ) -> Self {
         Self::from_shape_strides(client, handle.shape, handle.strides, line_size)
     }
@@ -50,10 +50,10 @@ impl Layout for StridedLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> u32 {
-        let offset_abs = pos * comptime![self.line_size as u32];
+        let offset_abs = pos * self.line_size;
         let (y, x) = self.shape.div_mod(offset_abs);
         let offset = y * self.stride + x;
-        offset / comptime![self.line_size as u32]
+        offset / self.line_size
     }
 
     fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (u32, bool) {

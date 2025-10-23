@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -69,6 +69,8 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
             }));
         }
 
+        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -80,9 +82,9 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
-        let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();
@@ -134,7 +136,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -153,7 +155,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
             tile,
             line_index_within_tile,
             nth_tile_for_this_plane * this.num_lines_per_tile,
-            tensor_reader,
+            global_iter,
             stage,
             config,
         );
@@ -172,7 +174,7 @@ impl SyncFullTilewiseJob {
         tile: Coords2d,
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
-        global_iter: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {

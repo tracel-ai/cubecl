@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -44,6 +44,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             }
         }
 
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -70,9 +72,9 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> SyncPartialCyclicJob {
-        let line_size = config.global_line_size(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
         let tile_size = config.tiling_scheme().elements_in_tile(ident);
@@ -136,7 +138,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -144,10 +146,10 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
             }
         }
     }
@@ -161,18 +163,21 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<IP::Global>,
+    global_iter: &GlobalIterator<Line<IP::Global>>,
     stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
-    let (line_size, tile_size, tile_count_row, tile_count_col) = comptime! {
+    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
+    let view = global_iter.view().view(layout);
+
+    let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.global_line_size(job.ident),
             config.tiling_scheme().elements_in_tile(job.ident),
             config.tiling_scheme().tiles_in_stage_row(job.ident),
             config.tiling_scheme().tiles_in_stage_col(job.ident),
         )
     };
+    let line_size = view.line_size();
 
     let tile_index = unit_position / tile_size;
     let pos_within_tile = unit_position % tile_size;
@@ -207,9 +212,6 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
         ),
         MatmulIdent::Out => comptime!(unreachable!()),
     };
-
-    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
-    let view = global_iter.view().view(layout);
 
     let line_read = view.read_checked((tile, pos_within_tile));
 

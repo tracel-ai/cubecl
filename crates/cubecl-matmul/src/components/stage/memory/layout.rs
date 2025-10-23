@@ -4,8 +4,10 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::stage::StageMemoryConfig;
 use crate::components::tile::StridedTile;
+use crate::components::{
+    InvalidConfigError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+};
 use crate::components::{MatrixLayout, StageIdent};
 
 use super::StridedStage;
@@ -213,7 +215,7 @@ impl TilingOrder for OrderedTilingOrder {
 
 #[cube]
 /// Describes how tiles are arranged in shared memory.
-pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
+pub trait TilingLayout: 'static + Send + Sync + Clone + Copy + TilingValidation {
     /// Returns the tile at shared memory coordinates
     fn get_tile<ES: Numeric>(
         stage: &StridedStage<ES, Self>,
@@ -222,6 +224,10 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy {
         #[comptime] ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES>;
+}
+
+pub trait TilingValidation {
+    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError>;
 }
 
 #[derive(Clone, Copy)]
@@ -333,6 +339,19 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     }
 }
 
+impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
+    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+        let tile_width = match config.matrix_layout {
+            MatrixLayout::RowMajor => config.elements_in_tile_col,
+            MatrixLayout::ColMajor => config.elements_in_tile_row,
+        };
+        if config.global_line_size > tile_width {
+            return Err(Box::new("Invalid line size"));
+        }
+        Ok(())
+    }
+}
+
 #[cube]
 impl StridedTilingLayout {
     /// Returns the nth slice of the stage
@@ -409,6 +428,19 @@ impl TilingLayout for StridedTilingLayout {
     }
 }
 
+impl TilingValidation for StridedTilingLayout {
+    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+        let stage_width = match config.matrix_layout {
+            MatrixLayout::RowMajor => config.elements_in_stage_col,
+            MatrixLayout::ColMajor => config.elements_in_stage_row,
+        };
+        if config.global_line_size > stage_width {
+            return Err(Box::new("Invalid line size"));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 /// Dummy tiling layout that panics if it's used. Can be used when the reader is known to be a
 /// `FillReader`
@@ -424,5 +456,11 @@ impl TilingLayout for NoTilingLayout {
         #[comptime] _config: StageMemoryConfig,
     ) -> StridedTile<ES> {
         panic!("Can't get tile of layoutless tiling!")
+    }
+}
+
+impl TilingValidation for NoTilingLayout {
+    fn check(_config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+        Ok(())
     }
 }

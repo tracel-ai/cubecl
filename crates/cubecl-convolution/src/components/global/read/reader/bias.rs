@@ -2,11 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords1d, r#virtual::VirtualTensor},
+    tensor::{View, layout::Coords2d},
 };
 
 use cubecl_matmul::components::{
-    MatmulIdent, MatrixPrecision, StageIdent,
+    MatrixPrecision, StageIdent,
     global::GlobalConfig,
     stage::{StageMemoryConfig, StridedStage},
 };
@@ -17,7 +17,7 @@ use crate::components::stage::reader::BiasTilingLayout;
 #[derive(CubeType)]
 pub enum BiasGlobalReader<IP: MatrixPrecision> {
     Some {
-        view: View<Line<IP::Global>, Coords1d>,
+        view: View<Line<IP::Global>, Coords2d>,
         stage: StridedStage<IP::Stage, BiasTilingLayout>,
     },
     None,
@@ -33,7 +33,7 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
     pub fn load_stage<G: GlobalConfig>(&mut self, #[comptime] config: G) {
         match self {
             BiasGlobalReader::Some { view, stage } => {
-                let line_size = config.global_line_size(MatmulIdent::Out);
+                let line_size = view.line_size();
                 let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
 
                 let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
@@ -42,7 +42,7 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
                 let mut slice = stage.as_slice_mut(line_size);
 
                 if unit_pos < num_stage_elements {
-                    let read_line = view.read_checked(unit_pos);
+                    let read_line = view.read_checked((0, unit_pos));
                     slice[unit_id] = Line::cast_from(read_line);
                 }
             }
@@ -64,15 +64,12 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
 impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
     /// Create a new bias reader from the bias tensor and a global offset `n_offset`.
     pub fn new(
-        tensor: CubeOption<VirtualTensor<IP::Global>>,
-        n_offset: u32,
-        slice_size: u32,
+        view: CubeOption<View<Line<IP::Global>, Coords2d>>,
         #[comptime] config: StageMemoryConfig,
     ) -> Self {
-        match tensor {
-            CubeOption::Some(tensor) => {
+        match view {
+            CubeOption::Some(view) => {
                 let stage = init_stage::<IP::Stage>(config);
-                let view = tensor.as_view().slice_unchecked(n_offset, slice_size);
 
                 BiasGlobalReader::<IP>::new_Some(view, stage)
             }

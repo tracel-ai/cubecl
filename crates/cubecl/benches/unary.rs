@@ -82,7 +82,7 @@ struct UnaryBench<R: Runtime, E> {
     shape: Vec<usize>,
     vectorization: u8,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _e: PhantomData<E>,
 }
 

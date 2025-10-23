@@ -30,6 +30,7 @@ impl ConvolutionProblem {
             k: self.k,
             lhs_batches: vec![],
             rhs_batches: vec![],
+            out_batches: vec![],
             lhs_layout: self.lhs_layout,
             rhs_layout: self.rhs_layout,
         }

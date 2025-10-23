@@ -1,7 +1,10 @@
-use std::collections::LinkedList;
+use std::{collections::LinkedList, sync::Arc};
 
 use cubecl_runtime::{
-    memory_management::{MemoryConfiguration, MemoryDeviceProperties, MemoryManagement},
+    logging::ServerLogger,
+    memory_management::{
+        MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+    },
     storage::BytesStorage,
 };
 
@@ -14,9 +17,15 @@ fn main() {
     let mem_props = MemoryDeviceProperties {
         max_page_size: 2048 * MB,
         alignment: 32,
-        data_transfer_async: false,
     };
-    let mut mm = MemoryManagement::from_configuration(storage, &mem_props, config);
+    let logger = Arc::new(ServerLogger::default());
+    let mut mm = MemoryManagement::from_configuration(
+        storage,
+        &mem_props,
+        config,
+        logger,
+        MemoryManagementOptions::new("test"),
+    );
     let mut handles = LinkedList::new();
     for _ in 0..100 * 2048 {
         if handles.len() >= 4000 {

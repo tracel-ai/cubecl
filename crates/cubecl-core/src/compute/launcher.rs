@@ -112,7 +112,7 @@ impl<R: Runtime> KernelLauncher<R> {
         self,
         cube_count: CubeCount,
         kernel: K,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) {
         let bindings = self.into_bindings();
         let kernel = Box::new(KernelTask::<R::Compiler, K>::new(kernel));
@@ -133,7 +133,7 @@ impl<R: Runtime> KernelLauncher<R> {
         self,
         cube_count: CubeCount,
         kernel: K,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) {
         unsafe {
             let bindings = self.into_bindings();

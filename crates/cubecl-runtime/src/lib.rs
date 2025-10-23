@@ -18,8 +18,6 @@ pub mod kernel;
 #[cfg(feature = "std")]
 pub mod stream;
 
-/// Compute channel module.
-pub mod channel;
 /// Compute client module.
 pub mod client;
 
@@ -40,8 +38,6 @@ mod feature_set;
 /// Runtime features and associated types
 pub mod features;
 
-mod base;
-pub use base::*;
 pub use cubecl_common::benchmark;
 
 pub use feature_set::*;
@@ -54,6 +50,3 @@ pub mod tma;
 
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
-
-/// Utilities for data transfers between servers
-pub mod data_service;

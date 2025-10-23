@@ -55,10 +55,10 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         _elems: MatmulElems,
         args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -67,6 +67,7 @@ where
             problem,
             plane_dim,
             false,
+            line_sizes,
             UnitMatmulSelectionOptions {
                 tile: args.tile_size,
                 stage: match args.tile_size {
@@ -81,7 +82,7 @@ where
         ))
     }
 
-    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> u32 {
         client.properties().hardware.plane_size_min
     }
 }

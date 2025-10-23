@@ -53,7 +53,7 @@ pub fn kernel_with_max_shared(
     }
 }
 
-pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server>) {
     let handle = client.create(f32::as_bytes(&[5.0]));
     let array_arg = unsafe { ArrayArg::from_raw_parts::<f32>(&handle, 1, 1) };
 
@@ -61,7 +61,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ComptimeTagLaunch::new(array_arg, &"zero".to_string()),
+        ComptimeTagLaunch::new(array_arg, "zero".to_string()),
     );
 
     let actual = client.read_one(handle);
@@ -76,7 +76,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::default(),
-        ComptimeTagLaunch::new(array_arg, &"not_zero".to_string()),
+        ComptimeTagLaunch::new(array_arg, "not_zero".to_string()),
     );
 
     let actual = client.read_one(handle);
@@ -86,7 +86,7 @@ pub fn test_kernel_with_comptime_tag<R: Runtime>(client: ComputeClient<R::Server
 }
 
 pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     let handle = client.create(as_bytes![F: 0.0, 1.0]);
 
@@ -103,7 +103,7 @@ pub fn test_kernel_with_generics<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server>) {
     let handle = client.create(f32::as_bytes(&[0.0, 1.0]));
 
     kernel_without_generics::launch::<R>(
@@ -119,7 +119,7 @@ pub fn test_kernel_without_generics<R: Runtime>(client: ComputeClient<R::Server,
     assert_eq!(actual[0], 5.0);
 }
 
-pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_kernel_max_shared<R: Runtime>(client: ComputeClient<R::Server>) {
     let total_shared_size = client.properties().hardware.max_shared_memory_size;
 
     let handle = client.create(u32::as_bytes(&[0, 1, 2, 3, 4, 5, 6, 7]));

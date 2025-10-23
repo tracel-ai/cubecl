@@ -7,7 +7,10 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
+use cubecl_std::{
+    CubeOption,
+    tensor::{View, layout::Coords3d},
+};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
@@ -22,7 +25,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -34,7 +37,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     ///
     /// Out-of-bounds can happen
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
@@ -74,10 +77,10 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        a: VirtualTensor<LhsG<MP>>,
-        b: VirtualTensor<RhsG<MP>>,
-        c: CubeOption<VirtualTensor<AccG<MP>>>,
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
+        a: View<Line<LhsG<MP>>, Coords3d>,
+        b: View<Line<RhsG<MP>>, Coords3d>,
+        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
+        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );

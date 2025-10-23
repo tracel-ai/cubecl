@@ -2,17 +2,17 @@ use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
+use cubecl_common::device::{Device, DeviceState};
 use cubecl_common::{future, profile::TimingMethod};
-
+use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
 pub use cubecl_runtime::memory_management::MemoryConfiguration;
 use cubecl_runtime::memory_management::MemoryDeviceProperties;
+use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use cubecl_runtime::{
-    ComputeRuntime, channel,
     client::ComputeClient,
     logging::{ProfileLevel, ServerLogger},
 };
-use cubecl_runtime::{DeviceProperties, memory_management::HardwareProperties};
 use wgpu::{InstanceFlags, RequestAdapterOptions};
 
 /// Runtime that uses the [wgpu] crate with the wgsl compiler. This is used in the Wgpu backend.
@@ -21,29 +21,24 @@ use wgpu::{InstanceFlags, RequestAdapterOptions};
 #[derive(Debug)]
 pub struct WgpuRuntime;
 
-type Server = WgpuServer;
-type Channel = channel::MutexComputeChannel<Server>;
-// type Channel = channel::MpscComputeChannel<Server>;
-
-/// The compute instance is shared across all [wgpu runtimes](WgpuRuntime).
-static RUNTIME: ComputeRuntime<WgpuDevice, Server, Channel> = ComputeRuntime::new();
+impl DeviceState for WgpuServer {
+    fn init(device_id: cubecl_common::device::DeviceId) -> Self {
+        let device = WgpuDevice::from_id(device_id);
+        let setup = future::block_on(create_setup_for_device(&device, AutoGraphicsApi::backend()));
+        create_server(setup, RuntimeOptions::default())
+    }
+}
 
 impl Runtime for WgpuRuntime {
     type Compiler = AutoCompiler;
     type Server = WgpuServer;
-
-    type Channel = Channel;
     type Device = WgpuDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server, Self::Channel> {
-        RUNTIME.client(device, move || {
-            let setup =
-                future::block_on(create_setup_for_device(device, AutoGraphicsApi::backend()));
-            create_client_on_setup(setup, RuntimeOptions::default())
-        })
+    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+        ComputeClient::load(device)
     }
 
-    fn name(client: &ComputeClient<Self::Server, Self::Channel>) -> &'static str {
+    fn name(client: &ComputeClient<Self::Server>) -> &'static str {
         match client.info() {
             wgpu::Backend::Vulkan => {
                 #[cfg(feature = "spirv")]
@@ -72,6 +67,10 @@ impl Runtime for WgpuRuntime {
         {
             &[4, 2, 1]
         }
+    }
+
+    fn max_global_line_size() -> u8 {
+        4
     }
 
     fn max_cube_count() -> (u32, u32, u32) {
@@ -167,8 +166,8 @@ pub fn init_device(setup: WgpuSetup, options: RuntimeOptions) -> WgpuDevice {
     }
 
     let device_id = WgpuDevice::Existing(device_id);
-    let client = create_client_on_setup(setup, options);
-    RUNTIME.register(&device_id, client);
+    let server = create_server(setup, options);
+    let _ = ComputeClient::init(&device_id, server);
     device_id
 }
 
@@ -194,15 +193,12 @@ pub async fn init_setup_async<G: GraphicsApi>(
 ) -> WgpuSetup {
     let setup = create_setup_for_device(device, G::backend()).await;
     let return_setup = setup.clone();
-    let client = create_client_on_setup(setup, options);
-    RUNTIME.register(device, client);
+    let server = create_server(setup, options);
+    let _ = ComputeClient::init(device, server);
     return_setup
 }
 
-pub(crate) fn create_client_on_setup(
-    setup: WgpuSetup,
-    options: RuntimeOptions,
-) -> ComputeClient<WgpuServer, Channel> {
+pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
     let limits = setup.device.limits();
     let mut adapter_limits = setup.adapter.limits();
 
@@ -219,7 +215,6 @@ pub(crate) fn create_client_on_setup(
     let mem_props = MemoryDeviceProperties {
         max_page_size: limits.max_storage_buffer_binding_size as u64,
         alignment: limits.min_storage_buffer_offset_alignment as u64,
-        data_transfer_async: false,
     };
     let max_count = adapter_limits.max_compute_workgroups_per_dimension;
     let hardware_props = HardwareProperties {
@@ -283,7 +278,9 @@ pub(crate) fn create_client_on_setup(
 
     backend::register_features(&setup.adapter, &mut device_props, &mut compilation_options);
 
-    let server = WgpuServer::new(
+    let logger = alloc::sync::Arc::new(ServerLogger::default());
+
+    WgpuServer::new(
         mem_props,
         options.memory_config,
         compilation_options,
@@ -292,22 +289,8 @@ pub(crate) fn create_client_on_setup(
         options.tasks_max,
         setup.backend,
         time_measurement,
-        alloc::sync::Arc::new(ServerLogger::default()),
-    );
-    let channel = Channel::new(server);
-
-    #[cfg(not(all(target_os = "macos", feature = "msl")))]
-    if features.contains(wgpu::Features::SHADER_FLOAT32_ATOMIC) {
-        use cubecl_core::ir::{ElemType, FloatKind, StorageType};
-        use cubecl_runtime::TypeUsage;
-
-        device_props.register_type_usage(
-            StorageType::Atomic(ElemType::Float(FloatKind::F32)),
-            TypeUsage::AtomicLoadStore | TypeUsage::AtomicAdd,
-        );
-    }
-
-    ComputeClient::new(channel, device_props, setup.backend)
+        ServerUtilities::new(device_props, logger, setup.backend),
+    )
 }
 
 /// Select the wgpu device and queue based on the provided [device](WgpuDevice) and

@@ -1,5 +1,5 @@
 use crate::{
-    data_service::DataTransferId,
+    DeviceProperties,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -16,7 +16,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+    ExecutionMode, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
 use thiserror::Error;
@@ -30,11 +31,58 @@ pub enum ProfileError {
     NotRegistered,
 }
 
+#[derive(Debug)]
+/// Contains many different types that are useful for server implementations and compute clients.
+pub struct ServerUtilities<Server: ComputeServer> {
+    /// The time when `profile-tracy` is activated.
+    #[cfg(feature = "profile-tracy")]
+    pub epoch_time: web_time::Instant,
+    /// The GPU client when `profile-tracy` is activated.
+    #[cfg(feature = "profile-tracy")]
+    pub gpu_client: tracy_client::GpuContext,
+    /// Information shared between all servers.
+    pub properties: DeviceProperties,
+    /// Information specific to the current server.
+    pub info: Server::Info,
+    /// The logger based on global cubecl configs.
+    pub logger: Arc<ServerLogger>,
+}
+
+impl<S: ComputeServer> ServerUtilities<S> {
+    /// Creates a new server utilities.
+    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
+        // Start a tracy client if needed.
+        #[cfg(feature = "profile-tracy")]
+        let client = tracy_client::Client::start();
+
+        Self {
+            properties,
+            logger,
+            // Create the GPU client if needed.
+            #[cfg(feature = "profile-tracy")]
+            gpu_client: client
+                .clone()
+                .new_gpu_context(
+                    Some(&format!("{info:?}")),
+                    // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
+                    tracy_client::GpuContextType::Invalid,
+                    0,   // Timestamps are manually aligned to this epoch so start at 0.
+                    1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
+                )
+                .unwrap(),
+            #[cfg(feature = "profile-tracy")]
+            epoch_time: web_time::Instant::now(),
+            info,
+        }
+    }
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: DataTransferService + Send + core::fmt::Debug
+pub trait ComputeServer:
+    Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
 where
     Self: Sized,
 {
@@ -54,6 +102,9 @@ where
 
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
+
+    /// Retrieve the server utilities.
+    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
@@ -146,33 +197,45 @@ where
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, stream_id: StreamId);
 }
 
-/// Defines a way to move data from one compute server to another.
-///
-/// # Notes
-///
-/// This is an optional trait to be implemented and methods will only be called if the
-/// memory device property 'data_service_async' is set to 'true'.
-pub trait DataTransferService {
-    /// Send data to another server. Should be called with [register_dest](DataTransferService::register_dest)
-    ///
-    /// # Arguments
-    ///
-    /// - `id`: A unique id for the transaction
-    /// - `src`: The source for the read operation.
-    #[allow(unused_variables)]
-    fn register_src(&mut self, stream_id: StreamId, id: DataTransferId, src: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
-    }
+/// Defines functions for optimized data transfer between servers, supporting custom communication
+/// mechanisms such as peer-to-peer communication or specialized implementations.
+pub trait ServerCommunication {
+    /// Indicates whether server-to-server communication is enabled for this implementation.
+    const SERVER_COMM_ENABLED: bool;
 
-    /// Receive data from another server. Should be called with [register_src](DataTransferService::register_src)
+    /// Copies data from a source server to a destination server.
     ///
     /// # Arguments
     ///
-    /// - `id`: A unique id for the transaction
-    /// - `dst`: The destination for the write operation.
+    /// * `server_src` - A mutable reference to the source server from which data is copied.
+    /// * `server_dst` - A mutable reference to the destination server receiving the data.
+    /// * `src` - A descriptor specifying the data to be copied, including shape, strides, and binding.
+    /// * `stream_id_src` - The stream ID associated with the source server's operation.
+    /// * `stream_id_dst` - The stream ID associated with the destination server's operation.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Result` containing an `Allocation` on success, or an `IoError` if the operation fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if server communication is not enabled (`SERVER_COMM_ENABLED` is `false`) or if the
+    /// trait is incorrectly implemented by the server.
     #[allow(unused_variables)]
-    fn register_dest(&mut self, stream_id: StreamId, id: DataTransferId, dst: CopyDescriptor<'_>) {
-        unimplemented!("Data transfer not supported on the current runtime.",);
+    fn copy(
+        server_src: &mut Self,
+        server_dst: &mut Self,
+        src: CopyDescriptor<'_>,
+        stream_id_src: StreamId,
+        stream_id_dst: StreamId,
+    ) -> Result<Allocation, IoError> {
+        if !Self::SERVER_COMM_ENABLED {
+            panic!("Server-to-server communication is not supported by this server.");
+        } else {
+            panic!(
+                "[Internal Error] The `ServerCommunication` trait is incorrectly implemented by the server."
+            );
+        }
     }
 }
 

@@ -22,10 +22,15 @@ pub trait Coordinates: CubeType + Clone {
 
 // Aliases for convenience and semantic clarity
 pub type Coords1d = u32;
+pub type Coords1i = i32;
 pub type Coords2d = (u32, u32);
+pub type Coords2i = (i32, i32);
 pub type Coords3d = (u32, u32, u32);
+pub type Coords3i = (i32, i32, i32);
 pub type Coords4d = (u32, u32, u32, u32);
+pub type Coords4i = (i32, i32, i32, i32);
 pub type Coords5d = (u32, u32, u32, u32, u32);
+pub type Coords5i = (i32, i32, i32, i32, i32);
 pub type CoordsDyn = Sequence<u32>;
 
 macro_rules! impl_coordinates_tuple {

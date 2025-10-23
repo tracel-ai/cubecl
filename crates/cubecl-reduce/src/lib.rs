@@ -38,6 +38,9 @@ pub use launch::{ReduceParams, reduce_kernel, reduce_kernel_virtual};
 #[cfg(feature = "export_tests")]
 pub mod test;
 
+#[cfg(feature = "export_tests")]
+pub mod test_shuffle;
+
 use cubecl_core::prelude::*;
 
 /// Reduce the given `axis` of the `input` tensor using the instruction `Inst` and write the result into `output`.
@@ -94,7 +97,7 @@ use cubecl_core::prelude::*;
 /// }
 /// ```
 pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,

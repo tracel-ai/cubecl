@@ -5,9 +5,7 @@ use std::{
 
 use alloc::collections::BTreeMap;
 
-use cubecl_ir::{
-    ExpandElement, Scope, SemanticType, StorageType, TargetProperties, Variable, VariableKind,
-};
+use cubecl_ir::{ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind};
 use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
 
 use crate::ir::{Id, Type};
@@ -23,7 +21,7 @@ pub struct KernelBuilder {
     pub scope: Scope,
     buffers: Vec<BufferInfo>,
     scalars: BTreeMap<StorageType, usize>,
-    tensor_maps: Vec<Id>,
+    tensor_maps: Vec<BufferInfo>,
 }
 
 static DEBUG: AtomicI8 = AtomicI8::new(-1);
@@ -54,13 +52,27 @@ impl KernelBuilder {
     }
 
     /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
-    pub fn tensor_map(&mut self) -> ExpandElement {
+    pub fn input_tensor_map(&mut self, item: Type) -> ExpandElement {
         let id = self.buffer_id();
-        self.tensor_maps.push(id);
-        ExpandElement::Plain(Variable::new(
-            VariableKind::TensorMap(id),
-            Type::semantic(SemanticType::TensorMap),
-        ))
+        self.tensor_maps.push(BufferInfo {
+            id,
+            item,
+            visibility: Visibility::ReadWrite,
+            has_extended_meta: true,
+        });
+        ExpandElement::Plain(Variable::new(VariableKind::TensorMapInput(id), item))
+    }
+
+    /// Register a tensor map and return the [element](ExpandElement) to be used for kernel expansion.
+    pub fn output_tensor_map(&mut self, item: Type) -> ExpandElement {
+        let id = self.buffer_id();
+        self.tensor_maps.push(BufferInfo {
+            id,
+            item,
+            visibility: Visibility::Read,
+            has_extended_meta: true,
+        });
+        ExpandElement::Plain(Variable::new(VariableKind::TensorMapOutput(id), item))
     }
 
     /// Register an input array and return the [element](ExpandElement) to be used for kernel expansion.

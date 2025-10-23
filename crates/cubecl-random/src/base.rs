@@ -23,7 +23,7 @@ pub fn seed(seed: u64) {
 
 /// Pseudo-random generator
 pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     prng: F::Runtime<E>,
     output: TensorHandleRef<'_, R>,
 ) {
@@ -43,7 +43,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
     //     output.strides.len() - 1,
     // );
 
-    let output = linear_view(client, &output, &output_line_size);
+    let output = linear_view(client, &output, output_line_size);
 
     prng_kernel::launch::<F, E, R>(
         client,

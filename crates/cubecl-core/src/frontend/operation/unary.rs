@@ -236,6 +236,18 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Trunc,
+    trunc,
+    __expand_trunc,
+    Arithmetic::Trunc,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Erf,
     erf,
     __expand_erf,

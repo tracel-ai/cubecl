@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{StridedStage, StridedTilingLayout},
+    stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -18,7 +18,9 @@ use super::{AsyncLoadingJob, LoadingValidation};
 pub struct AsyncFullMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+        StridedTilingLayout::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -74,7 +76,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        tensor_reader: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,
@@ -113,7 +115,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 #[cube]
 fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
     nth_slice: u32,
-    global_iter: &GlobalIterator<EG>,
+    global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,
     mechanism: &CM,
     #[comptime] ident: MatmulIdent,

@@ -1,12 +1,12 @@
 use cubecl_common::{e2m1, e2m1x2};
-use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::{
     Runtime,
-    compute::{KernelBuilder, KernelLauncher},
+    compute::KernelLauncher,
     prelude::{
         CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-        LaunchArgExpand, ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
+        ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
     },
 };
 
@@ -18,6 +18,13 @@ impl CubePrimitive for e2m1 {
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<StorageType> {
         Some(StorageType::Scalar(ElemType::Float(FloatKind::E2M1)))
+    }
+
+    fn from_const_value(value: ConstantScalarValue) -> Self {
+        let ConstantScalarValue::Float(value, _) = value else {
+            unreachable!()
+        };
+        e2m1::from_f64(value)
     }
 }
 
@@ -43,6 +50,15 @@ impl CubePrimitive for e2m1x2 {
     fn as_type_native() -> Option<StorageType> {
         Some(StorageType::Packed(ElemType::Float(FloatKind::E2M1), 2))
     }
+
+    fn from_const_value(value: ConstantScalarValue) -> Self {
+        let ConstantScalarValue::Float(value, _) = value else {
+            unreachable!()
+        };
+        let val = e2m1::from_f64(value).to_bits();
+        // Fill both values, not sure this is ever useful but it works
+        e2m1x2::from_bits(val | (val << 4))
+    }
 }
 
 impl IntoRuntime for e2m1x2 {
@@ -60,14 +76,6 @@ impl ExpandElementIntoMut for e2m1x2 {
 
 impl ScalarArgSettings for e2m1x2 {
     fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
-    }
-}
-
-impl LaunchArgExpand for e2m1x2 {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, _builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
         todo!("Not yet supported for scalars")
     }
 }

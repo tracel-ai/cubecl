@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         read::AsyncPartialLoadingStrategy,
     },
-    stage::{StageConfig, StridedStage, StridedTilingLayout},
+    stage::{StageConfig, StridedStage, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -18,7 +18,9 @@ use super::{AsyncLoadingJob, LoadingValidation};
 pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+        StridedTilingLayout::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -114,7 +116,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
     fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
         this: &mut Self,
         task_id: u32,
-        global_iter: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
         mechanism: &CM,
         #[comptime] config: G,

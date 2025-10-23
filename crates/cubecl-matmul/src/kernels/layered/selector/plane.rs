@@ -30,7 +30,7 @@ pub struct PlaneMatmulSelectionOptions {
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
     elems: MatmulElems,
@@ -192,7 +192,7 @@ pub fn find_instruction_size(
 }
 
 fn selection_tiny<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,

@@ -1,4 +1,4 @@
-use cubecl_ir::{Scope, StorageType};
+use cubecl_ir::{ConstantScalarValue, Scope, StorageType};
 use half::{bf16, f16};
 
 use crate::{
@@ -32,6 +32,7 @@ pub trait Float:
     + Round
     + Floor
     + Ceil
+    + Trunc
     + Erf
     + Recip
     + Magnitude
@@ -73,7 +74,7 @@ pub trait Float:
 
 macro_rules! impl_float {
     (half $primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| $primitive::from_f32(val));
+        impl_float!($primitive, $kind, |val| $primitive::from_f64(val));
     };
     ($primitive:ident, $kind:ident) => {
         impl_float!($primitive, $kind, |val| val as $primitive);
@@ -87,6 +88,13 @@ macro_rules! impl_float {
             /// Return the element type to use on GPU
             fn as_type_native() -> Option<StorageType> {
                 Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
+            }
+
+            fn from_const_value(value: ConstantScalarValue) -> Self {
+                let ConstantScalarValue::Float(value, _) = value else {
+                    unreachable!()
+                };
+                $new(value)
             }
         }
 
@@ -133,18 +141,7 @@ macro_rules! impl_float {
             const RADIX: u32 = $primitive::RADIX;
 
             fn new(val: f32) -> Self {
-                $new(val)
-            }
-        }
-
-        impl LaunchArgExpand for $primitive {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_type(&builder.scope)).into()
+                $new(val as f64)
             }
         }
     };

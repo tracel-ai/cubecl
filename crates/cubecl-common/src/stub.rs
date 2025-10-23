@@ -10,6 +10,12 @@ pub use spin::{RwLockReadGuard, RwLockWriteGuard};
 #[cfg(feature = "std")]
 pub use std::sync::{RwLockReadGuard, RwLockWriteGuard};
 
+#[cfg(target_has_atomic = "ptr")]
+pub use alloc::sync::Arc;
+
+#[cfg(not(target_has_atomic = "ptr"))]
+pub use portable_atomic_util::Arc;
+
 /// A mutual exclusion primitive useful for protecting shared data
 ///
 /// This mutex will block threads waiting for the lock to become available. The

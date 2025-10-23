@@ -58,6 +58,26 @@ pub enum WarpInstruction<D: Dialect> {
         id: Variable<D>,
         out: Variable<D>,
     },
+    Shuffle {
+        input: Variable<D>,
+        src_lane: Variable<D>,
+        out: Variable<D>,
+    },
+    ShuffleXor {
+        input: Variable<D>,
+        mask: Variable<D>,
+        out: Variable<D>,
+    },
+    ShuffleUp {
+        input: Variable<D>,
+        delta: Variable<D>,
+        out: Variable<D>,
+    },
+    ShuffleDown {
+        input: Variable<D>,
+        delta: Variable<D>,
+        out: Variable<D>,
+    },
 }
 
 impl<D: Dialect> Display for WarpInstruction<D> {
@@ -98,6 +118,67 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                 writeln!(f, ", 0, 0, 0 }};")
             }
             WarpInstruction::Broadcast { input, id, out } => reduce_broadcast(f, input, out, id),
+            WarpInstruction::Shuffle {
+                input,
+                src_lane,
+                out,
+            } => {
+                let out_fmt = out.fmt_left();
+                write!(f, "{out_fmt} = {{ ")?;
+                for i in 0..input.item().vectorization {
+                    let comma = if i > 0 { ", " } else { "" };
+                    write!(f, "{comma}")?;
+                    D::compile_warp_shuffle(
+                        f,
+                        &format!("{}", input.index(i)),
+                        &format!("{src_lane}"),
+                    )?;
+                }
+                writeln!(f, " }};")
+            }
+            WarpInstruction::ShuffleXor { input, mask, out } => {
+                let out_fmt = out.fmt_left();
+                write!(f, "{out_fmt} = {{ ")?;
+                for i in 0..input.item().vectorization {
+                    let comma = if i > 0 { ", " } else { "" };
+                    write!(f, "{comma}")?;
+                    D::compile_warp_shuffle_xor(
+                        f,
+                        &format!("{}", input.index(i)),
+                        input.item().elem(),
+                        &format!("{mask}"),
+                    )?;
+                }
+                writeln!(f, " }};")
+            }
+            WarpInstruction::ShuffleUp { input, delta, out } => {
+                let out_fmt = out.fmt_left();
+                write!(f, "{out_fmt} = {{ ")?;
+                for i in 0..input.item().vectorization {
+                    let comma = if i > 0 { ", " } else { "" };
+                    write!(f, "{comma}")?;
+                    D::compile_warp_shuffle_up(
+                        f,
+                        &format!("{}", input.index(i)),
+                        &format!("{delta}"),
+                    )?;
+                }
+                writeln!(f, " }};")
+            }
+            WarpInstruction::ShuffleDown { input, delta, out } => {
+                let out_fmt = out.fmt_left();
+                write!(f, "{out_fmt} = {{ ")?;
+                for i in 0..input.item().vectorization {
+                    let comma = if i > 0 { ", " } else { "" };
+                    write!(f, "{comma}")?;
+                    D::compile_warp_shuffle_down(
+                        f,
+                        &format!("{}", input.index(i)),
+                        &format!("{delta}"),
+                    )?;
+                }
+                writeln!(f, " }};")
+            }
             WarpInstruction::Elect { out } => write!(
                 f,
                 "

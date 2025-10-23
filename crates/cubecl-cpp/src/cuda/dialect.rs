@@ -1,16 +1,13 @@
 use std::{collections::HashSet, fmt::Display, marker::PhantomData};
 
-use cubecl_core::{
-    ir::{Id, Processor},
-    post_processing::saturating::SaturatingArithmeticProcessor,
-};
+use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
 
 use crate::{
     Dialect,
     cuda::{
         extension::{Fragment, MmaExecute, MmaExecuteScaled, MmaExtension},
         processors::CudaMmaProcessor,
-        ptx::TMA_LOAD_IM2COL,
+        ptx::*,
     },
     shared::{
         self, Binding, Component, DialectBindings, DialectCubeBuiltins, DialectIncludes,
@@ -295,7 +292,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,

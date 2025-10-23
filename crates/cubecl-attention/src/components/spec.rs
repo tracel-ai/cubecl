@@ -6,7 +6,7 @@ use crate::components::{
     spec::attention_types::*,
 };
 
-/// Attention spec definiting each element types used in the computation as well as
+/// Attention spec defining each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait AttentionSpec: Send + Sync + Clone + 'static {
     type Precision: AttentionPrecision;
@@ -205,7 +205,7 @@ impl<
 }
 
 /// Input argument
-pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>>;
+pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>, MSK<AS>>;
 
 /// Output argument
 pub type OutputArg<AS> = <Args<AS> as AttentionArgs>::Output<OG<AS>>;

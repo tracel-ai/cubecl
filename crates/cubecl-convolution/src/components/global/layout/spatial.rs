@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::{
     layout::{Coordinates, Coords1d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
@@ -79,7 +79,7 @@ impl Coordinates for NhwcCoords {
 
 /// Layout for a spatial (i.e. NHWC) tensor. Bounds check only applies to spatial dimensions, not
 /// channel or batch (because these are implicitly checked in the layouts used with spatial tensors).
-#[derive(CubeType, Clone)]
+#[derive(CubeType, CubeLaunch, Clone)]
 pub struct NhwcLayout {
     /// Stride for N
     pub stride_batch: u32,
@@ -154,7 +154,6 @@ impl Layout for NhwcLayout {
 
         #[unroll]
         for i in 0..spatial_dims {
-            let i = unwrap(i);
             read_pos += *spatial.index(i) as u32 * *self.strides_spatial.index(i);
         }
 
@@ -172,7 +171,6 @@ impl Layout for NhwcLayout {
 
             #[unroll]
             for i in 0..spatial_dims {
-                let i = unwrap(i);
                 let pos = *pos.spatial.index(i);
                 spatial_in_bounds &= pos >= 0 && (pos as u32) < *self.shapes_spatial.index(i);
             }
@@ -192,12 +190,6 @@ impl Layout for NhwcLayout {
     }
 }
 
-#[allow(unused_variables)]
-#[cube]
-pub(crate) fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
-}
-
 #[cube]
 pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
     seq: Sequence<From>,
@@ -206,9 +198,44 @@ pub(crate) fn cast_seq<From: CubePrimitive, To: CubePrimitive>(
     let mut out_seq = Sequence::new();
     #[unroll]
     for i in 0..num_elems {
-        let i = unwrap(i);
         let elem = To::cast_from(*seq.index(i));
         out_seq.push(elem);
     }
     out_seq
+}
+
+impl<'a, R: Runtime> NhwcLayoutLaunch<'a, R> {
+    pub fn from_handle(
+        handle: &TensorHandleRef<'a, R>,
+        line_size: u32,
+        check_spatial: bool,
+    ) -> Self {
+        let rank = handle.shape.len();
+        let dim_c = rank - 1;
+
+        let stride_batch = ScalarArg::new(handle.strides[0] as u32);
+        let strides_spatial = handle.strides[1..dim_c]
+            .iter()
+            .map(|s| ScalarArg::new(*s as u32))
+            .collect();
+        let stride_channel = ScalarArg::new(handle.strides[dim_c] as u32);
+
+        let shape_batch = ScalarArg::new(handle.shape[0] as u32);
+        let shapes_spatial = handle.shape[1..dim_c]
+            .iter()
+            .map(|s| ScalarArg::new(*s as u32))
+            .collect();
+        let shape_channel = ScalarArg::new(handle.shape[dim_c] as u32);
+
+        Self::new(
+            stride_batch,
+            strides_spatial,
+            stride_channel,
+            shape_batch,
+            shapes_spatial,
+            shape_channel,
+            line_size,
+            check_spatial,
+        )
+    }
 }

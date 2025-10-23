@@ -192,8 +192,15 @@ pub enum Instruction<D: Dialect> {
     BulkWaitGroupRead {
         max_pending: u32,
     },
+    TmaReplacePointer {
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        tensor_map: Variable<D>,
+        out: Variable<D>,
+    },
     Round(UnaryInstruction<D>),
     Ceil(UnaryInstruction<D>),
+    Trunc(UnaryInstruction<D>),
     Floor(UnaryInstruction<D>),
     Warp(WarpInstruction<D>),
     Wmma(WmmaInstruction<D>),
@@ -532,6 +539,7 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::ThreadFence => f.write_str("__threadfence();\n"),
             Instruction::Round(it) => Round::format(f, &it.input, &it.out),
             Instruction::Ceil(it) => Ceil::format(f, &it.input, &it.out),
+            Instruction::Trunc(it) => Trunc::format(f, &it.input, &it.out),
             Instruction::Floor(it) => Floor::format(f, &it.input, &it.out),
             Instruction::SliceLength { input, out } => {
                 let out = out.fmt_left();
@@ -647,6 +655,24 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 f,
                 "cuda::device::experimental::cp_async_bulk_wait_group_read<{max_pending}>();"
             ),
+            Instruction::TmaReplacePointer {
+                buffer,
+                offset,
+                tensor_map,
+                out,
+            } => {
+                let pos = Variable::<D>::UnitPos;
+                writeln!(f, "__shared__ alignas(128) CUtensorMap {out};")?;
+                writeln!(
+                    f,
+                    "
+if({pos} == 0) {{
+    {out} = {tensor_map};
+    tensormap_replace_global_address({out}, &{buffer}[{offset}]);
+}}"
+                )?;
+                writeln!(f, "__syncthreads();")
+            }
             Instruction::MemCopyAsyncTensorSharedToGlobal {
                 smem_buffer,
                 smem_offset,

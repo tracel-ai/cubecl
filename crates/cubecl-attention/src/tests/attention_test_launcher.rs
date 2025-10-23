@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::server::Allocation;
 use cubecl_core::{CubeElement, server};
+use cubecl_std::CubeOptionArgs;
 
 use crate::components::args::TensorInputsLaunch;
 use crate::components::batch::BatchAttentionConfig;
@@ -22,7 +23,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// Test the correctness of the specified Attention on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_attention_algorithm<A, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     problem: AttentionProblem,
     selection: AttentionSelection,
 ) where
@@ -45,20 +46,27 @@ pub fn test_attention_algorithm<A, P, R>(
     let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Query, 12);
     let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Key, 34);
     let value = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Value, 56);
-    // let mask = tensor_raw_parts_input::<P, R, P::EM>(&client, &problem, Ident::Mask, 78);
+    let mask = match problem.masked {
+        true => Some(tensor_raw_parts_input::<P, R, P::EM>(
+            &client,
+            &problem,
+            AttentionIdent::Mask,
+            78,
+        )),
+        false => None,
+    };
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        &P::EG::as_type_native_unchecked(),
-        &P::EM::as_type_native_unchecked(),
-        &P::EG::as_type_native_unchecked(),
+        size_of::<P::EG>(),
+        size_of::<P::EM>(),
+        size_of::<P::EG>(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
         .filter_with_tensor(AttentionIdent::Query, &query.strides, &query.shape)
         .filter_with_tensor(AttentionIdent::Key, &key.strides, &key.shape)
         .filter_with_tensor(AttentionIdent::Value, &value.strides, &value.shape)
-        // .filter_with_tensor(Ident::Mask, &mask.strides, &mask.shape)
         .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape)
         .pick_max()
         .unwrap();
@@ -104,12 +112,15 @@ pub fn test_attention_algorithm<A, P, R>(
                     &value.shape,
                     line_sizes.value,
                 ),
-                // TensorArg::<R>::from_raw_parts::<P::EM>(
-                //     &mask.handle,
-                //     &mask.strides,
-                //     &mask.shape,
-                //     line_sizes.mask,
-                // ),
+                match mask.as_ref() {
+                    Some(m) => CubeOptionArgs::Some(TensorArg::<R>::from_raw_parts::<P::EM>(
+                        &m.handle,
+                        &m.strides,
+                        &m.shape,
+                        line_sizes.mask,
+                    )),
+                    None => CubeOptionArgs::None,
+                },
             ),
             TensorArg::<R>::from_raw_parts::<P::EG>(
                 &out.handle,
@@ -126,7 +137,8 @@ pub fn test_attention_algorithm<A, P, R>(
         &query.original_data.unwrap(),
         &key.original_data.unwrap(),
         &value.original_data.unwrap(),
-        None,
+        mask.as_ref()
+            .map(|m| m.original_data.as_ref().unwrap().as_slice()),
         &problem,
         &client,
         out.handle,
@@ -136,7 +148,7 @@ pub fn test_attention_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &AttentionProblem,
     ident: AttentionIdent,
     sample_seed: u64,
@@ -163,7 +175,7 @@ where
 }
 
 fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &AttentionProblem,
 ) -> TensorRawParts<P::EG> {
     let zero = P::EG::from_int(0);

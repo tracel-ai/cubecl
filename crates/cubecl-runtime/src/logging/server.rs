@@ -1,5 +1,6 @@
 use core::fmt::Display;
 
+use crate::config::memory::MemoryLogLevel;
 use crate::config::streaming::StreamingLogLevel;
 use crate::config::{Logger, compilation::CompilationLogLevel, profiling::ProfilingLogLevel};
 use alloc::format;
@@ -15,6 +16,7 @@ enum LogMessage {
     Execution(String),
     Compilation(String),
     Streaming(String),
+    Memory(String),
     Profile(String, ProfileDuration),
     ProfileSummary,
 }
@@ -26,6 +28,7 @@ pub struct ServerLogger {
     log_compile_info: bool,
     log_streaming: StreamingLogLevel,
     log_channel: Option<Sender<LogMessage>>,
+    log_memory: MemoryLogLevel,
 }
 
 impl Default for ServerLogger {
@@ -38,10 +41,11 @@ impl Default for ServerLogger {
         ) && matches!(
             logger.config.profiling.logger.level,
             ProfilingLogLevel::Disabled
-        ) && matches!(
-            logger.config.streaming.logger.level,
-            StreamingLogLevel::Disabled
-        );
+        ) && matches!(logger.config.memory.logger.level, MemoryLogLevel::Disabled)
+            && matches!(
+                logger.config.streaming.logger.level,
+                StreamingLogLevel::Disabled
+            );
 
         if disabled {
             return Self {
@@ -49,6 +53,7 @@ impl Default for ServerLogger {
                 log_compile_info: false,
                 log_streaming: StreamingLogLevel::Disabled,
                 log_channel: None,
+                log_memory: MemoryLogLevel::Disabled,
             };
         }
         let profile_level = match logger.config.profiling.logger.level {
@@ -65,6 +70,7 @@ impl Default for ServerLogger {
             CompilationLogLevel::Full => true,
         };
         let log_streaming = logger.config.streaming.logger.level;
+        let log_memory = logger.config.memory.logger.level;
 
         let (send, rec) = async_channel::unbounded();
 
@@ -81,6 +87,7 @@ impl Default for ServerLogger {
             profile_level,
             log_compile_info,
             log_streaming,
+            log_memory,
             log_channel: Some(send),
         }
     }
@@ -121,6 +128,20 @@ impl ServerLogger {
         {
             // Channel will never be full, don't care if it's closed.
             let _ = channel.try_send(LogMessage::Streaming(format()));
+        }
+    }
+
+    /// Log the argument to the logger when the memory logger is activated.
+    pub fn log_memory<I: FnOnce() -> String, C: FnOnce(MemoryLogLevel) -> bool>(
+        &self,
+        cond: C,
+        format: I,
+    ) {
+        if let Some(channel) = &self.log_channel
+            && cond(self.log_memory)
+        {
+            // Channel will never be full, don't care if it's closed.
+            let _ = channel.try_send(LogMessage::Memory(format()));
         }
     }
 
@@ -170,6 +191,9 @@ impl AsyncLogger {
                 }
                 LogMessage::Streaming(msg) => {
                     self.logger.log_streaming(&msg);
+                }
+                LogMessage::Memory(msg) => {
+                    self.logger.log_memory(&msg);
                 }
                 LogMessage::Profile(name, profile) => {
                     let duration = profile.resolve().await.duration();

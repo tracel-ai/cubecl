@@ -1,6 +1,8 @@
 use bytemuck::{Pod, Zeroable};
 use core::ops::*;
-use cubecl_ir::{ElemType, ExpandElement, IntKind, Scope, StorageType, Variable};
+use cubecl_ir::{
+    ConstantScalarValue, ElemType, ExpandElement, IntKind, Scope, StorageType, Variable,
+};
 use derive_more::derive::{
     Add, AddAssign, BitAnd, BitAndAssign, BitOr, BitOrAssign, BitXor, BitXorAssign, Display, Div,
     DivAssign, Mul, MulAssign, Neg, Not, Rem, RemAssign, Shl, ShlAssign, Shr, ShrAssign, Sub,
@@ -9,11 +11,7 @@ use derive_more::derive::{
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
-use crate::{
-    Runtime,
-    compute::{KernelBuilder, KernelLauncher},
-    prelude::*,
-};
+use crate::{Runtime, compute::KernelLauncher, prelude::*};
 
 use super::{Int, into_mut_expand_element};
 
@@ -145,6 +143,10 @@ impl<const POS: u8> CubePrimitive for IntExpand<POS> {
     fn as_type(scope: &Scope) -> StorageType {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
+
+    fn from_const_value(_value: ConstantScalarValue) -> Self {
+        unimplemented!("Can't turn `IntExpand` into a constant value")
+    }
 }
 
 impl<const POS: u8> From<IntExpand<POS>> for Variable {
@@ -209,16 +211,6 @@ impl<const POS: u8> Int for IntExpand<POS> {
 
     fn new(val: i64) -> Self {
         IntExpand(val)
-    }
-}
-
-impl<const POS: u8> LaunchArgExpand for IntExpand<POS> {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder
-            .scalar(IntExpand::<POS>::as_type(&builder.scope))
-            .into()
     }
 }
 

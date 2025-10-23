@@ -46,7 +46,7 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
         let config = comptime![self.config];
 
         let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
-        let output_line_size = config.global_line_size;
+        let output_line_size = self.global.line_size();
         let out_smem_slice = smem_tile.slice.with_line_size(output_line_size);
 
         let num_lines = tile_size / output_line_size;

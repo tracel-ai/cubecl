@@ -2,10 +2,7 @@ use core::any::TypeId;
 use std::fmt::Display;
 use std::{collections::HashSet, marker::PhantomData};
 
-use cubecl_core::{
-    ir::{Id, Processor},
-    post_processing::saturating::SaturatingArithmeticProcessor,
-};
+use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmeticProcessor};
 
 use crate::shared::DialectWarpReduceCompiler;
 use crate::{
@@ -312,7 +309,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for HipDialect<M> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<Self>],
         buffers: &[Binding<Self>],
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
@@ -413,7 +410,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
     }
 
     fn compile_saturating_sub(
@@ -422,7 +419,7 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
         _rhs: impl Display,
         _item: Item<Self>,
     ) -> std::fmt::Result {
-        unimplemented!("No native instrution exists, Should be replaced in a preprocessor");
+        unimplemented!("No native instruction exists, Should be replaced in a preprocessor");
     }
 
     // others

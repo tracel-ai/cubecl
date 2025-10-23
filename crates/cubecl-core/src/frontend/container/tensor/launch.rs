@@ -7,7 +7,7 @@ use crate::{
     compute::{KernelBuilder, KernelLauncher},
     ir::{Id, LineSize, Type},
     prelude::{
-        ArgSettings, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg, LaunchArgExpand,
+        ArgSettings, ArrayArg, CompilationArg, CubePrimitive, ExpandElementTyped, LaunchArg,
     },
 };
 
@@ -73,8 +73,22 @@ pub struct TensorCompilationArg {
 
 impl CompilationArg for TensorCompilationArg {}
 
-impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
+impl<C: CubePrimitive> LaunchArg for Tensor<C> {
+    type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
     type CompilationArg = TensorCompilationArg;
+
+    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+        match runtime_arg {
+            TensorArg::Handle { line_size, .. } => TensorCompilationArg {
+                inplace: None,
+                line_size: *line_size as u32,
+            },
+            TensorArg::Alias { input_pos } => TensorCompilationArg {
+                inplace: Some(*input_pos as Id),
+                line_size: 0,
+            },
+        }
+    }
 
     fn expand(
         arg: &Self::CompilationArg,
@@ -93,23 +107,6 @@ impl<C: CubePrimitive> LaunchArgExpand for Tensor<C> {
             None => builder
                 .output_tensor(Type::new(C::as_type(&builder.scope)).line(arg.line_size))
                 .into(),
-        }
-    }
-}
-
-impl<C: CubePrimitive> LaunchArg for Tensor<C> {
-    type RuntimeArg<'a, R: Runtime> = TensorArg<'a, R>;
-
-    fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
-        match runtime_arg {
-            TensorArg::Handle { line_size, .. } => TensorCompilationArg {
-                inplace: None,
-                line_size: *line_size as u32,
-            },
-            TensorArg::Alias { input_pos } => TensorCompilationArg {
-                inplace: Some(*input_pos as Id),
-                line_size: 0,
-            },
         }
     }
 }
@@ -188,6 +185,11 @@ impl<'a, R: Runtime> TensorHandleRef<'a, R> {
                 self.elem_size,
             )
         }
+    }
+    /// Convert the handle into an [array argument](ArrayArg).
+    pub fn as_array_arg(&'a self, line_size: u8) -> ArrayArg<'a, R> {
+        let length = self.shape.iter().product();
+        unsafe { ArrayArg::from_raw_parts_and_size(self.handle, length, line_size, self.elem_size) }
     }
     /// Create a handle from raw parts.
     ///

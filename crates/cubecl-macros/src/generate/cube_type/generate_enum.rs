@@ -16,7 +16,7 @@ impl CubeTypeEnum {
             {
                 return syn::Error::new_spanned(
                     self.ident.clone(),
-                    "Valueless enums are handled at `comptime`, and should not implement `CubeLaunch`.",
+                    "Valueless enums are handled at `comptime`, and should not implement `LaunchArg`.",
                 ).into_compile_error();
             }
 
@@ -25,7 +25,6 @@ impl CubeTypeEnum {
             let launch_arg_impl = self.launch_arg_impl();
 
             let compilation_arg_ty = self.compilation_arg_ty();
-            let launch_arg_expand_impl = self.launch_arg_expand_impl();
 
             quote! {
                 #args_ty
@@ -33,7 +32,6 @@ impl CubeTypeEnum {
                 #launch_arg_impl
 
                 #compilation_arg_ty
-                #launch_arg_expand_impl
             }
         } else {
             let expand_ty = self.expand_ty();
@@ -243,6 +241,8 @@ impl CubeTypeEnum {
 
     fn launch_arg_impl(&self) -> proc_macro2::TokenStream {
         let launch_arg = prelude_type("LaunchArg");
+        let cube_type = prelude_type("CubeType");
+        let kernel_builder = prelude_type("KernelBuilder");
 
         let name = &self.ident;
         let name_args = Ident::new(&format!("{}Args", self.ident), Span::call_site());
@@ -305,13 +305,26 @@ impl CubeTypeEnum {
             .collect();
 
         let body = self.match_impl(quote! {runtime_arg}, branches);
+        let (body_expand, body_expand_output) = self.launch_arg_expand_body();
 
         quote! {
             impl #generics #launch_arg for #name #generic_names #where_clause {
                 type RuntimeArg #assoc_generics = #name_args #all_generic_names;
+                type CompilationArg = #compilation_arg #generic_names;
 
                 fn compilation_arg #assoc_generics(runtime_arg: &Self::RuntimeArg<'a, R>) -> Self::CompilationArg {
                     #body
+                }
+
+                fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
+                    #body_expand
+                }
+
+                fn expand_output(
+                    arg: &Self::CompilationArg,
+                    builder: &mut #kernel_builder,
+                ) -> <Self as #cube_type>::ExpandType {
+                    #body_expand_output
                 }
             }
         }
@@ -319,6 +332,7 @@ impl CubeTypeEnum {
 
     fn compilation_arg_ty(&self) -> proc_macro2::TokenStream {
         let compilation_arg = prelude_type("CompilationArg");
+        let launch_arg = prelude_type("LaunchArg");
 
         let name = Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
         let vis = &self.vis;
@@ -332,7 +346,7 @@ impl CubeTypeEnum {
                     let args = variant.fields.iter().map(|f| {
                         let field_name = &f.ident;
                         let field_ty = &f.ty;
-                        quote! { #field_name: <#field_ty as LaunchArgExpand>::CompilationArg }
+                        quote! { #field_name: <#field_ty as #launch_arg>::CompilationArg }
                     });
                     quote! {
                         #variant_name {
@@ -345,7 +359,7 @@ impl CubeTypeEnum {
                 VariantKind::Unnamed => {
                     let args = variant.fields.iter().map(|f| {
                         let field_ty = &f.ty;
-                        quote! { <#field_ty as LaunchArgExpand>::CompilationArg }
+                        quote! { <#field_ty as #launch_arg>::CompilationArg }
                     });
                     quote! {
                         #variant_name(#(#args),*)
@@ -392,8 +406,6 @@ impl CubeTypeEnum {
         );
 
         quote! {
-            #[derive(serde::Serialize, serde::Deserialize)]
-            #[serde(bound(serialize = "", deserialize = ""))]
             #vis enum #name #generics {
                 #(
                     #variants
@@ -432,17 +444,10 @@ impl CubeTypeEnum {
         }
     }
 
-    fn launch_arg_expand_impl(&self) -> proc_macro2::TokenStream {
-        let launch_arg_expand = prelude_type("LaunchArgExpand");
-        let cube_type = prelude_type("CubeType");
-        let kernel_builder = prelude_type("KernelBuilder");
-
-        let name = &self.ident;
+    fn launch_arg_expand_body(&self) -> (proc_macro2::TokenStream, proc_macro2::TokenStream) {
         let name_expand = Ident::new(&format!("{}Expand", self.ident), Span::call_site());
         let compilation_arg =
             Ident::new(&format!("{}CompilationArg", self.ident), Span::call_site());
-
-        let (generics, generic_names, where_clause) = self.generics.split_for_impl();
 
         let branches_expand = self
             .variants
@@ -546,22 +551,7 @@ impl CubeTypeEnum {
 
         let body_expand_output = self.match_impl(quote! {arg}, branches_expand_output);
 
-        quote! {
-            impl #generics #launch_arg_expand for #name #generic_names #where_clause {
-                type CompilationArg = #compilation_arg #generic_names;
-
-                fn expand(arg: &Self::CompilationArg, builder: &mut #kernel_builder) -> <Self as #cube_type>::ExpandType {
-                    #body_expand
-                }
-
-                fn expand_output(
-                    arg: &Self::CompilationArg,
-                    builder: &mut #kernel_builder,
-                ) -> <Self as #cube_type>::ExpandType {
-                    #body_expand_output
-                }
-            }
-        }
+        (body_expand, body_expand_output)
     }
 
     fn match_impl(

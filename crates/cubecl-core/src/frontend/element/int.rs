@@ -1,4 +1,4 @@
-use cubecl_ir::{ExpandElement, StorageType};
+use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
 
 use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
@@ -6,13 +6,13 @@ use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::BitwiseNot;
 use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub};
 use crate::{
-    compute::{KernelBuilder, KernelLauncher},
+    compute::KernelLauncher,
     prelude::{CountOnes, ReverseBits},
 };
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
-    LaunchArgExpand, ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
+    ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
 };
 
 mod typemap;
@@ -70,6 +70,13 @@ macro_rules! impl_int {
             fn as_type_native() -> Option<StorageType> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
+
+            fn from_const_value(value: ConstantScalarValue) -> Self {
+                let ConstantScalarValue::Int(value, _) = value else {
+                    unreachable!()
+                };
+                value as $type
+            }
         }
 
         impl IntoRuntime for $type {
@@ -105,17 +112,6 @@ macro_rules! impl_int {
 
             fn new(val: i64) -> Self {
                 val as $type
-            }
-        }
-
-        impl LaunchArgExpand for $type {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar($type::as_type(&builder.scope)).into()
             }
         }
     };

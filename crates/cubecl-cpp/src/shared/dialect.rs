@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 use std::{fmt::Display, hash::Hash};
 
-use cubecl_core::ir::{Id, Processor};
+use cubecl_core::ir::Processor;
 
 use crate::shared::{
     FmtLeft, IndexedVariable, MmaShape, SupportedMmaCombinations, SupportedScaledMmaCombinations,
@@ -129,7 +129,7 @@ pub trait DialectBindings<D: Dialect> {
     fn compile_kernel_signature(
         f: &mut std::fmt::Formatter<'_>,
         kernel_name: &str,
-        tensor_maps: &[Id],
+        tensor_maps: &[Binding<D>],
         buffers: &[Binding<D>],
         scalars: &[(Elem<D>, usize)],
         flags: &Flags,

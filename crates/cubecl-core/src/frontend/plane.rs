@@ -60,6 +60,153 @@ pub mod plane_broadcast {
     }
 }
 
+/// Perform an arbitrary lane shuffle operation across the plane.
+/// Each unit reads the value from the specified source lane.
+///
+/// # Example
+/// `plane_shuffle(value, 0)` - all lanes read from lane 0 (same as broadcast)
+/// `plane_shuffle(value, lane_id ^ 1)` - butterfly pattern (same as shuffle_xor)
+#[allow(unused_variables)]
+pub fn plane_shuffle<E: CubePrimitive>(value: E, src_lane: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle()].
+pub mod plane_shuffle {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        src_lane: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.ty);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *src_lane.expand;
+
+        scope.register(Instruction::new(
+            Plane::Shuffle(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform a shuffle XOR operation across the plane.
+/// Each unit exchanges its value with another unit at an index determined by XOR with the mask.
+/// This is useful for butterfly reduction patterns.
+///
+/// # Example
+/// For a 32-lane warp with mask=1:
+/// - Lane 0 gets value from lane 1, lane 1 gets value from lane 0
+/// - Lane 2 gets value from lane 3, lane 3 gets value from lane 2
+/// - etc.
+#[allow(unused_variables)]
+pub fn plane_shuffle_xor<E: CubePrimitive>(value: E, mask: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle_xor()].
+pub mod plane_shuffle_xor {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle_xor()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        mask: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.ty);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *mask.expand;
+
+        scope.register(Instruction::new(
+            Plane::ShuffleXor(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform a shuffle up operation across the plane.
+/// Each unit reads the value from a unit with a lower lane ID (current_id - delta).
+/// Units with lane_id < delta will read from themselves (no change).
+///
+/// # Example
+/// For delta=1: `[a, b, c, d] -> [a, a, b, c]`
+#[allow(unused_variables)]
+pub fn plane_shuffle_up<E: CubePrimitive>(value: E, delta: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle_up()].
+pub mod plane_shuffle_up {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle_up()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        delta: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.ty);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *delta.expand;
+
+        scope.register(Instruction::new(
+            Plane::ShuffleUp(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
+/// Perform a shuffle down operation across the plane.
+/// Each unit reads the value from a unit with a higher lane ID (current_id + delta).
+/// Units at the end will read from themselves if (lane_id + delta >= plane_dim).
+///
+/// # Example
+/// For delta=1: `[a, b, c, d] -> [b, c, d, d]`
+#[allow(unused_variables)]
+pub fn plane_shuffle_down<E: CubePrimitive>(value: E, delta: u32) -> E {
+    unexpanded!()
+}
+
+/// Module containing the expand function for [plane_shuffle_down()].
+pub mod plane_shuffle_down {
+
+    use super::*;
+
+    /// Expand method of [plane_shuffle_down()].
+    pub fn expand<E: CubePrimitive>(
+        scope: &mut Scope,
+        value: ExpandElementTyped<E>,
+        delta: ExpandElementTyped<u32>,
+    ) -> ExpandElementTyped<E> {
+        let output = scope.create_local(value.expand.ty);
+        let out = *output;
+        let lhs = *value.expand;
+        let rhs = *delta.expand;
+
+        scope.register(Instruction::new(
+            Plane::ShuffleDown(crate::ir::BinaryOperator { lhs, rhs }),
+            out,
+        ));
+
+        output.into()
+    }
+}
+
 /// Perform a reduce sum operation across all units in a plane.
 #[allow(unused_variables)]
 pub fn plane_sum<E: CubePrimitive>(value: E) -> E {

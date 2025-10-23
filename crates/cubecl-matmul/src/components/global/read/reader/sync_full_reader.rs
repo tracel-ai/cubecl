@@ -34,6 +34,7 @@ pub trait SyncFullLoadingStrategy:
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP>;
 }
@@ -48,8 +49,8 @@ pub struct SyncFullStageGlobalReader<
     G: GlobalConfig,
     L: SyncFullLoadingStrategy,
 > {
-    tensor_reader: GlobalIterator<IP::Global>,
-    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
+    global_iter: GlobalIterator<Line<IP::Global>>,
+    stage: StridedStage<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -68,20 +69,20 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StridedStage::new(
+        let stage = StridedStage::new(
             comptime!(ident.into_stage()),
             config.stage_memory_config(ident),
         );
-        let tensor_reader = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
+        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, config)),
+            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, tensor.line_size(), config)),
             false => CubeOption::new_None(),
         };
 
         SyncFullStageGlobalReader::<IP, G, L> {
-            tensor_reader,
-            stage_memory,
+            global_iter,
+            stage,
             loading_job,
             ident,
             _phantom: PhantomData::<(G, L)>,
@@ -90,39 +91,38 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy>
 
     /// Give a reader to the loaded stage memory.
     pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
-        self.stage_memory
+        self.stage
     }
 
     pub fn free_stage(self) {
-        unsafe { self.stage_memory.free() };
+        unsafe { self.stage.free() };
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(&mut self) {
-        self.tensor_reader.advance();
+        self.global_iter.advance();
     }
 
     /// Accomplish the entire job of loading data into the stage memory
     pub fn load_stage(&mut self, #[comptime] config: G) {
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(self.ident, config),
+            CubeOption::None => {
+                L::new_job::<IP, G>(self.ident, self.global_iter.line_size(), config)
+            }
         };
 
         let len = L::Job::task_count(&loading_job);
-        let mut task_id = comptime![0u32];
 
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in 0..len {
+        for task_id in 0..len {
             L::Job::<IP>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
-                &self.tensor_reader,
-                &mut self.stage_memory,
+                &self.global_iter,
+                &mut self.stage,
                 config,
             );
-            comptime![task_id += 1];
         }
     }
 }
@@ -138,9 +138,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         #[comptime] _stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
+        let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(this.ident, config),
+            CubeOption::None => L::new_job::<IP, G>(this.ident, view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);
@@ -162,8 +163,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
         L::Job::<IP>::execute_task::<G>(
             &mut job_iterator.job,
             task_id,
-            &this.tensor_reader,
-            &mut this.stage_memory,
+            &this.global_iter,
+            &mut this.stage,
             config,
         );
 
@@ -187,8 +188,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncFullLoadingStrategy> JobExecut
             L::Job::<IP>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
-                &this.tensor_reader,
-                &mut this.stage_memory,
+                &this.global_iter,
+                &mut this.stage,
                 config,
             );
             comptime![task_id += 1];

@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -36,6 +36,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -59,10 +61,10 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
-        let line_size = config.global_line_size(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
         let num_stage_lines = num_stage_elements.div_ceil(line_size);
@@ -120,7 +122,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<IP::Global>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
@@ -128,10 +130,10 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, tensor_reader, stage, config);
+                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
             }
         }
     }
@@ -145,7 +147,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<IP::Global>,
+    global_iter: &GlobalIterator<Line<IP::Global>>,
     stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {

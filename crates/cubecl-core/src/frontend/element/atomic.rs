@@ -1,13 +1,9 @@
-use cubecl_ir::{AtomicOp, ExpandElement, StorageType};
+use cubecl_ir::{AtomicOp, ConstantScalarValue, ExpandElement, StorageType};
 
-use super::{
-    ExpandElementIntoMut, ExpandElementTyped, Int, LaunchArgExpand, Numeric,
-    into_mut_expand_element,
-};
+use super::{ExpandElementIntoMut, ExpandElementTyped, Int, Numeric, into_mut_expand_element};
 use crate::{
     frontend::{CubePrimitive, CubeType},
     ir::{BinaryOperator, CompareAndSwapOperator, Instruction, Scope, Type, UnaryOperator},
-    prelude::KernelBuilder,
     unexpanded,
 };
 
@@ -310,18 +306,14 @@ impl<Inner: CubePrimitive> CubePrimitive for Atomic<Inner> {
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
     }
+
+    fn from_const_value(_value: ConstantScalarValue) -> Self {
+        panic!("Can't have constant atomic");
+    }
 }
 
 impl<Inner: CubePrimitive> ExpandElementIntoMut for Atomic<Inner> {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
-    }
-}
-
-impl<Inner: CubePrimitive> LaunchArgExpand for Atomic<Inner> {
-    type CompilationArg = ();
-
-    fn expand(_: &Self::CompilationArg, builder: &mut KernelBuilder) -> ExpandElementTyped<Self> {
-        builder.scalar(Self::as_type_native_unchecked()).into()
     }
 }

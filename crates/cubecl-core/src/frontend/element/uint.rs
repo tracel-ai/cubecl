@@ -1,13 +1,13 @@
-use cubecl_ir::{ExpandElement, Scope, StorageType, UIntKind};
+use cubecl_ir::{ConstantScalarValue, ExpandElement, Scope, StorageType, UIntKind};
 
 use crate::Runtime;
 use crate::frontend::{CubePrimitive, CubeType, Numeric};
 use crate::ir::ElemType;
-use crate::prelude::{KernelBuilder, KernelLauncher};
+use crate::prelude::KernelLauncher;
 
 use super::{
-    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, LaunchArgExpand,
-    ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
+    ExpandElementIntoMut, ExpandElementTyped, Int, IntoMut, IntoRuntime, ScalarArgSettings,
+    into_mut_expand_element, into_runtime_expand_element,
 };
 
 macro_rules! declare_uint {
@@ -19,6 +19,13 @@ macro_rules! declare_uint {
         impl CubePrimitive for $primitive {
             fn as_type_native() -> Option<StorageType> {
                 Some(ElemType::UInt(UIntKind::$kind).into())
+            }
+
+            fn from_const_value(value: ConstantScalarValue) -> Self {
+                let ConstantScalarValue::UInt(value, _) = value else {
+                    unreachable!()
+                };
+                value as $primitive
             }
         }
 
@@ -38,17 +45,6 @@ macro_rules! declare_uint {
         impl ExpandElementIntoMut for $primitive {
             fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
                 into_mut_expand_element(scope, elem)
-            }
-        }
-
-        impl LaunchArgExpand for $primitive {
-            type CompilationArg = ();
-
-            fn expand(
-                _: &Self::CompilationArg,
-                builder: &mut KernelBuilder,
-            ) -> ExpandElementTyped<Self> {
-                builder.scalar($primitive::as_type(&builder.scope)).into()
             }
         }
 

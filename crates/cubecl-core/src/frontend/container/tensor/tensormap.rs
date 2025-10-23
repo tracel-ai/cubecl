@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::ir::ExpandElement;
 use crate::{prelude::*, unexpanded};
-use cubecl_ir::StorageType;
+use cubecl_ir::{StorageType, Type};
 use cubecl_runtime::server::TensorMapMeta;
 use paste::paste;
 use serde::{Deserialize, Serialize};
@@ -80,17 +80,7 @@ pub struct TensorMap<E: CubePrimitive> {
 
 impl<E: CubePrimitive> Copy for TensorMap<E> {}
 
-impl<E: CubePrimitive> TensorMap<E> {
-    /// Create a dummy tensor map to satisfy the type checker. Not actually valid, so the code should
-    /// panic if this is ever reached.
-    pub fn dummy() -> Self {
-        unreachable!("Dummy code")
-    }
-
-    pub fn __expand_dummy(_scope: &mut Scope) -> ExpandElementTyped<Self> {
-        unreachable!("Dummy code")
-    }
-}
+impl<E: CubePrimitive> TensorMap<E> {}
 
 impl<E: CubePrimitive> ExpandElementIntoMut for TensorMap<E> {
     fn elem_into_mut(_scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
@@ -129,30 +119,27 @@ pub struct TensorMapCompilationArg;
 
 impl CompilationArg for TensorMapCompilationArg {}
 
-impl<E: CubePrimitive> LaunchArgExpand for TensorMap<E> {
+impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
+    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
     type CompilationArg = TensorMapCompilationArg;
+
+    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
+        TensorMapCompilationArg
+    }
 
     fn expand(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.tensor_map();
+        let tensor = builder.input_tensor_map(Type::new(E::as_type(&builder.scope)));
         tensor.into()
     }
     fn expand_output(
         _arg: &Self::CompilationArg,
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<TensorMap<E>> {
-        let tensor = builder.tensor_map();
+        let tensor = builder.output_tensor_map(Type::new(E::as_type(&builder.scope)));
         tensor.into()
-    }
-}
-
-impl<E: CubePrimitive> LaunchArg for TensorMap<E> {
-    type RuntimeArg<'a, R: Runtime> = TensorMapArg<'a, R>;
-
-    fn compilation_arg<R: Runtime>(_runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
-        TensorMapCompilationArg
     }
 }
 
@@ -260,6 +247,7 @@ macro_rules! tma_store {
     };
 }
 
+tma_store!(1, x);
 tma_store!(2, y, x);
 tma_store!(3, z, y, x);
 tma_store!(4, w, z, y, x);
@@ -267,7 +255,7 @@ tma_store!(5, v, w, z, y, x);
 
 /// Module that contains the implementation details of the metadata functions.
 mod metadata {
-    use cubecl_ir::{ExpandElement, Metadata, Type};
+    use cubecl_ir::{ExpandElement, Metadata, Type, VariableKind};
 
     use super::*;
     use crate::{
@@ -276,6 +264,11 @@ mod metadata {
     };
 
     impl<T: CubePrimitive> TensorMap<T> {
+        /// Get a reference to the underlying buffer for the tensor map.
+        pub fn buffer(&self) -> Tensor<Line<T>> {
+            unexpanded!()
+        }
+
         /// Obtain the stride of input at dimension dim
         pub fn stride<C: Index>(&self, _dim: C) -> u32 {
             unexpanded!()
@@ -329,60 +322,81 @@ mod metadata {
             unexpanded!()
         }
 
-        // Expand function of [stride](Tensor::stride).
+        // Expand function of [buffer](TensorMap::buffer).
+        pub fn __expand_buffer(
+            scope: &mut Scope,
+            expand: ExpandElementTyped<TensorMap<T>>,
+        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+            expand.__expand_buffer_method(scope)
+        }
+
+        // Expand function of [stride](TensorMap::stride).
         pub fn __expand_stride<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_stride_method(scope, dim)
         }
 
-        // Expand function of [shape](Tensor::shape).
+        // Expand function of [shape](TensorMap::shape).
         pub fn __expand_shape<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_shape_method(scope, dim)
         }
 
-        // Expand function of [coordinate](Tensor::coordinate).
+        // Expand function of [coordinate](TensorMap::coordinate).
         pub fn __expand_coordinate<I: Index, D: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
             index: ExpandElementTyped<u32>,
             dim: ExpandElementTyped<u32>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_coordinate_method(scope, index, dim)
         }
 
-        // Expand function of [len](Tensor::len).
+        // Expand function of [len](TensorMap::len).
         pub fn __expand_len<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_len_method(scope)
         }
 
-        // Expand function of [buffer_len](Tensor::buffer_len).
+        // Expand function of [buffer_len](TensorMap::buffer_len).
         pub fn __expand_buffer_len<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_buffer_len_method(scope)
         }
 
-        // Expand function of [rank](Tensor::rank).
+        // Expand function of [rank](TensorMap::rank).
         pub fn __expand_rank<C: Index>(
             scope: &mut Scope,
-            expand: ExpandElementTyped<Tensor<T>>,
+            expand: ExpandElementTyped<TensorMap<T>>,
         ) -> ExpandElementTyped<u32> {
             expand.__expand_rank_method(scope)
         }
     }
 
     impl<T: CubePrimitive> ExpandElementTyped<TensorMap<T>> {
+        // Expand method of [buffer](TensorMap::buffer).
+        pub fn __expand_buffer_method(
+            self,
+            scope: &mut Scope,
+        ) -> ExpandElementTyped<Tensor<Line<T>>> {
+            let tensor = match self.expand.kind {
+                VariableKind::TensorMapInput(id) => scope.input(id, self.expand.ty),
+                VariableKind::TensorMapOutput(id) => scope.output(id, self.expand.ty),
+                _ => unreachable!(),
+            };
+            tensor.into()
+        }
+
         // Expand method of [stride](Tensor::stride).
         pub fn __expand_stride_method(
             self,

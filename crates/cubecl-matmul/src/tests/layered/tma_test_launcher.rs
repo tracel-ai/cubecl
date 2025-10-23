@@ -1,10 +1,6 @@
-use std::marker::PhantomData;
-
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
-use crate::MatmulInputHandleRef;
-use crate::components::AvailableLineSizes;
 use crate::components::MatmulIdent;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -13,16 +9,21 @@ use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
+use crate::components::{AccG, AvailableLineSizes};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
+use crate::{
+    MatmulInputHandleRef,
+    components::global::args::{ConcreteOutputFactory, TensorOutput},
+};
 
 use super::matmul_test_launcher::{TensorRawParts, tensor_size, transpose};
 
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_tma_matmul_algorithm<A, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
@@ -45,25 +46,20 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
-        handle: &lhs.handle,
-        strides: &lhs.strides,
-        shape: &lhs.shape,
-        elem_size,
-        runtime: PhantomData,
+    let lhs_handle = MatmulInputHandleRef::Normal(unsafe {
+        TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
     });
-    let rhs_handle = MatmulInputHandleRef::Normal(TensorHandleRef {
-        handle: &rhs.handle,
-        strides: &rhs.strides,
-        shape: &rhs.shape,
-        elem_size,
-        runtime: PhantomData,
+    let rhs_handle = MatmulInputHandleRef::Normal(unsafe {
+        TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
     });
+    let out_handle = unsafe {
+        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
+    };
 
-    let line_sizes = AvailableLineSizes::from_types::<R>(
-        &P::EG::as_type_native_unchecked(),
-        &P::EG::as_type_native_unchecked(),
-        &P::EG::as_type_native_unchecked(),
+    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+        size_of::<P::EG>(),
+        size_of::<P::EG>(),
+        size_of::<P::EG>(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
@@ -92,16 +88,23 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 
     let line_sizes = config.line_sizes();
 
-    let inputs =
-        TensorMapInputs::create(&lhs_handle, &rhs_handle, &selection, &problem, &line_sizes);
-    let output = unsafe {
-        TensorArg::<R>::from_raw_parts::<P::EG>(
-            &out.handle,
-            &out.strides,
-            &out.shape,
-            line_sizes.out,
-        )
-    };
+    let inputs = TensorMapInputs::create(
+        &client,
+        &lhs_handle,
+        &rhs_handle,
+        &selection,
+        &problem,
+        &line_sizes,
+        config,
+    );
+    let output = TensorOutput::<AccG<P::MP>>::create(
+        &client,
+        &out_handle,
+        &selection,
+        &problem,
+        &line_sizes,
+        config,
+    );
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
@@ -134,7 +137,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

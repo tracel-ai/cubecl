@@ -115,7 +115,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
     /// - CubeDim is too big
     /// - Barriers are not available
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -151,7 +151,7 @@ impl<S: stage::StageConfig> SimpleBarrierConfig<S> {
 
     fn check_availability<R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
         if !client.properties().supports_type(SemanticType::Barrier) {
             return Err(MatmulSetupError::Unavailable(

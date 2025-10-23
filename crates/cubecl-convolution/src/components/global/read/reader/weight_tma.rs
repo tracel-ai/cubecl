@@ -1,39 +1,31 @@
-use core::marker::PhantomData;
-
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
-    MatmulIdent, MatrixPrecision, StageIdent, stage::StageMemoryConfig,
+    MatrixPrecision, StageIdent,
+    global::memory::{GlobalIterator, ViewDirection},
+    stage::StageMemoryConfig,
 };
-use cubecl_std::FastDivmod;
+use cubecl_std::tensor::{View, layout::Coords2d};
 
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
-use cubecl_matmul::components::{
-    global::memory::MappedTensorReader,
-    stage::{ContiguousTilingLayout, StageConfig, StridedStage},
-};
-
-use crate::kernels::layered::selector::RuntimeArgs;
+use cubecl_matmul::components::stage::{ContiguousTilingLayout, StridedStage};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
 pub type TmaWeightStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
-pub struct TmaWeightGlobalReader<IP: MatrixPrecision, S: StageConfig> {
-    pub tensor_view: MappedTensorReader<IP::Global>,
+pub struct TmaWeightGlobalReader<IP: MatrixPrecision> {
+    pub global_iter: GlobalIterator<Line<IP::Global>>,
     pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
-    padded_channels: FastDivmod,
     #[cube(comptime)]
-    _config: PhantomData<S>,
+    config: StageMemoryConfig,
 }
 
 #[cube]
-impl<IP: MatrixPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
+impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
     pub fn new(
-        tensor: TensorMap<IP::Global>,
-        x: u32,
-        y: u32,
-        runtime_args: &RuntimeArgs,
+        global_view: View<Line<IP::Global>, Coords2d>,
+        k_step: u32,
         #[comptime] num_stages: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> Self {
@@ -44,42 +36,32 @@ impl<IP: MatrixPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
             stages.push(StridedStage::new_aligned(StageIdent::Rhs, 128u32, config));
         }
 
-        let tensor_view = MappedTensorReader::new(tensor, x, y, 0);
+        let global_iter = GlobalIterator::new(global_view, k_step, ViewDirection::Row, false);
 
-        TmaWeightGlobalReader::<IP, S> {
-            tensor_view,
+        TmaWeightGlobalReader::<IP> {
+            global_iter,
             stages,
-            padded_channels: runtime_args.padded_channels,
-            _config: PhantomData::<S>,
+            config,
         }
     }
 
-    pub fn fill_stage(
-        &mut self,
-        barrier: &Barrier,
-        #[comptime] stage_idx: u32,
-        #[comptime] config: S,
-    ) {
+    pub fn fill_stage(&mut self, barrier: &Barrier, #[comptime] stage_idx: u32) {
         let stage = self.stages.index_mut(stage_idx);
+        let config = comptime![self.config];
 
         if UNIT_POS == 0 {
-            let k = self.tensor_view.tile_x;
-            let out_c = self.tensor_view.tile_y;
+            let global_view = self.global_iter.view();
 
-            let tensor = self.tensor_view.tensor.try_cast_unchecked();
             let mut stage = stage.as_slice_mut(1u32);
-            let slice_size = config.tiling_scheme().elements_in_stage_n()
-                * config.tiling_scheme().elements_in_tile_k();
+            let slice_size = config.elements_in_stage_col() * config.elements_in_tile_row;
 
             #[unroll]
-            for tile_k in 0..config.tiling_scheme().tiles_in_stage_k() {
+            for tile_k in 0..config.tiles_in_stage_row {
                 let slice_start = slice_size * tile_k;
-                let mut slice = stage.slice_mut(slice_start, slice_size);
+                let slice = stage.slice_mut(slice_start, slice_size);
 
-                let k = k + tile_k * config.tiling_scheme().elements_in_tile_k();
-                let (k_idx, in_c) = self.padded_channels.div_mod(k);
-
-                barrier.tma_load_3d(&tensor, &mut slice, out_c as i32, k_idx as i32, in_c as i32);
+                let k = tile_k * config.elements_in_tile_row;
+                global_view.tensor_map_load(barrier, &mut slice.try_cast_unchecked(), (k, 0));
             }
         }
     }
@@ -88,7 +70,7 @@ impl<IP: MatrixPrecision, S: StageConfig> TmaWeightGlobalReader<IP, S> {
         *self.stages.index(stage_idx)
     }
 
-    pub fn advance_view(&mut self, k_offset: u32) {
-        self.tensor_view.update_view(k_offset, MatmulIdent::Rhs);
+    pub fn advance_view(&mut self) {
+        self.global_iter.advance();
     }
 }

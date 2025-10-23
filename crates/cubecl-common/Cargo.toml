@@ -17,9 +17,16 @@ version.workspace = true
 cache = ["std", "serde_json", "dirs", "sanitize-filename"]
 default = ["std"]
 fp4 = ["float4"]
-fp8 = ["float8", "float4"]
+fp8 = ["float8"]
 serde = ["serde_bytes"]
-std = ["rand/std", "futures-lite", "rand/thread_rng", "serde_json?/std"]
+std = [
+    "rand/std",
+    "futures-lite",
+    "rand/thread_rng",
+    "serde_json?/std",
+    "parking_lot",
+]
+
 
 [dependencies]
 # ** Please make sure all dependencies support no_std when std is disabled **
@@ -57,12 +64,14 @@ futures-lite = { workspace = true, features = [
     "std",
 ], default-features = false, optional = true }
 
+parking_lot = { version = "0.12.5", default-features = false, optional = true }
+
 [target.'cfg(target_has_atomic = "ptr")'.dependencies]
 spin = { workspace = true, features = ["mutex", "spin_mutex"] }
 
 [target.'cfg(not(target_has_atomic = "ptr"))'.dependencies]
-portable-atomic = { workspace = true }
 portable-atomic-util = { workspace = true }
+portable-atomic = { workspace = true }
 spin = { workspace = true, features = [
     "mutex",
     "spin_mutex",

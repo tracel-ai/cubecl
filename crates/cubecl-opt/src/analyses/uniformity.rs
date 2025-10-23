@@ -72,6 +72,15 @@ impl Uniformity {
                             self.is_var_uniform(op.lhs) || self.is_var_uniform(op.rhs);
                         self.mark_uniformity(out, input_uniform && block_uniform)?;
                     }
+                    // Shuffle operations: if offset/mask/delta is uniform, output is non-uniform
+                    // (each thread gets a different value). If value is uniform, output is uniform.
+                    Plane::Shuffle(op)
+                    | Plane::ShuffleXor(op)
+                    | Plane::ShuffleUp(op)
+                    | Plane::ShuffleDown(op) => {
+                        let input_uniform = self.is_var_uniform(op.lhs);
+                        self.mark_uniformity(out, input_uniform && block_uniform)?;
+                    }
                 },
                 Operation::Synchronization(sync) => match sync {
                     Synchronization::SyncCube | Synchronization::SyncStorage => {
@@ -244,7 +253,8 @@ impl Uniformity {
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }
-            VariableKind::TensorMap(_) => true,
+            VariableKind::TensorMapInput(_) => true,
+            VariableKind::TensorMapOutput(_) => true,
         }
     }
 

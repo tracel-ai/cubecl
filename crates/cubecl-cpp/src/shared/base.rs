@@ -144,6 +144,11 @@ impl<D: Dialect> CppCompiler<D> {
         self.build_metadata(&value);
 
         let instructions = self.compile_scope(&mut value.body.clone());
+        let tensor_maps = value
+            .tensor_maps
+            .into_iter()
+            .map(|b| self.compile_binding(b))
+            .collect();
         let buffers = value
             .buffers
             .into_iter()
@@ -211,7 +216,7 @@ impl<D: Dialect> CppCompiler<D> {
         }
 
         ComputeKernel {
-            tensor_maps: value.tensor_maps,
+            tensor_maps,
             buffers,
             scalars,
             meta_static_len: self.metadata.static_len() as usize,
@@ -231,8 +236,8 @@ impl<D: Dialect> CppCompiler<D> {
         let mut all_meta: Vec<_> = value
             .buffers
             .iter()
+            .chain(value.tensor_maps.iter())
             .map(|buf| (buf.id, buf.has_extended_meta))
-            .chain(value.tensor_maps.iter().map(|i| (*i, true)))
             .collect();
 
         all_meta.sort_by_key(|(id, _)| *id);
@@ -412,6 +417,34 @@ impl<D: Dialect> CppCompiler<D> {
                         instructions.push(Instruction::Warp(WarpInstruction::Broadcast {
                             input: self.compile_variable(op.lhs),
                             id: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::Shuffle(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::Shuffle {
+                            input: self.compile_variable(op.lhs),
+                            src_lane: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleXor(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleXor {
+                            input: self.compile_variable(op.lhs),
+                            mask: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleUp(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleUp {
+                            input: self.compile_variable(op.lhs),
+                            delta: self.compile_variable(op.rhs),
+                            out,
+                        }))
+                    }
+                    gpu::Plane::ShuffleDown(op) => {
+                        instructions.push(Instruction::Warp(WarpInstruction::ShuffleDown {
+                            input: self.compile_variable(op.lhs),
+                            delta: self.compile_variable(op.rhs),
                             out,
                         }))
                     }
@@ -1007,6 +1040,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Ceil(op) => {
                 instructions.push(Instruction::Ceil(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::Trunc(op) => {
+                instructions.push(Instruction::Trunc(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Remainder(op) => {
                 instructions.push(Instruction::Remainder(self.compile_binary(op, out)))
             }
@@ -1261,7 +1297,11 @@ impl<D: Dialect> CppCompiler<D> {
                 elem: self.compile_storage_type(item.storage_type()),
                 in_struct: self.compilation_options.grid_constants,
             },
-            gpu::VariableKind::TensorMap(id) => {
+            gpu::VariableKind::TensorMapInput(id) => {
+                self.flags.inst_tma = true;
+                Variable::TensorMap(id)
+            }
+            gpu::VariableKind::TensorMapOutput(id) => {
                 self.flags.inst_tma = true;
                 Variable::TensorMap(id)
             }
