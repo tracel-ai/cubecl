@@ -1045,7 +1045,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 match frag {
                     Variable::WmmaFragment { .. } => {
                         let ty = frag.elem();
-                        // Only 8x8x8 fragemts are supported. Check is done at fragment compilation time.
+                        // Only 8x8x8 fragments are supported. Check is done at fragment compilation time.
                         writeln!(
                             f,
                             "{frag} = make_filled_simdgroup_matrix<{ty}, 8, 8>({value});"
