@@ -317,29 +317,29 @@ fn run_algos_unit<R: Runtime, MP: MatmulPrecision>() {
         })),
     );
 
-    println!("Simple Unit Max");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
-        })),
-    );
+    // println!("Simple Unit Max");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::SimpleUnit(Selection::Inferred(SimpleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MaxTileSize,
+    //     })),
+    // );
 
-    println!("Double Unit Min");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MinTileSize,
-        })),
-    );
+    // println!("Double Unit Min");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MinTileSize,
+    //     })),
+    // );
 
-    println!("Double Unit Max");
-    run::<R, MP>(
-        Default::default(),
-        matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
-            tile_size: TileSizeSelection::MaxTileSize,
-        })),
-    );
+    // println!("Double Unit Max");
+    // run::<R, MP>(
+    //     Default::default(),
+    //     matmul::Strategy::DoubleUnit(Selection::Inferred(DoubleUnitSelectionArgs {
+    //         tile_size: TileSizeSelection::MaxTileSize,
+    //     })),
+    // );
 }
 
 #[allow(unused)]
@@ -397,7 +397,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
     run_algos_unit::<R, MP>();
-    run_algos_wmma::<R, MP>();
+    // run_algos_wmma::<R, MP>();
     // run_algos_vecmat::<R, MP>();
 }
 

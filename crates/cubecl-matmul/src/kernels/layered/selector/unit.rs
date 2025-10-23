@@ -179,8 +179,10 @@ fn matvec_unit_selector(
         PartitionBuffering::Single,
         plane_dim,
         StageSelection::Fixed {
-            m: plane_dim / 2,
-            n: 2,
+            // m: plane_dim / 2,
+            // n: 2,
+            m: plane_dim,
+            n: 1
         },
         num_sms,
         GlobalOrderSelection::Default,

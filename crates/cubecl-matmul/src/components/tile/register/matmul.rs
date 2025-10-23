@@ -153,10 +153,17 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
     ) {
         let num_lines_per_segment = segment_size / line_size;
 
+        let swizzle_offset = UNIT_POS;
+        let swizzle_segment_offset = swizzle_offset / num_segments;
+        let swizzle_line_within_offset = swizzle_offset % num_segments;
+
         #[unroll(UNROLL)]
         for segment in 0..num_segments {
+            // let segment = (segment + swizzle_segment_offset) % num_segments;
             #[unroll(UNROLL)]
             for line_within_segment in 0..num_lines_per_segment {
+                // let line_within_segment =
+                // (line_within_segment + swizzle_line_within_offset) % num_lines_per_segment;
                 let line = tile.get_line(segment, line_within_segment);
                 #[unroll(UNROLL)]
                 for pos_within_line in 0..line_size {
