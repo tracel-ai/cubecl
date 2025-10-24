@@ -158,7 +158,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
             #[unroll(UNROLL)]
             for line_within_segment in 0..num_lines_per_segment {
                 let line = tile.get_line(segment, line_within_segment);
-                #[unroll(UNROLL)]
+                #[unroll]
                 for pos_within_line in 0..line_size {
                     array[segment * segment_size
                         + line_within_segment * line_size
@@ -182,7 +182,7 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
             #[unroll(UNROLL)]
             for line_within_segment in 0..num_lines_per_segment {
                 let line = tile.get_line(segment, line_within_segment);
-                #[unroll(UNROLL)]
+                #[unroll]
                 for pos_within_line in 0..line_size {
                     array[(line_within_segment * line_size + pos_within_line) * num_segments
                         + segment] = ER::cast_from(line[pos_within_line]);

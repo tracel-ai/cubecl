@@ -21,7 +21,7 @@ impl RegisterStageWriter {
         #[unroll(UNROLL)]
         for i in 0..comptime!(config.tile_size.mn() / out_line_size) {
             let mut line = Line::empty(out_line_size);
-            #[unroll(UNROLL)]
+            #[unroll]
             for j in 0..comptime!(out_line_size) {
                 line[j] = acc[i * out_line_size + j];
             }
