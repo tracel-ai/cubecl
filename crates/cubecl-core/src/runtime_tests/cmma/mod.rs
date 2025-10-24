@@ -6,6 +6,7 @@ mod simple;
 mod strided;
 
 pub use cast::*;
+pub use layout::*;
 pub use manual::*;
 pub use scaled::*;
 pub use simple::*;
@@ -170,6 +171,14 @@ macro_rules! testgen_cmma {
 
             // FP4 needs more design for transferring properly as packed values
             test(16, 8, 64, 2);
+        }
+
+        #[test]
+        fn test_layout_a() {
+            let client = TestRuntime::client(&Default::default());
+            let cube_dimensions = cube_dim::<TestRuntime>(&client);
+            cubecl_core::runtime_tests::cmma::test_layout_a::<TestRuntime>(client, cube_dimensions);
+            assert!(false)
         }
 
         fn cube_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> CubeDim {
