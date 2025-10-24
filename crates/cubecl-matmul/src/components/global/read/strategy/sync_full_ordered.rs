@@ -1,4 +1,3 @@
-use crate::components::global::RoleRule;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::stage::OrderedTilingOrder;
@@ -6,6 +5,7 @@ use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
+use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -66,6 +66,8 @@ impl LoadingValidation for SyncFullOrderedLoading {
                 )
             }));
         }
+
+        ContiguousTilingLayout::<OrderedTilingOrder>::check(config.global_memory_config(ident))?;
 
         Ok(())
     }

@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{StageConfig, StridedStage, StridedTilingLayout},
+    stage::{StageConfig, StridedStage, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -44,6 +44,8 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
                 "Number of units per slice must divide slice length evenly",
             ));
         }
+
+        StridedTilingLayout::check(config.global_memory_config(ident))?;
 
         Ok(())
     }
