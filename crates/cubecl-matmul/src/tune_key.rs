@@ -25,9 +25,9 @@ pub struct MatmulProblemDefinition {
     pub k: usize,
     pub lhs_pow2_factor: u8,
     pub rhs_pow2_factor: u8,
-    pub elem_lhs: ElemType,
-    pub elem_rhs: ElemType,
-    pub elem_out: ElemType,
+    pub elem_lhs: MatmulElemType,
+    pub elem_rhs: MatmulElemType,
+    pub elem_out: MatmulElemType,
     pub matrix_layout_lhs: MatrixBatchLayout,
     pub matrix_layout_rhs: MatrixBatchLayout,
 }
@@ -67,6 +67,12 @@ pub fn should_tune_double_buffering(fused: bool, key: &MatmulAutotuneKey) -> boo
         }
 }
 
+#[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
+pub struct MatmulElemType {
+    pub elem: ElemType,
+    pub quantized: bool,
+}
+
 impl MatmulAutotuneKey {
     /// Create the autotune key based on the shape of both lhs and rhs as well as the element type
     /// used for the calculation.
@@ -77,9 +83,9 @@ impl MatmulAutotuneKey {
         rhs_shape: &[usize],
         lhs_strides: &[usize],
         rhs_strides: &[usize],
-        elem_lhs: ElemType,
-        elem_rhs: ElemType,
-        elem_out: ElemType,
+        elem_lhs: MatmulElemType,
+        elem_rhs: MatmulElemType,
+        elem_out: MatmulElemType,
     ) -> MatmulAutotuneKey {
         let ndims = lhs_shape.len();
         let m = lhs_shape[ndims - 2];
