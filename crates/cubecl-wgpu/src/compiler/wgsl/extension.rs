@@ -121,12 +121,16 @@ pub fn call_powf(
     rhs: &Variable,
     out: &Variable,
 ) -> core::fmt::Result {
-    let (rhs, base_name) = if should_use_scalar_powf(rhs) {
+    let (lhs, rhs, base_name) = if should_use_scalar_powf(rhs) {
         let rhs = rhs.fmt_cast_to(Item::Scalar(lhs.elem()));
-        (rhs, POWF_SCALAR)
+        let lhs = lhs.to_string();
+        (lhs, rhs, POWF_SCALAR)
     } else {
-        let rhs = rhs.fmt_cast_to(lhs.item());
-        (rhs, POWF)
+        // When vecotized, we make sure the function inputs shared the same vectorization factor as
+        // the output.
+        let rhs = rhs.fmt_cast_to(out.item());
+        let lhs = lhs.fmt_cast_to(out.item());
+        (lhs, rhs, POWF)
     };
     let function_name = construct_vectorized_name(base_name, out.item());
 
