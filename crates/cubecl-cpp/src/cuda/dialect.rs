@@ -297,13 +297,21 @@ impl<M: DialectWmmaCompiler<Self>> DialectBindings<Self> for CudaDialect<M> {
         scalars: &[(Elem<Self>, usize)],
         flags: &Flags,
     ) -> std::fmt::Result {
-        write!(
-            f,
-            "
-
+        let launch_bounds = false;
+        if launch_bounds {
+            write!(
+                f,
+                "
 extern \"C\" __global__ void __launch_bounds__({})",
-            flags.cube_dim.num_elems()
-        )?;
+                flags.cube_dim.num_elems()
+            )?;
+        } else {
+            write!(
+                f,
+                "
+extern \"C\" __global__ void ",
+            )?;
+        }
         if let Some(cluster_dim) = flags.cluster_dim {
             write!(
                 f,
