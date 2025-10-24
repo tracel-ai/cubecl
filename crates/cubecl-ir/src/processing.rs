@@ -404,6 +404,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_elem(lane_id, ElemType::UInt(UIntKind::U32));
                         sanitize_constant_scalar_ref_elem(i, ElemType::UInt(UIntKind::U32));
                     }
+                    CoopMma::Get { .. } => {
+                        // Nothing to do.
+                    }
                 },
                 Operation::NonSemantic(_) => {
                     // Nothing to do.

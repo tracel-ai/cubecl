@@ -265,6 +265,21 @@ impl<C: CubePrimitive> Matrix<C> {
             mat
         })
     }
+
+    #[allow(unused_variables)]
+    pub fn get(&self, index: u32) -> C {
+        intrinsic!(|scope| {
+            let out = scope.create_local(Type::new(C::as_type(scope)));
+            scope.register(Instruction::new(
+                CoopMma::Get {
+                    matrix: *self.elem,
+                    index: index.into(),
+                },
+                out.clone().into(),
+            ));
+            out.into()
+        })
+    }
 }
 
 #[cube]

@@ -22,7 +22,7 @@ pub fn test_lhs_layout(a: Array<f16>, out: &mut Array<f32>) {
     let elems_per_lane = 2;
     for i in 0..elems_per_lane {
         let out_offset = UNIT_POS_X * elems_per_lane + i;
-        let pos = a[i];
+        let pos = a.get(i);
         out[out_offset] = f32::cast_from(pos);
     }
 }

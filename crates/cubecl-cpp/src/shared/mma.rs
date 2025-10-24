@@ -156,6 +156,10 @@ pub enum WmmaInstruction<D: Dialect> {
         input: Variable<D>,
         output: Variable<D>,
     },
+    Get {
+        frag: Variable<D>,
+        index: Variable<D>,
+    },
 }
 
 impl<D: Dialect> Display for FragmentLayout<D> {
@@ -404,6 +408,7 @@ for(int t=0; t<{input}.num_elements; t++) {{ {output}.x[t] = {ty}({input}.x[t]);
                 *scales_b,
                 *scales_factor,
             ),
+            WmmaInstruction::Get { frag, index } => todo!(),
         }
     }
 }

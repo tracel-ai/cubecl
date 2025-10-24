@@ -55,7 +55,9 @@ impl Matrix {
 #[allow(missing_docs)]
 pub enum CoopMma {
     /// Fill the matrix with the value.
-    Fill { value: Variable },
+    Fill {
+        value: Variable,
+    },
     /// Load the value into the matrix given the stride.
     Load {
         value: Variable,
@@ -79,7 +81,13 @@ pub enum CoopMma {
         layout: MatrixLayout,
     },
     /// Cast a fragment to another type.
-    Cast { input: Variable },
+    Cast {
+        input: Variable,
+    },
+    Get {
+        matrix: Variable,
+        index: Variable,
+    },
 
     /// Row index of nth element in the lane
     RowIndex {
@@ -128,7 +136,8 @@ impl OperationReflect for CoopMma {
             | CoopMma::ExecuteScaled { .. }
             | CoopMma::Store { .. }
             | CoopMma::RowIndex { .. }
-            | CoopMma::ColIndex { .. } => None,
+            | CoopMma::ColIndex { .. }
+            | CoopMma::Get { .. } => None,
             CoopMma::Cast { input } => Some(vec![*input]),
         }
     }
@@ -142,7 +151,8 @@ impl OperationReflect for CoopMma {
             | CmmaOpCode::ExecuteScaled
             | CmmaOpCode::Store
             | CmmaOpCode::RowIndex
-            | CmmaOpCode::ColIndex => None,
+            | CmmaOpCode::ColIndex
+            | CmmaOpCode::Get => None,
             CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
         }
     }
@@ -231,6 +241,9 @@ impl Display for CoopMma {
             }
             CoopMma::ColIndex { lane_id, i, matrix } => {
                 write!(f, "col_idx(lane_id: {lane_id}, i: {i}, matrix: {matrix:?})",)
+            }
+            CoopMma::Get { matrix, index } => {
+                write!(f, "get(matrix: {matrix:?}, index: {index:?})",)
             }
         }
     }

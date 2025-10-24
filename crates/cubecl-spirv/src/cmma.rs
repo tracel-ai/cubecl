@@ -40,6 +40,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             | CoopMma::ExecuteScaled { .. } => {
                 panic!("Manual register management not currently supported in SPIR-V")
             }
+            CoopMma::Get { matrix, index } => todo!(),
         }
     }
 

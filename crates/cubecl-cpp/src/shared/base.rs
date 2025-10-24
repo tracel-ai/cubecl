@@ -758,6 +758,10 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::CoopMma::RowIndex { .. } | gpu::CoopMma::ColIndex { .. } => {
                 panic!("Row/Col index should be handled by processors")
             }
+            gpu::CoopMma::Get { matrix, index } => WmmaInstruction::Get {
+                matrix: self.compile_variable(matrix),
+                index: self.compile_variable(index),
+            },
         };
 
         D::register_wmma_instruction_extension(&mut self.extensions, &inst);
