@@ -112,11 +112,11 @@ cudarc = { version = "0.17.3", features = [
 ], default-features = false }
 
 # CubeCL-SPIR-V
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "9b4037a2e14fe4138c8d4a8cfcac40c6577b5549", package = "tracel-rspirv" }
+rspirv = { package = "tracel-rspirv", version = "0.12.0" }
 
 # CubeCL-WGPU
 ash = "0.38"
-tracel-ash = { git = "https://github.com/tracel-ai/tracel-ash.git", rev = "cedd894bbdb03f0635900e7c0d317020fdd38263" }
+tracel-ash = "0.38.0"
 
 # Build deps
 cfg_aliases = "0.2.1"
