@@ -14,9 +14,9 @@
 //!
 use std::convert::TryInto;
 use std::env;
-
+use cubecl_std::tensor::rms_norm;
 const DEFAULT_SHAPES: &[[usize; 3]] = &[[4, 4, 128], [8, 1024, 4096], [1, 1, 8192]];
-const DEFAULT_WARMUP: usize = 1;
+const DEFAULT_WARMUP: usize = 3;
 
 /// Holds the parsed environment-driven configuration for the benchmark.
 struct BenchConfig {
@@ -244,7 +244,7 @@ mod bench_impl {
             bench.sync();
         }
 
-        match bench.run(TimingMethod::System) {
+        match bench.run(TimingMethod::Device) {
             Ok(durations) => {
                 let computed = BenchmarkComputations::new(&durations);
                 let elements: usize = shape.iter().product();
