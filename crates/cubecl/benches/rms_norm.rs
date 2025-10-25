@@ -12,9 +12,9 @@
 //!   check before the perf sweep. On failure the benchmark prints the error and
 //!   continues with other runtimes instead of panicking.
 //!
+use cubecl_std::tensor::rms_norm;
 use std::convert::TryInto;
 use std::env;
-use cubecl_std::tensor::rms_norm;
 const DEFAULT_SHAPES: &[[usize; 3]] = &[[4, 4, 128], [8, 1024, 4096], [1, 1, 8192]];
 const DEFAULT_WARMUP: usize = 3;
 

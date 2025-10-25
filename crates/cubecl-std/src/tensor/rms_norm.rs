@@ -28,14 +28,14 @@
 //! - CUBECL_RMS_VEC=4|8|16: Override vectorization width
 
 use core::{cmp, convert::TryFrom};
+use std::collections::HashSet;
 use std::env;
 use std::sync::{LazyLock, Mutex};
-use std::collections::HashSet;
 
-use cubecl_core as cubecl;
 use cubecl::frontend::{Recip, Sqrt};
 use cubecl::prelude::*;
 use cubecl::tensor_line_size_parallel;
+use cubecl_core as cubecl;
 use cubecl_runtime::features::Plane;
 
 use super::TensorHandle;
@@ -94,10 +94,10 @@ fn preferred_vectorization_for_dtype<F: Float>() -> Vec<u8> {
         // TEMPORARILY REVERTING: Wide vectorization (vec=16) causes 12× slowdown on some hardware
         // Suspected issues: scalar memory transactions, driver bugs, or alignment problems
         // TODO: Investigate with PTX/SASS dumps and Nsight Compute
-        2 => vec![4, 2, 1],  // F16/BF16: fallback to vec=4 (same bytes/thread as F32)
-        4 => vec![8, 4, 2, 1],      // F32: prefer 256-bit (8 elems) or 128-bit (4 elems)
-        8 => vec![4, 2, 1],         // F64: prefer 256-bit (4 elems)
-        _ => vec![4, 2, 1],         // Fallback
+        2 => vec![4, 2, 1], // F16/BF16: fallback to vec=4 (same bytes/thread as F32)
+        4 => vec![8, 4, 2, 1], // F32: prefer 256-bit (8 elems) or 128-bit (4 elems)
+        8 => vec![4, 2, 1], // F64: prefer 256-bit (4 elems)
+        _ => vec![4, 2, 1], // Fallback
     }
 }
 
@@ -229,7 +229,8 @@ fn rms_norm_kernel_stream<F: Float>(
             }
             let reduced = reduce_sum_with_shuffle(accumulator, subgroup_size, lane_id);
             if lane_id == 0 {
-                shared_mem[MAX_SUBGROUPS_PER_ROW] = compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
+                shared_mem[MAX_SUBGROUPS_PER_ROW] =
+                    compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
             }
         }
         sync_cube();
@@ -345,7 +346,8 @@ fn rms_norm_bias_kernel_stream<F: Float>(
             }
             let reduced = reduce_sum_with_shuffle(accumulator, subgroup_size, lane_id);
             if lane_id == 0 {
-                shared_mem[MAX_SUBGROUPS_PER_ROW] = compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
+                shared_mem[MAX_SUBGROUPS_PER_ROW] =
+                    compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
             }
         }
         sync_cube();
@@ -493,7 +495,8 @@ fn rms_norm_kernel_smem<F: Float>(
             }
             let reduced = reduce_sum_with_shuffle(accumulator, subgroup_size, lane_id);
             if lane_id == 0 {
-                reduction_smem[MAX_SUBGROUPS_PER_ROW] = compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
+                reduction_smem[MAX_SUBGROUPS_PER_ROW] =
+                    compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
             }
         }
         sync_cube();
@@ -648,7 +651,8 @@ fn rms_norm_bias_kernel_smem<F: Float>(
             }
             let reduced = reduce_sum_with_shuffle(accumulator, subgroup_size, lane_id);
             if lane_id == 0 {
-                reduction_smem[MAX_SUBGROUPS_PER_ROW] = compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
+                reduction_smem[MAX_SUBGROUPS_PER_ROW] =
+                    compute_inv_rms(reduced, axis, eps, allow_native_rsqrt);
             }
         }
         sync_cube();
@@ -810,9 +814,13 @@ pub fn launch_ref<R: Runtime, F: Float>(
     let vectorization = if let Ok(vec_override) = env::var("CUBECL_RMS_VEC") {
         if let Ok(forced_vec) = vec_override.parse::<u8>() {
             // Validate: must be supported and must divide the axis size
-            if supported_line_sizes.contains(&forced_vec) && axis_size % (forced_vec as usize) == 0 {
+            if supported_line_sizes.contains(&forced_vec) && axis_size % (forced_vec as usize) == 0
+            {
                 if env::var("CUBECL_RMS_LOG").is_ok() {
-                    eprintln!("[RMSNorm] Forcing vectorization={} via CUBECL_RMS_VEC", forced_vec);
+                    eprintln!(
+                        "[RMSNorm] Forcing vectorization={} via CUBECL_RMS_VEC",
+                        forced_vec
+                    );
                 }
                 forced_vec
             } else {
@@ -821,7 +829,8 @@ pub fn launch_ref<R: Runtime, F: Float>(
                     forced_vec, axis_size
                 );
                 // Fall through to default calculation
-                let allowed_sizes: Vec<u8> = preferred_vec.into_iter()
+                let allowed_sizes: Vec<u8> = preferred_vec
+                    .into_iter()
                     .filter(|s| supported_line_sizes.contains(s))
                     .collect();
                 tensor_line_size_parallel(
@@ -832,8 +841,12 @@ pub fn launch_ref<R: Runtime, F: Float>(
                 )
             }
         } else {
-            eprintln!("[RMSNorm] WARNING: CUBECL_RMS_VEC='{}' invalid, using default", vec_override);
-            let allowed_sizes: Vec<u8> = preferred_vec.into_iter()
+            eprintln!(
+                "[RMSNorm] WARNING: CUBECL_RMS_VEC='{}' invalid, using default",
+                vec_override
+            );
+            let allowed_sizes: Vec<u8> = preferred_vec
+                .into_iter()
                 .filter(|s| supported_line_sizes.contains(s))
                 .collect();
             tensor_line_size_parallel(
@@ -846,7 +859,8 @@ pub fn launch_ref<R: Runtime, F: Float>(
     } else {
         // Default: ONLY use preferred sizes that are supported - don't add extras!
         // This prevents f32 from using vec=16 when we only want vec=4
-        let allowed_sizes: Vec<u8> = preferred_vec.into_iter()
+        let allowed_sizes: Vec<u8> = preferred_vec
+            .into_iter()
             .filter(|s| supported_line_sizes.contains(s))
             .collect();
         tensor_line_size_parallel(
@@ -895,9 +909,16 @@ pub fn launch_ref<R: Runtime, F: Float>(
     let axis_size_u32 = u32::try_from(axis_size).expect("Axis size exceeds u32 range");
 
     // Diagnostic logging (only log once to avoid spam)
-    static LOGGED_CONFIGS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+    static LOGGED_CONFIGS: LazyLock<Mutex<HashSet<String>>> =
+        LazyLock::new(|| Mutex::new(HashSet::new()));
     if env::var("CUBECL_RMS_LOG").is_ok() {
-        let config_key = format!("{:?}_{}_{}_{}", input.shape, core::mem::size_of::<F>(), axis, vectorization);
+        let config_key = format!(
+            "{:?}_{}_{}_{}",
+            input.shape,
+            core::mem::size_of::<F>(),
+            axis,
+            vectorization
+        );
         let mut logged = LOGGED_CONFIGS.lock().unwrap();
         if !logged.contains(&config_key) {
             eprintln!(
@@ -990,20 +1011,43 @@ pub fn launch_ref<R: Runtime, F: Float>(
 
     // Detailed diagnostic logging (only once per config)
     if env::var("CUBECL_RMS_LOG").is_ok() {
-        let detail_key = format!("{:?}_{}_{}_detail", input.shape, core::mem::size_of::<F>(), vectorization);
+        let detail_key = format!(
+            "{:?}_{}_{}_detail",
+            input.shape,
+            core::mem::size_of::<F>(),
+            vectorization
+        );
         let mut logged = LOGGED_CONFIGS.lock().unwrap();
         if !logged.contains(&detail_key) {
-            eprintln!("[RMSNorm] dtype_size={} line_size={} lines_per_row={} threads_per_row={} subgroups={} per_thread_lines={} (capped={})",
-                core::mem::size_of::<F>(), line_size, lines_per_row, threads_per_row, subgroups_per_row, per_thread_lines, capped_per_thread_lines);
+            eprintln!(
+                "[RMSNorm] dtype_size={} line_size={} lines_per_row={} threads_per_row={} subgroups={} per_thread_lines={} (capped={})",
+                core::mem::size_of::<F>(),
+                line_size,
+                lines_per_row,
+                threads_per_row,
+                subgroups_per_row,
+                per_thread_lines,
+                capped_per_thread_lines
+            );
 
             let bytes_per_line = line_size as usize * core::mem::size_of::<F>();
-            let preferred_alignment = if bytes_per_line >= 32 { 32 } else if bytes_per_line >= 16 { 16 } else { 8 };
+            let preferred_alignment = if bytes_per_line >= 32 {
+                32
+            } else if bytes_per_line >= 16 {
+                16
+            } else {
+                8
+            };
 
-            eprintln!("[RMSNorm] Memory layout: vec={} ({} bytes/line), preferred_alignment={}B for optimal perf",
-                vectorization, bytes_per_line, preferred_alignment);
+            eprintln!(
+                "[RMSNorm] Memory layout: vec={} ({} bytes/line), preferred_alignment={}B for optimal perf",
+                vectorization, bytes_per_line, preferred_alignment
+            );
 
-            eprintln!("[RMSNorm] Tensor strides: input={:?} weight={:?} output={:?}",
-                input.strides, weight.strides, output.strides);
+            eprintln!(
+                "[RMSNorm] Tensor strides: input={:?} weight={:?} output={:?}",
+                input.strides, weight.strides, output.strides
+            );
 
             logged.insert(detail_key);
         }
