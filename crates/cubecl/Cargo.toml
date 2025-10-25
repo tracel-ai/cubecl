@@ -79,3 +79,8 @@ required-features = ["random"]
 harness = false
 name = "unary"
 required-features = ["random"]
+
+[[bench]]
+harness = false
+name = "rms_norm"
+required-features = ["random"]
