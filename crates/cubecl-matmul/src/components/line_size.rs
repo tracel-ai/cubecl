@@ -1,4 +1,4 @@
-use cubecl_core::{LineSizeError, Runtime, ir::StorageType, tensor_line_size_parallel};
+use cubecl_core::{LineSizeError, Runtime, tensor_line_size_parallel};
 
 use crate::components::{MatrixLayout, error::MatmulSetupError};
 use std::fmt::Debug;
@@ -24,11 +24,7 @@ pub struct AvailableLineSizes {
 }
 
 impl AvailableLineSizes {
-    pub fn from_types<R: Runtime>(
-        elem_lhs: &StorageType,
-        elem_rhs: &StorageType,
-        elem_out: &StorageType,
-    ) -> Self {
+    pub fn from_type_sizes<R: Runtime>(elem_lhs: usize, elem_rhs: usize, elem_out: usize) -> Self {
         AvailableLineSizes {
             lhs: R::io_optimized_line_sizes_unchecked(elem_lhs).collect(),
             rhs: R::io_optimized_line_sizes_unchecked(elem_rhs).collect(),

@@ -50,8 +50,9 @@ pub trait Runtime: Send + Sync + 'static + core::fmt::Debug {
     /// Returns all line sizes that are useful to perform optimal IO operation on the given element.
     /// Ignores native support, and allows all line sizes. This means the returned size may be
     /// unrolled, and may not support dynamic indexing.
-    fn io_optimized_line_sizes_unchecked(elem: &StorageType) -> impl Iterator<Item = u8> + Clone {
-        let max = LOAD_WIDTH / elem.size_bits();
+    fn io_optimized_line_sizes_unchecked(size: usize) -> impl Iterator<Item = u8> + Clone {
+        let size_bits = size * 8;
+        let max = LOAD_WIDTH / size_bits;
         let max = usize::min(Self::max_global_line_size() as usize, max);
 
         // If the max is 8, we want to test 1, 2, 4, 8 which is log2(8) + 1.

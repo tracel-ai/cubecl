@@ -85,8 +85,7 @@ impl ReduceConfig {
         output: &TensorHandleRef<R>,
         axis: usize,
     ) -> Self {
-        let elem = In::as_type_native_unchecked();
-        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(&elem);
+        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(size_of::<In>());
         self.line_size_input = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)

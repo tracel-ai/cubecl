@@ -45,6 +45,11 @@ pub trait CubePrimitive:
         Self::as_type_native().map(|t| t.size_bits())
     }
 
+    /// Only native element types have a size.
+    fn size_bits_unchecked() -> usize {
+        Self::as_type_native_unchecked().size_bits()
+    }
+
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
     }

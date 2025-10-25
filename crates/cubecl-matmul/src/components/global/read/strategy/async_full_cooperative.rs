@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         read::AsyncFullLoadingStrategy,
     },
-    stage::{StridedStage, StridedTilingLayout},
+    stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
@@ -20,7 +20,9 @@ use super::{AsyncLoadingJob, LoadingValidation};
 pub struct AsyncFullCooperativeLoading {}
 
 impl LoadingValidation for AsyncFullCooperativeLoading {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+        StridedTilingLayout::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }

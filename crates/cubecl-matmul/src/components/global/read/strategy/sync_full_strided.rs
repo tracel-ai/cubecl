@@ -1,10 +1,10 @@
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StridedStage, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -28,6 +28,8 @@ impl LoadingValidation for SyncFullStridedLoading {
         Try setting line size and number of planes so that total unit count {:?} divides number of lines in stage.",
             ));
         }
+
+        StridedTilingLayout::check(config.global_memory_config(ident))?;
 
         Ok(())
     }

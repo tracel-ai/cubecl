@@ -157,10 +157,8 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                 );
                 let data_view =
                     ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
-                let scales_view = ViewArg::new::<BatchedGlobalScaleLayout>(
-                    scale.as_array_arg(line_size),
-                    scales_layout,
-                );
+                let scales_view =
+                    ViewArg::new::<BatchedGlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
                 ViewArg::new_quantized(data_view, scales_view, **scheme)
             }
         };
