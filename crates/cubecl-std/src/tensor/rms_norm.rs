@@ -419,10 +419,8 @@ fn rms_norm_kernel_smem<F: Float>(
     let smem_elements = lines_per_row * line_size;
 
     // Bounds check - if row is too large, this kernel should not have been selected
-    if smem_elements > MAX_SMEM_ELEMENTS_PER_BUFFER {
-        if DEBUG_ASSERTIONS_ENABLED {
-            terminate!();
-        }
+    if smem_elements > MAX_SMEM_ELEMENTS_PER_BUFFER && DEBUG_ASSERTIONS_ENABLED {
+        terminate!();
     }
 
     // Cooperative load of weight into shared memory
@@ -814,7 +812,8 @@ pub fn launch_ref<R: Runtime, F: Float>(
     let vectorization = if let Ok(vec_override) = env::var("CUBECL_RMS_VEC") {
         if let Ok(forced_vec) = vec_override.parse::<u8>() {
             // Validate: must be supported and must divide the axis size
-            if supported_line_sizes.contains(&forced_vec) && axis_size % (forced_vec as usize) == 0
+            if supported_line_sizes.contains(&forced_vec)
+                && axis_size.is_multiple_of(forced_vec as usize)
             {
                 if env::var("CUBECL_RMS_LOG").is_ok() {
                     eprintln!(
