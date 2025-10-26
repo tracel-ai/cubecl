@@ -13,7 +13,7 @@ use std::{
 pub(crate) const INFO_NAME: &str = "info";
 pub(crate) const STATIC_INFO_NAME: &str = "static_info";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
     pub lhs: Variable<D>,
     pub rhs: Variable<D>,
@@ -36,7 +36,7 @@ pub struct IndexAssignInstruction<D: Dialect> {
     pub out: Variable<D>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
     pub out: Variable<D>,
@@ -78,6 +78,8 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Div(BinaryInstruction<D>),
+    FastDiv(BinaryInstruction<D>),
+    FastRecip(UnaryInstruction<D>),
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
     SaturatingSub(BinaryInstruction<D>),
@@ -160,14 +162,20 @@ pub enum Instruction<D: Dialect> {
     FindFirstSet(UnaryInstruction<D>),
     Abs(UnaryInstruction<D>),
     Exp(UnaryInstruction<D>),
+    FastExp(UnaryInstruction<D>),
     Log(UnaryInstruction<D>),
+    FastLog(UnaryInstruction<D>),
     Log1p(UnaryInstruction<D>),
     Cos(UnaryInstruction<D>),
+    FastCos(UnaryInstruction<D>),
     Sin(UnaryInstruction<D>),
+    FastSin(UnaryInstruction<D>),
     Tanh(UnaryInstruction<D>),
     Powf(BinaryInstruction<D>),
+    FastPowf(BinaryInstruction<D>),
     Powi(BinaryInstruction<D>),
     Sqrt(UnaryInstruction<D>),
+    FastSqrt(UnaryInstruction<D>),
     Min(BinaryInstruction<D>),
     Max(BinaryInstruction<D>),
     Not(UnaryInstruction<D>),
@@ -312,6 +320,8 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastDiv(it) => FastDiv::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastRecip(it) => FastRecip::format(f, &it.input, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
@@ -512,14 +522,20 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Erf(it) => Erf::format(f, &it.input, &it.out),
             Instruction::Abs(it) => Abs::format(f, &it.input, &it.out),
             Instruction::Exp(it) => Exp::format(f, &it.input, &it.out),
+            Instruction::FastExp(it) => FastExp::format(f, &it.input, &it.out),
             Instruction::Log(it) => Log::format(f, &it.input, &it.out),
+            Instruction::FastLog(it) => FastLog::format(f, &it.input, &it.out),
             Instruction::Log1p(it) => Log1p::format(f, &it.input, &it.out),
             Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
+            Instruction::FastCos(it) => FastCos::format(f, &it.input, &it.out),
             Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
+            Instruction::FastSin(it) => FastSin::format(f, &it.input, &it.out),
             Instruction::Tanh(it) => Tanh::format(f, &it.input, &it.out),
             Instruction::Powf(it) => Powf::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastPowf(it) => FastPowf::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Powi(it) => Powi::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sqrt(it) => Sqrt::format(f, &it.input, &it.out),
+            Instruction::FastSqrt(it) => FastSqrt::format(f, &it.input, &it.out),
             Instruction::Max(it) => Max::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Min(it) => Min::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Not(it) => Not::format(f, &it.input, &it.out),

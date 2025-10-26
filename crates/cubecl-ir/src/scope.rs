@@ -1,9 +1,10 @@
 use alloc::{borrow::Cow, rc::Rc, string::ToString, vec::Vec};
 use core::{any::TypeId, cell::RefCell, fmt::Display};
+use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, Matrix, Processor, SourceLoc, StorageType,
+    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SourceLoc, StorageType,
     TargetProperties, TypeHash,
 };
 
@@ -38,6 +39,7 @@ pub struct Scope {
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
     pub runtime_properties: Rc<TargetProperties>,
+    pub modes: Rc<RefCell<ExpandModes>>,
 }
 
 /// Debug related fields, most of these are global
@@ -49,6 +51,13 @@ pub struct DebugInfo {
     pub variable_names: Rc<RefCell<HashMap<Variable, Cow<'static, str>>>>,
     pub source_loc: Option<SourceLoc>,
     pub entry_loc: Option<SourceLoc>,
+}
+
+/// Modes set and reset during expansion
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, TypeHash)]
+pub struct ExpandModes {
+    pub math_mode: EnumSet<FastMath>,
 }
 
 impl core::hash::Hash for Scope {
@@ -104,6 +113,7 @@ impl Scope {
             },
             typemap: Default::default(),
             runtime_properties: Rc::new(Default::default()),
+            modes: Default::default(),
         }
     }
 
@@ -213,6 +223,7 @@ impl Scope {
             debug: self.debug.clone(),
             typemap: self.typemap.clone(),
             runtime_properties: self.runtime_properties.clone(),
+            modes: self.modes.clone(),
         }
     }
 

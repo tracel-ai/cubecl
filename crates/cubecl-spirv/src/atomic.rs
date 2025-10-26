@@ -151,6 +151,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             _ => unreachable!(),
                         };
                         let negated = self.f_negate(ty, None, rhs_id).unwrap();
+                        self.declare_math_mode(negated);
                         self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, negated)
                             .unwrap()
                     }

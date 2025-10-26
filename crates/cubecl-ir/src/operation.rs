@@ -3,7 +3,7 @@ use core::fmt::Display;
 use super::{Branch, CoopMma, NonSemantic, Plane, Synchronization, Type, Variable};
 use crate::{
     Arithmetic, AtomicOp, Bitwise, Metadata, OperationArgs, OperationReflect, Operator, TmaOps,
-    comparison::Comparison,
+    comparison::Comparison, marker::Marker,
 };
 use crate::{BarrierOps, SourceLoc, TypeHash};
 use alloc::{
@@ -55,9 +55,9 @@ pub enum Operation {
     /// Non-semantic instructions (i.e. comments, debug info)
     #[operation(nested)]
     NonSemantic(NonSemantic),
-    /// Frees a shared memory, allowing reuse in later blocks. Only used as a marker for the shared
-    /// memory analysis, should be ignored by compilers.
-    Free(Variable),
+    // Markers used by compilers to update state or modes, but don't emit instructions
+    #[operation(nested)]
+    Marker(Marker),
 }
 
 /// An instruction that contains a right hand side [`Operation`] and an optional out variable.
@@ -192,7 +192,7 @@ impl Display for Operation {
             Operation::NonSemantic(non_semantic) => write!(f, "{non_semantic}"),
             Operation::Barrier(barrier_ops) => write!(f, "{barrier_ops}"),
             Operation::Tma(tma_ops) => write!(f, "{tma_ops}"),
-            Operation::Free(var) => write!(f, "free({var})"),
+            Operation::Marker(marker) => write!(f, "{marker}"),
         }
     }
 }

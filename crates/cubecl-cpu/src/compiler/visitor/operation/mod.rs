@@ -98,7 +98,7 @@ impl<'a> Visitor<'a> {
             Operation::Branch(_) => {
                 unreachable!("Branch operation are removed in SSA form");
             }
-            Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Free(_) => {
+            Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                 unreachable!("{operation} doesn't have an out");
             }
         }

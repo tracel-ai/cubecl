@@ -5,7 +5,7 @@ use std::mem::transmute;
 use crate::{BasicBlock, BlockUse, NodeIndex, Optimizer};
 use cubecl_ir::{
     Arithmetic, BinaryOperator, Branch, Comparison, ConstantScalarValue, ElemType, If, IfElse,
-    Instruction, Loop, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
+    Instruction, Loop, Marker, Operation, RangeLoop, Switch, Type, Variable, VariableKind,
 };
 use petgraph::{Direction, graph::EdgeIndex, visit::EdgeRef};
 use stable_vec::StableVec;
@@ -372,7 +372,8 @@ impl Optimizer {
     }
 
     fn split_free_inner(&mut self) -> bool {
-        let is_free = |inst: &Instruction| matches!(inst.operation, Operation::Free(_));
+        let is_free =
+            |inst: &Instruction| matches!(inst.operation, Operation::Marker(Marker::Free(_)));
 
         for block in self.node_ids() {
             let ops = self.block(block).ops.clone();

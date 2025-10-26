@@ -16,7 +16,7 @@ use syn::{
 
 use super::{desugar::Desugar, helpers::is_comptime_attr, statement::parse_pat};
 
-#[derive(Default, FromMeta)]
+#[derive(Default, FromMeta, Clone)]
 pub(crate) struct KernelArgs {
     pub launch: Flag,
     pub launch_unchecked: Flag,
@@ -33,7 +33,7 @@ pub(crate) struct KernelArgs {
     pub self_type: SelfType,
 }
 
-#[derive(Default, FromMeta, PartialEq, Eq)]
+#[derive(Default, FromMeta, PartialEq, Eq, Clone, Copy)]
 pub(crate) enum SelfType {
     #[default]
     Owned,
@@ -200,10 +200,9 @@ pub struct KernelFn {
     pub sig: KernelSignature,
     pub body: KernelBody,
     pub full_name: String,
-    pub debug_symbols: bool,
     pub span: Span,
     pub context: Context,
-    pub src_file: Option<LitStr>,
+    pub args: KernelArgs,
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -393,7 +392,6 @@ impl KernelFn {
         full_name: String,
         args: &KernelArgs,
     ) -> syn::Result<Self> {
-        let src_file = args.src_file.clone();
         let debug_symbols = args.debug_symbols.is_present();
 
         let span = Span::call_site();
@@ -413,9 +411,8 @@ impl KernelFn {
             body: KernelBody::Block(block),
             full_name,
             span,
-            src_file,
             context,
-            debug_symbols,
+            args: args.clone(),
         })
     }
 

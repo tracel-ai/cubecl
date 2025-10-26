@@ -146,17 +146,50 @@ macro_rules! function {
             }
         }
     };
+
+    ($name:ident, $func:expr, $fast_math_opts:expr, $fast_intrinsic:ident) => {
+        pub struct $name;
+
+        impl<D: Dialect> FunctionFmt<D> for $name {
+            fn base_function_name() -> &'static str {
+                $func
+            }
+            fn half_support() -> bool {
+                $half_support
+            }
+        }
+
+        impl<D: Dialect> Unary<D> for $name {
+            fn format_scalar<Input: Display>(
+                f: &mut std::fmt::Formatter<'_>,
+                input: Input,
+                elem: Elem<D>,
+            ) -> std::fmt::Result {
+                Self::format_unary(f, input, elem)
+            }
+
+            fn can_optimize() -> bool {
+                $half_support
+            }
+        }
+    };
 }
 
 function!(Log, "log");
+function!(FastLog, "__logf", false);
 function!(Cos, "cos");
+function!(FastCos, "__cosf", false);
 function!(Sin, "sin");
+function!(FastSin, "__sinf", false);
 function!(Sqrt, "sqrt");
+function!(FastSqrt, "__fsqrt_rn", false);
 function!(Exp, "exp");
+function!(FastExp, "__expf", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");
 function!(Floor, "floor");
 function!(Round, "rint");
+function!(FastRecip, "__frcp_rn", false);
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);

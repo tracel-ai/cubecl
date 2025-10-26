@@ -128,7 +128,7 @@ impl ValueTable {
             | Operation::NonSemantic(_)
             | Operation::Barrier(_)
             | Operation::Tma(_)
-            | Operation::Free(_) => Err(None),
+            | Operation::Marker(_) => Err(None),
         }
     }
 

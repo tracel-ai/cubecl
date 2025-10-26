@@ -19,9 +19,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_add(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_add(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_add(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -35,9 +39,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_sub(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_sub(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_sub(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_sub(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -51,9 +59,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_mul(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_mul(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -76,9 +88,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_div(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_div(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_div(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_div(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_div(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -90,9 +106,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_mod(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_mod(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -104,9 +124,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
                         Elem::Int(_, true) => b.s_rem(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Float(..) => b.f_rem(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_rem(ty, Some(out), lhs, rhs).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_rem(ty, Some(out), lhs, rhs).unwrap()
                         }
                         _ => unreachable!(),
@@ -118,9 +142,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                         match out_ty.elem() {
                             Elem::Int(_, _) => b.i_mul(ty, Some(out), lhs, rhs).unwrap(),
-                            Elem::Float(..) => b.f_mul(ty, Some(out), lhs, rhs).unwrap(),
+                            Elem::Float(..) => {
+                                b.declare_math_mode(out);
+                                b.f_mul(ty, Some(out), lhs, rhs).unwrap()
+                            }
                             Elem::Relaxed => {
                                 b.decorate(out, Decoration::RelaxedPrecision, []);
+                                b.declare_math_mode(out);
                                 b.f_mul(ty, Some(out), lhs, rhs).unwrap()
                             }
                             _ => unreachable!(),
@@ -193,7 +221,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
 
                 let mul = self.f_mul(ty, None, a_id, b_id).unwrap();
                 self.mark_uniformity(mul, uniform);
+                self.declare_math_mode(mul);
                 self.f_add(ty, Some(out_id), mul, c_id).unwrap();
+                self.declare_math_mode(out_id);
                 if relaxed {
                     self.decorate(mul, Decoration::RelaxedPrecision, []);
                     self.decorate(out_id, Decoration::RelaxedPrecision, []);
@@ -203,6 +233,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Arithmetic::Recip(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     let one = b.static_cast(ConstVal::Bit32(1), &Elem::Int(32, false), &out_ty);
+                    b.declare_math_mode(out);
                     b.f_div(ty, Some(out), one, input).unwrap();
                 });
             }
@@ -210,9 +241,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     match out_ty.elem() {
                         Elem::Int(_, true) => b.s_negate(ty, Some(out), input).unwrap(),
-                        Elem::Float(..) => b.f_negate(ty, Some(out), input).unwrap(),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_negate(ty, Some(out), input).unwrap()
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_negate(ty, Some(out), input).unwrap()
                         }
                         _ => unreachable!(),
@@ -275,7 +310,10 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let relaxed = matches!(out_ty.elem(), Elem::Relaxed);
                     let add = match out_ty.elem() {
                         Elem::Int(_, _) => b.i_add(ty, None, input, one).unwrap(),
-                        Elem::Float(..) | Elem::Relaxed => b.f_add(ty, None, input, one).unwrap(),
+                        Elem::Float(..) | Elem::Relaxed => {
+                            b.declare_math_mode(out);
+                            b.f_add(ty, None, input, one).unwrap()
+                        }
                         _ => unreachable!(),
                     };
                     b.mark_uniformity(add, uniform);
@@ -323,18 +361,24 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     let one = out_ty.const_u32(b, 1);
                     let two = out_ty.const_u32(b, 2);
                     let modulo = b.f_rem(ty, None, rhs, two).unwrap();
+                    b.declare_math_mode(modulo);
                     let is_zero = b.f_ord_equal(bool, None, modulo, zero).unwrap();
+                    b.declare_math_mode(is_zero);
                     let abs = b.id();
                     T::f_abs(b, ty, lhs, abs);
                     let even = b.id();
                     T::pow(b, ty, abs, rhs, even);
                     let cond2_0 = b.f_ord_equal(bool, None, modulo, one).unwrap();
+                    b.declare_math_mode(cond2_0);
                     let cond2_1 = b.f_ord_less_than(bool, None, lhs, zero).unwrap();
+                    b.declare_math_mode(cond2_1);
                     let cond2 = b.logical_and(bool, None, cond2_0, cond2_1).unwrap();
                     let neg_lhs = b.f_negate(ty, None, lhs).unwrap();
+                    b.declare_math_mode(neg_lhs);
                     let pow2 = b.id();
                     T::pow(b, ty, neg_lhs, rhs, pow2);
                     let pow2_neg = b.f_negate(ty, None, pow2).unwrap();
+                    b.declare_math_mode(pow2_neg);
                     let default = b.id();
                     T::pow(b, ty, lhs, rhs, default);
                     let ids = [

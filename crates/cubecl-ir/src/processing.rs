@@ -414,7 +414,7 @@ impl ScopeProcessing {
                 Operation::Tma(_) => {
                     // Nothing to do
                 }
-                Operation::Free(_) => {
+                Operation::Marker(_) => {
                     // Nothing to do
                 }
             });

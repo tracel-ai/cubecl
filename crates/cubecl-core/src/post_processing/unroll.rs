@@ -44,7 +44,7 @@ impl UnrollProcessor {
         inst: &Instruction,
         mappings: &mut Mappings,
     ) -> TransformAction {
-        if matches!(inst.operation, Operation::Free(_)) {
+        if matches!(inst.operation, Operation::Marker(_)) {
             return TransformAction::Ignore;
         }
 
@@ -85,7 +85,7 @@ impl UnrollProcessor {
                     }
                     _ => return TransformAction::Ignore,
                 },
-                Operation::Branch(_) | Operation::NonSemantic(_) => {
+                Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                     return TransformAction::Ignore;
                 }
                 _ => {

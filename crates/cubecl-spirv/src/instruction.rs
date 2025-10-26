@@ -1,10 +1,11 @@
 use cubecl_core::ir::{
-    self as core, BinaryOperator, Comparison, Instruction, Operation, Operator, UnaryOperator,
+    self as core, BinaryOperator, Comparison, Instruction, Marker, Operation, Operator,
+    UnaryOperator,
 };
 use rspirv::spirv::{Capability, Decoration, Word};
 
 use crate::{
-    SpirvCompiler, SpirvTarget,
+    SpirvCompiler, SpirvTarget, convert_math_mode,
     item::{Elem, Item},
     variable::IndexedVariable,
 };
@@ -42,7 +43,12 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             Operation::NonSemantic(debug) => self.compile_debug(debug),
             Operation::Barrier(_) => panic!("Barrier not supported in SPIR-V"),
             Operation::Tma(_) => panic!("TMA not supported in SPIR-V"),
-            Operation::Free(_) => {}
+            Operation::Marker(marker) => match marker {
+                Marker::Free(_) => {}
+                Marker::SetFastMath(mode) => {
+                    self.fp_math_mode = convert_math_mode(mode);
+                }
+            },
         }
     }
 
@@ -54,9 +60,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_equal(ty, Some(out), lhs, rhs)
                         }
                         Elem::Void => unreachable!(),
@@ -69,9 +79,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Bool => b.logical_not_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, _) => b.i_not_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_not_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_not_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_not_equal(ty, Some(out), lhs, rhs)
                         }
                         Elem::Void => unreachable!(),
@@ -84,9 +98,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_less_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_less_than(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_less_than(ty, Some(out), lhs, rhs)
                         }
                         _ => unreachable!(),
@@ -99,9 +117,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_less_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_less_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_less_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_less_than_equal(ty, Some(out), lhs, rhs)
                         }
                         _ => unreachable!(),
@@ -114,9 +136,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_greater_than(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_greater_than(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_greater_than(ty, Some(out), lhs, rhs)
                         }
                         _ => unreachable!(),
@@ -129,9 +155,13 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     match lhs_ty.elem() {
                         Elem::Int(_, false) => b.u_greater_than_equal(ty, Some(out), lhs, rhs),
                         Elem::Int(_, true) => b.s_greater_than_equal(ty, Some(out), lhs, rhs),
-                        Elem::Float(..) => b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs),
+                        Elem::Float(..) => {
+                            b.declare_math_mode(out);
+                            b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)
+                        }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(out);
                             b.f_ord_greater_than_equal(ty, Some(out), lhs, rhs)
                         }
                         _ => unreachable!(),

@@ -54,7 +54,7 @@ impl Optimizer {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
-            Operation::Free(_) => {}
+            Operation::Marker(_) => {}
         }
     }
 

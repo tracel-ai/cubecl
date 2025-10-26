@@ -214,7 +214,9 @@ impl Item {
                 }
                 (Elem::Float(_, _), Elem::Bool) | (Elem::Relaxed, Elem::Bool) => {
                     let zero = self.const_u32(b, 0);
-                    b.f_unord_not_equal(ty, out_id, obj, zero).unwrap()
+                    let out = b.f_unord_not_equal(ty, out_id, obj, zero).unwrap();
+                    b.declare_math_mode(out);
+                    out
                 }
                 (Elem::Float(_, _), Elem::Int(_, false)) | (Elem::Relaxed, Elem::Int(_, false)) => {
                     b.convert_f_to_u(ty, out_id, obj).unwrap()
