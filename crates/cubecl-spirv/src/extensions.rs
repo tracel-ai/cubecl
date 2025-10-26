@@ -39,10 +39,12 @@ pub mod glcompute {
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
         fn round(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_round_id(ty, Some(out), input).unwrap();
         }
 
         fn f_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_f_abs_id(ty, Some(out), input).unwrap();
         }
 
@@ -51,46 +53,57 @@ pub mod glcompute {
         }
 
         fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_floor_id(ty, Some(out), input).unwrap();
         }
 
         fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_ceil_id(ty, Some(out), input).unwrap();
         }
 
         fn trunc(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_trunc_id(ty, Some(out), input).unwrap();
         }
 
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_sin_id(ty, Some(out), input).unwrap();
         }
 
         fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_cos_id(ty, Some(out), input).unwrap();
         }
 
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_tanh_id(ty, Some(out), input).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_pow_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_exp_id(ty, Some(out), input).unwrap();
         }
 
         fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_log_id(ty, Some(out), input).unwrap();
         }
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_f_min_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
@@ -103,6 +116,7 @@ pub mod glcompute {
         }
 
         fn f_max(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_f_max_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
@@ -122,6 +136,7 @@ pub mod glcompute {
             max: Word,
             out: Word,
         ) {
+            b.declare_math_mode(out);
             b.gl_f_clamp_id(ty, Some(out), input, min, max).unwrap();
         }
 
@@ -148,10 +163,12 @@ pub mod glcompute {
         }
 
         fn magnitude(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_length_id(ty, Some(out), input).unwrap();
         }
 
         fn normalize(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
             b.gl_normalize_id(ty, Some(out), input).unwrap();
         }
 
