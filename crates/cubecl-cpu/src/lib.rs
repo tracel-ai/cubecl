@@ -19,6 +19,7 @@ mod tests {
     cubecl_reduce::testgen_shared_sum!([f16, f32, f64]);
 
     cubecl_reduce::testgen_reduce!([f16, f32, f64]);
+    cubecl_qr::testgen_qr_cgr!();
 }
 
 pub mod compiler;

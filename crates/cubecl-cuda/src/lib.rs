@@ -93,4 +93,5 @@ mod tests {
     cubecl_random::testgen_random!();
     cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_shared_sum!([f16, bf16, f32, f64]);
+    cubecl_qr::testgen_qr_cgr!();
 }

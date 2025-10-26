@@ -86,6 +86,9 @@ cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", features = [
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
     "export_tests",
 ] }
+cubecl-qr = { path = "../cubecl-qr", version = "0.7.0", features = [
+    "export_tests",
+] }
 cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
     "export_tests",
 ] }

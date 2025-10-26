@@ -33,4 +33,6 @@ mod tests {
 
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_reduce::testgen_shared_sum!([f32]);
+
+    cubecl_qr::testgen_qr_cgr!();
 }
