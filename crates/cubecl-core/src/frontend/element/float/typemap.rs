@@ -251,6 +251,7 @@ impl<const POS: u8> Tanh for ElemExpand<POS> {}
 impl<const POS: u8> Powf for ElemExpand<POS> {}
 impl<const POS: u8, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
 impl<const POS: u8> Sqrt for ElemExpand<POS> {}
+impl<const POS: u8> InverseSqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}
 impl<const POS: u8> Floor for ElemExpand<POS> {}
 impl<const POS: u8> Ceil for ElemExpand<POS> {}

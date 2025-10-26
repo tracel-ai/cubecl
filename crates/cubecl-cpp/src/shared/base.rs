@@ -1051,6 +1051,15 @@ impl<D: Dialect> CppCompiler<D> {
                     Instruction::FastSqrt(op),
                 ))
             }
+            gpu::Arithmetic::InverseSqrt(op) => {
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::InverseSqrt(op),
+                    Instruction::FastInverseSqrt(op),
+                ))
+            }
             gpu::Arithmetic::Erf(op) => {
                 let instruction = Instruction::Erf(self.compile_unary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);

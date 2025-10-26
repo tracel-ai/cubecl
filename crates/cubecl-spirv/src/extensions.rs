@@ -18,6 +18,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
@@ -100,6 +101,11 @@ pub mod glcompute {
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.declare_math_mode(out);
             b.gl_sqrt_id(ty, Some(out), input).unwrap();
+        }
+
+        fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.declare_math_mode(out);
+            b.gl_inverse_sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {

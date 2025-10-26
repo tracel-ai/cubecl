@@ -94,6 +94,7 @@ impl Optimizer {
             | Arithmetic::Sin(unary_operator)
             | Arithmetic::Tanh(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
+            | Arithmetic::InverseSqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)
             | Arithmetic::Ceil(unary_operator)

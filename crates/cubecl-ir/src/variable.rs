@@ -334,12 +334,30 @@ impl ConstantScalarValue {
         }
     }
 
-    /// Returns the value of the scalar as a u32.
+    /// Returns the value of the scalar as a i64.
     ///
     /// It will panic if the scalar type is a float or a bool.
     pub fn as_i64(&self) -> i64 {
         self.try_as_i64()
             .expect("Only Int and UInt kind can be made into i64.")
+    }
+
+    /// Returns the value of the scalar as a f64.
+    ///
+    /// It will return [None] if the scalar type is am int or a bool.
+    pub fn try_as_f64(&self) -> Option<f64> {
+        match self {
+            ConstantScalarValue::Float(val, _) => Some(*val),
+            _ => None,
+        }
+    }
+
+    /// Returns the value of the scalar as a f64.
+    ///
+    /// It will panic if the scalar type is an int or a bool.
+    pub fn as_f64(&self) -> f64 {
+        self.try_as_f64()
+            .expect("Only Float kind can be made into f64.")
     }
 
     /// Returns the value of the variable as a bool if it actually is a bool.
