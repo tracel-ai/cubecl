@@ -1020,9 +1020,15 @@ impl<D: Dialect> CppCompiler<D> {
                 ));
             }
             gpu::Arithmetic::Tanh(op) => {
-                let instruction = Instruction::Tanh(self.compile_unary(op, out));
+                let op = self.compile_unary(op, out);
+                let instruction = Instruction::Tanh(op);
                 D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(instruction)
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    instruction,
+                    Instruction::FastTanh(op),
+                ))
             }
             gpu::Arithmetic::Powf(op) => {
                 let op = self.compile_binary(op, out);

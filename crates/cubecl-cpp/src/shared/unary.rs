@@ -190,6 +190,7 @@ function!(Trunc, "trunc");
 function!(Floor, "floor");
 function!(Round, "rint");
 function!(FastRecip, "__frcp_rn", false);
+function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
