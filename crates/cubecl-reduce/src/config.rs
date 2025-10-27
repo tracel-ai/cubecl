@@ -170,13 +170,21 @@ impl ReduceConfig {
         client: &ComputeClient<S>,
         use_planes: bool,
     ) -> Self {
-        self.cube_dim = if use_planes {
-            let plane_dim = client.properties().hardware.plane_size_min;
-            CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
+        let hw_properties = &client.properties().hardware;
+
+        let plane_dim = if use_planes {
+            hw_properties.plane_size_min
         } else {
-            let plane_dim = client.properties().hardware.plane_size_max;
-            CubeDim::new_2d(plane_dim, DEFAULT_PLANE_COUNT)
+            hw_properties.plane_size_max
         };
+
+        let plane_count = if plane_dim * DEFAULT_PLANE_COUNT > hw_properties.max_units_per_cube {
+            hw_properties.max_units_per_cube / plane_dim
+        } else {
+            DEFAULT_PLANE_COUNT
+        };
+
+        self.cube_dim = CubeDim::new_2d(plane_dim, plane_count);
         self
     }
 
