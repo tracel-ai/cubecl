@@ -3,11 +3,14 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic, server::TensorMapMeta, unexpanded};
 use cubecl_std::{
-    CubeOption, CubeOptionArgs, CubeOptionExpand, FastDivmod,
+    CubeOption, CubeOptionArgs, CubeOptionExpand, FastDivmod, FastDivmodArgs,
     tensor::{
         View,
         launch::ViewArg,
-        layout::{Coords1d, Coords2d, Coords3d},
+        layout::{
+            Coords1d, Coords2d, Coords3d,
+            plain::{PlainLayout, PlainLayoutLaunch},
+        },
     },
 };
 
@@ -200,46 +203,108 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         config: impl BatchConfig,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
-        let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
-            MatmulInputHandleRef::Normal(handle) => {
-                let layout = BatchedGlobalLayoutLaunch::from_handle(
-                    client,
-                    handle,
-                    problem,
-                    line_size,
-                    config.global_memory_config(ident).into(),
-                );
-                ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
-            }
-            MatmulInputHandleRef::Quantized {
+
+        TensorInputsLaunch::new(
+            batch_matrix::<Lhs, R>(
+                lhs,
+                client,
+                problem,
+                MatmulIdent::Lhs,
+                line_sizes.lhs,
+                &config,
+            ),
+            batch_matrix::<Rhs, R>(
+                rhs,
+                client,
+                problem,
+                MatmulIdent::Rhs,
+                line_sizes.rhs,
+                &config,
+            ),
+            CubeOptionArgs::None,
+        )
+    }
+}
+
+fn batch_matrix<'a, I: Numeric, R: Runtime>(
+    handle: &'a MatmulInputHandleRef<'a, R>,
+    client: &ComputeClient<R::Server>,
+    problem: &MatmulProblem,
+    ident: MatmulIdent,
+    line_size: u8,
+    config: &impl GlobalConfig,
+) -> BatchedMatrixArgs<'a, I, R> {
+    match handle {
+        MatmulInputHandleRef::Normal(handle) => {
+            let rank = handle.shape.len();
+            let shape_row = handle.shape[rank - 2];
+            let shape_col = handle.shape[rank - 1];
+            let stride_row = handle.strides[rank - 2];
+            let stride_col = handle.strides[rank - 1];
+
+            let batch_shape = problem
+                .out_batches
+                .iter()
+                .map(|shape| FastDivmodArgs::new(client, *shape as u32))
+                .collect();
+            let batch_strides = handle.strides[..rank - 2]
+                .iter()
+                .zip(&handle.shape[..rank - 2])
+                .map(|(stride, shape)| if *shape == 1 { 0 } else { *stride })
+                .map(|stride| ScalarArg::new(stride as u32))
+                .collect();
+
+            let buffer = ViewArg::new::<PlainLayout>(
+                handle.as_array_arg(line_size),
+                PlainLayoutLaunch::from_handle(handle, line_size),
+            );
+            BatchedMatrixArgs::Strided(StridedBatchedMatrixLaunch {
+                batch_shape,
+                batch_strides,
+                shape_row: ScalarArg::new(shape_row as u32),
+                shape_col: ScalarArg::new(shape_col as u32),
+                stride_row: ScalarArg::new(stride_row as u32),
+                stride_col: ScalarArg::new(stride_col as u32),
+                line_size: line_size as u32,
+                packing: 1,
+                buffer,
+                config: config.global_memory_config(ident).into(),
+                _phantom_runtime: std::marker::PhantomData,
+                _phantom_a: std::marker::PhantomData,
+            })
+            // let layout = BatchedGlobalLayoutLaunch::from_handle(
+            //     client,
+            //     handle,
+            //     problem,
+            //     line_size,
+            //     config.global_memory_config(ident).into(),
+            // );
+            // let view = ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout);
+            // BatchedMatrixArgs::Viewed(view)
+        }
+        MatmulInputHandleRef::Quantized {
+            data,
+            scale,
+            shape,
+            scheme,
+        } => {
+            let (data_layout, scales_layout) = BatchedGlobalLayoutLaunch::from_quantized_handle(
+                client,
                 data,
                 scale,
                 shape,
-                scheme,
-            } => {
-                let (data_layout, scales_layout) = BatchedGlobalLayoutLaunch::from_quantized_handle(
-                    client,
-                    data,
-                    scale,
-                    shape,
-                    problem,
-                    **scheme,
-                    line_size,
-                    config.global_memory_config(ident).into(),
-                );
-                let data_view =
-                    ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
-                let scales_view =
-                    ViewArg::new::<BatchedGlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
-                ViewArg::new_quantized(data_view, scales_view, **scheme)
-            }
-        };
-
-        TensorInputsLaunch::new(
-            BatchedMatrixArgs::Viewed(view(lhs, MatmulIdent::Lhs, line_sizes.lhs)),
-            BatchedMatrixArgs::Viewed(view(rhs, MatmulIdent::Rhs, line_sizes.rhs)),
-            CubeOptionArgs::None,
-        )
+                problem,
+                **scheme,
+                line_size,
+                config.global_memory_config(ident).into(),
+            );
+            let data_view =
+                ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
+            let scales_view =
+                ViewArg::new::<BatchedGlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
+            let view = ViewArg::new_quantized(data_view, scales_view, **scheme);
+            BatchedMatrixArgs::Viewed(view)
+        }
     }
 }
 
@@ -479,7 +544,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             metadata: meta_rhs,
         };
 
-        let view = |buffer, shape: &[usize], transposed| {
+        let batch_matrix = |buffer, shape: &[usize], transposed| {
             let batches = ScalarArg::new(shape[0] as u32);
             let (rows, cols) = match transposed {
                 true => (
@@ -497,8 +562,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         };
 
         TensorMapInputsLaunch::new(
-            view(lhs, &lhs_shape, lhs_transposed),
-            view(rhs, &rhs_shape, rhs_transposed),
+            batch_matrix(lhs, &lhs_shape, lhs_transposed),
+            batch_matrix(rhs, &rhs_shape, rhs_transposed),
             CubeOptionArgs::None,
         )
     }
