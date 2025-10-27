@@ -272,15 +272,6 @@ fn batch_matrix<'a, I: Numeric, R: Runtime>(
                 _phantom_runtime: std::marker::PhantomData,
                 _phantom_a: std::marker::PhantomData,
             })
-            // let layout = BatchedGlobalLayoutLaunch::from_handle(
-            //     client,
-            //     handle,
-            //     problem,
-            //     line_size,
-            //     config.global_memory_config(ident).into(),
-            // );
-            // let view = ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout);
-            // BatchedMatrixArgs::Viewed(view)
         }
         MatmulInputHandleRef::Quantized {
             data,
