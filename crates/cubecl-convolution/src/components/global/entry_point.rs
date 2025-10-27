@@ -56,10 +56,10 @@ pub(crate) fn implicit_conv<
 ) {
     let mut state = Args::init_state::<LhsG, RhsG, AccG, GMM::Config>(inputs, output, config);
 
-    let lhs = Args::view_lhs(&state);
-    let rhs = Args::view_rhs(&state);
-    let bias = Args::view_acc(&state);
-    let out = Args::view_out(&mut state);
+    let lhs = Args::get_lhs(&state);
+    let rhs = Args::get_rhs(&state);
+    let bias = Args::get_acc(&state);
+    let out = Args::get_out(&mut state);
 
     let stage_m = config.tiling_scheme().elements_in_stage_m().runtime();
     let stage_n = config.tiling_scheme().elements_in_stage_n().runtime();

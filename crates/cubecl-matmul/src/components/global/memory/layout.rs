@@ -121,6 +121,105 @@ impl BatchedGlobalLayout {
     }
 }
 
+/// Global layout that uses the last two dimensions and ignores all others.
+#[derive(CubeType, CubeLaunch, Clone)]
+pub struct CachedBatchedGlobalLayout {
+    rows: u32,
+    cols: u32,
+
+    stride_row: u32,
+    stride_col: u32,
+    batch_offs: u32,
+
+    #[cube(comptime)]
+    line_size: u32,
+    #[cube(comptime)]
+    packing: u32,
+    #[cube(comptime)]
+    config: GlobalLayoutConfig,
+}
+
+#[cube]
+impl CachedBatchedGlobalLayout {
+    /// Create a new batched global layout. `batch_shape` should be based on the output shape.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        batch_strides: Sequence<u32>,
+        batch_shape: Sequence<FastDivmod>,
+        shape_row: u32,
+        shape_col: u32,
+        stride_row: u32,
+        stride_col: u32,
+        batch_nth: u32,
+        #[comptime] line_size: u32,
+        #[comptime] packing: u32,
+        #[comptime] config: GlobalLayoutConfig,
+    ) -> Self {
+        let mut batch = batch_nth;
+
+        let mut batch_offs = 0;
+        let batch_shape = batch_shape.rev();
+        let batch_strides = batch_strides.rev();
+
+        #[unroll]
+        for i in 0..batch_shape.len() {
+            let (rem, local_pos) = batch_shape.index(i).div_mod(batch);
+            batch = rem;
+            batch_offs += local_pos * *batch_strides.index(i);
+        }
+
+        CachedBatchedGlobalLayout {
+            rows: shape_row,
+            cols: shape_col,
+            stride_row,
+            stride_col,
+            line_size,
+            batch_offs,
+            packing,
+            config,
+        }
+    }
+}
+
+#[cube]
+impl Layout for CachedBatchedGlobalLayout {
+    type Coordinates = Coords2d;
+    type SourceCoordinates = Coords1d;
+
+    fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
+        let line_size = comptime![self.line_size];
+        let (row, col) = coords;
+
+        let (row, col) = match comptime![self.config.matrix_layout] {
+            MatrixLayout::RowMajor => (row, col / self.packing),
+            MatrixLayout::ColMajor => (row / self.packing, col),
+        };
+
+        let idx = self.batch_offs + row * self.stride_row + col * self.stride_col;
+
+        idx / line_size
+    }
+
+    fn to_source_pos_checked(&self, coords: Self::Coordinates) -> (u32, bool) {
+        (self.to_source_pos(coords), self.is_in_bounds(coords))
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        (self.rows, self.cols)
+    }
+
+    fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
+        let (row, col) = pos;
+
+        match comptime!((self.config.check_row_bounds, self.config.check_col_bounds)) {
+            (true, true) => row < self.rows && col < self.cols,
+            (true, false) => row < self.rows,
+            (false, true) => col < self.cols,
+            (false, false) => true,
+        }
+    }
+}
+
 #[cube]
 impl Layout for BatchedGlobalLayout {
     type Coordinates = Coords3d;

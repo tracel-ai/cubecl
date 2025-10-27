@@ -3,7 +3,7 @@ use crate::components::{
     MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, RhsG, TilingScheme,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, GlobalConfig as _},
+    global::{self, GlobalConfig as _, args::BatchedMatrix},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -77,9 +77,9 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Performs batchwise matrix multiplication over tensors.
     fn execute(
-        a: View<Line<LhsG<MP>>, Coords3d>,
-        b: View<Line<RhsG<MP>>, Coords3d>,
-        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
+        a: BatchedMatrix<LhsG<MP>>,
+        b: BatchedMatrix<RhsG<MP>>,
+        c: CubeOption<BatchedMatrix<AccG<MP>>>,
         out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,

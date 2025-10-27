@@ -4,6 +4,7 @@ use crate::components::batch::partitioned_matmul::partition::{
     GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
 };
 use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
+use crate::components::global::args::BatchedMatrix;
 use crate::components::global::{self, GlobalMatmul};
 use crate::components::{AccG, batch::partitioned_matmul::config::PartitionedBatchConfig};
 use crate::components::{LhsG, MatmulPrecision, RhsG};
@@ -36,14 +37,14 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
     type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn execute(
-        a: View<Line<LhsG<MP>>, Coords3d>,
-        b: View<Line<RhsG<MP>>, Coords3d>,
-        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
+        a: BatchedMatrix<LhsG<MP>>,
+        b: BatchedMatrix<RhsG<MP>>,
+        c: CubeOption<BatchedMatrix<AccG<MP>>>,
         out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        let (_, _, problem_k) = a.shape();
+        let problem_k = a.shape_col();
         let k_range = (0, problem_k);
 
         let tiling_scheme = config.tiling_scheme();

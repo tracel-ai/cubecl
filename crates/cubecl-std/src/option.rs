@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core as cubecl;
+use cubecl_core::{self as cubecl, intrinsic};
 use serde::{Deserialize, Serialize};
 
 #[derive(CubeType, Clone, Copy, Serialize, Deserialize, Hash, PartialEq, Eq, Debug)]
@@ -32,6 +32,17 @@ impl<T: CubeType> CubeOption<T> {
         match self {
             CubeOption::Some(val) => val,
             CubeOption::None => fallback,
+        }
+    }
+
+    pub fn cloned(&self) -> Self {
+        intrinsic! {
+            |scope| {
+                match self {
+                    CubeOptionExpand::Some(val) => CubeOptionExpand::Some(val.clone()),
+                    CubeOptionExpand::None => CubeOptionExpand::None,
+                }
+            }
         }
     }
 }

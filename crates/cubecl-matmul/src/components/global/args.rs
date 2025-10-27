@@ -1,22 +1,27 @@
 use std::any::TypeId;
 
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, server::TensorMapMeta, unexpanded};
+use cubecl_core::{self as cubecl, intrinsic, server::TensorMapMeta, unexpanded};
 use cubecl_std::{
-    CubeOption, CubeOptionArgs,
-    tensor::{View, launch::ViewArg, layout::Coords3d},
+    CubeOption, CubeOptionArgs, CubeOptionExpand, FastDivmod,
+    tensor::{
+        View,
+        launch::ViewArg,
+        layout::{Coords1d, Coords2d, Coords3d},
+    },
 };
 
 use crate::{
     MatmulInputHandleRef,
     components::{
         self, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSelection,
-        batch::BatchConfig,
+        batch::{BatchConfig, SliceIndex},
         global::{
             GlobalConfig,
             memory::{
                 BatchedGlobalLayout, BatchedGlobalLayoutLaunch, BatchedGlobalScaleLayout,
-                SimpleTmaGlobalLayout, SimpleTmaGlobalLayoutLaunch,
+                CachedBatchedGlobalLayout, GlobalLayoutConfig, SimpleTmaGlobalLayout,
+                SimpleTmaGlobalLayoutLaunch,
             },
         },
     },
@@ -67,22 +72,22 @@ pub trait MatmulArgs: Send + Sync + 'static + Clone {
         #[comptime] config: G,
     ) -> Self::State<Lhs, Rhs, EO>;
 
-    fn view_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Lhs>, Coords3d> {
+    ) -> BatchedMatrix<Lhs> {
         unexpanded!()
     }
-    fn view_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Rhs>, Coords3d> {
+    ) -> BatchedMatrix<Rhs> {
         unexpanded!()
     }
-    fn view_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &Self::State<Lhs, Rhs, EO>,
-    ) -> CubeOption<View<Line<EO>, Coords3d>> {
+    ) -> CubeOption<BatchedMatrix<EO>> {
         unexpanded!()
     }
-    fn view_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         _state: &mut Self::State<Lhs, Rhs, EO>,
     ) -> View<Line<EO>, Coords3d, ReadWrite> {
         unexpanded!()
@@ -103,14 +108,81 @@ pub enum TensorInputIdent {
 pub struct TensorArgs;
 
 #[derive(CubeLaunch, CubeType)]
+pub enum BatchedMatrix<I: Numeric> {
+    Strided(StridedBatchedMatrix<I>),
+    Viewed(View<Line<I>, Coords3d>),
+}
+
+#[derive(CubeLaunch, CubeType)]
+pub struct StridedBatchedMatrix<I: Numeric> {
+    batch_shape: Sequence<FastDivmod>,
+    batch_strides: Sequence<u32>,
+    shape_row: u32,
+    shape_col: u32,
+    stride_row: u32,
+    stride_col: u32,
+    #[cube(comptime)]
+    line_size: u32,
+    #[cube(comptime)]
+    packing: u32,
+    buffer: View<Line<I>, Coords1d>,
+    #[cube(comptime)]
+    config: GlobalLayoutConfig,
+}
+
+#[cube]
+impl<I: Numeric> BatchedMatrix<I> {
+    pub fn cloned(&self) -> Self {
+        #[allow(unused_variables)]
+        match self {
+            BatchedMatrix::Strided(tensor) => {
+                intrinsic!(|scope| { BatchedMatrixExpand::Strided(tensor.clone()) })
+            }
+            BatchedMatrix::Viewed(view) => {
+                intrinsic!(|scope| { BatchedMatrixExpand::Viewed(view.clone()) })
+            }
+        }
+    }
+    pub fn shape_col(&self) -> u32 {
+        match self {
+            BatchedMatrix::Strided(tensor) => tensor.shape_col,
+            BatchedMatrix::Viewed(view) => view.shape().2,
+        }
+    }
+    pub fn into_matrix(self, batch_nth: u32) -> View<Line<I>, Coords2d> {
+        match self {
+            BatchedMatrix::Strided(tensor) => {
+                let layout = CachedBatchedGlobalLayout::new(
+                    tensor.batch_strides,
+                    tensor.batch_shape,
+                    tensor.shape_row,
+                    tensor.shape_col,
+                    tensor.stride_row,
+                    tensor.stride_col,
+                    batch_nth,
+                    tensor.line_size,
+                    tensor.packing,
+                    tensor.config,
+                );
+                tensor.buffer.view(layout)
+            }
+            BatchedMatrix::Viewed(view) => {
+                let shape = view.shape();
+                view.view(SliceIndex::new(batch_nth, shape))
+            }
+        }
+    }
+}
+
+#[derive(CubeLaunch, CubeType)]
 /// Input representation for [TensorArgs] implementing [MatmulArgs].
 pub struct TensorInputs<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> {
     /// The lhs tensor.
-    pub lhs: View<Line<Lhs>, Coords3d>,
+    pub lhs: BatchedMatrix<Lhs>,
     /// The rhs tensor.
-    pub rhs: View<Line<Rhs>, Coords3d>,
+    pub rhs: BatchedMatrix<Rhs>,
     /// The tensor for loading the accumulator, if present
-    pub acc: CubeOption<View<Line<Acc>, Coords3d>>,
+    pub acc: CubeOption<BatchedMatrix<Acc>>,
 }
 
 pub type TensorOutput<EO> = View<Line<EO>, Coords3d, ReadWrite>;
@@ -164,8 +236,8 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         };
 
         TensorInputsLaunch::new(
-            view(lhs, MatmulIdent::Lhs, line_sizes.lhs),
-            view(rhs, MatmulIdent::Rhs, line_sizes.rhs),
+            BatchedMatrixArgs::Viewed(view(lhs, MatmulIdent::Lhs, line_sizes.lhs)),
+            BatchedMatrixArgs::Viewed(view(rhs, MatmulIdent::Rhs, line_sizes.rhs)),
             CubeOptionArgs::None,
         )
     }
@@ -197,9 +269,9 @@ impl MatmulArgs for TensorArgs {
     type Output<EO: Numeric> = TensorOutput<EO>;
     type Input<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = TensorInputs<Lhs, Rhs, EO>;
     type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = (
-        View<Line<Lhs>, Coords3d>,
-        View<Line<Rhs>, Coords3d>,
-        CubeOption<View<Line<EO>, Coords3d>>,
+        BatchedMatrix<Lhs>,
+        BatchedMatrix<Rhs>,
+        CubeOption<BatchedMatrix<EO>>,
         View<Line<EO>, Coords3d, ReadWrite>,
     );
 
@@ -208,28 +280,39 @@ impl MatmulArgs for TensorArgs {
         output: &mut Self::Output<EO>,
         #[comptime] _config: G,
     ) -> Self::State<Lhs, Rhs, EO> {
-        (input.lhs, input.rhs, input.acc, *output)
+        (
+            input.lhs.cloned(),
+            input.rhs.cloned(),
+            match &input.acc {
+                CubeOption::Some(val) => CubeOption::new_Some(val.cloned()),
+                CubeOption::None => CubeOption::new_None(),
+            },
+            *output,
+        )
     }
 
-    fn view_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Lhs>, Coords3d> {
-        state.0
+    ) -> BatchedMatrix<Lhs> {
+        state.0.cloned()
     }
 
-    fn view_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Rhs>, Coords3d> {
-        state.1
+    ) -> BatchedMatrix<Rhs> {
+        state.1.cloned()
     }
 
-    fn view_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> CubeOption<View<Line<EO>, Coords3d>> {
-        state.2
+    ) -> CubeOption<BatchedMatrix<EO>> {
+        match &state.2 {
+            CubeOption::Some(val) => CubeOption::new_Some(val.cloned()),
+            CubeOption::None => CubeOption::new_None(),
+        }
     }
 
-    fn view_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &mut Self::State<Lhs, Rhs, EO>,
     ) -> View<Line<EO>, Coords3d, ReadWrite> {
         state.3
@@ -426,9 +509,9 @@ impl MatmulArgs for TensorMapArgs {
     type Input<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = TensorMapInputs<Lhs, Rhs, EO>;
     type Output<EO: Numeric> = TensorOutput<EO>;
     type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric> = (
-        View<Line<Lhs>, Coords3d>,
-        View<Line<Rhs>, Coords3d>,
-        CubeOption<View<Line<EO>, Coords3d>>,
+        BatchedMatrix<Lhs>,
+        BatchedMatrix<Rhs>,
+        CubeOption<BatchedMatrix<EO>>,
         View<Line<EO>, Coords3d, ReadWrite>,
     );
 
@@ -437,28 +520,39 @@ impl MatmulArgs for TensorMapArgs {
         output: &mut Self::Output<EO>,
         #[comptime] _config: G,
     ) -> Self::State<Lhs, Rhs, EO> {
-        (input.lhs, input.rhs, input.acc, *output)
+        (
+            BatchedMatrix::new_Viewed(input.lhs),
+            BatchedMatrix::new_Viewed(input.rhs),
+            match &input.acc {
+                CubeOption::Some(val) => CubeOption::new_Some(BatchedMatrix::new_Viewed(*val)),
+                CubeOption::None => CubeOption::new_None(),
+            },
+            *output,
+        )
     }
 
-    fn view_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_lhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Lhs>, Coords3d> {
-        state.0
+    ) -> BatchedMatrix<Lhs> {
+        state.0.cloned()
     }
 
-    fn view_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_rhs<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> View<Line<Rhs>, Coords3d> {
-        state.1
+    ) -> BatchedMatrix<Rhs> {
+        state.1.cloned()
     }
 
-    fn view_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_acc<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &Self::State<Lhs, Rhs, EO>,
-    ) -> CubeOption<View<Line<EO>, Coords3d>> {
-        state.2
+    ) -> CubeOption<BatchedMatrix<EO>> {
+        match &state.2 {
+            CubeOption::Some(val) => CubeOption::new_Some(val.cloned()),
+            CubeOption::None => CubeOption::new_None(),
+        }
     }
 
-    fn view_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
+    fn get_out<Lhs: Numeric, Rhs: Numeric, EO: Numeric>(
         state: &mut Self::State<Lhs, Rhs, EO>,
     ) -> View<Line<EO>, Coords3d, ReadWrite> {
         state.3

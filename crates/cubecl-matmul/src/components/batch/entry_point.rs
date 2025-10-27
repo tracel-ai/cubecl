@@ -42,10 +42,10 @@ pub(crate) fn matmul<
         config.global_config(),
     );
 
-    let lhs = Args::view_lhs(&state);
-    let rhs = Args::view_rhs(&state);
-    let acc = Args::view_acc(&state);
-    let out = Args::view_out(&mut state);
+    let lhs = Args::get_lhs(&state);
+    let rhs = Args::get_rhs(&state);
+    let acc = Args::get_acc(&state);
+    let out = Args::get_out(&mut state);
 
     BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
         lhs,
