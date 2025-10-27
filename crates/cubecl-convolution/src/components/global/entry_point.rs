@@ -70,11 +70,11 @@ pub(crate) fn implicit_conv<
     let k_range = (0, runtime_args.shape_k);
     let k_size = runtime_args.shape_k;
 
-    let lhs = lhs.view(SliceIndex::new(0, lhs.shape()));
-    let rhs = rhs.view(SliceIndex::new(0, rhs.shape()));
+    let lhs = lhs.into_matrix(0);
+    let rhs = rhs.into_matrix(0);
     let bias = match bias {
         CubeOption::Some(bias) => {
-            let view = bias.view(SliceIndex::new(0, bias.shape()));
+            let view = bias.into_matrix(0);
             CubeOption::new_Some(view.slice_unchecked((0, n_offset), (1, stage_n)))
         }
         CubeOption::None => CubeOption::new_None(),

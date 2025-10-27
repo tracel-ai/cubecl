@@ -33,7 +33,10 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         MatmulIdent, MatmulLineSizes, MatmulSelection,
-        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+        global::args::{
+            BatchedMatrixArgs, TensorInputs, TensorInputsLaunch, TensorMapInputs,
+            TensorMapInputsLaunch,
+        },
     },
 };
 
@@ -108,10 +111,19 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         };
 
         TensorInputsLaunch::new(
-            ViewArg::new::<LhsLayout>(lhs.data().as_array_arg(line_sizes.lhs), layout_lhs),
-            ViewArg::new::<RhsLayout>(rhs.data().as_array_arg(line_sizes.rhs), layout_rhs),
+            BatchedMatrixArgs::Viewed(ViewArg::new::<LhsLayout>(
+                lhs.data().as_array_arg(line_sizes.lhs),
+                layout_lhs,
+            )),
+            BatchedMatrixArgs::Viewed(ViewArg::new::<RhsLayout>(
+                rhs.data().as_array_arg(line_sizes.rhs),
+                layout_rhs,
+            )),
             bias.map(|bias| {
-                ViewArg::new::<BiasLayout>(bias.as_array_arg(line_sizes.out), layout_bias)
+                BatchedMatrixArgs::Viewed(ViewArg::new::<BiasLayout>(
+                    bias.as_array_arg(line_sizes.out),
+                    layout_bias,
+                ))
             })
             .into(),
         )
