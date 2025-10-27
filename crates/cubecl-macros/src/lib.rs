@@ -74,11 +74,16 @@ fn cube_impl(args: TokenStream, input: TokenStream) -> syn::Result<TokenStream> 
             }));
         }
         Item::Trait(kernel_trait) => {
+            let is_debug = args.debug.is_present();
             let expand_trait = CubeTrait::from_item_trait(kernel_trait, args)?;
 
-            return Ok(TokenStream::from(quote! {
+            let tokens = TokenStream::from(quote! {
                 #expand_trait
-            }));
+            });
+            if is_debug {
+                panic!("{tokens}");
+            }
+            return Ok(tokens);
         }
         Item::Impl(item_impl) => {
             if item_impl.trait_.is_some() {
