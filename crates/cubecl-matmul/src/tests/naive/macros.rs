@@ -22,6 +22,13 @@ macro_rules! testgen_matmul_simple {
             }
 
             #[test]
+            pub fn test_odd() {
+                cubecl_matmul::tests::naive::tests::test_odd::<TestRuntime, FloatT>(
+                    &Default::default(),
+                )
+            }
+
+            #[test]
             pub fn test_simple_matmul_large() {
                 cubecl_matmul::tests::naive::tests::test_large::<TestRuntime, FloatT>(
                     &Default::default(),

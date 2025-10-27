@@ -23,6 +23,17 @@ pub fn test_small<R: Runtime, F: Float + CubeElement + Display + Sample>(device:
     test_simple::<R, F>(case, device);
 }
 
+pub fn test_odd<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
+    let case = MatmulTestCase {
+        m: 1,
+        k: 101,
+        n: 255,
+        batch: 1,
+    };
+
+    test_simple::<R, F>(case, device);
+}
+
 pub fn test_large<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
     let case = MatmulTestCase {
         m: 256,
