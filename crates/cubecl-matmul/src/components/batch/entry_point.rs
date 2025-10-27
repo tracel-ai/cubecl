@@ -42,16 +42,8 @@ pub(crate) fn matmul<
         config.global_config(),
     );
 
-    let lhs = Args::view_lhs(&state);
-    let rhs = Args::view_rhs(&state);
-    let acc = Args::view_acc(&state);
-    let out = Args::view_out(&mut state);
-
-    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
-        lhs,
-        rhs,
-        acc,
-        out,
+    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute::<Args>(
+        &mut state,
         cube_count_args,
         config,
     );
