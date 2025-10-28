@@ -3,7 +3,9 @@ use cubecl_common::quant::scheme::{QuantLevel, QuantScheme};
 use cubecl_core::{self as cubecl};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
-    tensor::layout::{Coords1d, Coords2d, Coords3d, Layout, LayoutExpand},
+    tensor::layout::{
+        Coords1d, Coords2d, Coords3d, Layout, LayoutExpand, VirtualLayout, VirtualLayoutLaunch,
+    },
 };
 
 use crate::components::{MatmulProblem, MatrixLayout, global::memory::GlobalMemoryConfig};
@@ -74,10 +76,8 @@ impl From<GlobalMemoryConfig> for GlobalLayoutConfig {
 
 /// Global layout that uses the last two dimensions and ignores all others.
 #[derive(CubeType, CubeLaunch, Clone)]
-pub struct BatchedGlobalLayout {
-    batch_shape: Sequence<FastDivmod>,
-    batch_strides: Sequence<u32>,
-
+pub struct GlobalLayout {
+    batch_layout: VirtualLayout<Coords1d, Coords1d>,
     rows: u32,
     cols: u32,
 
@@ -93,12 +93,11 @@ pub struct BatchedGlobalLayout {
 }
 
 #[cube]
-impl BatchedGlobalLayout {
+impl GlobalLayout {
     /// Create a new batched global layout. `batch_shape` should be based on the output shape.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        batch_strides: Sequence<u32>,
-        batch_shape: Sequence<FastDivmod>,
+        batch_layout: VirtualLayout<Coords1d, Coords1d>,
         shape_row: u32,
         shape_col: u32,
         stride_row: u32,
@@ -107,9 +106,8 @@ impl BatchedGlobalLayout {
         #[comptime] packing: u32,
         #[comptime] config: GlobalLayoutConfig,
     ) -> Self {
-        BatchedGlobalLayout {
-            batch_shape,
-            batch_strides,
+        GlobalLayout {
+            batch_layout,
             rows: shape_row,
             cols: shape_col,
             stride_row,
@@ -122,33 +120,19 @@ impl BatchedGlobalLayout {
 }
 
 #[cube]
-impl Layout for BatchedGlobalLayout {
+impl Layout for GlobalLayout {
     type Coordinates = Coords3d;
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
         let line_size = comptime![self.line_size];
-        let (mut batch, row, col) = coords;
+        let (batch, row, col) = coords;
+        let batch_offs = self.batch_layout.to_source_pos(batch);
 
         let (row, col) = match comptime![self.config.matrix_layout] {
             MatrixLayout::RowMajor => (row, col / self.packing),
             MatrixLayout::ColMajor => (row / self.packing, col),
         };
-
-        // This looks expensive to calculate each time, but the batch is constant across all loop
-        // iterations, so it'll get pulled out by the compiler and only calculated once. It will
-        // generate more code for unrolled loops, but should be fine.
-        // TODO: VALIDATE WITH PROFILER
-        let mut batch_offs = 0;
-        let batch_shape = self.batch_shape.rev();
-        let batch_strides = self.batch_strides.rev();
-
-        #[unroll]
-        for i in 0..batch_shape.len() {
-            let (rem, local_pos) = batch_shape.index(i).div_mod(batch);
-            batch = rem;
-            batch_offs += local_pos * *batch_strides.index(i);
-        }
 
         let idx = batch_offs + row * self.stride_row + col * self.stride_col;
 
@@ -175,8 +159,31 @@ impl Layout for BatchedGlobalLayout {
     }
 }
 
-impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
+impl<'a, R: Runtime> GlobalLayoutLaunch<'a, R> {
     pub fn from_handle(
+        handle: &TensorHandleRef<'a, R>,
+        line_size: u8,
+        config: GlobalLayoutConfig,
+    ) -> Self {
+        let rank = handle.shape.len();
+        let rows = handle.shape[rank - 2];
+        let cols = handle.shape[rank - 1];
+        let stride_row = handle.strides[rank - 2];
+        let stride_col = handle.strides[rank - 1];
+
+        GlobalLayoutLaunch::new(
+            VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()),
+            ScalarArg::new(rows as u32),
+            ScalarArg::new(cols as u32),
+            ScalarArg::new(stride_row as u32),
+            ScalarArg::new(stride_col as u32),
+            line_size as u32,
+            1,
+            config,
+        )
+    }
+
+    pub fn from_handle_batched(
         client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
@@ -189,21 +196,10 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
         let stride_row = handle.strides[rank - 2];
         let stride_col = handle.strides[rank - 1];
 
-        let batch_shape = problem
-            .out_batches
-            .iter()
-            .map(|shape| FastDivmodArgs::new(client, *shape as u32))
-            .collect();
-        let batch_strides = handle.strides[..rank - 2]
-            .iter()
-            .zip(&handle.shape[..rank - 2])
-            .map(|(stride, shape)| if *shape == 1 { 0 } else { *stride })
-            .map(|stride| ScalarArg::new(stride as u32))
-            .collect();
+        let batch_layout = BatchLayoutLaunch::from_handle(client, handle, problem);
 
-        BatchedGlobalLayoutLaunch::new(
-            batch_shape,
-            batch_strides,
+        GlobalLayoutLaunch::new(
+            VirtualLayoutLaunch::new::<BatchLayout>(batch_layout),
             ScalarArg::new(rows as u32),
             ScalarArg::new(cols as u32),
             ScalarArg::new(stride_row as u32),
@@ -224,30 +220,16 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
         scheme: QuantScheme,
         line_size: u8,
         config: GlobalLayoutConfig,
-    ) -> (
-        BatchedGlobalLayoutLaunch<'a, R>,
-        BatchedGlobalScaleLayoutArgs<'a, R>,
-    ) {
+    ) -> (GlobalLayoutLaunch<'a, R>, GlobalScaleLayoutArgs<'a, R>) {
         let rank = values.shape.len();
         let (rows, cols) = (shape[rank - 2], shape[rank - 1]);
         let values_layout = {
             let (stride_row, stride_col) = (values.strides[rank - 2], values.strides[rank - 1]);
 
-            let batch_shape = problem
-                .out_batches
-                .iter()
-                .map(|shape| FastDivmodArgs::new(client, *shape as u32))
-                .collect();
-            let batch_strides = values.strides[..rank - 2]
-                .iter()
-                .zip(&values.shape[..rank - 2])
-                .map(|(stride, shape)| if *shape == 1 { 0 } else { *stride })
-                .map(|stride| ScalarArg::new(stride as u32))
-                .collect();
+            let batch_layout = BatchLayoutLaunch::from_handle(client, values, problem);
 
-            BatchedGlobalLayoutLaunch::new(
-                batch_shape,
-                batch_strides,
+            GlobalLayoutLaunch::new(
+                VirtualLayoutLaunch::new::<BatchLayout>(batch_layout),
                 ScalarArg::new(rows as u32),
                 ScalarArg::new(cols as u32),
                 ScalarArg::new(stride_row as u32),
@@ -262,13 +244,13 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
             let shape = (ScalarArg::new(rows as u32), ScalarArg::new(cols as u32));
 
             match scheme.level {
-                QuantLevel::Tensor => BatchedGlobalScaleLayoutArgs::PerTensor { shape },
+                QuantLevel::Tensor => GlobalScaleLayoutArgs::PerTensor { shape },
                 QuantLevel::Block(block_size) => {
                     let [block_row, block_col] = block_size.as_dim();
                     // Scales are never vectorized because we require that `block_size >= line_size * num_quants`.
                     let scales_layout =
-                        BatchedGlobalLayoutLaunch::from_handle(client, scales, problem, 1, config);
-                    BatchedGlobalScaleLayoutArgs::BlockScaled(BlockScaledLayoutLaunch::new(
+                        GlobalLayoutLaunch::from_handle_batched(client, scales, problem, 1, config);
+                    GlobalScaleLayoutArgs::BlockScaled(BlockScaledLayoutLaunch::new(
                         shape,
                         scales_layout,
                         (block_row as u32, block_col as u32),
@@ -282,7 +264,113 @@ impl<'a, R: Runtime> BatchedGlobalLayoutLaunch<'a, R> {
 }
 
 #[derive(CubeType, CubeLaunch)]
-pub enum BatchedGlobalScaleLayout {
+pub struct BatchLayout {
+    batch_shape: Sequence<FastDivmod>,
+    batch_strides: Sequence<u32>,
+}
+
+#[cube]
+impl BatchLayout {
+    pub fn new(batch_strides: Sequence<u32>, batch_shape: Sequence<FastDivmod>) -> Self {
+        BatchLayout {
+            batch_shape,
+            batch_strides,
+        }
+    }
+}
+
+#[cube]
+impl Layout for BatchLayout {
+    type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
+
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+        let mut batch = pos;
+        let mut batch_offs = 0;
+        let batch_shape = self.batch_shape.rev();
+        let batch_strides = self.batch_strides.rev();
+
+        #[unroll]
+        for i in 0..batch_shape.len() {
+            let (rem, local_pos) = batch_shape.index(i).div_mod(batch);
+            batch = rem;
+            batch_offs += local_pos * *batch_strides.index(i);
+        }
+
+        batch_offs
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        u32::MAX.runtime()
+    }
+
+    fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
+        true.runtime()
+    }
+
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        (self.to_source_pos(pos), self.is_in_bounds(pos))
+    }
+}
+
+/// Layout that passed through the coordinates with no checks or modification.
+#[derive(CubeType, CubeLaunch)]
+pub struct NoopLayout {}
+
+#[cube]
+impl NoopLayout {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        NoopLayout {}
+    }
+}
+
+#[cube]
+impl Layout for NoopLayout {
+    type Coordinates = Coords1d;
+    type SourceCoordinates = Coords1d;
+
+    fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
+        pos
+    }
+
+    fn shape(&self) -> Self::Coordinates {
+        u32::MAX.runtime()
+    }
+
+    fn is_in_bounds(&self, _pos: Self::Coordinates) -> bool {
+        true.runtime()
+    }
+
+    fn to_source_pos_checked(&self, pos: Self::Coordinates) -> (Self::SourceCoordinates, bool) {
+        (self.to_source_pos(pos), self.is_in_bounds(pos))
+    }
+}
+
+impl<'a, R: Runtime> BatchLayoutLaunch<'a, R> {
+    pub fn from_handle(
+        client: &ComputeClient<R::Server>,
+        handle: &TensorHandleRef<'a, R>,
+        problem: &MatmulProblem,
+    ) -> Self {
+        let rank = handle.shape.len();
+        let batch_shape = problem
+            .out_batches
+            .iter()
+            .map(|shape| FastDivmodArgs::new(client, *shape as u32))
+            .collect();
+        let batch_strides = handle.strides[..rank - 2]
+            .iter()
+            .zip(&handle.shape[..rank - 2])
+            .map(|(stride, shape)| if *shape == 1 { 0 } else { *stride })
+            .map(|stride| ScalarArg::new(stride as u32))
+            .collect();
+        BatchLayoutLaunch::new(batch_shape, batch_strides)
+    }
+}
+
+#[derive(CubeType, CubeLaunch)]
+pub enum GlobalScaleLayout {
     PerTensor { shape: Coords2d },
     BlockScaled(BlockScaledLayout),
 }
@@ -291,7 +379,7 @@ pub enum BatchedGlobalScaleLayout {
 #[derive(CubeType, CubeLaunch)]
 pub struct BlockScaledLayout {
     shape: Coords2d,
-    scales_layout: BatchedGlobalLayout,
+    scales_layout: GlobalLayout,
     #[cube(comptime)]
     block_size: Coords2d,
 }
@@ -300,7 +388,7 @@ pub struct BlockScaledLayout {
 impl BlockScaledLayout {
     pub fn new(
         shape: Coords2d,
-        scales_layout: BatchedGlobalLayout,
+        scales_layout: GlobalLayout,
         #[comptime] block_size: Coords2d,
     ) -> Self {
         BlockScaledLayout {
@@ -312,14 +400,14 @@ impl BlockScaledLayout {
 }
 
 #[cube]
-impl Layout for BatchedGlobalScaleLayout {
+impl Layout for GlobalScaleLayout {
     type Coordinates = Coords3d;
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
         match self {
-            BatchedGlobalScaleLayout::PerTensor { .. } => 0u32.runtime(),
-            BatchedGlobalScaleLayout::BlockScaled(layout) => {
+            GlobalScaleLayout::PerTensor { .. } => 0u32.runtime(),
+            GlobalScaleLayout::BlockScaled(layout) => {
                 let BlockScaledLayout {
                     scales_layout,
                     block_size,
@@ -340,8 +428,8 @@ impl Layout for BatchedGlobalScaleLayout {
 
     fn shape(&self) -> Self::Coordinates {
         match self {
-            BatchedGlobalScaleLayout::PerTensor { shape } => (u32::MAX.runtime(), shape.0, shape.1),
-            BatchedGlobalScaleLayout::BlockScaled(layout) => {
+            GlobalScaleLayout::PerTensor { shape } => (u32::MAX.runtime(), shape.0, shape.1),
+            GlobalScaleLayout::BlockScaled(layout) => {
                 let (row, col) = layout.shape;
                 (u32::MAX.runtime(), row, col)
             }
@@ -350,8 +438,8 @@ impl Layout for BatchedGlobalScaleLayout {
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         match self {
-            BatchedGlobalScaleLayout::PerTensor { .. } => true.runtime(),
-            BatchedGlobalScaleLayout::BlockScaled(layout) => {
+            GlobalScaleLayout::PerTensor { .. } => true.runtime(),
+            GlobalScaleLayout::BlockScaled(layout) => {
                 let (_, row, col) = pos;
                 let l = &layout.scales_layout;
                 let (rows, cols) = layout.shape;
