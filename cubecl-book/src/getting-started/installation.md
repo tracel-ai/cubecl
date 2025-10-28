@@ -6,7 +6,7 @@ project by updating your Cargo.toml:
 ```toml
 [dependencies]
 cubecl = {
-    version = "0.7.0",  # Replace with the latest version from crates.io
+    version = "0.7.1",  # Replace with the latest version from crates.io
     features = ["wgpu"]  # Enable desired runtime features (e.g., wgpu, cuda, hip)
 }
 ```
