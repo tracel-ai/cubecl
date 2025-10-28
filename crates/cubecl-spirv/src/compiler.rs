@@ -1,6 +1,7 @@
 use cubecl_common::ExecutionMode;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions, ir as core,
+    Metadata, WgpuCompilationOptions,
+    ir::{self as core, InstructionModes},
     post_processing::{
         checked_io::CheckedIoProcessor, saturating::SaturatingArithmeticProcessor,
         unroll::UnrollProcessor,
@@ -43,7 +44,6 @@ pub struct SpirvCompiler<Target: SpirvTarget = GLCompute> {
 
     pub mode: ExecutionMode,
     pub debug_symbols: bool,
-    pub fp_math_mode: FPFastMathMode,
     global_invocation_id: Word,
     num_workgroups: Word,
     pub setup_block: usize,
@@ -80,7 +80,6 @@ impl<T: SpirvTarget> Clone for SpirvCompiler<T> {
             capabilities: self.capabilities.clone(),
             state: self.state.clone(),
             debug_symbols: self.debug_symbols,
-            fp_math_mode: self.fp_math_mode,
             visited: self.visited.clone(),
             metadata: self.metadata.clone(),
             debug_info: self.debug_info.clone(),
@@ -113,7 +112,6 @@ impl<T: SpirvTarget> Default for SpirvCompiler<T> {
             shared_liveness: Default::default(),
             current_block: Default::default(),
             debug_symbols: debug_symbols_activated(),
-            fp_math_mode: FPFastMathMode::NONE,
             visited: Default::default(),
             metadata: Default::default(),
             debug_info: Default::default(),
@@ -449,20 +447,17 @@ impl<Target: SpirvTarget> SpirvCompiler<Target> {
         }
     }
 
-    pub fn declare_math_mode(&mut self, out_id: Word) {
-        if !self.compilation_options.supports_fp_fast_math {
+    pub fn declare_math_mode(&mut self, modes: InstructionModes, out_id: Word) {
+        if !self.compilation_options.supports_fp_fast_math || modes.fp_math_mode.is_empty() {
             return;
         }
-        if self.fp_math_mode != FPFastMathMode::NONE {
-            self.capabilities.insert(Capability::FloatControls2);
-
-            let mode = self.fp_math_mode;
-            self.decorate(
-                out_id,
-                Decoration::FPFastMathMode,
-                [Operand::FPFastMathMode(mode)],
-            );
-        }
+        let mode = convert_math_mode(modes.fp_math_mode);
+        self.capabilities.insert(Capability::FloatControls2);
+        self.decorate(
+            out_id,
+            Decoration::FPFastMathMode,
+            [Operand::FPFastMathMode(mode)],
+        );
     }
 
     pub fn is_uniform_block(&self) -> bool {

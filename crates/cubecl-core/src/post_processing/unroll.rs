@@ -509,6 +509,7 @@ impl UnrollProcessor {
                 Instruction {
                     out,
                     source_loc: inst.source_loc.clone(),
+                    modes: inst.modes,
                     operation,
                 }
             })

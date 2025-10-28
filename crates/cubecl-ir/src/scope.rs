@@ -39,7 +39,7 @@ pub struct Scope {
     #[cfg_attr(feature = "serde", serde(skip))]
     pub typemap: Rc<RefCell<HashMap<TypeId, StorageType>>>,
     pub runtime_properties: Rc<TargetProperties>,
-    pub modes: Rc<RefCell<ExpandModes>>,
+    pub modes: Rc<RefCell<InstructionModes>>,
 }
 
 /// Debug related fields, most of these are global
@@ -55,9 +55,9 @@ pub struct DebugInfo {
 
 /// Modes set and reset during expansion
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Default, PartialEq, Eq, TypeHash)]
-pub struct ExpandModes {
-    pub math_mode: EnumSet<FastMath>,
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, TypeHash)]
+pub struct InstructionModes {
+    pub fp_math_mode: EnumSet<FastMath>,
 }
 
 impl core::hash::Hash for Scope {
@@ -188,6 +188,7 @@ impl Scope {
     pub fn register<T: Into<Instruction>>(&mut self, instruction: T) {
         let mut inst = instruction.into();
         inst.source_loc = self.debug.source_loc.clone();
+        inst.modes = *self.modes.borrow();
         self.instructions.push(inst)
     }
 

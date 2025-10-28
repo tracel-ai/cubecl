@@ -51,7 +51,7 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
-            #[cube(launch_unchecked)]
+            #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);

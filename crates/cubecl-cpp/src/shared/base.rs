@@ -1,7 +1,7 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
     Compiler,
@@ -106,7 +106,6 @@ pub struct CppCompiler<D: Dialect> {
     pipelines: Vec<PipelineOps<D>>,
     source_loc: Option<SourceLoc>,
     strategy: ExecutionMode,
-    math_mode: EnumSet<FastMath>,
 }
 
 impl<D: Dialect> Compiler for CppCompiler<D> {
@@ -310,7 +309,9 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
-            gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
+            gpu::Operation::Arithmetic(op) => {
+                self.compile_arithmetic(op, out, instruction.modes, instructions)
+            }
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
             gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions),
@@ -626,14 +627,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
-            gpu::Operation::Marker(marker) => match marker {
-                gpu::Marker::Free(_) => {}
-                gpu::Marker::SetFastMath(mode) => {
-                    if self.compilation_options.supports_fast_math {
-                        self.math_mode = mode;
-                    }
-                }
-            },
+            gpu::Operation::Marker(_) => {}
         }
     }
 
@@ -938,6 +932,7 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         value: gpu::Arithmetic,
         out: Option<gpu::Variable>,
+        modes: InstructionModes,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -955,6 +950,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_binary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::AllowReciprocal
                         | FastMath::ReducedPrecision
                         | FastMath::UnsignedZero
@@ -984,6 +980,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Exp(op),
                     Instruction::FastExp(op),
@@ -993,6 +990,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Log(op),
                     Instruction::FastLog(op),
@@ -1005,6 +1003,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Cos(op),
                     Instruction::FastCos(op),
@@ -1014,6 +1013,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Sin(op),
                     Instruction::FastSin(op),
@@ -1025,6 +1025,7 @@ impl<D: Dialect> CppCompiler<D> {
                 D::register_instruction_extension(&mut self.extensions, &instruction);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     instruction,
                     Instruction::FastTanh(op),
@@ -1034,6 +1035,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_binary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Powf(op),
                     Instruction::FastPowf(op),
@@ -1046,6 +1048,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::Sqrt(op),
                     Instruction::FastSqrt(op),
@@ -1055,6 +1058,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(
                     out.ty,
+                    modes,
                     FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
                     Instruction::InverseSqrt(op),
                     Instruction::FastInverseSqrt(op),
@@ -1100,6 +1104,7 @@ impl<D: Dialect> CppCompiler<D> {
 
                 instructions.push(self.select_fast_float(
                     elem.into(),
+                    modes,
                     FastMath::AllowReciprocal
                         | FastMath::ReducedPrecision
                         | FastMath::UnsignedZero
@@ -1133,10 +1138,24 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Normalize(op) => {
-                instructions.push(Instruction::Normalize(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Normalize(op),
+                    Instruction::FastNormalize(op),
+                ))
             }
             gpu::Arithmetic::Magnitude(op) => {
-                instructions.push(Instruction::Magnitude(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Magnitude(op),
+                    Instruction::FastMagnitude(op),
+                ))
             }
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
@@ -1147,6 +1166,7 @@ impl<D: Dialect> CppCompiler<D> {
     fn select_fast_float(
         &self,
         ty: gpu::Type,
+        modes: InstructionModes,
         required_flags: EnumSet<FastMath>,
         default: Instruction<D>,
         fast: Instruction<D>,
@@ -1157,7 +1177,7 @@ impl<D: Dialect> CppCompiler<D> {
             return default;
         }
 
-        if self.math_mode.is_superset(required_flags) {
+        if modes.fp_math_mode.is_superset(required_flags) {
             fast
         } else {
             default

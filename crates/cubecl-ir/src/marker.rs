@@ -18,8 +18,6 @@ use super::Variable;
 pub enum Marker {
     /// Frees a shared memory, allowing reuse in later blocks.
     Free(Variable),
-    /// Updates the `FastMath` options
-    SetFastMath(EnumSet<FastMath>),
 }
 
 impl OperationReflect for Marker {
@@ -34,7 +32,6 @@ impl Display for Marker {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Marker::Free(var) => write!(f, "free({var})"),
-            Marker::SetFastMath(mode) => write!(f, "set_fast_math({mode:?})"),
         }
     }
 }
@@ -48,11 +45,8 @@ impl From<Marker> for Instruction {
 /// Unchecked optimizations for float operations. May cause precision differences, or undefined
 /// behaviour if the relevant conditions are not followed.
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Default, Debug, Hash, TypeHash, EnumSetType)]
+#[derive(Debug, Hash, TypeHash, EnumSetType)]
 pub enum FastMath {
-    /// Disable unsafe optimizations
-    #[default]
-    None,
     /// Assume values are never `NaN`. If they are, the result is considered undefined behaviour.
     NotNaN,
     /// Assume values are never `Inf`/`-Inf`. If they are, the result is considered undefined
@@ -75,7 +69,7 @@ pub enum FastMath {
 }
 
 impl FastMath {
-    pub fn all() -> EnumSet<FastMath> {
+    pub const fn all() -> EnumSet<FastMath> {
         EnumSet::all()
     }
 }

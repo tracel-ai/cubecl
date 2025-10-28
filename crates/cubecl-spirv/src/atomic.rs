@@ -1,10 +1,15 @@
-use cubecl_core::ir::{AtomicOp, Variable};
+use cubecl_core::ir::{AtomicOp, InstructionModes, Variable};
 use rspirv::spirv::{Capability, MemorySemantics, Scope};
 
 use crate::{SpirvCompiler, SpirvTarget, item::Elem};
 
 impl<T: SpirvTarget> SpirvCompiler<T> {
-    pub fn compile_atomic(&mut self, atomic: AtomicOp, out: Option<Variable>) {
+    pub fn compile_atomic(
+        &mut self,
+        atomic: AtomicOp,
+        out: Option<Variable>,
+        modes: InstructionModes,
+    ) {
         let out = out.unwrap();
         match atomic {
             AtomicOp::Load(op) => {
@@ -151,7 +156,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                             _ => unreachable!(),
                         };
                         let negated = self.f_negate(ty, None, rhs_id).unwrap();
-                        self.declare_math_mode(negated);
+                        self.declare_math_mode(modes, negated);
                         self.atomic_f_add_ext(ty, Some(out_id), lhs_id, memory, semantics, negated)
                             .unwrap()
                     }

@@ -1,4 +1,4 @@
-use cubecl_ir::{FastMath, Marker, Scope};
+use cubecl_ir::{FastMath, Scope};
 use enumset::EnumSet;
 
 pub fn fast_math_expand<R>(
@@ -6,12 +6,10 @@ pub fn fast_math_expand<R>(
     value: EnumSet<FastMath>,
     body: impl FnOnce(&mut Scope) -> R,
 ) -> R {
-    let prev = scope.modes.borrow().math_mode;
-    scope.modes.borrow_mut().math_mode = value;
-    scope.register(Marker::SetFastMath(value));
+    let prev = scope.modes.borrow().fp_math_mode;
+    scope.modes.borrow_mut().fp_math_mode = value;
     let res = body(scope);
-    scope.modes.borrow_mut().math_mode = prev;
-    scope.register(Marker::SetFastMath(prev));
+    scope.modes.borrow_mut().fp_math_mode = prev;
 
     res
 }
