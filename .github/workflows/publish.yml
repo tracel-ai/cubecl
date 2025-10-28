@@ -240,6 +240,7 @@ jobs:
       - publish-cubecl-core
       - publish-cubecl-cuda
       - publish-cubecl-wgpu
+      - publish-cubecl-cpu
       - publish-cubecl-matmul
       - publish-cubecl-convolution
       - publish-cubecl-reduce
