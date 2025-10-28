@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
 use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashSet;
+use log::warn;
 
 use core::time::Duration;
 
@@ -308,16 +309,17 @@ impl<K: AutotuneKey> Tuner<K> {
             a.cmp(&b)
         });
 
-        // Log & send results.
-        let result = results
-            .first()
-            .expect("At least one kernel needed.")
-            .as_ref()
-            .expect("At least one kernel has to succeed.");
+        let mut fastest_index = 0;
+
+        if let Some(result) = results.first() {
+            if let Ok(result) = result.as_ref() {
+                fastest_index = result.index;
+            }
+        }
 
         AutotuneMessage::Done {
             key,
-            fastest_index: result.index,
+            fastest_index,
             results,
             #[cfg(std_io)]
             checksum,
@@ -341,7 +343,8 @@ impl<K: AutotuneKey> Tuner<K> {
             let tunable_indices = plan.next();
 
             if tunable_indices.is_empty() {
-                panic!("No autotune was flagged as valid for the problem.")
+                log::warn!("No autotune was flagged as valid for the problem.");
+                return;
             }
 
             for index in tunable_indices {
