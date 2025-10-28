@@ -209,10 +209,16 @@ jobs:
     with:
       crate: cubecl-cpu
     needs:
-      - publish-cubecl-core
-      - publish-cubecl-reduce
       - publish-cubecl-common
       - publish-cubecl-std
+      - publish-cubecl-core
+      - publish-cubecl-runtime
+      - publish-cubecl-reduce
+      - publish-cubecl-opt
+      - publish-cubecl-matmul
+      - publish-cubecl-convolution
+      - publish-cubecl-reduce
+      - publish-cubecl-random
     secrets: inherit
 
   publish-cubecl-quant:
