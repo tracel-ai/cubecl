@@ -3,12 +3,12 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::{
-    FastDivmodArgs,
+    CubeOptionArgs, FastDivmodArgs,
     tensor::{
         View,
         launch::ViewArg,
         layout::{
-            Coords3d,
+            Coords3d, VirtualLayoutLaunch,
             chain::{Chain, ChainLaunch},
         },
     },
@@ -33,7 +33,10 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         MatmulIdent, MatmulLineSizes, MatmulSelection,
-        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+        global::{
+            args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+            memory::{NoopLayout, NoopLayoutLaunch},
+        },
     },
 };
 
@@ -109,11 +112,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
 
         TensorInputsLaunch::new(
             ViewArg::new::<LhsLayout>(lhs.data().as_array_arg(line_sizes.lhs), layout_lhs),
+            VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()),
             ViewArg::new::<RhsLayout>(rhs.data().as_array_arg(line_sizes.rhs), layout_rhs),
+            VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()),
             bias.map(|bias| {
                 ViewArg::new::<BiasLayout>(bias.as_array_arg(line_sizes.out), layout_bias)
             })
             .into(),
+            bias.map(|_| VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()))
+                .into(),
         )
     }
 }
@@ -231,6 +238,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             ViewArg::new_tensor_map::<TmaDummyLayout>(lhs, lhs_layout),
             ViewArg::new_tensor_map::<TmaWeightLayout>(rhs, rhs_layout),
             bias.into(),
+            CubeOptionArgs::Some(VirtualLayoutLaunch::new::<NoopLayout>(
+                NoopLayoutLaunch::new(),
+            )),
         )
     }
 }
