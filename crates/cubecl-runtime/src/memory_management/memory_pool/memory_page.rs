@@ -4,6 +4,7 @@ use crate::{
     },
     storage::{StorageHandle, StorageUtilization},
 };
+use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use hashbrown::HashMap;
 
