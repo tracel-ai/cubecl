@@ -111,10 +111,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     );
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<
-            ((P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), TensorMapArgs),
-            R,
-        >(
+        A::BatchMatmul::launch_unchecked::<(P::MP, TensorMapArgs), R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
