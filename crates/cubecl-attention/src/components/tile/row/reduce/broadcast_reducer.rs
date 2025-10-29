@@ -17,10 +17,10 @@ pub struct BroadcastReducer {}
 
 #[cube]
 impl Reducer for BroadcastReducer {
-    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, FC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
-        #[comptime] config: TC,
+        #[comptime] config: FC,
     ) {
         let num_units_per_row = data.layout().num_units_per_row();
         let num_shares_within_plane = comptime!((num_units_per_row as f32).log2().ceil() as u32);

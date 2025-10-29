@@ -29,6 +29,7 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         let (row_in_partition, col) = tile;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
+        // TODO UNIT: UNIT_POS for unit
         let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
         StridedTile::<QG<AP>>::new_strided(

@@ -5,7 +5,9 @@ use cubecl_matmul::components::{
     tile::StridedTile,
 };
 
-use crate::components::tile::{AccumulatorTile, KeyValueTile, MaskTile, QueryTile, SoftmaxTile};
+use crate::components::tile::{
+    AccumulatorTile, KeyValueTile, MaskTile, QueryTile, Reducer, SoftmaxTile,
+};
 use crate::components::{
     AttentionPrecision,
     attention_types::*,
@@ -110,7 +112,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         );
     }
 
-    pub fn softmax(
+    pub fn softmax<R: Reducer>(
         softmax: &mut SoftmaxTile<AP, FA>,
         mask: &MaskTile<AP, FA>,
         state: &mut RunningState<SM<AP>>,
@@ -125,9 +127,9 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
             mask,
         );
 
-        softmax.row_max::<FA::Config>(max_placeholder, state.m(), config);
+        softmax.row_max::<R, FA::Config>(max_placeholder, state.m(), config);
 
-        softmax.to_prob::<FA::Config>(state, max_placeholder, sum_placeholder, config)
+        softmax.to_prob::<R, FA::Config>(state, max_placeholder, sum_placeholder, config)
     }
 
     pub fn accumulate_value(

@@ -5,7 +5,7 @@ use crate::components::{
     fragment::FragmentAttentionFamily,
     stage::{
         AttentionStageMemoryConfig,
-        unit::{attention::UnitKVReuseStageAttention, config::UnitKVReuseStageConfig},
+        unit::{UnitKVReuseStageAttention, config::UnitKVReuseStageConfig},
     },
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};

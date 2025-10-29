@@ -3,11 +3,11 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::FragmentAttention;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
-use crate::components::tile::BroadcastReducer;
 use crate::components::tile::MaskTile;
+use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::{row_max, row_sum};
@@ -42,23 +42,18 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> SoftmaxTile<AP, FA> {
 
     /// Compute the max of each row, starting with base
     /// as first element of the reduction, and storing result in placeholder
-    pub fn row_max<TC: FragmentAttentionConfig>(
+    pub fn row_max<R: Reducer, TC: FragmentAttentionConfig>(
         &self,
         placeholder: &mut RowWise<SM<AP>>,
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<SM<AP>, FA::Softmax, BroadcastReducer, TC>(
-            placeholder,
-            base,
-            &self.fragment,
-            config,
-        )
+        row_max::<SM<AP>, FA::Softmax, R, TC>(placeholder, base, &self.fragment, config)
     }
 
     /// Converts scores into (unnormalized) probabilities, updates running state,
     /// and returns the factor needed to scale the accumulator
-    pub fn to_prob<TC: FragmentAttentionConfig>(
+    pub fn to_prob<R: Reducer, TC: FragmentAttentionConfig>(
         &mut self,
         state: &mut RunningState<SM<AP>>,
         new_m: &RowWise<SM<AP>>,
@@ -67,11 +62,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> SoftmaxTile<AP, FA> {
     ) -> RowWise<SM<AP>> {
         self.fragment.exp_diff(new_m);
 
-        row_sum::<SM<AP>, FA::Softmax, BroadcastReducer, TC>(
-            rowsum_placeholder,
-            &self.fragment,
-            config,
-        );
+        row_sum::<SM<AP>, FA::Softmax, R, TC>(rowsum_placeholder, &self.fragment, config);
 
         let exp_m_diff = state.m().exp_diff(new_m);
 

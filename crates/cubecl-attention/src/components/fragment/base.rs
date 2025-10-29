@@ -6,7 +6,7 @@ use cubecl_matmul::components::tile::StridedTile;
 use crate::components::attention_types::*;
 use crate::components::fragment::{FragmentLayout, FragmentMask, FragmentOps};
 use crate::components::{
-    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
 };
 use std::fmt::Debug;

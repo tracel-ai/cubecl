@@ -1,5 +1,4 @@
 use std::cmp::max;
-use std::marker::PhantomData;
 
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

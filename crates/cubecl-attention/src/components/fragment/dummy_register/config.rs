@@ -3,9 +3,7 @@ use std::hash::Hash;
 
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::dummy_register::InnerLayout;
-use crate::components::{
-    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
-};
+use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct DummyRegisterAttentionMatmulConfig {

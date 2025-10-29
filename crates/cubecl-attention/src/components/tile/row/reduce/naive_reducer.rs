@@ -14,10 +14,10 @@ pub struct NaiveReducer {}
 
 #[cube]
 impl Reducer for NaiveReducer {
-    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, FC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
-        #[comptime] config: TC,
+        #[comptime] config: FC,
     ) {
         let num_vals_in_plane = config.num_rows_per_unit() * config.plane_dim();
         let mut smem = SharedMemory::<E>::new(num_vals_in_plane * config.num_planes());

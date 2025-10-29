@@ -39,7 +39,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.head_dim) {
-            sequence.push(TileAttention::init_query(config.tile_config()));
+            sequence.push(TileAttention::<AP, FA>::init_query(config.tile_config()));
         }
 
         QueryPartition::<AP, FA, S> {

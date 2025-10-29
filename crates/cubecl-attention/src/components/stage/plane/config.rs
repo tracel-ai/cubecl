@@ -6,7 +6,7 @@ use crate::components::{
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlaneKVReuseStageConfig<FC: FragmentAttentionConfig> {
-    tile_config: FC,
+    fragment_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
     tiling_scheme: AttentionTilingScheme,
@@ -18,7 +18,7 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlaneKVReuseStageConf
     type FragmentAttentionConfig = FC;
 
     fn plane_dim(&self) -> u32 {
-        32
+        self.fragment_config.plane_dim()
     }
 
     fn num_planes(&self) -> u32 {
@@ -26,7 +26,7 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlaneKVReuseStageConf
     }
 
     fn tile_config(&self) -> Self::FragmentAttentionConfig {
-        self.tile_config
+        self.fragment_config
     }
 
     fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
@@ -46,13 +46,13 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlaneKVReuseStageConf
     }
 
     fn num_rows_per_unit(&self) -> u32 {
-        self.tile_config.num_rows_per_unit()
+        self.fragment_config.num_rows_per_unit()
     }
 }
 
 impl<FC: FragmentAttentionConfig> PlaneKVReuseStageConfig<FC> {
     pub fn new(
-        tile_config: FC,
+        fragment_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig,
         value_stage_memory_config: AttentionStageMemoryConfig,
         tiling_scheme: AttentionTilingScheme,
@@ -60,7 +60,7 @@ impl<FC: FragmentAttentionConfig> PlaneKVReuseStageConfig<FC> {
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
-            tile_config,
+            fragment_config,
             score_stage_memory_config,
             value_stage_memory_config,
             tiling_scheme,

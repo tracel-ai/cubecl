@@ -119,6 +119,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         let (row_in_partition, col) = pos_in_partition;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
+        // TODO UNIT: UNIT_POS for unit
         let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
 
         let tile = StridedTile::<M>::new_strided(

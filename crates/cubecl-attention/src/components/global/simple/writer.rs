@@ -14,6 +14,8 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::stage::StageAttentionConfig;
 
+// TODO UNIT: writer
+
 #[derive(CubeType)]
 pub struct AttentionWriter<IP: MatrixPrecision> {
     global: View<Line<IP::Global>, TiledCoords, ReadWrite>,

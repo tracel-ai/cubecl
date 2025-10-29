@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::QueryReader;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::RowWise;
@@ -21,6 +20,7 @@ use crate::components::{
         AccumulatorPartition, KeyValues, MaskPartition, QueryPartition, SoftmaxPartition,
     },
 };
+use crate::components::{global::simple::MaskReader, stage::partitioner::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -31,10 +31,11 @@ pub struct KVReuseStageAttention<
     SV,
     SO,
     FA: FragmentAttention<AP>,
+    P: AttentionPartitioner,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     #[cube(comptime)]
-    _phantom: PhantomData<(AP, SK, SV, SO, FA, S)>,
+    _phantom: PhantomData<(AP, SK, SV, SO, FA, P, S)>,
 }
 
 #[cube]
@@ -44,8 +45,9 @@ impl<
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
     FA: FragmentAttention<AP>,
+    P: AttentionPartitioner,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
-> StageAttention<AP> for KVReuseStageAttention<AP, SK, SV, SO, FA, S>
+> StageAttention<AP> for KVReuseStageAttention<AP, SK, SV, SO, FA, P, S>
 {
     type KeyStage = SK;
     type ValueStage = SV;
@@ -114,7 +116,7 @@ impl<
 
                 let state_q = state.index_mut(q);
 
-                scales.push(TileAttention::softmax(
+                scales.push(TileAttention::softmax::<P::Reducer>(
                     softmax_tile,
                     mask_tile,
                     state_q,
@@ -199,10 +201,11 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
+                // TODO UNIT: UNIT_POS for unit
                 let tile_pos = (q + UNIT_POS_Y * p.seq_q, vd.runtime());
                 let mut tile = SO::tile(stage, tile_pos);
 
-                TileAttention::write_results(
+                TileAttention::<AP, FA>::write_results(
                     &mut tile,
                     AccumulatorPartition::<AP, FA, S>::get_at(acc, q, vd, stage_config),
                     stage_config.tile_config(),
