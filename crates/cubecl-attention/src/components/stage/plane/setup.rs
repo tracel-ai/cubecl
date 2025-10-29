@@ -1,6 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::components::{attention_types::*, fragment::AttentionMatmulFamily};
+use crate::components::{
+    attention_types::*,
+    fragment::AttentionMatmulFamily,
+    stage::{
+        AttentionStageMemoryConfig,
+        plane::{attention::PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},
+    },
+};
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
     GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
@@ -8,17 +15,10 @@ use cubecl_matmul::components::{
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError,
-    stage::{
-        StageAttentionFamily,
-        simple_kv_reuse::{
-            AttentionStageMemoryConfig, SimpleKVReuseStageAttention, SimpleKVReuseStageConfig,
-        },
-    },
-    tile::AttentionTilingLayout,
+    AttentionSetupError, stage::StageAttentionFamily, tile::AttentionTilingLayout,
 };
 
-pub struct SimpleKVReuseStageAttentionFamily<
+pub struct PlaneKVReuseStageAttentionFamily<
     FA: AttentionMatmulFamily,
     SK: StageFamily,
     SV: StageFamily,
@@ -32,9 +32,9 @@ impl<
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for SimpleKVReuseStageAttentionFamily<FA, SK, SV, SO>
+> StageAttentionFamily for PlaneKVReuseStageAttentionFamily<FA, SK, SV, SO>
 {
-    type Attention<AP: AttentionPrecision> = SimpleKVReuseStageAttention<
+    type Attention<AP: AttentionPrecision> = PlaneKVReuseStageAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
@@ -46,7 +46,7 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = SimpleKVReuseStageConfig<FA::Config>;
+    type Config = PlaneKVReuseStageConfig<FA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -59,7 +59,7 @@ impl<
 
         let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
-        SimpleKVReuseStageConfig::new(
+        PlaneKVReuseStageConfig::new(
             tile_config,
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),

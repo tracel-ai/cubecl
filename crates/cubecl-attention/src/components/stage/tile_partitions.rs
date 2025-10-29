@@ -19,7 +19,7 @@ use cubecl_std::tensor::layout::Coords2d;
 pub struct QueryPartition<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<QueryTile<AP, FA>>,
     #[cube(comptime)]
@@ -30,7 +30,7 @@ pub struct QueryPartition<
 impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > QueryPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> QueryPartition<AP, FA, S> {
@@ -73,7 +73,7 @@ impl<
 pub enum KeyValues<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     Reuse(KeyValueSequence<AP, FA, S>),
     Separate(KeyValueSequence<AP, FA, S>, KeyValueSequence<AP, FA, S>),
@@ -83,7 +83,7 @@ pub enum KeyValues<
 pub struct KeyValueSequence<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<KeyValueTile<AP, FA>>,
     #[cube(comptime)]
@@ -94,7 +94,7 @@ pub struct KeyValueSequence<
 impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > KeyValues<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> KeyValues<AP, FA, S> {
@@ -195,7 +195,7 @@ impl<
 pub struct SoftmaxPartition<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<SoftmaxTile<AP, FA>>,
     #[cube(comptime)]
@@ -206,7 +206,7 @@ pub struct SoftmaxPartition<
 impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > SoftmaxPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, FA, S> {
@@ -249,7 +249,7 @@ impl<
 pub struct MaskPartition<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<MaskTile<AP, FA>>,
     #[cube(comptime)]
@@ -260,7 +260,7 @@ pub struct MaskPartition<
 impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > MaskPartition<AP, FA, S>
 {
     pub fn new(
@@ -317,7 +317,7 @@ impl<
 pub struct AccumulatorPartition<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<AccumulatorTile<AP, FA>>,
     #[cube(comptime)]
@@ -328,7 +328,7 @@ pub struct AccumulatorPartition<
 impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<AttentionMatmulConfig = FA::Config>,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > AccumulatorPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> AccumulatorPartition<AP, FA, S> {
