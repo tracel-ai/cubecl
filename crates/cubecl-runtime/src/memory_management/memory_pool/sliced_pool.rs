@@ -28,8 +28,15 @@ impl SlicedPool {
 }
 
 impl MemoryPool for SlicedPool {
-    fn max_alloc_size(&self) -> u64 {
-        self.max_alloc_size
+    fn accept(&self, size: u64) -> bool {
+        self.max_alloc_size >= size
+            ||
+            // If the size is close to the page size so it doesn't create much fragmentation with
+            // unused space.
+            match self.page_size.checked_sub(size) {
+                Some(diff) => diff * 10 < self.page_size, // 10 % unused space is the max allowed.
+                None => false,
+            }
     }
 
     fn get(&self, binding: &super::SliceBinding) -> Option<&crate::storage::StorageHandle> {
@@ -43,10 +50,6 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<super::SliceHandle> {
-        if size > self.max_alloc_size {
-            return None;
-        }
-
         for (_, page) in self.pages.iter_mut() {
             page.cleanup();
             if let Some(handle) = page.reserve(size) {
@@ -115,6 +118,10 @@ impl MemoryPool for SlicedPool {
 
 impl Display for SlicedPool {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        if self.pages.is_empty() {
+            return Ok(());
+        }
+
         f.write_fmt(format_args!(
             " - Sliced Pool page_size={} max_alloc_size={}\n",
             BytesFormat::new(self.page_size),
@@ -137,9 +144,7 @@ impl Display for SlicedPool {
             ))?;
         }
 
-        if !self.pages.is_empty() {
-            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
-        }
+        f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
 
         Ok(())
     }
