@@ -52,22 +52,23 @@ pub enum MaskReader<AP: AttentionPrecision> {
 
 #[cube]
 impl<AP: AttentionPrecision> MaskReader<AP> {
-    pub fn new_logical(q_offset: u32, step: u32) -> Self {
-        MaskReader::<AP>::new_Logical(LogicalIterator::init(q_offset, step))
+    pub fn new_logical(inner_q_offset: u32, step: u32) -> Self {
+        MaskReader::<AP>::new_Logical(LogicalIterator::init(inner_q_offset, step))
     }
 
     pub fn new_materialized(
-        q_offset: u32,
+        outer_q_offset: u32,
+        inner_q_offset: u32,
         mask: View<Line<MSK<AP>>, Coords2d>,
         step: u32,
         seq_kv_shape: u32,
     ) -> Self {
-        let mask = mask.slice((q_offset, 0), mask.shape());
+        let mask = mask.slice((outer_q_offset, 0), mask.shape());
         let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
 
         MaskReader::<AP>::new_Materialized(MaterializedMaskReader::new(
             global_iter,
-            LogicalIterator::init(q_offset, step),
+            LogicalIterator::init(outer_q_offset + inner_q_offset, step),
             seq_kv_shape,
         ))
     }

@@ -160,6 +160,7 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
         let step = reduction_step::<Self::Config>(config);
+        let inner_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index();
 
         match mask {
             CubeOption::Some(mask) => {
@@ -169,9 +170,15 @@ impl<
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
-                MaskReader::new_materialized(q_offset, mask.view(layout), step, seq_kv_shape)
+                MaskReader::new_materialized(
+                    q_offset,
+                    inner_q_offset,
+                    mask.view(layout),
+                    step,
+                    seq_kv_shape,
+                )
             }
-            CubeOption::None => MaskReader::new_logical(q_offset, step),
+            CubeOption::None => MaskReader::new_logical(q_offset + inner_q_offset, step),
         }
     }
 
