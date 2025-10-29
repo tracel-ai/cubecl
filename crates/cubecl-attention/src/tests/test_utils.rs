@@ -354,8 +354,6 @@ where
     let val_dim = problem.val_dim;
 
     let masked = mask.is_some();
-    println!("{:?}", problem.masked);
-    println!("{:?}", mask);
     assert!(problem.masked == masked);
 
     // Precompute strides for indexing

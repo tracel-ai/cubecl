@@ -22,6 +22,8 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type Accumulator: FragmentOps<ACC<AP>, Layout = Self::FragmentLayout>;
     type FragmentLayout: FragmentLayout;
 
+    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout;
+
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
@@ -36,30 +38,29 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query;
+    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask;
+
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
-    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask;
 
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
+    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
+
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
     fn fill_key_value<E: Float>(
         tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValue,
+        fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
     );
-
     fn fill_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
         #[comptime] config: Self::Config,
     );
 
-    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query;
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
-
-    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
-
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn write_results<E: Float>(
@@ -67,8 +68,6 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     );
-
-    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout;
 }
 
 /// Configuration for the Tile Attention level
@@ -76,15 +75,9 @@ pub trait FragmentAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
-
     fn num_planes(&self) -> u32;
-    fn stage_line_size(&self, ident: AttentionIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
-
-    fn check_bounds(&self) -> bool;
-
     fn num_rows_per_unit(&self) -> u32;
-
     fn causal_mask(&self) -> bool;
     fn materialized_mask(&self) -> bool;
 }

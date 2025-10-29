@@ -25,23 +25,8 @@ impl FragmentAttentionConfig for AcceleratedFragmentAttentionConfig {
         self.num_planes
     }
 
-    fn stage_line_size(&self, ident: AttentionIdent) -> u32 {
-        match ident {
-            AttentionIdent::Query => self.query_stage_line_size,
-            AttentionIdent::Key => self.key_value_stage_line_size,
-            AttentionIdent::Softmax => unreachable!("Not a materialized stage"),
-            AttentionIdent::Value => self.key_value_stage_line_size,
-            AttentionIdent::Mask => todo!(),
-            AttentionIdent::Out => 1,
-        }
-    }
-
     fn attention_tile_size(&self) -> AttentionTileSize {
         self.attention_tile_size
-    }
-
-    fn check_bounds(&self) -> bool {
-        self.check_bounds
     }
 
     fn num_rows_per_unit(&self) -> u32 {

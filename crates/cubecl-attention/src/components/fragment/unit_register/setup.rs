@@ -28,6 +28,15 @@ impl FragmentAttentionFamily for UnitRegisterFragmentAttention {
         line_sizes: &AttentionLineSizes,
         num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
-        todo!()
+        UnitRegisterFragmentAttentionConfig::new::<AP>(
+            selection.plane_dim,
+            selection.tiling_scheme.tile_size,
+            line_sizes.query as u32,
+            line_sizes.key as u32,
+            !(problem.seq_kv as u32).is_multiple_of(selection.tiling_scheme.tile_size.seq_kv),
+            num_planes,
+            problem.causal,
+            problem.masked,
+        )
     }
 }
