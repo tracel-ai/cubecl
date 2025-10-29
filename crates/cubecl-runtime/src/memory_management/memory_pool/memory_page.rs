@@ -34,7 +34,7 @@ impl MemoryPage {
     }
 
     /// Gets the [summary](MemoryPageSummary) of the current memory page.
-    pub fn summary(&self) -> MemoryPageSummary {
+    pub fn summary(&self, memory_blocks: bool) -> MemoryPageSummary {
         let mut summary = MemoryPageSummary::default();
 
         for slice in self.slices.iter() {
@@ -46,10 +46,12 @@ impl MemoryPage {
                 summary.amount_full += slice.storage.size();
                 summary.num_full += 1;
             }
-            summary.blocks.push(MemoryBlock {
-                is_free,
-                size: slice.storage.size(),
-            });
+            if memory_blocks {
+                summary.blocks.push(MemoryBlock {
+                    is_free,
+                    size: slice.storage.size(),
+                });
+            }
         }
         summary.amount_total = self.storage.size();
         summary.num_total = self.slices.len();
@@ -216,7 +218,7 @@ struct MemoryBlock {
 
 #[derive(Default, PartialEq, Eq)]
 pub struct MemoryPageSummary {
-    pub blocks: Vec<MemoryBlock>,
+    blocks: Vec<MemoryBlock>,
     pub amount_free: u64,
     pub amount_full: u64,
     pub amount_total: u64,
@@ -282,7 +284,7 @@ impl Debug for MemoryPageSummary {
 
 impl Display for MemoryPage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("{}", self.summary()))
+        f.write_fmt(format_args!("{}", self.summary(true)))
     }
 }
 
@@ -376,7 +378,7 @@ mod tests {
             "Utilization to be correct"
         );
 
-        let summary = page.summary();
+        let summary = page.summary(true);
 
         assert_eq!(
             summary,
@@ -401,7 +403,7 @@ mod tests {
             "Summary is correct before cleanup",
         );
         page.cleanup();
-        let summary = page.summary();
+        let summary = page.summary(true);
 
         assert_eq!(
             summary,
@@ -461,7 +463,7 @@ mod tests {
             .expect("Enough space to allocate a new slice");
 
         assert_eq!(
-            page.summary(),
+            page.summary(true),
             MemoryPageSummary {
                 blocks: vec![
                     MemoryBlock {
@@ -511,7 +513,7 @@ mod tests {
         page.cleanup();
 
         assert_eq!(
-            page.summary(),
+            page.summary(true),
             MemoryPageSummary {
                 blocks: vec![
                     MemoryBlock {
@@ -572,7 +574,7 @@ mod tests {
         );
 
         assert_eq!(
-            page.summary(),
+            page.summary(true),
             MemoryPageSummary {
                 blocks: vec![
                     MemoryBlock {
