@@ -4,7 +4,7 @@ use std::{
     ops::Deref,
 };
 
-use crate::{NodeIndex, analyses::Analysis};
+use crate::{ControlFlow, NodeIndex, analyses::Analysis};
 use smallvec::SmallVec;
 
 use crate::{
@@ -168,8 +168,25 @@ impl GvnState {
         let successors = opt.successors(current);
         // Since we have no critical edges, if successors > 1 then they must have only one entry,
         // So no phi nodes.
+        //
+        // Loops are a special case because the conservative nature of PRE normally prevents loop
+        // invariants from being moved out of the loop. Since only side-effect free values are
+        // numbered, we can safely treat loops as being executed at least once. The worst case is
+        // some expressions are executed unnecessarily, but for a loop that never runs, performance
+        // is likely secondary.
         #[allow(clippy::comparison_chain)]
-        if successors.len() > 1 {
+        if let ControlFlow::Loop { body, .. } | ControlFlow::LoopBreak { body, .. } =
+            opt.block(current).control_flow.borrow().clone()
+        {
+            let antic_in_succ = &self.block_sets[&body].antic_in;
+            let phi_gen = &self.block_sets[&body].phi_gen;
+            let result =
+                phi_translate(opt, phi_gen, antic_in_succ, body, current, &mut self.values);
+            if self.block_sets[&current].antic_out != result {
+                changed = true;
+            }
+            self.block_sets.get_mut(&current).unwrap().antic_out = result;
+        } else if successors.len() > 1 {
             let potential_out = &self.block_sets[&successors[0]].antic_in;
             let mut result = LinkedList::new();
             let rest = successors[1..]

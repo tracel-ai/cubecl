@@ -332,10 +332,9 @@ pub fn into_contiguous_ref<R: Runtime, E: CubePrimitive>(
     let mut num_elems_per_unit = line_size as u32 * elems_per_unit;
 
     let last_dim = output.shape[rank - 1];
-    let is_padded = rank > 1 && last_dim != output.strides[rank - 2];
 
     // If tensor is strided, elems_per_unit must be compatible with last dim
-    while is_padded && !last_dim.is_multiple_of(num_elems_per_unit as usize) {
+    while !last_dim.is_multiple_of(num_elems_per_unit as usize) {
         elems_per_unit /= 2;
         num_elems_per_unit /= 2;
     }
