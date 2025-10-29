@@ -4,14 +4,14 @@ use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
     fragment::{
         AttentionMatmulFamily,
-        accelerated::{AcceleratedAttentionMatmul, AcceleratedAttentionMatmulConfig},
+        accelerated::{AcceleratedFragmentAttention, AcceleratedFragmentAttentionConfig},
     },
 };
 
-impl AttentionMatmulFamily for AcceleratedAttentionMatmul {
-    type Matmul<AP: AttentionPrecision> = AcceleratedAttentionMatmul;
+impl AttentionMatmulFamily for AcceleratedFragmentAttention {
+    type FragmentAttention<AP: AttentionPrecision> = AcceleratedFragmentAttention;
 
-    type Config = AcceleratedAttentionMatmulConfig;
+    type Config = AcceleratedFragmentAttentionConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -28,7 +28,7 @@ impl AttentionMatmulFamily for AcceleratedAttentionMatmul {
         line_sizes: &crate::components::AttentionLineSizes,
         num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
-        AcceleratedAttentionMatmulConfig::new::<AP>(
+        AcceleratedFragmentAttentionConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             num_planes,

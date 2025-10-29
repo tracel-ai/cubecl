@@ -19,34 +19,34 @@ use crate::components::{
 };
 
 pub struct SimpleKVReuseStageAttentionFamily<
-    AM: AttentionMatmulFamily,
+    FA: AttentionMatmulFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
 > {
-    _phantom: PhantomData<(AM, SK, SV, SO)>,
+    _phantom: PhantomData<(FA, SK, SV, SO)>,
 }
 
 impl<
-    AM: AttentionMatmulFamily,
+    FA: AttentionMatmulFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for SimpleKVReuseStageAttentionFamily<AM, SK, SV, SO>
+> StageAttentionFamily for SimpleKVReuseStageAttentionFamily<FA, SK, SV, SO>
 {
     type Attention<AP: AttentionPrecision> = SimpleKVReuseStageAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        AM::Matmul<AP>,
+        FA::FragmentAttention<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = SimpleKVReuseStageConfig<AM::Config>;
+    type Config = SimpleKVReuseStageConfig<FA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -55,9 +55,9 @@ impl<
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
         let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * AM::computation_resources()?.num_planes(selection.plane_dim)?;
+            * FA::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config = AM::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
+        let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
         SimpleKVReuseStageConfig::new(
             tile_config,

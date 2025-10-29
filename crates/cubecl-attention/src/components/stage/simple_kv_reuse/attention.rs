@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
-use crate::components::fragment::AttentionMatmul;
+use crate::components::fragment::FragmentAttention;
 use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::QueryReader;
 use crate::components::stage::simple_kv_reuse::MaskPartition;
@@ -24,9 +24,14 @@ use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
-pub struct SimpleKVReuseStageAttention<AP: AttentionPrecision, SK, SV, SO, AM: AttentionMatmul<AP>>
-{
-    _phantom: PhantomData<(AP, SK, SV, SO, AM)>,
+pub struct SimpleKVReuseStageAttention<
+    AP: AttentionPrecision,
+    SK,
+    SV,
+    SO,
+    FA: FragmentAttention<AP>,
+> {
+    _phantom: PhantomData<(AP, SK, SV, SO, FA)>,
 }
 
 #[cube]
@@ -35,20 +40,20 @@ impl<
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
-    AM: AttentionMatmul<AP>,
-> StageAttention<AP> for SimpleKVReuseStageAttention<AP, SK, SV, SO, AM>
+    FA: FragmentAttention<AP>,
+> StageAttention<AP> for SimpleKVReuseStageAttention<AP, SK, SV, SO, FA>
 {
-    type Config = SimpleKVReuseStageConfig<AM::Config>;
+    type Config = SimpleKVReuseStageConfig<FA::Config>;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type QueryRegisters = QueryPartition<AP, AM, Self::Config>;
-    type KeyValueRegisters = KeyValues<AP, AM, Self::Config>;
-    type SoftmaxRegisters = SoftmaxPartition<AP, AM, Self::Config>;
-    type AccumulatorRegisters = AccumulatorPartition<AP, AM, Self::Config>;
-    type MaskRegisters = MaskPartition<AP, AM, Self::Config>;
+    type QueryRegisters = QueryPartition<AP, FA, Self::Config>;
+    type KeyValueRegisters = KeyValues<AP, FA, Self::Config>;
+    type SoftmaxRegisters = SoftmaxPartition<AP, FA, Self::Config>;
+    type AccumulatorRegisters = AccumulatorPartition<AP, FA, Self::Config>;
+    type MaskRegisters = MaskPartition<AP, FA, Self::Config>;
 
     fn execute(
         query_partition: &Self::QueryRegisters,
@@ -64,9 +69,9 @@ impl<
         let p = config.tiling_scheme().partition_size;
 
         let mut max_placeholder =
-            TileAttention::<AP, AM>::init_max_placeholder(config.num_rows_per_unit());
+            TileAttention::<AP, FA>::init_max_placeholder(config.num_rows_per_unit());
         let mut sum_placeholder =
-            TileAttention::<AP, AM>::init_sum_placeholder(config.num_rows_per_unit());
+            TileAttention::<AP, FA>::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         for kv in 0..p.seq_kv {
@@ -156,7 +161,7 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                TileAttention::<AP, AM>::rescale(
+                TileAttention::<AP, FA>::rescale(
                     Self::AccumulatorRegisters::get_at_mut(acc, q, vd, config),
                     state.index(q),
                 );
@@ -170,7 +175,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TileAttention::<AP, AM>::init_state(config.tile_config()));
+            sequence.push(TileAttention::<AP, FA>::init_state(config.tile_config()));
         }
 
         sequence

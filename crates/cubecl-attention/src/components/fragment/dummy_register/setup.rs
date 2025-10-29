@@ -1,15 +1,15 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
+use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, InvalidConfigError, fragment::AttentionMatmulFamily,
 };
 
-impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {
-    type Matmul<F: AttentionPrecision> = DummyRegisterAttentionMatmul;
+impl AttentionMatmulFamily for DummyRegisterFragmentAttention {
+    type FragmentAttention<F: AttentionPrecision> = DummyRegisterFragmentAttention;
 
     type Config = DummyRegisterAttentionMatmulConfig;
 

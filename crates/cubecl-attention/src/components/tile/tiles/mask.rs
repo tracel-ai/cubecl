@@ -5,7 +5,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
-use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig};
+use crate::components::fragment::{FragmentAttentionConfig, FragmentAttention};
 use crate::components::fragment::{
     FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
 };
@@ -16,29 +16,29 @@ use cubecl_std::tensor::layout::Coordinates;
 #[derive(CubeType)]
 /// Mask tile for Tile Attention
 /// It is an additive mask, which means the result of apply should be added, not multiplied
-pub enum MaskTile<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
-    Materialized(MaterializedTileMask<AP, AM>),
-    Logical(LogicalTileMask<AM::FragmentLayout>),
+pub enum MaskTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+    Materialized(MaterializedTileMask<AP, FA>),
+    Logical(LogicalTileMask<FA::FragmentLayout>),
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile<AP, AM> {
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaskTile<AP, FA> {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] partition_pos: Coords2d,
-        #[comptime] config: AM::Config,
-    ) -> MaskTile<AP, AM> {
-        let logical_mask = LogicalTileMask::<AM::FragmentLayout> {
+        #[comptime] config: FA::Config,
+    ) -> MaskTile<AP, FA> {
+        let logical_mask = LogicalTileMask::<FA::FragmentLayout> {
             logical_iter_origin: LogicalIterOrigin::init(),
             partition_pos,
             causal: config.causal_mask(),
             out_of_bounds,
-            fragment_layout: AM::softmax_layout(config),
+            fragment_layout: FA::softmax_layout(config),
         };
 
         if config.materialized_mask() {
-            MaskTile::new_Materialized(MaterializedTileMask::<AP, AM> {
-                fragment: AM::allocate_mask(config),
+            MaskTile::new_Materialized(MaterializedTileMask::<AP, FA> {
+                fragment: FA::allocate_mask(config),
                 logical_mask,
                 config,
             })
@@ -52,7 +52,6 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaskTile<AP, AM> {
     pub fn update(&mut self, new_origin: Coords2d, tile: CubeOption<StridedTile<MSK<AP>>>) {
         match self {
             MaskTile::Materialized(materialized_tile_mask) => {
-                // TODO read the tile
                 materialized_tile_mask
                     .logical_mask
                     .update_origin(new_origin);
@@ -126,15 +125,15 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
 }
 
 #[derive(CubeType)]
-pub struct MaterializedTileMask<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
-    fragment: AM::Mask,
-    logical_mask: LogicalTileMask<AM::FragmentLayout>,
+pub struct MaterializedTileMask<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+    fragment: FA::Mask,
+    logical_mask: LogicalTileMask<FA::FragmentLayout>,
     #[cube(comptime)]
-    config: AM::Config,
+    config: FA::Config,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, AM> {
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaterializedTileMask<AP, FA> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
         let logical_masked = self.logical_mask.should_mask(local_pos);
         let materialized_masked = self.fragment.should_mask(local_pos);
@@ -143,12 +142,12 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> MaterializedTileMask<AP, A
     }
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
-        AM::fill_mask(&tile, &mut self.fragment, self.config);
+        FA::fill_mask(&tile, &mut self.fragment, self.config);
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> FragmentMask for MaskTile<AP, AM> {
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> FragmentMask for MaskTile<AP, FA> {
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {
         match self {
             MaskTile::Materialized(materialized_tile_mask) => {

@@ -15,7 +15,7 @@ use crate::components::{
     tile::AttentionTilingLayout,
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
-use crate::components::{attention_types::*, fragment::AttentionMatmulConfig};
+use crate::components::{attention_types::*, fragment::FragmentAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -122,7 +122,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type AttentionMatmulConfig: AttentionMatmulConfig;
+    type AttentionMatmulConfig: FragmentAttentionConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;

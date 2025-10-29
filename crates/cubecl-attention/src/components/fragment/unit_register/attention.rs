@@ -7,15 +7,15 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::unit_register::UnitRegisterAttentionMatmulConfig;
+use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::RowWise;
 
-use crate::components::fragment::AttentionMatmul;
+use crate::components::fragment::FragmentAttention;
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 
-pub struct UnitRegisterAttentionMatmul;
+pub struct UnitRegisterFragmentAttention;
 
 #[derive(CubeType)]
 pub struct UnitTile<E: Numeric> {
@@ -74,8 +74,8 @@ impl<E: Numeric> FragmentMask for UnitTile<E> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> AttentionMatmul<AP> for UnitRegisterAttentionMatmul {
-    type Config = UnitRegisterAttentionMatmulConfig;
+impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAttention {
+    type Config = UnitRegisterFragmentAttentionConfig;
 
     type Query = UnitTile<QT<AP>>;
     type KeyValue = UnitTile<KVT<AP>>;

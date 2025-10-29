@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::FragmentLayout;
 use crate::components::fragment::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
@@ -17,7 +17,7 @@ pub struct BroadcastReducer {}
 
 #[cube]
 impl Reducer for BroadcastReducer {
-    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] config: TC,

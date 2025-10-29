@@ -13,8 +13,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 #[cube]
-pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
-    type Config: AttentionMatmulConfig;
+pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
+    type Config: FragmentAttentionConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
     type Mask: FragmentMask;
@@ -72,7 +72,7 @@ pub trait AttentionMatmul<AP: AttentionPrecision>: Send + Sync + 'static {
 }
 
 /// Configuration for the Tile Attention level
-pub trait AttentionMatmulConfig:
+pub trait FragmentAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
@@ -94,10 +94,10 @@ pub trait AttentionMatmulConfig:
 
 pub trait AttentionMatmulFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type Matmul<AP: AttentionPrecision>: AttentionMatmul<AP, Config = Self::Config>;
+    type FragmentAttention<AP: AttentionPrecision>: FragmentAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
-    type Config: AttentionMatmulConfig;
+    type Config: FragmentAttentionConfig;
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;

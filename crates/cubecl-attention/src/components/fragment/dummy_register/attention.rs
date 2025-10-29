@@ -11,11 +11,11 @@ use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
-use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 
-pub struct DummyRegisterAttentionMatmul;
+pub struct DummyRegisterFragmentAttention;
 
 #[derive(CubeType)]
 /// Mimics fragment behaviour, but execution is not efficient
@@ -294,7 +294,7 @@ fn array_tile_to_slice<E: Numeric, E2: Numeric>(
 }
 
 #[cube]
-impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmul {
+impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAttention {
     type Config = DummyRegisterAttentionMatmulConfig;
 
     type Query = ArrayTile<QT<AP>>;
@@ -420,11 +420,11 @@ impl<AP: AttentionPrecision> AttentionMatmul<AP> for DummyRegisterAttentionMatmu
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        ArrayTile::new(<Self as AttentionMatmul<AP>>::softmax_layout(config))
+        ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        ArrayTile::new(<Self as AttentionMatmul<AP>>::softmax_layout(config))
+        ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

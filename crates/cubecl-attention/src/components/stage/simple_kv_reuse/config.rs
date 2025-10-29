@@ -1,12 +1,12 @@
 use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
 
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, fragment::AttentionMatmulConfig,
+    AttentionSetupError, AttentionTilingScheme, fragment::FragmentAttentionConfig,
     stage::StageAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SimpleKVReuseStageConfig<FC: AttentionMatmulConfig> {
+pub struct SimpleKVReuseStageConfig<FC: FragmentAttentionConfig> {
     tile_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
@@ -15,7 +15,7 @@ pub struct SimpleKVReuseStageConfig<FC: AttentionMatmulConfig> {
     num_planes: u32,
 }
 
-impl<FC: AttentionMatmulConfig> StageAttentionConfig for SimpleKVReuseStageConfig<FC> {
+impl<FC: FragmentAttentionConfig> StageAttentionConfig for SimpleKVReuseStageConfig<FC> {
     type AttentionMatmulConfig = FC;
 
     fn plane_dim(&self) -> u32 {
@@ -51,7 +51,7 @@ impl<FC: AttentionMatmulConfig> StageAttentionConfig for SimpleKVReuseStageConfi
     }
 }
 
-impl<FC: AttentionMatmulConfig> SimpleKVReuseStageConfig<FC> {
+impl<FC: FragmentAttentionConfig> SimpleKVReuseStageConfig<FC> {
     pub fn new(
         tile_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig,

@@ -9,7 +9,7 @@ macro_rules! testgen_attention_suite {
         use $crate::tests::macros::{TestOptions, attention_test_launch};
 
         #[test]
-        fn attention_8_8_8_8() {
+        fn attention_one_tile() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -80,7 +80,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_8_q16() {
+        fn attention_one_tile_seqq16() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -114,7 +114,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_8_q4() {
+        fn attention_one_tile_seqq4() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -148,7 +148,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_partition_q2() {
+        fn attention_partition_seqq2() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -734,7 +734,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_8_8_8_8_masked() {
+        fn attention_one_tile_masked() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -768,7 +768,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_8_8_8_8_causal() {
+        fn attention_one_tile_causal() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {
@@ -802,7 +802,7 @@ macro_rules! testgen_attention_suite {
         }
 
         #[test]
-        fn attention_8_8_8_8_masked_causal() {
+        fn attention_one_tile_masked_causal() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {

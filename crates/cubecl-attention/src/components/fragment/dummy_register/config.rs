@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::attention_types::*;
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::dummy_register::InnerLayout;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
@@ -23,7 +23,7 @@ pub struct DummyRegisterAttentionMatmulConfig {
     materialized_mask: bool,
 }
 
-impl AttentionMatmulConfig for DummyRegisterAttentionMatmulConfig {
+impl FragmentAttentionConfig for DummyRegisterAttentionMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }

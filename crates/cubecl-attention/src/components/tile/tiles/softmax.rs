@@ -3,8 +3,8 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::AttentionMatmul;
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
+use crate::components::fragment::FragmentAttention;
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 use crate::components::tile::BroadcastReducer;
 use crate::components::tile::MaskTile;
@@ -17,17 +17,17 @@ use crate::components::tile::{row_max, row_sum};
 ///
 /// This tile is neither an input nor an output,
 /// but the intermediate step where the softmax part of attention happens
-pub struct SoftmaxTile<AP: AttentionPrecision, AM: AttentionMatmul<AP>> {
-    pub fragment: AM::Softmax,
+pub struct SoftmaxTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+    pub fragment: FA::Softmax,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP, AM> {
-    pub fn new(#[comptime] config: AM::Config) -> Self {
-        let mut fragment = AM::allocate_softmax(config);
-        AM::zero_softmax(&mut fragment, config);
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> SoftmaxTile<AP, FA> {
+    pub fn new(#[comptime] config: FA::Config) -> Self {
+        let mut fragment = FA::allocate_softmax(config);
+        FA::zero_softmax(&mut fragment, config);
 
-        SoftmaxTile::<AP, AM> { fragment }
+        SoftmaxTile::<AP, FA> { fragment }
     }
 
     /// Init the running state used in softmax
@@ -36,19 +36,19 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP, AM> {
     }
 
     /// Scale the tile by a constant factor and apply the mask
-    pub fn scale_and_mask(&mut self, scale: SM<AP>, mask: &MaskTile<AP, AM>) {
-        AM::Softmax::scale_and_mask::<MaskTile<AP, AM>>(&mut self.fragment, scale, mask);
+    pub fn scale_and_mask(&mut self, scale: SM<AP>, mask: &MaskTile<AP, FA>) {
+        FA::Softmax::scale_and_mask::<MaskTile<AP, FA>>(&mut self.fragment, scale, mask);
     }
 
     /// Compute the max of each row, starting with base
     /// as first element of the reduction, and storing result in placeholder
-    pub fn row_max<TC: AttentionMatmulConfig>(
+    pub fn row_max<TC: FragmentAttentionConfig>(
         &self,
         placeholder: &mut RowWise<SM<AP>>,
         base: &RowWise<SM<AP>>,
         #[comptime] config: TC,
     ) {
-        row_max::<SM<AP>, AM::Softmax, BroadcastReducer, TC>(
+        row_max::<SM<AP>, FA::Softmax, BroadcastReducer, TC>(
             placeholder,
             base,
             &self.fragment,
@@ -58,7 +58,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP, AM> {
 
     /// Converts scores into (unnormalized) probabilities, updates running state,
     /// and returns the factor needed to scale the accumulator
-    pub fn to_prob<TC: AttentionMatmulConfig>(
+    pub fn to_prob<TC: FragmentAttentionConfig>(
         &mut self,
         state: &mut RunningState<SM<AP>>,
         new_m: &RowWise<SM<AP>>,
@@ -67,7 +67,7 @@ impl<AP: AttentionPrecision, AM: AttentionMatmul<AP>> SoftmaxTile<AP, AM> {
     ) -> RowWise<SM<AP>> {
         self.fragment.exp_diff(new_m);
 
-        row_sum::<SM<AP>, AM::Softmax, BroadcastReducer, TC>(
+        row_sum::<SM<AP>, FA::Softmax, BroadcastReducer, TC>(
             rowsum_placeholder,
             &self.fragment,
             config,

@@ -1,15 +1,15 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnitRegisterAttentionMatmulConfig {}
+pub struct UnitRegisterFragmentAttentionConfig {}
 
-impl AttentionMatmulConfig for UnitRegisterAttentionMatmulConfig {
+impl FragmentAttentionConfig for UnitRegisterFragmentAttentionConfig {
     fn plane_dim(&self) -> u32 {
         todo!()
     }
@@ -47,7 +47,7 @@ impl AttentionMatmulConfig for UnitRegisterAttentionMatmulConfig {
     }
 }
 
-impl UnitRegisterAttentionMatmulConfig {
+impl UnitRegisterFragmentAttentionConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new<AP: AttentionPrecision>() -> Result<Self, AttentionSetupError> {
         Self {}.validate()

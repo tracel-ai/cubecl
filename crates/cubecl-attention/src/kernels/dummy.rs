@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::fragment::accelerated::AcceleratedAttentionMatmul;
-use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmul;
+use crate::components::fragment::accelerated::AcceleratedFragmentAttention;
+use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
@@ -15,7 +15,7 @@ pub struct DummyRegisterAlgorithm {}
 pub struct DummyAcceleratedAlgorithm {}
 
 impl Algorithm for DummyRegisterAlgorithm {
-    type FragmentAttention = DummyRegisterAttentionMatmul;
+    type FragmentAttention = DummyRegisterFragmentAttention;
     type StageAttention = SimpleKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,
@@ -37,7 +37,7 @@ impl Algorithm for DummyRegisterAlgorithm {
 }
 
 impl Algorithm for DummyAcceleratedAlgorithm {
-    type FragmentAttention = AcceleratedAttentionMatmul;
+    type FragmentAttention = AcceleratedFragmentAttention;
     type StageAttention = SimpleKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,

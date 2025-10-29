@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::fragment::unit_register::UnitRegisterAttentionMatmul;
+use crate::components::fragment::unit_register::UnitRegisterFragmentAttention;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
@@ -13,7 +13,7 @@ use crate::{
 pub struct UnitAlgorithm {}
 
 impl Algorithm for UnitAlgorithm {
-    type FragmentAttention = UnitRegisterAttentionMatmul;
+    type FragmentAttention = UnitRegisterFragmentAttention;
     type StageAttention = SimpleKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,

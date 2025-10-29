@@ -1,14 +1,14 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize, attention_types::*,
 };
 use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AcceleratedAttentionMatmulConfig {
+pub struct AcceleratedFragmentAttentionConfig {
     plane_dim: u32,
     attention_tile_size: AttentionTileSize,
     num_planes: u32,
@@ -18,7 +18,7 @@ pub struct AcceleratedAttentionMatmulConfig {
     check_bounds: bool,
 }
 
-impl AttentionMatmulConfig for AcceleratedAttentionMatmulConfig {
+impl FragmentAttentionConfig for AcceleratedFragmentAttentionConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -63,7 +63,7 @@ impl AttentionMatmulConfig for AcceleratedAttentionMatmulConfig {
     }
 }
 
-impl AcceleratedAttentionMatmulConfig {
+impl AcceleratedFragmentAttentionConfig {
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
