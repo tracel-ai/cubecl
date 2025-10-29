@@ -344,7 +344,7 @@ impl ConstantScalarValue {
 
     /// Returns the value of the scalar as a f64.
     ///
-    /// It will return [None] if the scalar type is am int or a bool.
+    /// It will return [None] if the scalar type is an int or a bool.
     pub fn try_as_f64(&self) -> Option<f64> {
         match self {
             ConstantScalarValue::Float(val, _) => Some(*val),

@@ -145,7 +145,6 @@ impl<T: SpirvTarget> Compiler for SpirvCompiler<T> {
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
-        println!("Compiling {}", value.options.kernel_name);
         let bindings = value.buffers.clone();
         let scalars = value
             .scalars

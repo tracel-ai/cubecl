@@ -288,6 +288,7 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                         }
                         Elem::Relaxed => {
                             b.decorate(out, Decoration::RelaxedPrecision, []);
+                            b.declare_math_mode(modes, out);
                             T::f_abs(b, ty, input, out)
                         }
                         _ => unreachable!(),
