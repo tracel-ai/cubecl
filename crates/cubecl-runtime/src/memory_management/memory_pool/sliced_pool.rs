@@ -1,7 +1,3 @@
-use core::fmt::Display;
-
-use hashbrown::HashMap;
-
 use crate::{
     memory_management::{
         BytesFormat, MemoryUsage,
@@ -9,8 +5,10 @@ use crate::{
     },
     storage::StorageId,
 };
+use core::fmt::Display;
+use hashbrown::HashMap;
 
-pub struct SlicedPoolV2 {
+pub struct SlicedPool {
     pages: HashMap<StorageId, MemoryPage>,
     page_size: u64,
     aligment: u64,
@@ -18,39 +16,7 @@ pub struct SlicedPoolV2 {
     max_alloc_size: u64,
 }
 
-impl Display for SlicedPoolV2 {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!(
-            " - Sliced Pool page_size={} max_alloc_size={}\n",
-            BytesFormat::new(self.page_size),
-            BytesFormat::new(self.max_alloc_size)
-        ))?;
-
-        for (id, page) in self.pages.iter() {
-            let summary = page.summary(false);
-            f.write_fmt(format_args!(
-                "   - Page {id} num_slices={} =>",
-                summary.num_total
-            ))?;
-
-            let size_free = BytesFormat::new(summary.amount_free);
-            let size_full = BytesFormat::new(summary.amount_full);
-            let size_total = BytesFormat::new(summary.amount_total);
-
-            f.write_fmt(format_args!(
-                " {size_free} free - {size_full} full - {size_total} total\n"
-            ))?;
-        }
-
-        if !self.pages.is_empty() {
-            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
-        }
-
-        Ok(())
-    }
-}
-
-impl SlicedPoolV2 {
+impl SlicedPool {
     pub fn new(page_size: u64, max_slice_size: u64, aligment: u64) -> Self {
         Self {
             pages: HashMap::new(),
@@ -62,7 +28,7 @@ impl SlicedPoolV2 {
     }
 }
 
-impl MemoryPool for SlicedPoolV2 {
+impl MemoryPool for SlicedPool {
     fn max_alloc_size(&self) -> u64 {
         self.max_alloc_size
     }
@@ -104,7 +70,7 @@ impl MemoryPool for SlicedPoolV2 {
         let padding = calculate_padding(size, self.aligment);
         let effectice_size = size + padding;
         let storage = storage.alloc(self.page_size)?;
-        let storage_id = storage.id.clone();
+        let storage_id = storage.id;
         let mut page = MemoryPage::new(storage);
         let returned = page.reserve(effectice_size);
         self.pages.insert(storage_id, page);
@@ -145,7 +111,7 @@ impl MemoryPool for SlicedPoolV2 {
             page.cleanup();
             let summary = page.summary(false);
             if summary.amount_free == summary.amount_total {
-                to_clean.push(id.clone());
+                to_clean.push(*id);
             }
         }
 
@@ -153,5 +119,37 @@ impl MemoryPool for SlicedPoolV2 {
             self.pages.remove(&id);
             storage.dealloc(id);
         }
+    }
+}
+
+impl Display for SlicedPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(
+            " - Sliced Pool page_size={} max_alloc_size={}\n",
+            BytesFormat::new(self.page_size),
+            BytesFormat::new(self.max_alloc_size)
+        ))?;
+
+        for (id, page) in self.pages.iter() {
+            let summary = page.summary(false);
+            f.write_fmt(format_args!(
+                "   - Page {id} num_slices={} =>",
+                summary.num_total
+            ))?;
+
+            let size_free = BytesFormat::new(summary.amount_free);
+            let size_full = BytesFormat::new(summary.amount_full);
+            let size_total = BytesFormat::new(summary.amount_total);
+
+            f.write_fmt(format_args!(
+                " {size_free} free - {size_full} full - {size_total} total\n"
+            ))?;
+        }
+
+        if !self.pages.is_empty() {
+            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
+        }
+
+        Ok(())
     }
 }

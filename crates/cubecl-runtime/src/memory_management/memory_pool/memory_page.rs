@@ -6,19 +6,29 @@ use core::fmt::{Debug, Display};
 use hashbrown::HashMap;
 
 /// A memory page is responsable to reserve slices of data based on a fixed storage buffer.
+///
+/// # Notes
+///
+/// The memory page doesn't handle memory alignment and assume any size passed to the memory page
+/// is properly padded.
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<PageSlice>,
     slices_map: HashMap<SliceId, usize>,
+    /// This is a vector to be used temporary to store the updated slices.
+    ///
+    /// It avoids allocating a new vector all the time.
+    slices_tmp: Vec<PageSlice>,
 }
 
 impl MemoryPage {
-    /// Creates a new memory page with the given storage and memory alignment.
+    /// Creates a new memory page with the given storage.
     pub fn new(storage: StorageHandle) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
             slices: Vec::new(),
             slices_map: HashMap::new(),
+            slices_tmp: Vec::new(),
         };
 
         let page = PageSlice {
@@ -106,8 +116,7 @@ impl MemoryPage {
             None => return,
         };
 
-        let mut slices_updated = Vec::with_capacity(self.slices.len() + 1);
-        let mut slices_map_updated = HashMap::with_capacity(self.slices_map.len() + 1);
+        self.slices_map.clear();
 
         let mut offset = 0;
         let mut size = 0;
@@ -115,7 +124,7 @@ impl MemoryPage {
 
         for (index, slice) in self.slices.drain(..).enumerate() {
             let status = match &mut task {
-                Some(task) => task.register(index),
+                Some(task) => task.on_cleanup(index),
                 None => MemoryTaskStatus::Ingoring,
             };
 
@@ -129,8 +138,8 @@ impl MemoryPage {
                 }
                 MemoryTaskStatus::Ingoring => {
                     let id = *slice.handle.id();
-                    slices_updated.push(slice);
-                    slices_map_updated.insert(id, index_current);
+                    self.slices_tmp.push(slice);
+                    self.slices_map.insert(id, index_current);
                     index_current += 1;
                 }
                 MemoryTaskStatus::Completed => {
@@ -143,16 +152,18 @@ impl MemoryPage {
                         storage,
                     };
                     let id = *page.handle.id();
-                    slices_updated.push(page);
-                    slices_map_updated.insert(id, index_current);
+                    self.slices_tmp.push(page);
+                    self.slices_map.insert(id, index_current);
                     index_current += 1;
                     task = tasks.next();
                 }
             };
         }
 
-        self.slices = slices_updated;
-        self.slices_map = slices_map_updated;
+        core::mem::swap(&mut self.slices, &mut self.slices_tmp);
+        // We clear the vec_buffer to make sure atomic ref counters are OK and for the next time we
+        // use it.
+        self.slices_tmp.clear();
     }
 
     fn add_new_slice(
@@ -161,8 +172,7 @@ impl MemoryPage {
         reserved_size_previous: u64,
         new_slice: PageSlice,
     ) {
-        let mut slices_updated = Vec::with_capacity(self.slices.len() + 1);
-        let mut slices_map_updated = HashMap::with_capacity(self.slices_map.len() + 1);
+        self.slices_map.clear();
 
         let new_id = *new_slice.handle.id();
         let mut new_slice = Some(new_slice);
@@ -172,24 +182,26 @@ impl MemoryPage {
             if index_current == index_previous {
                 slice.storage.utilization.size = reserved_size_previous;
                 let id = *slice.handle.id();
-                slices_updated.push(slice);
-                slices_map_updated.insert(id, index_current);
+                self.slices_tmp.push(slice);
+                self.slices_map.insert(id, index_current);
                 index_current += 1;
 
                 // New slice
-                slices_updated.push(new_slice.take().unwrap());
-                slices_map_updated.insert(new_id, index_current);
+                self.slices_tmp.push(new_slice.take().unwrap());
+                self.slices_map.insert(new_id, index_current);
                 index_current += 1;
             } else {
                 let id = *slice.handle.id();
-                slices_updated.push(slice);
-                slices_map_updated.insert(id, index_current);
+                self.slices_tmp.push(slice);
+                self.slices_map.insert(id, index_current);
                 index_current += 1;
             }
         }
 
-        self.slices = slices_updated;
-        self.slices_map = slices_map_updated;
+        core::mem::swap(&mut self.slices, &mut self.slices_tmp);
+        // We clear the vec_buffer to make sure atomic ref counters are OK and for the next time we
+        // use it.
+        self.slices_tmp.clear();
     }
 
     fn memory_job(&self) -> MemoryJob {
@@ -199,7 +211,7 @@ impl MemoryPage {
         for (index, slice) in self.slices.iter().enumerate() {
             if slice.handle.is_free() {
                 task.size += slice.storage.size();
-                task.indexes.push(index);
+                task.to_cleanup(index);
             } else {
                 task = job.add(task);
             }
@@ -294,20 +306,62 @@ struct PageSlice {
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
-struct MemoryTask {
-    indexes: Vec<usize>,
-    cursor: usize,
-    size: u64,
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
 struct MemoryJob {
     tasks: Vec<MemoryTask>,
 }
 
+#[derive(Default, Debug, PartialEq, Eq)]
+/// The goal of the memory task is to gather contiguous slice indices that can be merged into a single slice.
+struct MemoryTask {
+    /// The first slice index to be merged.
+    start_index: usize,
+    /// The number of slices to be merged.
+    count: usize,
+    /// Which slice index is being merge right now.
+    cursor: usize,
+    /// The total size in bytes in the resulting merged slice.
+    size: u64,
+}
+
+impl MemoryTask {
+    /// Tells the task that the given slice index will be cleanup.
+    fn to_cleanup(&mut self, index: usize) {
+        if self.count == 0 {
+            self.start_index = index;
+        }
+
+        debug_assert!(
+            self.start_index + self.count == index,
+            "Only contiguous index can be cleanup in a single task"
+        );
+
+        self.count += 1;
+    }
+    /// Tells the task that the given slice index is being cleanup.
+    fn on_cleanup(&mut self, index: usize) -> MemoryTaskStatus {
+        let index_current = self.start_index + self.cursor;
+
+        if index_current == index {
+            self.cursor += 1;
+            if self.cursor == 1 {
+                return MemoryTaskStatus::StartMerging;
+            }
+
+            if self.cursor == self.count {
+                return MemoryTaskStatus::Completed;
+            } else {
+                return MemoryTaskStatus::Merging;
+            }
+        }
+
+        MemoryTaskStatus::Ingoring
+    }
+}
+
 impl MemoryJob {
     fn add(&mut self, mut task: MemoryTask) -> MemoryTask {
-        if task.indexes.len() < 2 {
+        // A single index can't be merge with anything.
+        if task.count < 2 {
             return MemoryTask::default();
         }
 
@@ -324,27 +378,6 @@ enum MemoryTaskStatus {
     StartMerging,
     Ingoring,
     Completed,
-}
-
-impl MemoryTask {
-    fn register(&mut self, index: usize) -> MemoryTaskStatus {
-        let index_current = self.indexes[self.cursor];
-
-        if index_current == index {
-            self.cursor += 1;
-            if self.cursor == 1 {
-                return MemoryTaskStatus::StartMerging;
-            }
-
-            if self.cursor == self.indexes.len() {
-                return MemoryTaskStatus::Completed;
-            } else {
-                return MemoryTaskStatus::Merging;
-            }
-        }
-
-        MemoryTaskStatus::Ingoring
-    }
 }
 
 #[cfg(test)]
@@ -437,7 +470,8 @@ mod tests {
             job,
             MemoryJob {
                 tasks: vec![MemoryTask {
-                    indexes: vec![0, 1],
+                    start_index: 0,
+                    count: 2,
                     cursor: 0,
                     size: 32 * MB,
                 }]
