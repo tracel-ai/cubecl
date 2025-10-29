@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::global::simple::MaskReader;
 use crate::components::tile::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -16,6 +15,7 @@ use crate::components::{
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
 use crate::components::{attention_types::*, fragment::FragmentAttentionConfig};
+use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -63,6 +63,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 
     /// The configuration type associated with this Attention.
     type Config: StageAttentionConfig;
+    type Partitioner: AttentionPartitioner;
 
     type QueryRegisters: CubeType;
     type KeyValueRegisters: CubeType;

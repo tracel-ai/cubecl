@@ -54,6 +54,7 @@ impl<
     type OutStage = SO;
 
     type Config = S;
+    type Partitioner = P;
 
     type QueryRegisters = QueryPartition<AP, FA, S>;
     type KeyValueRegisters = KeyValues<AP, FA, S>;

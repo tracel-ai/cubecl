@@ -8,14 +8,13 @@ use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
-use crate::components::global::simple::writer::AttentionWriter;
+use crate::components::global::simple::{AttentionWriter, AttentionWriterExpand, MaskReader};
 use crate::components::global::{
     AttentionGlobalLayout,
     simple::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::StageAttention;
+use crate::components::stage::{AttentionPartitioner, StageAttention};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
@@ -42,7 +41,7 @@ impl<
     type ValueReader = DummyValueReader<AP, Self::Config>;
     type MaskReader = MaskReader<AP>;
 
-    type Writer = AttentionWriter<(OG<AP>, OS<AP>)>;
+    type Writer = <SA::Partitioner as AttentionPartitioner>::Writer<OS<AP>, OG<AP>>;
 
     type Config = SimpleGlobalConfig<SA::Config>;
 

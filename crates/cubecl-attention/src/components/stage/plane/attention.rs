@@ -4,6 +4,7 @@ use cubecl_std::tensor::layout::Coords1d;
 
 use crate::components::{
     fragment::FragmentAttention,
+    global::simple::PlaneAttentionWriter,
     stage::{
         kv_reuse_attention::KVReuseStageAttention, partitioner::AttentionPartitioner,
         plane::PlaneKVReuseStageConfig,
@@ -26,6 +27,7 @@ pub struct PlanePartitioner {}
 #[cube]
 impl AttentionPartitioner for PlanePartitioner {
     type Reducer = BroadcastReducer;
+    type Writer<ES: Float, EG: Float> = PlaneAttentionWriter<ES, EG>;
 
     fn seq_q_index() -> Coords1d {
         UNIT_POS_Y
