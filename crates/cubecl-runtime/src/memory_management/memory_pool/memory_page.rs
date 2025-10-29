@@ -1,16 +1,13 @@
 use crate::{
-    memory_management::{BytesFormat, SliceHandle, SliceId},
+    memory_management::{
+        BytesFormat, MemoryUsage, SliceHandle, SliceId, memory_pool::calculate_padding,
+    },
     storage::{StorageHandle, StorageUtilization},
 };
 use core::fmt::{Debug, Display};
 use hashbrown::HashMap;
 
 /// A memory page is responsable to reserve slices of data based on a fixed storage buffer.
-///
-/// # Notes
-///
-/// The memory page doesn't handle memory alignment and assume any size passed to the memory page
-/// is properly padded.
 pub struct MemoryPage {
     storage: StorageHandle,
     slices: Vec<PageSlice>,
@@ -19,21 +16,25 @@ pub struct MemoryPage {
     ///
     /// It avoids allocating a new vector all the time.
     slices_tmp: Vec<PageSlice>,
+    /// Memory alignment.
+    alignment: u64,
 }
 
 impl MemoryPage {
     /// Creates a new memory page with the given storage.
-    pub fn new(storage: StorageHandle) -> Self {
+    pub fn new(storage: StorageHandle, alignment: u64) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
             slices: Vec::new(),
             slices_map: HashMap::new(),
             slices_tmp: Vec::new(),
+            alignment,
         };
 
         let page = PageSlice {
             handle: SliceHandle::new(),
             storage,
+            padding: 0,
         };
         let id = *page.handle.id();
         let index = 0;
@@ -43,6 +44,27 @@ impl MemoryPage {
         this
     }
 
+    /// Gets the [memory usage](MemoryUsage) of the current memory page.
+    pub fn memory_usage(&self) -> MemoryUsage {
+        let mut usage = MemoryUsage {
+            number_allocs: 0,
+            bytes_in_use: 0,
+            bytes_padding: 0,
+            bytes_reserved: 0,
+        };
+
+        for slice in self.slices.iter() {
+            usage.bytes_reserved += slice.storage.size();
+
+            if !slice.handle.is_free() {
+                usage.number_allocs += 1;
+                usage.bytes_in_use += slice.storage.size() - slice.padding;
+                usage.bytes_padding += slice.padding;
+            }
+        }
+
+        usage
+    }
     /// Gets the [summary](MemoryPageSummary) of the current memory page.
     pub fn summary(&self, memory_blocks: bool) -> MemoryPageSummary {
         let mut summary = MemoryPageSummary::default();
@@ -71,19 +93,25 @@ impl MemoryPage {
 
     /// Reserves a slice of the given size if there is enough place in the page.
     pub fn reserve(&mut self, size: u64) -> Option<SliceHandle> {
-        for (index, slice) in self.slices.iter().enumerate() {
-            let can_use_slice = slice.storage.utilization.size >= size && slice.handle.is_free();
+        let padding = calculate_padding(size, self.alignment);
+        let effective_size = size + padding;
+
+        for (index, slice) in self.slices.iter_mut().enumerate() {
+            let can_use_slice =
+                slice.storage.utilization.size >= effective_size && slice.handle.is_free();
             if !can_use_slice {
                 continue;
             }
 
-            let can_be_splitted = slice.storage.utilization.size > size;
+            let can_be_splitted = slice.storage.utilization.size > effective_size;
             let handle = slice.handle.clone();
+            slice.padding = padding;
 
             if can_be_splitted {
                 let new_slice = PageSlice {
                     handle: SliceHandle::new(),
                     storage: slice.storage.offset_start(size),
+                    padding: 0,
                 };
                 self.add_new_slice(index, size, new_slice);
             }
@@ -150,6 +178,7 @@ impl MemoryPage {
                     let page = PageSlice {
                         handle: SliceHandle::new(),
                         storage,
+                        padding: 0,
                     };
                     let id = *page.handle.id();
                     self.slices_tmp.push(page);
@@ -243,7 +272,7 @@ impl Display for MemoryBlock {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self.is_free {
             true => f.write_fmt(format_args!("Free ({})", BytesFormat::new(self.size))),
-            false => f.write_fmt(format_args!("Taken ({})", BytesFormat::new(self.size))),
+            false => f.write_fmt(format_args!("Reserved ({})", BytesFormat::new(self.size))),
         }
     }
 }
@@ -303,6 +332,7 @@ impl Display for MemoryPage {
 struct PageSlice {
     handle: SliceHandle,
     storage: StorageHandle,
+    padding: u64,
 }
 
 #[derive(Default, Debug, PartialEq, Eq)]
@@ -641,6 +671,6 @@ mod tests {
     fn new_memory_page(size: u64) -> MemoryPage {
         let storage = StorageHandle::new(StorageId::new(), StorageUtilization { offset: 0, size });
 
-        MemoryPage::new(storage)
+        MemoryPage::new(storage, 4)
     }
 }

@@ -1,7 +1,7 @@
 use crate::{
     memory_management::{
         BytesFormat, MemoryUsage,
-        memory_pool::{MemoryPage, MemoryPool, calculate_padding},
+        memory_pool::{MemoryPage, MemoryPool},
     },
     storage::StorageId,
 };
@@ -12,7 +12,6 @@ pub struct SlicedPool {
     pages: HashMap<StorageId, MemoryPage>,
     page_size: u64,
     aligment: u64,
-    number_allocs: u64,
     max_alloc_size: u64,
 }
 
@@ -22,7 +21,6 @@ impl SlicedPool {
             pages: HashMap::new(),
             page_size,
             aligment,
-            number_allocs: 0,
             max_alloc_size: max_slice_size,
         }
     }
@@ -44,16 +42,13 @@ impl MemoryPool for SlicedPool {
     }
 
     fn try_reserve(&mut self, size: u64) -> Option<super::SliceHandle> {
-        let padding = calculate_padding(size, self.aligment);
-        let effectice_size = size + padding;
-
-        if effectice_size > self.max_alloc_size {
+        if size > self.max_alloc_size {
             return None;
         }
 
         for (_, page) in self.pages.iter_mut() {
             page.cleanup();
-            if let Some(handle) = page.reserve(effectice_size) {
+            if let Some(handle) = page.reserve(size) {
                 return Some(handle);
             }
         }
@@ -66,13 +61,10 @@ impl MemoryPool for SlicedPool {
         storage: &mut Storage,
         size: u64,
     ) -> Result<super::SliceHandle, crate::server::IoError> {
-        self.number_allocs += 1;
-        let padding = calculate_padding(size, self.aligment);
-        let effectice_size = size + padding;
         let storage = storage.alloc(self.page_size)?;
         let storage_id = storage.id;
-        let mut page = MemoryPage::new(storage);
-        let returned = page.reserve(effectice_size);
+        let mut page = MemoryPage::new(storage, self.aligment);
+        let returned = page.reserve(size);
         self.pages.insert(storage_id, page);
 
         Ok(returned.expect("effectice_size to be smaller than page_size"))
@@ -80,17 +72,16 @@ impl MemoryPool for SlicedPool {
 
     fn get_memory_usage(&self) -> MemoryUsage {
         let mut usage = MemoryUsage {
-            number_allocs: self.number_allocs,
+            number_allocs: 0,
             bytes_in_use: 0,
             bytes_padding: 0,
             bytes_reserved: 0,
         };
 
         for (_, page) in self.pages.iter() {
-            let summary = page.summary(false);
-            usage.bytes_in_use += summary.amount_full;
-            usage.bytes_padding += summary.amount_free;
-            usage.bytes_reserved += summary.amount_total;
+            let current = page.memory_usage();
+            println!("{current:?}");
+            usage = usage.combine(current);
         }
 
         usage
