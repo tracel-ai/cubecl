@@ -1,6 +1,6 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPoolV2},
 };
 use crate::{
     config::{
@@ -26,7 +26,7 @@ pub use super::memory_pool::{SliceBinding, handle::*};
 // saving the 200 bytes.
 #[allow(clippy::large_enum_variant)]
 enum DynamicPool {
-    Sliced(SlicedPool),
+    Sliced(SlicedPoolV2),
     Exclusive(ExclusiveMemoryPool),
 }
 
@@ -288,7 +288,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
                 PoolType::SlicedPages {
                     page_size,
                     max_slice_size,
-                } => DynamicPool::Sliced(SlicedPool::new(
+                } => DynamicPool::Sliced(SlicedPoolV2::new(
                     page_size,
                     max_slice_size,
                     properties.alignment,
