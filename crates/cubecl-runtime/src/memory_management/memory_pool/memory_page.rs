@@ -241,7 +241,7 @@ impl MemoryPage {
         for (index, slice) in self.slices.iter().enumerate() {
             if slice.handle.is_free() {
                 task.size += slice.storage.size();
-                task.to_cleanup(index);
+                task.tag_cleanup(index);
             } else {
                 task = job.add(task);
             }
@@ -356,7 +356,7 @@ struct MemoryTask {
 
 impl MemoryTask {
     /// Tells the task that the given slice index will be cleanup.
-    fn to_cleanup(&mut self, index: usize) {
+    fn tag_cleanup(&mut self, index: usize) {
         if self.count == 0 {
             self.start_index = index;
         }
