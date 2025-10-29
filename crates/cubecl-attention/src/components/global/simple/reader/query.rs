@@ -6,7 +6,7 @@ use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::AttentionPrecision;
-use crate::components::stage::StageAttentionConfig;
+use crate::components::stage::{AttentionPartitioner, StageAttentionConfig};
 
 #[derive(CubeType)]
 pub struct QueryReader<AP: AttentionPrecision> {
@@ -21,7 +21,7 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         QueryReader::<AP> { query }
     }
 
-    pub fn get_tile<S: StageAttentionConfig>(
+    pub fn get_tile<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
         tile: Coords2d,
         #[comptime] config: S,
@@ -29,8 +29,7 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         let (row_in_partition, col) = tile;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
-        // TODO UNIT: UNIT_POS for unit
-        let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
+        let row = row_in_partition + P::seq_q_index() * config.tiling_scheme().partition_size.seq_q;
 
         StridedTile::<QG<AP>>::new_strided(
             self.query

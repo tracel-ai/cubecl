@@ -201,8 +201,7 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                // TODO UNIT: UNIT_POS for unit
-                let tile_pos = (q + UNIT_POS_Y * p.seq_q, vd.runtime());
+                let tile_pos = (q + P::seq_q_index() * p.seq_q, vd.runtime());
                 let mut tile = SO::tile(stage, tile_pos);
 
                 TileAttention::<AP, FA>::write_results(
@@ -253,7 +252,7 @@ impl<
             #[unroll]
             for hd in 0..p.head_dim {
                 let tile_to_write = registers.get_at_mut(q, hd, config);
-                let tile_read = reader.get_tile::<S>((q, hd).runtime(), config);
+                let tile_read = reader.get_tile::<P, S>((q, hd).runtime(), config);
 
                 tile_to_write.update(&tile_read);
             }
@@ -273,7 +272,7 @@ impl<
             for kv in 0..p.seq_kv {
                 let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
 
-                let (new_origin, tile) = reader.read::<S>((q, kv), config);
+                let (new_origin, tile) = reader.read::<P, S>((q, kv), config);
                 mask_tile.update(new_origin, tile);
             }
         }

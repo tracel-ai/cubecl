@@ -1,9 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::tensor::layout::Coords1d;
 
-use cubecl_std::tensor::layout::Coords2d;
-
-use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::Reducer;
 
 #[cube]
@@ -12,6 +10,5 @@ use crate::components::tile::Reducer;
 pub trait AttentionPartitioner: Send + Sync + 'static {
     type Reducer: Reducer;
 
-    /// Returns the (row, col) of the current compute primitive within the stage.
-    fn coordinates<S: StageAttentionConfig>(#[comptime] config: S) -> Coords2d;
+    fn seq_q_index() -> Coords1d;
 }

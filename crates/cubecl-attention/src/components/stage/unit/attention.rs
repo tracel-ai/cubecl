@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
+use cubecl_std::tensor::layout::Coords1d;
 
 use crate::components::{
     fragment::FragmentAttention,
     stage::{
-        StageAttentionConfig, kv_reuse_attention::KVReuseStageAttention,
-        partitioner::AttentionPartitioner, unit::UnitKVReuseStageConfig,
+        kv_reuse_attention::KVReuseStageAttention, partitioner::AttentionPartitioner,
+        unit::UnitKVReuseStageConfig,
     },
     tile::UnitReducer,
 };
@@ -27,7 +27,7 @@ pub struct UnitPartitioner {}
 impl AttentionPartitioner for UnitPartitioner {
     type Reducer = UnitReducer;
 
-    fn coordinates<S: StageAttentionConfig>(#[comptime] _config: S) -> Coords2d {
-        todo!()
+    fn seq_q_index() -> Coords1d {
+        UNIT_POS
     }
 }

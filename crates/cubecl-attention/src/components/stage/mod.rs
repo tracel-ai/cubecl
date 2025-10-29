@@ -7,3 +7,4 @@ mod partitioner;
 mod tile_partitions;
 
 pub use base::*;
+pub use partitioner::*;
