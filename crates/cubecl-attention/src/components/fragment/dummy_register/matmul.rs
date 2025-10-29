@@ -18,10 +18,9 @@ use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 pub struct DummyRegisterAttentionMatmul;
 
 #[derive(CubeType)]
+/// Mimics fragment behaviour, but execution is not efficient
 /// Assumes:
-/// - All elements of a unit are contiguous
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
-/// - There is never more than one row for one unit
 pub struct ArrayTile<E: Numeric> {
     array: Array<E>,
     layout: ArrayTileLayout,

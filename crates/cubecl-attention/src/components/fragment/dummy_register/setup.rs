@@ -14,7 +14,7 @@ impl AttentionMatmulFamily for DummyRegisterAttentionMatmul {
     type Config = DummyRegisterAttentionMatmulConfig;
 
     fn requires_accelerator() -> bool {
-        true
+        false
     }
 
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
