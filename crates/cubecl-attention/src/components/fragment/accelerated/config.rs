@@ -3,18 +3,16 @@ use std::hash::Hash;
 
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::{
-    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize, attention_types::*,
+    AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
 };
-use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct AcceleratedFragmentAttentionConfig {
     plane_dim: u32,
-    attention_tile_size: AttentionTileSize,
     num_planes: u32,
+    attention_tile_size: AttentionTileSize,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
-    cast_query: bool,
     check_bounds: bool,
 }
 
@@ -42,10 +40,6 @@ impl FragmentAttentionConfig for AcceleratedFragmentAttentionConfig {
         self.attention_tile_size
     }
 
-    fn cast_query(&self) -> bool {
-        self.cast_query
-    }
-
     fn check_bounds(&self) -> bool {
         self.check_bounds
     }
@@ -67,19 +61,17 @@ impl AcceleratedFragmentAttentionConfig {
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
-        num_planes: u32,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
         check_bounds: bool,
+        num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             plane_dim,
-            attention_tile_size,
             num_planes,
+            attention_tile_size,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: QG::<AP>::as_type_native_unchecked()
-                == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
         }
         .validate()

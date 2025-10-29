@@ -18,7 +18,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -52,7 +54,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -89,7 +93,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -123,7 +129,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -157,7 +165,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -191,7 +201,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 2,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -225,7 +237,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -259,7 +273,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 2,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -293,7 +309,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 2,
                 val_dim: 2,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -327,7 +345,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let num_iterations = 2;
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
@@ -362,7 +382,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let num_iterations = 2;
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
@@ -397,7 +419,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -431,7 +455,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 2 };
+            let stage_size = AttentionStageSize {
+                seq_q: 2 * STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -465,7 +491,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -499,7 +527,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -533,7 +563,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 2 };
+            let stage_size = AttentionStageSize {
+                seq_q: 2 * STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -567,7 +599,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 4 };
+            let stage_size = AttentionStageSize {
+                seq_q: 4 * STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -601,7 +635,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 2 };
+            let stage_size = AttentionStageSize {
+                seq_q: 2 * STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -635,7 +671,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 2,
                 val_dim: 2,
             };
-            let stage_size = AttentionStageSize { seq_q: 2 };
+            let stage_size = AttentionStageSize {
+                seq_q: 2 * STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -669,7 +707,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 2,
                 val_dim: 2,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -706,7 +746,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -743,7 +785,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -777,7 +821,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -811,7 +857,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -845,7 +893,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,
@@ -879,7 +929,9 @@ macro_rules! testgen_attention_suite {
                 head_dim: 1,
                 val_dim: 1,
             };
-            let stage_size = AttentionStageSize { seq_q: 1 };
+            let stage_size = AttentionStageSize {
+                seq_q: STAGE_Q_BASE,
+            };
             let tiling_scheme = AttentionTilingScheme {
                 tile_size: TILE_SIZE,
                 partition_size,

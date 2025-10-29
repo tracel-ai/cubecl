@@ -25,11 +25,6 @@ impl FragmentAttentionConfig for UnitRegisterFragmentAttentionConfig {
     fn attention_tile_size(&self) -> AttentionTileSize {
         todo!()
     }
-
-    fn cast_query(&self) -> bool {
-        todo!()
-    }
-
     fn check_bounds(&self) -> bool {
         todo!()
     }

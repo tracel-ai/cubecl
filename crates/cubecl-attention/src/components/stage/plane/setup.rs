@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     attention_types::*,
-    fragment::AttentionMatmulFamily,
+    fragment::FragmentAttentionFamily,
     stage::{
         AttentionStageMemoryConfig,
         plane::{attention::PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},
@@ -19,7 +19,7 @@ use crate::components::{
 };
 
 pub struct PlaneKVReuseStageAttentionFamily<
-    FA: AttentionMatmulFamily,
+    FA: FragmentAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
@@ -28,7 +28,7 @@ pub struct PlaneKVReuseStageAttentionFamily<
 }
 
 impl<
-    FA: AttentionMatmulFamily,
+    FA: FragmentAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,

@@ -3,12 +3,12 @@ use cubecl_matmul::components::ComputeResources;
 use crate::components::{
     AttentionPrecision, AttentionSetupError, InvalidConfigError,
     fragment::{
-        AttentionMatmulFamily,
+        FragmentAttentionFamily,
         accelerated::{AcceleratedFragmentAttention, AcceleratedFragmentAttentionConfig},
     },
 };
 
-impl AttentionMatmulFamily for AcceleratedFragmentAttention {
+impl FragmentAttentionFamily for AcceleratedFragmentAttention {
     type FragmentAttention<AP: AttentionPrecision> = AcceleratedFragmentAttention;
 
     type Config = AcceleratedFragmentAttentionConfig;
@@ -31,10 +31,10 @@ impl AttentionMatmulFamily for AcceleratedFragmentAttention {
         AcceleratedFragmentAttentionConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
-            num_planes,
             line_sizes.query as u32,
             line_sizes.key as u32,
             !(problem.seq_kv as u32).is_multiple_of(selection.tiling_scheme.tile_size.seq_kv),
+            num_planes,
         )
     }
 }

@@ -5,10 +5,10 @@ use crate::components::fragment::unit_register::UnitRegisterFragmentAttention;
 use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, fragment::AttentionMatmulFamily,
+    AttentionSetupError, InvalidConfigError, fragment::FragmentAttentionFamily,
 };
 
-impl AttentionMatmulFamily for UnitRegisterFragmentAttention {
+impl FragmentAttentionFamily for UnitRegisterFragmentAttention {
     type FragmentAttention<F: AttentionPrecision> = UnitRegisterFragmentAttention;
 
     type Config = UnitRegisterFragmentAttentionConfig;

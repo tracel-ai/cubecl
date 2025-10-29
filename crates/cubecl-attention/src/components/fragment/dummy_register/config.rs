@@ -1,13 +1,11 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::attention_types::*;
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::dummy_register::InnerLayout;
 use crate::components::{
     AttentionIdent, AttentionPrecision, AttentionSetupError, AttentionTileSize,
 };
-use cubecl_core::frontend::CubePrimitive;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct DummyRegisterAttentionMatmulConfig {
@@ -16,7 +14,6 @@ pub struct DummyRegisterAttentionMatmulConfig {
     num_planes: u32,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
-    cast_query: bool,
     check_bounds: bool,
     inner_layout: InnerLayout,
     causal_mask: bool,
@@ -45,10 +42,6 @@ impl FragmentAttentionConfig for DummyRegisterAttentionMatmulConfig {
 
     fn attention_tile_size(&self) -> AttentionTileSize {
         self.attention_tile_size
-    }
-
-    fn cast_query(&self) -> bool {
-        self.cast_query
     }
 
     fn check_bounds(&self) -> bool {
@@ -90,8 +83,6 @@ impl DummyRegisterAttentionMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            cast_query: QG::<AP>::as_type_native_unchecked()
-                == QT::<AP>::as_type_native_unchecked(),
             check_bounds,
             inner_layout: if two_rows_in_array_tile {
                 InnerLayout::SplitRows

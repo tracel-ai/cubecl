@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     attention_types::*,
-    fragment::AttentionMatmulFamily,
+    fragment::FragmentAttentionFamily,
     stage::{
         AttentionStageMemoryConfig,
         unit::{attention::UnitKVReuseStageAttention, config::UnitKVReuseStageConfig},
@@ -10,7 +10,7 @@ use crate::components::{
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
-    GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
+    ComputeResources, GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
 };
 
 use crate::components::{
@@ -19,7 +19,7 @@ use crate::components::{
 };
 
 pub struct UnitKVReuseStageAttentionFamily<
-    FA: AttentionMatmulFamily,
+    FA: FragmentAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
@@ -28,7 +28,7 @@ pub struct UnitKVReuseStageAttentionFamily<
 }
 
 impl<
-    FA: AttentionMatmulFamily,
+    FA: FragmentAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
@@ -54,9 +54,17 @@ impl<
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * FA::computation_resources()?.num_planes(selection.plane_dim)?;
+        let compute_resources = if let ComputeResources::Units(units) = FA::computation_resources()?
+        {
+            ComputeResources::Units(units * selection.tiling_scheme.stage_size.seq_q)
+        } else {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Error: Tried to use a unit stage attention with a plane fragment attention."
+                    .to_string(),
+            )));
+        };
 
+        let num_planes = compute_resources.num_planes(selection.plane_dim)?;
         let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
         UnitKVReuseStageConfig::new(

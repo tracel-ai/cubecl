@@ -77,12 +77,9 @@ pub trait FragmentAttentionConfig:
 {
     fn plane_dim(&self) -> u32;
 
-    // TODO try to remove this
     fn num_planes(&self) -> u32;
     fn stage_line_size(&self, ident: AttentionIdent) -> u32;
     fn attention_tile_size(&self) -> AttentionTileSize;
-    // If AP::EI != FP::Q
-    fn cast_query(&self) -> bool;
 
     fn check_bounds(&self) -> bool;
 
@@ -92,7 +89,7 @@ pub trait FragmentAttentionConfig:
     fn materialized_mask(&self) -> bool;
 }
 
-pub trait AttentionMatmulFamily: Send + Sync + 'static {
+pub trait FragmentAttentionFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
     type FragmentAttention<AP: AttentionPrecision>: FragmentAttention<AP, Config = Self::Config>;
 
