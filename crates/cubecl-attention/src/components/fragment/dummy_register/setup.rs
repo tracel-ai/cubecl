@@ -1,8 +1,8 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
+use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, InvalidConfigError, fragment::FragmentAttentionFamily,
