@@ -81,7 +81,6 @@ impl MemoryPool for SlicedPool {
 
         for (_, page) in self.pages.iter() {
             let current = page.memory_usage();
-            println!("{current:?}");
             usage = usage.combine(current);
         }
 
