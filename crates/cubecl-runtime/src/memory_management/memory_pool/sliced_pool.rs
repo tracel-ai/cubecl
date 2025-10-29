@@ -10,7 +10,7 @@ use hashbrown::HashMap;
 /// - Each 'page' allocation will contain a number of sub slices.
 /// - The pool uses a ring buffer to efficiently manage and reuse pages.
 pub(crate) struct SlicedPool {
-    pages: HashMap<StorageId, MemoryPage>,
+    pages: HashMap<StorageId, MemoryPageOld>,
     slices: HashMap<SliceId, Slice>,
     ring: RingBuffer,
     recently_added_pages: Vec<StorageId>,
@@ -66,11 +66,11 @@ impl core::fmt::Display for SlicedPool {
 
 // TODO: consider using generic trait and decouple from Slice
 #[derive(new, Debug)]
-pub(crate) struct MemoryPage {
+pub(crate) struct MemoryPageOld {
     pub(crate) slices: HashMap<u64, SliceId>,
 }
 
-impl MemoryPage {
+impl MemoryPageOld {
     /// merge slice at first_slice_address with the next slice (if there is one and if it's free)
     /// return a boolean representing if a merge happened
     pub(crate) fn merge_with_next_slice(
@@ -267,7 +267,7 @@ impl SlicedPool {
         let id = storage.id;
         self.ring.push_page(id);
 
-        self.pages.insert(id, MemoryPage::new(HashMap::new()));
+        self.pages.insert(id, MemoryPageOld::new(HashMap::new()));
 
         Ok(id)
     }

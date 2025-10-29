@@ -3,7 +3,7 @@ use hashbrown::HashMap;
 
 use crate::storage::StorageId;
 
-use super::{MemoryPage, Slice, SliceId};
+use super::{MemoryPageOld, Slice, SliceId};
 
 #[derive(Debug)]
 pub struct RingBuffer {
@@ -34,7 +34,7 @@ impl RingBuffer {
     pub fn find_free_slice(
         &mut self,
         size: u64,
-        pages: &mut HashMap<StorageId, MemoryPage>,
+        pages: &mut HashMap<StorageId, MemoryPageOld>,
         slices: &mut HashMap<SliceId, Slice>,
     ) -> Option<SliceId> {
         let max_second = self.cursor_chunk;
@@ -52,7 +52,7 @@ impl RingBuffer {
     fn find_free_slice_in_chunk(
         &mut self,
         size: u64,
-        page: &mut MemoryPage,
+        page: &mut MemoryPageOld,
         slices: &mut HashMap<SliceId, Slice>,
         mut slice_index: u64,
     ) -> Option<(u64, SliceId)> {
@@ -64,6 +64,7 @@ impl RingBuffer {
                 let is_big_enough = slice.effective_size() >= size;
                 let is_free = slice.is_free();
 
+                // Is free is wrong here.
                 if is_big_enough && is_free {
                     if slice.effective_size() > size
                         && let Some(new_slice) = slice.split(size, self.buffer_alignment)
@@ -96,7 +97,7 @@ impl RingBuffer {
     fn find_free_slice_in_all_chunks(
         &mut self,
         size: u64,
-        pages: &mut HashMap<StorageId, MemoryPage>,
+        pages: &mut HashMap<StorageId, MemoryPageOld>,
         slices: &mut HashMap<SliceId, Slice>,
         max_cursor_position: usize,
     ) -> Option<SliceId> {
@@ -131,7 +132,7 @@ impl RingBuffer {
 #[cfg(test)]
 mod tests {
     use crate::{
-        memory_management::memory_pool::{MemoryPage, SliceHandle},
+        memory_management::memory_pool::{MemoryPageOld, SliceHandle},
         storage::StorageHandle,
     };
 
@@ -259,7 +260,12 @@ mod tests {
 
     fn new_chunk(
         slice_sizes: &[u64],
-    ) -> (StorageId, Vec<SliceId>, HashMap<SliceId, Slice>, MemoryPage) {
+    ) -> (
+        StorageId,
+        Vec<SliceId>,
+        HashMap<SliceId, Slice>,
+        MemoryPageOld,
+    ) {
         let offsets: Vec<_> = slice_sizes
             .iter()
             .scan(0, |state, size| {
@@ -284,7 +290,7 @@ mod tests {
             })
             .collect();
 
-        let mem_page = MemoryPage {
+        let mem_page = MemoryPageOld {
             slices: slices
                 .iter()
                 .zip(offsets)
