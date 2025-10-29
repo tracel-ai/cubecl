@@ -146,33 +146,6 @@ macro_rules! function {
             }
         }
     };
-
-    ($name:ident, $func:expr, $fast_math_opts:expr, $fast_intrinsic:ident) => {
-        pub struct $name;
-
-        impl<D: Dialect> FunctionFmt<D> for $name {
-            fn base_function_name() -> &'static str {
-                $func
-            }
-            fn half_support() -> bool {
-                $half_support
-            }
-        }
-
-        impl<D: Dialect> Unary<D> for $name {
-            fn format_scalar<Input: Display>(
-                f: &mut std::fmt::Formatter<'_>,
-                input: Input,
-                elem: Elem<D>,
-            ) -> std::fmt::Result {
-                Self::format_unary(f, input, elem)
-            }
-
-            fn can_optimize() -> bool {
-                $half_support
-            }
-        }
-    };
 }
 
 function!(Log, "log");
