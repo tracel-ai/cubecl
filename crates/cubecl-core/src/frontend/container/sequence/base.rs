@@ -139,6 +139,10 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
             func(scope, elem);
         }
     }
+
+    fn const_len(&self) -> Option<usize> {
+        Some(self.values.borrow().len())
+    }
 }
 
 impl<T: CubeType> IntoMut for SequenceExpand<T> {

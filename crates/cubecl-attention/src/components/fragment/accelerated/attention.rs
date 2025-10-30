@@ -4,8 +4,8 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::accelerated::AcceleratedAttentionMatmulConfig;
-use crate::components::fragment::{AttentionMatmul, AttentionMatmulConfig as _};
+use crate::components::fragment::accelerated::AcceleratedFragmentAttentionConfig;
+use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
@@ -13,7 +13,7 @@ use crate::components::tile::RowWise;
 use cubecl_std::tensor::layout::Coords2d;
 
 /// Performs two matmuls with fragment reuse for key/value and score/prob
-pub struct AcceleratedAttentionMatmul;
+pub struct AcceleratedFragmentAttention;
 
 #[derive(CubeType)]
 pub struct TODO;
@@ -65,8 +65,8 @@ impl<E: Numeric> FragmentMask for cmma::Matrix<E> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> AttentionMatmul<AP> for AcceleratedAttentionMatmul {
-    type Config = AcceleratedAttentionMatmulConfig;
+impl<AP: AttentionPrecision> FragmentAttention<AP> for AcceleratedFragmentAttention {
+    type Config = AcceleratedFragmentAttentionConfig;
     type Query = cmma::Matrix<QT<AP>>;
     type KeyValue = cmma::Matrix<KVT<AP>>;
     type Mask = cmma::Matrix<MSK<AP>>;

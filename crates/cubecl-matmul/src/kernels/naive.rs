@@ -16,10 +16,7 @@ use crate::{
     MatmulInputHandle, MatmulInputHandleRef,
     components::{
         MatmulAvailabilityError, MatmulProblem, MatmulSetupError, MatrixLayout,
-        global::memory::{
-            BatchedGlobalLayout, BatchedGlobalLayoutLaunch, BatchedGlobalScaleLayout,
-            GlobalLayoutConfig,
-        },
+        global::memory::{GlobalLayout, GlobalLayoutConfig, GlobalLayoutLaunch, GlobalScaleLayout},
     },
 };
 
@@ -220,10 +217,10 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
         };
         match handle {
             MatmulInputHandleRef::Normal(handle) => {
-                let layout = BatchedGlobalLayoutLaunch::from_handle(
+                let layout = GlobalLayoutLaunch::from_handle_batched(
                     client, handle, problem, line_size, config,
                 );
-                ViewArg::new::<BatchedGlobalLayout>(handle.as_array_arg(line_size), layout)
+                ViewArg::new::<GlobalLayout>(handle.as_array_arg(line_size), layout)
             }
             MatmulInputHandleRef::Quantized {
                 data,
@@ -231,13 +228,13 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
                 shape,
                 scheme,
             } => {
-                let (data_layout, scales_layout) = BatchedGlobalLayoutLaunch::from_quantized_handle(
+                let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
                     client, data, scale, shape, problem, **scheme, line_size, config,
                 );
                 let data_view =
-                    ViewArg::new::<BatchedGlobalLayout>(data.as_array_arg(line_size), data_layout);
+                    ViewArg::new::<GlobalLayout>(data.as_array_arg(line_size), data_layout);
                 let scales_view =
-                    ViewArg::new::<BatchedGlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
+                    ViewArg::new::<GlobalScaleLayout>(scale.as_array_arg(1), scales_layout);
                 ViewArg::new_quantized(data_view, scales_view, **scheme)
             }
         }

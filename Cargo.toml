@@ -107,6 +107,7 @@ tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 cudarc = { version = "0.17.3", features = [
     "std",
     "driver",
+    "nvrtc",
     "cuda-version-from-build-system",
     "dynamic-loading",
 ], default-features = false }

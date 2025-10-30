@@ -27,6 +27,10 @@ pub trait Iterable<T: CubeType>: Sized {
         scope: &mut Scope,
         body: impl FnMut(&mut Scope, <T as CubeType>::ExpandType),
     );
+    /// Return the comptime length of this iterable, if possible
+    fn const_len(&self) -> Option<usize> {
+        None
+    }
 }
 
 pub struct RangeExpand<I: Int> {
@@ -109,6 +113,12 @@ impl<I: Int> Iterable<I> for RangeExpand<I> {
             inclusive: self.inclusive,
         })));
     }
+
+    fn const_len(&self) -> Option<usize> {
+        let start = self.start.expand.as_const()?.as_i64();
+        let end = self.end.expand.as_const()?.as_i64();
+        Some(start.abs_diff(end) as usize)
+    }
 }
 
 pub struct SteppedRangeExpand<I: Int> {
@@ -175,6 +185,13 @@ impl<I: Int + Into<ExpandElement>> Iterable<I> for SteppedRangeExpand<I> {
                 body(scope, var.into())
             }
         }
+    }
+
+    fn const_len(&self) -> Option<usize> {
+        let start = self.start.constant()?.as_i64();
+        let end = self.end.constant()?.as_i64();
+        let step = self.step.constant()?.as_u64();
+        Some((start.abs_diff(end) / step) as usize)
     }
 }
 
@@ -254,7 +271,7 @@ pub fn for_expand<I: Numeric>(
     unroll: bool,
     body: impl FnMut(&mut Scope, ExpandElementTyped<I>),
 ) {
-    if unroll {
+    if unroll || range.const_len() == Some(1) {
         range.expand_unroll(scope, body);
     } else {
         range.expand(scope, body);
