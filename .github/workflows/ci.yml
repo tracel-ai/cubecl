@@ -114,7 +114,7 @@ jobs:
       '@keep-alive:false',
       '@machine-type:n2-standard-16',
       '@os:linux',
-      '@zone:northamerica-northeast1-b'
+      '@zones:northamerica-northeast1-b'
       ]
     needs: [prepare-checks, code-quality]
     strategy:
