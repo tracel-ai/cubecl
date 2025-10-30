@@ -160,7 +160,8 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
         let step = reduction_step::<Self::Config>(config);
-        let inner_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index();
+        let inner_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index()
+            * config.tiling_scheme().elements_in_partition_seq_q();
 
         match mask {
             CubeOption::Some(mask) => {
