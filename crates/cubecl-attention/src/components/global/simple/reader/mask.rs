@@ -7,7 +7,7 @@ use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::AttentionPrecision;
-use crate::components::stage::StageAttentionConfig;
+use crate::components::stage::{AttentionPartitioner, StageAttentionConfig};
 use cubecl_std::CubeOption;
 
 #[derive(CubeType)]
@@ -52,34 +52,35 @@ pub enum MaskReader<AP: AttentionPrecision> {
 
 #[cube]
 impl<AP: AttentionPrecision> MaskReader<AP> {
-    pub fn new_logical(q_offset: u32, step: u32) -> Self {
-        MaskReader::<AP>::new_Logical(LogicalIterator::init(q_offset, step))
+    pub fn new_logical(inner_q_offset: u32, step: u32) -> Self {
+        MaskReader::<AP>::new_Logical(LogicalIterator::init(inner_q_offset, step))
     }
 
     pub fn new_materialized(
-        q_offset: u32,
+        outer_q_offset: u32,
+        inner_q_offset: u32,
         mask: View<Line<MSK<AP>>, Coords2d>,
         step: u32,
         seq_kv_shape: u32,
     ) -> Self {
-        let mask = mask.slice((q_offset, 0), mask.shape());
+        let mask = mask.slice((outer_q_offset, 0), mask.shape());
         let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
 
         MaskReader::<AP>::new_Materialized(MaterializedMaskReader::new(
             global_iter,
-            LogicalIterator::init(q_offset, step),
+            LogicalIterator::init(inner_q_offset, step),
             seq_kv_shape,
         ))
     }
 
-    pub fn read<S: StageAttentionConfig>(
+    pub fn read<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
         #[comptime] pos_in_partition: Coords2d,
         #[comptime] config: S,
     ) -> (Coords2d, CubeOption<StridedTile<MSK<AP>>>) {
         match self {
             MaskReader::Materialized(materialized_mask_reader) => {
-                materialized_mask_reader.read::<S>(pos_in_partition, config)
+                materialized_mask_reader.read::<P, S>(pos_in_partition, config)
             }
             MaskReader::Logical(logical_iterator) => {
                 (logical_iterator.read(), CubeOption::new_None())
@@ -111,7 +112,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         }
     }
 
-    fn read<S: StageAttentionConfig>(
+    fn read<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
         #[comptime] pos_in_partition: Coords2d,
         #[comptime] config: S,
@@ -119,7 +120,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         let (row_in_partition, col) = pos_in_partition;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
-        let row = row_in_partition + UNIT_POS_Y * config.tiling_scheme().partition_size.seq_q;
+        let row = row_in_partition + P::seq_q_index() * config.tiling_scheme().partition_size.seq_q;
 
         let tile = StridedTile::<M>::new_strided(
             self.global_iter
