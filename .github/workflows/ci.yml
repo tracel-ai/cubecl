@@ -61,7 +61,7 @@ jobs:
             toolchain: stable
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v4
+        uses: tracel-ai/github-actions/setup-rust@v5
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -81,7 +81,7 @@ jobs:
         run: cargo xtask check lint
       # --------------------------------------------------------------------------------
       - name: Typos
-        uses: tracel-ai/github-actions/check-typos@v4
+        uses: tracel-ai/github-actions/check-typos@v5
 
   documentation:
     runs-on: ubuntu-22.04
@@ -94,7 +94,7 @@ jobs:
             toolchain: stable
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v4
+        uses: tracel-ai/github-actions/setup-rust@v5
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
@@ -127,13 +127,13 @@ jobs:
             toolchain: ${{ needs.prepare-checks.outputs.rust-prev-version }}
     steps:
       - name: Setup Rust
-        uses: tracel-ai/github-actions/setup-rust@v4
+        uses: tracel-ai/github-actions/setup-rust@v5
         with:
           rust-toolchain: ${{ matrix.toolchain }}
           cache-key: ${{ matrix.rust }}-linux
       # --------------------------------------------------------------------------------
       - name: Setup Linux runner
-        uses: tracel-ai/github-actions/setup-linux@v4
+        uses: tracel-ai/github-actions/setup-linux@v5
         with:
           apt-packages: "build-essential"
           vulkan-sdk-version: ${{ env.VULKAN_SDK_VERSION }}
@@ -157,14 +157,14 @@ jobs:
   #           toolchain: stable
   #   steps:
   #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v4
+  #       uses: tracel-ai/github-actions/setup-rust@v5
   #       with:
   #         rust-toolchain: ${{ matrix.toolchain }}
   #         cache-key: ${{ matrix.rust }}-windows
   #     # --------------------------------------------------------------------------------
   #     - name: Setup Windows runner
   #       if: env.DISABLE_WGPU != '1'
-  #       uses: tracel-ai/github-actions/setup-windows@v4
+  #       uses: tracel-ai/github-actions/setup-windows@v5
   #       with:
   #         dxc-release: ${{ env.DXC_RELEASE }}
   #         dxc-filename: ${{ env.DXC_FILENAME }}
@@ -186,7 +186,7 @@ jobs:
   #           toolchain: stable
   #   steps:
   #     - name: Setup Rust
-  #       uses: tracel-ai/github-actions/setup-rust@v4
+  #       uses: tracel-ai/github-actions/setup-rust@v5
   #       with:
   #         rust-toolchain: ${{ matrix.toolchain }}
   #         cache-key: ${{ matrix.rust }}-macos
