@@ -34,7 +34,7 @@ impl MemoryPool for SlicedPool {
             // If the size is close to the page size so it doesn't create much fragmentation with
             // unused space.
             match self.page_size.checked_sub(size) {
-                Some(diff) => diff * 10 < self.page_size, // 10 % unused space is the max allowed.
+                Some(diff) => diff * 5 < self.page_size, // 20 % unused space is the max allowed.
                 None => false,
             }
     }
