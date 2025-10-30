@@ -51,8 +51,8 @@ impl MemoryPool for SlicedPool {
 
     fn try_reserve(&mut self, size: u64) -> Option<super::SliceHandle> {
         for (_, page) in self.pages.iter_mut() {
-            page.cleanup();
-            if let Some(handle) = page.reserve(size) {
+            page.coalesce();
+            if let Some(handle) = page.try_reserve(size) {
                 return Some(handle);
             }
         }
@@ -68,7 +68,7 @@ impl MemoryPool for SlicedPool {
         let storage = storage.alloc(self.page_size)?;
         let storage_id = storage.id;
         let mut page = MemoryPage::new(storage, self.aligment);
-        let returned = page.reserve(size);
+        let returned = page.try_reserve(size);
         self.pages.insert(storage_id, page);
 
         Ok(returned.expect("effectice_size to be smaller than page_size"))
@@ -102,7 +102,7 @@ impl MemoryPool for SlicedPool {
         let mut to_clean = Vec::new();
 
         for (id, page) in self.pages.iter_mut() {
-            page.cleanup();
+            page.coalesce();
             let summary = page.summary(false);
             if summary.amount_free == summary.amount_total {
                 to_clean.push(*id);

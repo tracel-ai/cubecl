@@ -1,6 +1,7 @@
 use crate::{
     memory_management::{
-        BytesFormat, MemoryUsage, SliceHandle, SliceId, memory_pool::calculate_padding,
+        BytesFormat, MemoryUsage, SliceHandle, SliceId,
+        memory_pool::{Slice, calculate_padding},
     },
     storage::{StorageHandle, StorageUtilization},
 };
@@ -8,21 +9,21 @@ use alloc::vec::Vec;
 use core::fmt::{Debug, Display};
 use hashbrown::HashMap;
 
-/// A memory page is responsable to reserve slices of data based on a fixed storage buffer.
+/// A memory page is responsable to reserve [slices](Slice) of data based on a fixed [storage buffer](StorageHandle).
 pub struct MemoryPage {
     storage: StorageHandle,
-    slices: Vec<PageSlice>,
+    slices: Vec<Slice>,
     slices_map: HashMap<SliceId, usize>,
     /// This is a vector to be used temporary to store the updated slices.
     ///
     /// It avoids allocating a new vector all the time.
-    slices_tmp: Vec<PageSlice>,
+    slices_tmp: Vec<Slice>,
     /// Memory alignment.
     alignment: u64,
 }
 
 impl MemoryPage {
-    /// Creates a new memory page with the given storage.
+    /// Creates a new memory page with the given storage and memory alignment.
     pub fn new(storage: StorageHandle, alignment: u64) -> Self {
         let mut this = MemoryPage {
             storage: storage.clone(),
@@ -32,7 +33,7 @@ impl MemoryPage {
             alignment,
         };
 
-        let page = PageSlice {
+        let page = Slice {
             handle: SliceHandle::new(),
             storage,
             padding: 0,
@@ -55,34 +56,39 @@ impl MemoryPage {
         };
 
         for slice in self.slices.iter() {
-            usage.bytes_reserved += slice.storage.size();
+            usage.bytes_reserved += slice.effective_size();
 
             if !slice.handle.is_free() {
                 usage.number_allocs += 1;
-                usage.bytes_in_use += slice.storage.size() - slice.padding;
+                usage.bytes_in_use += slice.storage.size();
                 usage.bytes_padding += slice.padding;
             }
         }
 
         usage
     }
+
     /// Gets the [summary](MemoryPageSummary) of the current memory page.
+    ///
+    /// # Arguments
+    ///
+    /// - `memory_blocks`: whether the memory block details are included in the summary.
     pub fn summary(&self, memory_blocks: bool) -> MemoryPageSummary {
         let mut summary = MemoryPageSummary::default();
 
         for slice in self.slices.iter() {
             let is_free = slice.handle.is_free();
             if is_free {
-                summary.amount_free += slice.storage.size();
+                summary.amount_free += slice.effective_size();
                 summary.num_free += 1;
             } else {
-                summary.amount_full += slice.storage.size();
+                summary.amount_full += slice.effective_size();
                 summary.num_full += 1;
             }
             if memory_blocks {
                 summary.blocks.push(MemoryBlock {
                     is_free,
-                    size: slice.storage.size(),
+                    size: slice.effective_size(),
                 });
             }
         }
@@ -93,7 +99,12 @@ impl MemoryPage {
     }
 
     /// Reserves a slice of the given size if there is enough place in the page.
-    pub fn reserve(&mut self, size: u64) -> Option<SliceHandle> {
+    ///
+    /// # Notes
+    ///
+    /// If the current memory page is fragmented, meaning multiple contiguous slices of data exist,
+    /// you can call the [Self::coalesce()] function to merge those.
+    pub fn try_reserve(&mut self, size: u64) -> Option<SliceHandle> {
         let padding = calculate_padding(size, self.alignment);
         let effective_size = size + padding;
 
@@ -106,12 +117,17 @@ impl MemoryPage {
 
             let can_be_splitted = slice.storage.utilization.size > effective_size;
             let handle = slice.handle.clone();
+
+            let storage_old = slice.storage.clone();
+
+            // Updates the current storage utilization.
+            slice.storage.utilization.size = size;
             slice.padding = padding;
 
             if can_be_splitted {
-                let new_slice = PageSlice {
+                let new_slice = Slice {
                     handle: SliceHandle::new(),
-                    storage: slice.storage.offset_start(size),
+                    storage: storage_old.offset_start(effective_size),
                     padding: 0,
                 };
                 self.add_new_slice(index, size, new_slice);
@@ -132,11 +148,11 @@ impl MemoryPage {
         self.slices.get(*index).map(|slice| &slice.storage)
     }
 
-    /// Cleanups the current memory page by making sure adjacent slices are merged together into a
+    /// Recompute the memory page metadata to make sure adjacent slices are merged together into a
     /// single slice.
     ///
     /// This is necessary to allow bigger slices to be reserved on the current page.
-    pub fn cleanup(&mut self) {
+    pub fn coalesce(&mut self) {
         let mut job = self.memory_job();
         let mut tasks = job.tasks.drain(..);
 
@@ -153,17 +169,17 @@ impl MemoryPage {
 
         for (index, slice) in self.slices.drain(..).enumerate() {
             let status = match &mut task {
-                Some(task) => task.on_cleanup(index),
+                Some(task) => task.on_coalesce(index),
                 None => MemoryTaskStatus::Ingoring,
             };
 
             match status {
                 MemoryTaskStatus::StartMerging => {
                     offset = slice.storage.utilization.offset;
-                    size = slice.storage.size();
+                    size = slice.effective_size();
                 }
                 MemoryTaskStatus::Merging => {
-                    size += slice.storage.size();
+                    size += slice.effective_size();
                 }
                 MemoryTaskStatus::Ingoring => {
                     let id = *slice.handle.id();
@@ -172,11 +188,11 @@ impl MemoryPage {
                     index_current += 1;
                 }
                 MemoryTaskStatus::Completed => {
-                    size += slice.storage.size();
+                    size += slice.effective_size();
 
                     let mut storage = self.storage.clone();
                     storage.utilization = StorageUtilization { offset, size };
-                    let page = PageSlice {
+                    let page = Slice {
                         handle: SliceHandle::new(),
                         storage,
                         padding: 0,
@@ -191,16 +207,13 @@ impl MemoryPage {
         }
 
         core::mem::swap(&mut self.slices, &mut self.slices_tmp);
-        // We clear the vec_buffer to make sure atomic ref counters are OK and for the next time we
-        // use it.
-        self.slices_tmp.clear();
     }
 
     fn add_new_slice(
         &mut self,
         index_previous: usize,
         reserved_size_previous: u64,
-        new_slice: PageSlice,
+        new_slice: Slice,
     ) {
         self.slices_map.clear();
 
@@ -229,9 +242,6 @@ impl MemoryPage {
         }
 
         core::mem::swap(&mut self.slices, &mut self.slices_tmp);
-        // We clear the vec_buffer to make sure atomic ref counters are OK and for the next time we
-        // use it.
-        self.slices_tmp.clear();
     }
 
     fn memory_job(&self) -> MemoryJob {
@@ -240,8 +250,8 @@ impl MemoryPage {
 
         for (index, slice) in self.slices.iter().enumerate() {
             if slice.handle.is_free() {
-                task.size += slice.storage.size();
-                task.tag_cleanup(index);
+                task.size += slice.effective_size();
+                task.tag_coalesce(index);
             } else {
                 task = job.add(task);
             }
@@ -330,12 +340,6 @@ impl Display for MemoryPage {
     }
 }
 
-struct PageSlice {
-    handle: SliceHandle,
-    storage: StorageHandle,
-    padding: u64,
-}
-
 #[derive(Default, Debug, PartialEq, Eq)]
 struct MemoryJob {
     tasks: Vec<MemoryTask>,
@@ -355,21 +359,21 @@ struct MemoryTask {
 }
 
 impl MemoryTask {
-    /// Tells the task that the given slice index will be cleanup.
-    fn tag_cleanup(&mut self, index: usize) {
+    /// Tells the task that the given slice index will be coalesced.
+    fn tag_coalesce(&mut self, index: usize) {
         if self.count == 0 {
             self.start_index = index;
         }
 
         debug_assert!(
             self.start_index + self.count == index,
-            "Only contiguous index can be cleanup in a single task"
+            "Only contiguous index can be coalesced in a single task"
         );
 
         self.count += 1;
     }
-    /// Tells the task that the given slice index is being cleanup.
-    fn on_cleanup(&mut self, index: usize) -> MemoryTaskStatus {
+    /// Tells the task that the given slice index is being coalesce.
+    fn on_coalesce(&mut self, index: usize) -> MemoryTaskStatus {
         let index_current = self.start_index + self.cursor;
 
         if index_current == index {
@@ -423,7 +427,7 @@ mod tests {
     fn test_memory_page() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
-            .reserve(16 * MB)
+            .try_reserve(16 * MB)
             .expect("Enough space to allocate a new slice");
 
         assert_eq!(slice.is_free(), false);
@@ -464,9 +468,9 @@ mod tests {
                 num_full: 0,
                 num_total: 2
             },
-            "Summary is correct before cleanup",
+            "Summary is correct before coalesce",
         );
-        page.cleanup();
+        page.coalesce();
         let summary = page.summary(true);
 
         assert_eq!(
@@ -483,7 +487,7 @@ mod tests {
                 num_full: 0,
                 num_total: 1
             },
-            "Summary is correct after cleanup",
+            "Summary is correct after coalesce",
         );
     }
 
@@ -491,7 +495,7 @@ mod tests {
     fn test_memory_job() {
         let mut page = new_memory_page(32 * MB);
         let slice = page
-            .reserve(16 * MB)
+            .try_reserve(16 * MB)
             .expect("Enough space to allocate a new slice");
 
         core::mem::drop(slice);
@@ -515,16 +519,16 @@ mod tests {
         let mut page = new_memory_page(32 * MB);
 
         let slice_1 = page
-            .reserve(4 * MB)
+            .try_reserve(4 * MB)
             .expect("Enough space to allocate a new slice");
         let slice_2 = page
-            .reserve(15 * MB)
+            .try_reserve(15 * MB)
             .expect("Enough space to allocate a new slice");
         let slice_3 = page
-            .reserve(8 * MB)
+            .try_reserve(8 * MB)
             .expect("Enough space to allocate a new slice");
         let slice_4 = page
-            .reserve(4 * MB)
+            .try_reserve(4 * MB)
             .expect("Enough space to allocate a new slice");
 
         assert_eq!(
@@ -561,21 +565,21 @@ mod tests {
             },
         );
 
-        let slice_5 = page.reserve(8 * MB);
+        let slice_5 = page.try_reserve(8 * MB);
         assert!(slice_5.is_none(), "No more place");
 
         core::mem::drop(slice_2);
-        let slice_5 = page.reserve(9 * MB);
+        let slice_5 = page.try_reserve(9 * MB);
         assert!(slice_5.is_some(), "Now we have more place");
 
-        let slice_6 = page.reserve(9 * MB);
+        let slice_6 = page.try_reserve(9 * MB);
         assert!(slice_6.is_none(), "No more place");
 
         core::mem::drop(slice_3);
-        let slice_6 = page.reserve(9 * MB);
+        let slice_6 = page.try_reserve(9 * MB);
         assert!(slice_6.is_none(), "No more place");
 
-        page.cleanup();
+        page.coalesce();
 
         assert_eq!(
             page.summary(true),
@@ -620,12 +624,12 @@ mod tests {
             "Utilization to be correct"
         );
 
-        let slice_6 = page.reserve(9 * MB);
+        let slice_6 = page.try_reserve(9 * MB);
         assert!(slice_6.is_some(), "Now we have more place");
         core::mem::drop(slice_1);
         core::mem::drop(slice_4);
 
-        page.cleanup();
+        page.coalesce();
 
         assert_eq!(
             page.get(&slice_6.clone().unwrap().binding())

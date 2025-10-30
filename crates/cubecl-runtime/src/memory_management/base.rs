@@ -8,7 +8,7 @@ use alloc::string::{String, ToString};
 pub struct MemoryUsage {
     /// The number of allocations currently active.
     ///
-    /// This is not the amount of time an actual allocation happens to create a new memory page,
+    /// This is not the number of times an actual allocation happens to create a new memory page,
     /// but really the number of active slices.
     pub number_allocs: u64,
     /// The number of bytes that are currently actually in use.
