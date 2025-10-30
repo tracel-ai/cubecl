@@ -12,7 +12,6 @@ pub struct DummyRegisterAttentionMatmulConfig {
     num_planes: u32,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
-    check_bounds: bool,
     inner_layout: InnerLayout,
     causal_mask: bool,
     materialized_mask: bool,
@@ -55,7 +54,6 @@ impl DummyRegisterAttentionMatmulConfig {
         num_planes: u32,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
-        check_bounds: bool,
         two_rows_in_array_tile: bool,
         causal_mask: bool,
         materialized_mask: bool,
@@ -66,7 +64,6 @@ impl DummyRegisterAttentionMatmulConfig {
             num_planes,
             query_stage_line_size,
             key_value_stage_line_size,
-            check_bounds,
             inner_layout: if two_rows_in_array_tile {
                 InnerLayout::SplitRows
             } else {

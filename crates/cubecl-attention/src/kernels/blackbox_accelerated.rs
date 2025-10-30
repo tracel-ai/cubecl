@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
+use crate::components::fragment::accelerated::BlackboxAcceleratedFragmentAttention;
 use crate::components::stage::plane::PlaneKVReuseStageAttentionFamily;
 use crate::{
     components::{
@@ -10,10 +10,10 @@ use crate::{
     kernels::Algorithm,
 };
 
-pub struct DummyRegisterAlgorithm {}
+pub struct BlackboxAcceleratedAlgorithm {}
 
-impl Algorithm for DummyRegisterAlgorithm {
-    type FragmentAttention = DummyRegisterFragmentAttention;
+impl Algorithm for BlackboxAcceleratedAlgorithm {
+    type FragmentAttention = BlackboxAcceleratedFragmentAttention;
     type StageAttention = PlaneKVReuseStageAttentionFamily<
         Self::FragmentAttention,
         StridedStageFamily,

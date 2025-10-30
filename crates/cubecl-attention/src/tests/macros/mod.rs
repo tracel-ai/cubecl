@@ -69,8 +69,9 @@ macro_rules! testgen_attention {
         }
 
         #[cfg(feature = "attention_tests")]
-        mod attention_dummy_accelerated {
-            type Algorithm = cubecl_attention::kernels::dummy::DummyAcceleratedAlgorithm;
+        mod attention_blackbox_accelerated {
+            type Algorithm =
+                cubecl_attention::kernels::blackbox_accelerated::BlackboxAcceleratedAlgorithm;
             #[cfg(target_os = "macos")]
             const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
                 cubecl_attention::components::AttentionTileSize {
@@ -89,8 +90,7 @@ macro_rules! testgen_attention {
                 };
             const STAGE_Q_BASE: u32 = 1;
 
-            // Deactivated
-            // $crate::testgen_attention_suite!();
+            $crate::testgen_attention_suite!();
         }
     };
 }

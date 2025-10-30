@@ -11,7 +11,6 @@ pub struct UnitRegisterFragmentAttentionConfig {
     attention_tile_size: AttentionTileSize,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
-    check_bounds: bool,
     causal_mask: bool,
     materialized_mask: bool,
 }
@@ -49,7 +48,6 @@ impl UnitRegisterFragmentAttentionConfig {
         attention_tile_size: AttentionTileSize,
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
-        check_bounds: bool,
         num_planes: u32,
         causal_mask: bool,
         materialized_mask: bool,
@@ -60,7 +58,6 @@ impl UnitRegisterFragmentAttentionConfig {
             attention_tile_size,
             query_stage_line_size,
             key_value_stage_line_size,
-            check_bounds,
             causal_mask,
             materialized_mask,
         }
