@@ -15,10 +15,18 @@ use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as 
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 
+/// Uses accelerated instruction, but relies on shared memory for row-dependent computations
+/// because the fragment layout is blackbox
 pub struct BlackboxAcceleratedFragmentAttention;
 
+// TODO
+// After score matmul -> store to shared memory
+// Load in array tiles to leverage existing code
+// Apply all softmax stuff
+// Store back to shared memory
+// Load back to fragment for value matmul
+
 #[derive(CubeType)]
-/// Mimics fragment behaviour, but execution is not efficient
 /// Assumes:
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
 pub struct ArrayTile<E: Numeric> {
