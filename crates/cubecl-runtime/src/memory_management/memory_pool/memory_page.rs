@@ -413,7 +413,7 @@ impl MemoryJob {
 enum MemoryTaskStatus {
     Merging,
     StartMerging,
-    Ingoring,
+    Ignoring,
     Completed,
 }
 
