@@ -1,47 +1,48 @@
-use std::sync::Arc;
-
+use crate::{
+    CpuCompiler,
+    compute::stream::{AllocationDescriptorOwned, CopyDescriptorOwned, CpuStream, CpuTask},
+};
 use cubecl_common::{bytes::Bytes, profile::ProfileDuration, stream_id::StreamId};
 use cubecl_core::{
-    CubeCount, ExecutionMode, MemoryUsage,
+    CubeCount, ExecutionMode, MemoryConfiguration, MemoryUsage,
     compute::CubeTask,
     future::DynFut,
     server::{
-        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
+        Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor,
         IoError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
     logging::ServerLogger,
-    memory_management::{MemoryAllocationMode, MemoryManagement, offset_handles},
+    memory_management::{MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement},
     storage::{BindingResource, BytesStorage, ComputeStorage},
     timestamp_profiler::TimestampProfiler,
 };
-
-use crate::{CpuCompiler, compute::alloc_controller::CpuAllocController};
-
-use super::scheduler::Scheduler;
+use std::sync::{Arc, mpsc::SyncSender};
 
 #[derive(Debug)]
 pub struct CpuServer {
-    ctx: CpuContext,
-    scheduler: Scheduler,
+    stream: SyncSender<CpuTask>,
     utilities: Arc<ServerUtilities<Self>>,
 }
 
 impl CpuServer {
-    pub fn new(ctx: CpuContext, utilities: ServerUtilities<Self>) -> Self {
-        Self {
-            utilities: Arc::new(utilities),
-            scheduler: Scheduler::default(),
-            ctx,
-        }
+    pub fn new(
+        config: MemoryConfiguration,
+        properties: &MemoryDeviceProperties,
+        logger: Arc<ServerLogger>,
+        utilities: Arc<ServerUtilities<Self>>,
+    ) -> Self {
+        let stream = CpuStream::new(config, properties, logger, utilities.clone());
+        let stream = stream.start(StreamId::current());
+        Self { utilities, stream }
     }
 }
 
 #[derive(Debug)]
 pub struct CpuContext {
-    memory_management: MemoryManagement<BytesStorage>,
-    timestamps: TimestampProfiler,
+    pub(crate) memory_management: MemoryManagement<BytesStorage>,
+    pub(crate) timestamps: TimestampProfiler,
 }
 
 impl CpuContext {
@@ -50,35 +51,6 @@ impl CpuContext {
             memory_management,
             timestamps: TimestampProfiler::default(),
         }
-    }
-}
-
-impl CpuServer {
-    fn read_async(
-        &mut self,
-        descriptors: Vec<CopyDescriptor>,
-    ) -> impl Future<Output = Result<Vec<Bytes>, IoError>> + Send + use<> {
-        fn inner(
-            ctx: &mut CpuContext,
-            descriptors: Vec<CopyDescriptor>,
-        ) -> Result<Vec<Bytes>, IoError> {
-            let mut result = Vec::with_capacity(descriptors.len());
-            for desc in descriptors {
-                let len = desc.binding.size() as usize;
-                let controller = Box::new(CpuAllocController::init(
-                    desc.binding,
-                    &mut ctx.memory_management,
-                )?);
-                // SAFETY:
-                // - The binding has initialized memory for at least `len` bytes.
-                result.push(unsafe { Bytes::from_controller(controller, len) });
-            }
-            Ok(result)
-        }
-
-        let res = inner(&mut self.ctx, descriptors);
-
-        async move { res }
     }
 }
 
@@ -98,31 +70,26 @@ impl ComputeServer for CpuServer {
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
-        stream_id: StreamId,
+        _stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError> {
-        let align = 8;
-        let strides = descriptors
-            .iter()
-            .map(|desc| contiguous_strides(desc.shape))
-            .collect::<Vec<_>>();
-        let sizes = descriptors
-            .iter()
-            .map(|desc| desc.shape.iter().product::<usize>() * desc.elem_size)
-            .collect::<Vec<_>>();
-        let total_size = sizes
-            .iter()
-            .map(|it| it.next_multiple_of(align))
-            .sum::<usize>();
+        let mut descriptors_owned = Vec::with_capacity(descriptors.len());
+        for desc in descriptors {
+            descriptors_owned.push(AllocationDescriptorOwned {
+                kind: desc.kind,
+                shape: desc.shape.to_vec(),
+                elem_size: desc.elem_size,
+            });
+        }
 
-        let handle = self.ctx.memory_management.reserve(total_size as u64)?;
-        let mem_handle = Handle::new(handle, None, None, stream_id, 0, total_size as u64);
-        let handles = offset_handles(mem_handle, &sizes, align);
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::Create {
+                descriptors: descriptors_owned,
+                callback: sender,
+            })
+            .unwrap();
 
-        Ok(handles
-            .into_iter()
-            .zip(strides)
-            .map(|(handle, strides)| Allocation::new(handle, strides))
-            .collect())
+        rec.recv().unwrap()
     }
 
     fn read<'a>(
@@ -130,7 +97,25 @@ impl ComputeServer for CpuServer {
         descriptors: Vec<CopyDescriptor<'a>>,
         _stream_id: StreamId,
     ) -> DynFut<Result<Vec<Bytes>, IoError>> {
-        Box::pin(self.read_async(descriptors))
+        let mut descriptors_owned = Vec::with_capacity(descriptors.len());
+        for desc in descriptors {
+            descriptors_owned.push(CopyDescriptorOwned {
+                strides: desc.strides.to_vec(),
+                shape: desc.shape.to_vec(),
+                elem_size: desc.elem_size,
+                binding: desc.binding,
+            });
+        }
+
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::Read {
+                descriptors: descriptors_owned,
+                callback: sender,
+            })
+            .unwrap();
+
+        rec.recv().unwrap()
     }
 
     fn write(
@@ -138,22 +123,40 @@ impl ComputeServer for CpuServer {
         descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
+        let mut descriptors_owned = Vec::with_capacity(descriptors.len());
         for (desc, data) in descriptors {
-            if desc.strides != contiguous_strides(desc.shape) {
-                return Err(IoError::UnsupportedStrides);
-            }
-
-            self.copy_to_binding(desc.binding, data);
+            descriptors_owned.push((
+                CopyDescriptorOwned {
+                    strides: desc.strides.to_vec(),
+                    shape: desc.shape.to_vec(),
+                    elem_size: desc.elem_size,
+                    binding: desc.binding,
+                },
+                data.to_vec(),
+            ));
         }
-        Ok(())
+
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::Write {
+                descriptors: descriptors_owned,
+                callback: sender,
+            })
+            .unwrap();
+
+        rec.recv().unwrap()
     }
 
     fn memory_usage(&mut self, _stream_id: StreamId) -> MemoryUsage {
-        self.ctx.memory_management.memory_usage()
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::MemoryUsage { callback: sender })
+            .unwrap();
+        rec.recv().unwrap()
     }
 
     fn memory_cleanup(&mut self, _stream_id: StreamId) {
-        self.ctx.memory_management.cleanup(true)
+        self.stream.send(CpuTask::MemoryCleanup).unwrap();
     }
 
     unsafe fn execute(
@@ -164,50 +167,51 @@ impl ComputeServer for CpuServer {
         kind: ExecutionMode,
         _stream_id: StreamId,
     ) {
-        let cube_count = match count {
-            CubeCount::Static(x, y, z) => [x, y, z],
-            CubeCount::Dynamic(binding) => {
-                let handle = self
-                    .ctx
-                    .memory_management
-                    .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                    .expect("Failed to find resource");
-                let bytes = handle.read();
-                let x = u32::from_ne_bytes(bytes[0..4].try_into().unwrap());
-                let y = u32::from_ne_bytes(bytes[4..8].try_into().unwrap());
-                let z = u32::from_ne_bytes(bytes[8..12].try_into().unwrap());
-                [x, y, z]
-            }
-        };
-        self.scheduler.dispatch_execute(
-            kernel,
-            cube_count,
-            bindings,
-            kind,
-            &mut self.ctx.memory_management,
-        );
+        self.stream
+            .send(CpuTask::Compute {
+                kernel,
+                count,
+                bindings,
+                kind,
+            })
+            .unwrap();
     }
 
-    fn flush(&mut self, _stream_id: StreamId) {}
+    fn flush(&mut self, _stream_id: StreamId) {
+        self.stream.send(CpuTask::Flush).unwrap();
+    }
 
     fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        self.utilities.logger.profile_summary();
-        Box::pin(async move {})
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::Sync { callback: sender })
+            .unwrap();
+        Box::pin(async move {
+            rec.recv().unwrap();
+        })
     }
 
-    fn start_profile(&mut self, stream_id: StreamId) -> ProfilingToken {
-        cubecl_common::future::block_on(self.sync(stream_id));
-        self.ctx.timestamps.start()
+    fn start_profile(&mut self, _stream_id: StreamId) -> ProfilingToken {
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::StartProfile { callback: sender })
+            .unwrap();
+        rec.recv().unwrap()
     }
 
     fn end_profile(
         &mut self,
-        stream_id: StreamId,
+        _stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.utilities.logger.profile_summary();
-        cubecl_common::future::block_on(self.sync(stream_id));
-        self.ctx.timestamps.stop(token)
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::EndProfile {
+                token,
+                callback: sender,
+            })
+            .unwrap();
+        rec.recv().unwrap()
     }
 
     fn get_resource(
@@ -215,33 +219,23 @@ impl ComputeServer for CpuServer {
         binding: Binding,
         _stream_id: StreamId,
     ) -> BindingResource<<Self::Storage as ComputeStorage>::Resource> {
-        BindingResource::new(
-            binding.clone(),
-            self.ctx
-                .memory_management
-                .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-                .expect("Can't find resource"),
-        )
+        let (sender, rec) = std::sync::mpsc::sync_channel(1);
+        self.stream
+            .send(CpuTask::GetResource {
+                binding,
+                callback: sender,
+            })
+            .unwrap();
+        rec.recv().unwrap()
     }
 
     fn allocation_mode(&mut self, mode: MemoryAllocationMode, _stream_id: StreamId) {
-        self.ctx.memory_management.mode(mode);
+        self.stream.send(CpuTask::AllocMode { mode }).unwrap();
     }
 }
 
 impl ServerCommunication for CpuServer {
     const SERVER_COMM_ENABLED: bool = false;
-}
-
-impl CpuServer {
-    fn copy_to_binding(&mut self, binding: Binding, data: &[u8]) {
-        let mut resource = self
-            .ctx
-            .memory_management
-            .get_resource(binding.memory, binding.offset_start, binding.offset_end)
-            .unwrap();
-        resource.write().copy_from_slice(data);
-    }
 }
 
 pub(crate) fn contiguous_strides(shape: &[usize]) -> Vec<usize> {

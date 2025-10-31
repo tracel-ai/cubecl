@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use cubecl_common::{device::DeviceState, profile::TimingMethod};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
@@ -8,17 +10,14 @@ use cubecl_core::{
 use cubecl_runtime::{
     DeviceProperties,
     logging::ServerLogger,
-    memory_management::{
-        HardwareProperties, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
-    },
-    storage::BytesStorage,
+    memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cubecl_std::tensor::is_contiguous;
 use sysinfo::System;
 
 use crate::{
     compiler::{MlirCompiler, register_supported_types},
-    compute::server::{CpuContext, CpuServer},
+    compute::server::CpuServer,
     device::CpuDevice,
 };
 
@@ -59,32 +58,23 @@ impl DeviceState for CpuServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
         };
-        let storage = BytesStorage::default();
-
         const ALIGNMENT: u64 = 4;
+
         let mem_properties = MemoryDeviceProperties {
             max_page_size: max_shared_memory_size as u64,
             alignment: ALIGNMENT,
         };
 
-        let memory_management = MemoryManagement::from_configuration(
-            storage,
-            &mem_properties,
-            options.memory_config,
-            logger.clone(),
-            MemoryManagementOptions::new("test"),
-        );
         let mut device_props = DeviceProperties::new(
             Default::default(),
-            mem_properties,
+            mem_properties.clone(),
             topology,
             TimingMethod::Device,
         );
         register_supported_types(&mut device_props);
 
-        let ctx = CpuContext::new(memory_management);
-        let utilities = ServerUtilities::new(device_props, logger, ());
-        CpuServer::new(ctx, utilities)
+        let utilities = Arc::new(ServerUtilities::new(device_props, logger.clone(), ()));
+        CpuServer::new(options.memory_config, &mem_properties, logger, utilities)
     }
 }
 

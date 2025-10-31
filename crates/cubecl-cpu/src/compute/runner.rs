@@ -13,18 +13,19 @@ use crate::{
 use super::compute_task::{BARRIER_COUNTER, CURRENT_CUBE_DIM, STOPPED_COUNTER};
 use super::{compute_task::ComputeTask, worker::Worker};
 
-pub struct Scheduler {
+/// Executes kernels reusing the same workers between different execution.
+pub struct Runner {
     workers: Vec<Worker>,
     compilation_cache: HashMap<KernelId, CompiledKernel<MlirCompiler>>,
 }
 
-impl Debug for Scheduler {
+impl Debug for Runner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", &self.workers)
     }
 }
 
-impl Default for Scheduler {
+impl Default for Runner {
     fn default() -> Self {
         let available_parallelism = std::thread::available_parallelism()
             .expect("Can't get available parallelism on this platform")
@@ -34,14 +35,14 @@ impl Default for Scheduler {
             .collect();
 
         let compilation_cache = HashMap::new();
-        Scheduler {
+        Runner {
             workers,
             compilation_cache,
         }
     }
 }
 
-impl Scheduler {
+impl Runner {
     pub fn dispatch_execute(
         &mut self,
         kernel: Box<dyn CubeTask<CpuCompiler>>,
