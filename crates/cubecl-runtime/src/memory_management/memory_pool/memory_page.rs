@@ -42,7 +42,7 @@ impl MemoryPage {
         };
         let id = *page.handle.id();
         let index = 0;
-        this.slices.insert(index, page);
+        this.slices.push(page);
         this.slices_map.insert(id, index);
 
         this
