@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::{TileConfig, TileMatmul, accelerated::reader::CmmaFragmentReader};
-use crate::components::tile::{accelerated::writer::CmmaStageWriter, tile_data::StridedTile};
+use crate::components::tile::{TileConfig, TileMatmul, cmma::reader::CmmaFragmentReader};
+use crate::components::tile::{cmma::writer::CmmaStageWriter, tile_data::StridedTile};
 use crate::components::tile::{
-    accelerated::{config::AcceleratedConfig, reader::CmmaStageReader},
+    cmma::{config::CmmaConfig, reader::CmmaStageReader},
     io::{Strided, TileKind},
 };
 use crate::components::{StageIdent, as_cmma_layout};
@@ -12,17 +12,17 @@ use cubecl_core::{cmma, prelude::*};
 use cubecl_std::CubeOption;
 
 /// Uses one plane to perform a small matmul using accelerated instructions.
-pub struct AcceleratedMatmul<Acc: TileKind> {
+pub struct CmmaMatmul<Acc: TileKind> {
     _ty: PhantomData<Acc>,
 }
 
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
-    for AcceleratedMatmul<AccTile>
+    for CmmaMatmul<AccTile>
 where
     CmmaStageReader<AccTile>: CmmaFragmentReader<TileKind = AccTile>,
 {
-    type Config = AcceleratedConfig;
+    type Config = CmmaConfig;
     type LhsFragment = cmma::Matrix<L>;
     type RhsFragment = cmma::Matrix<R>;
     type AccFragment = cmma::Matrix<A>;

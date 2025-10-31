@@ -1,5 +1,6 @@
-use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
+use cubecl_core::{ir::StorageType, prelude::*};
+use cubecl_runtime::MmaConfig;
 
 use crate::components::error::MatmulSetupError;
 use crate::components::{
@@ -58,6 +59,21 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// By default, returns the input unchanged.
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
+    }
+
+    /// Returns whether a tile configuration is supported
+    fn is_supported<R: Runtime>(_client: &ComputeClient<R::Server>, _config: MmaConfig) -> bool {
+        !Self::requires_accelerator()
+    }
+
+    /// Returns all sizes supported for these types, if any
+    fn supported_sizes<R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        _lhs_ty: StorageType,
+        _rhs_ty: StorageType,
+        _acc_ty: StorageType,
+    ) -> Vec<TileSize> {
+        Vec::new()
     }
 }
 

@@ -1,25 +1,26 @@
-use crate::components::tile::accelerated::config::AcceleratedConfig;
-use crate::components::tile::accelerated::matmul::AcceleratedMatmul;
+use crate::components::tile::cmma::matmul::CmmaMatmul;
 use crate::components::tile::{
     TileMatmulFamily,
-    accelerated::reader::{CmmaFragmentReader, CmmaStageReader},
+    cmma::reader::{CmmaFragmentReader, CmmaStageReader},
 };
 use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{TileSize, tile::cmma::config::CmmaConfig};
 use crate::components::{error::MatmulSetupError, tile::io::Strided};
 use crate::components::{resource::ComputeResources, tile::io::TileKind};
-use cubecl_core::prelude::*;
+use cubecl_core::{ir::StorageType, prelude::*};
+use cubecl_runtime::MmaConfig;
 
-impl<Tile: TileKind> TileMatmulFamily for AcceleratedMatmul<Tile>
+impl<Tile: TileKind> TileMatmulFamily for CmmaMatmul<Tile>
 where
     CmmaStageReader<Tile>: CmmaFragmentReader<TileKind = Tile>,
 {
-    type Matmul<L: Numeric, R: Numeric, A: Numeric> = AcceleratedMatmul<Tile>;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = CmmaMatmul<Tile>;
     type LhsTile = Strided;
     type RhsTile = Strided;
     type AccTile = Tile;
     type OutTile = Strided;
 
-    type Config = AcceleratedConfig;
+    type Config = CmmaConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -35,7 +36,7 @@ where
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
     ) -> Result<Self::Config, MatmulSetupError> {
-        AcceleratedConfig::new::<Lhs, Rhs, Acc, R>(
+        CmmaConfig::new::<Lhs, Rhs, Acc, R>(
             client,
             selection.tiling_scheme.tile_size,
             selection.plane_dim,
@@ -47,5 +48,25 @@ where
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
         )
+    }
+
+    fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
+        client.properties().features.cmma.contains(&config)
+    }
+
+    fn supported_sizes<R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        lhs_ty: StorageType,
+        rhs_ty: StorageType,
+        acc_ty: StorageType,
+    ) -> Vec<TileSize> {
+        client
+            .properties()
+            .features
+            .cmma
+            .iter()
+            .filter(|it| it.a_type == lhs_ty && it.b_type == rhs_ty && it.cd_type == acc_ty)
+            .map(|it| (it.m, it.n, it.k).into())
+            .collect()
     }
 }
