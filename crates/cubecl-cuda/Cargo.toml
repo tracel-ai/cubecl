@@ -24,6 +24,7 @@ std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
 
 cuda-12050 = ["cudarc/cuda-12050"]
 cuda-12080 = ["cudarc/cuda-12080"]
+cuda-13000 = ["cudarc/cuda-13000"]
 
 attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]

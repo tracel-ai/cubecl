@@ -313,7 +313,7 @@ impl ComputeServer for CudaServer {
                         .result()
                         .unwrap()
                     },
-                    #[cfg(feature = "cuda-12080")]
+                    #[cfg(any(feature = "cuda-12080", feature = "cuda-13000"))]
                     TensorMapFormat::Im2colWide {
                         pixel_box_lower_corner_width,
                         pixel_box_upper_corner_width,
@@ -341,7 +341,7 @@ impl ComputeServer for CudaServer {
                         .result()
                         .unwrap()
                     },
-                    #[cfg(not(feature = "cuda-12080"))]
+                    #[cfg(not(any(feature = "cuda-12080", feature = "cuda-13000")))]
                     TensorMapFormat::Im2colWide {
                         pixel_box_lower_corner_width: _,
                         pixel_box_upper_corner_width: _,
@@ -634,7 +634,7 @@ fn elem_to_tensor_map_type(ty: StorageType) -> CUtensorMapDataType {
     match ty {
         // packed fp4 should be treated as single 4-bit values to simplify indexing/shape handling
         // So a tile of width 16 with fp4 elements is 8 x fp4x2 elements wide.
-        #[cfg(feature = "cuda-12080")]
+        #[cfg(any(feature = "cuda-12080", feature = "cuda-13000"))]
         StorageType::Packed(ty, 2) if ty.size_bits() == 4 => CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B,
         StorageType::Scalar(ElemType::Float(kind)) => match kind {
             // There's no special handling for FP8, so load as u8. `0u8 == 0.0` when reinterpreting.
