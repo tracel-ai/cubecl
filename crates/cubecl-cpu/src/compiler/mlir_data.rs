@@ -41,6 +41,7 @@ impl MlirData {
         bindings: Bindings,
         shared_memories: &SharedMemories,
         memory_management: &mut MemoryManagement<BytesStorage>,
+        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
     ) -> Self {
         let Bindings {
             buffers,
@@ -90,17 +91,22 @@ impl MlirData {
         }
 
         let stream_id = StreamId::current();
+        let mut smem_handles = Vec::with_capacity(shared_memories.0.len());
         for shared_memory in shared_memories.0.iter() {
             let length = (shared_memory.ty.size() * shared_memory.length as usize) as u64;
-            let handle = memory_management.reserve(length).unwrap();
+            let handle = memory_management_shared_memory.reserve(length).unwrap();
+            smem_handles.push(handle.clone());
+
             let b = Handle::new(handle, None, None, stream_id, 0, length).binding();
-            let mut handle = memory_management
+            let mut handle = memory_management_shared_memory
                 .get_resource(b.memory, b.offset_start, b.offset_end)
                 .expect("Failed to find resource");
             let ptr = handle.write();
             let line_memref = LineMemRef::new(ptr);
             push_undirected(line_memref);
         }
+        // It is important to make sure multiple shared memories don't shared the same handle.
+        core::mem::drop(smem_handles);
 
         let ptr = shared_mlir_data.metadata.as_mut();
         let line_memref = LineMemRef::new(ptr);
