@@ -172,7 +172,7 @@ impl MemoryPage {
         for (index, slice) in self.slices.drain(..).enumerate() {
             let status = match &mut task {
                 Some(task) => task.on_coalesce(index),
-                None => MemoryTaskStatus::Ingoring,
+                None => MemoryTaskStatus::Ignoring,
             };
 
             match status {
@@ -183,7 +183,7 @@ impl MemoryPage {
                 MemoryTaskStatus::Merging => {
                     size += slice.effective_size();
                 }
-                MemoryTaskStatus::Ingoring => {
+                MemoryTaskStatus::Ignoring => {
                     let id = *slice.handle.id();
                     self.slices_tmp.push(slice);
                     self.slices_map.insert(id, index_current);
@@ -391,7 +391,7 @@ impl MemoryTask {
             }
         }
 
-        MemoryTaskStatus::Ingoring
+        MemoryTaskStatus::Ignoring
     }
 }
 
