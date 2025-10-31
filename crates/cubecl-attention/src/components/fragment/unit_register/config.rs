@@ -5,16 +5,18 @@ use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AcceleratedFragmentAttentionConfig {
+pub struct UnitRegisterFragmentAttentionConfig {
     plane_dim: u32,
     num_planes: u32,
     attention_tile_size: AttentionTileSize,
     query_stage_line_size: u32,
     key_value_stage_line_size: u32,
     check_bounds: bool,
+    causal_mask: bool,
+    materialized_mask: bool,
 }
 
-impl FragmentAttentionConfig for AcceleratedFragmentAttentionConfig {
+impl FragmentAttentionConfig for UnitRegisterFragmentAttentionConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -28,19 +30,20 @@ impl FragmentAttentionConfig for AcceleratedFragmentAttentionConfig {
     }
 
     fn num_rows_per_unit(&self) -> u32 {
-        todo!()
+        self.attention_tile_size.seq_q
     }
 
     fn causal_mask(&self) -> bool {
-        todo!()
+        self.causal_mask
     }
 
     fn materialized_mask(&self) -> bool {
-        todo!()
+        self.materialized_mask
     }
 }
 
-impl AcceleratedFragmentAttentionConfig {
+impl UnitRegisterFragmentAttentionConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
@@ -48,6 +51,8 @@ impl AcceleratedFragmentAttentionConfig {
         key_value_stage_line_size: u32,
         check_bounds: bool,
         num_planes: u32,
+        causal_mask: bool,
+        materialized_mask: bool,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             plane_dim,
@@ -56,6 +61,8 @@ impl AcceleratedFragmentAttentionConfig {
             query_stage_line_size,
             key_value_stage_line_size,
             check_bounds,
+            causal_mask,
+            materialized_mask,
         }
         .validate()
     }

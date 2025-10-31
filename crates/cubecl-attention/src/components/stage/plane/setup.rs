@@ -1,6 +1,13 @@
 use std::marker::PhantomData;
 
-use crate::components::{attention_types::*, fragment::AttentionMatmulFamily};
+use crate::components::{
+    attention_types::*,
+    fragment::FragmentAttentionFamily,
+    stage::{
+        AttentionStageMemoryConfig,
+        plane::{PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},
+    },
+};
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{
     GlobalPartitionSize, TilingScheme, stage::StageFamily, tile::io::Strided,
@@ -8,45 +15,38 @@ use cubecl_matmul::components::{
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError,
-    stage::{
-        StageAttentionFamily,
-        simple_kv_reuse::{
-            AttentionStageMemoryConfig, SimpleKVReuseStageAttention, SimpleKVReuseStageConfig,
-        },
-    },
-    tile::AttentionTilingLayout,
+    AttentionSetupError, stage::StageAttentionFamily, tile::AttentionTilingLayout,
 };
 
-pub struct SimpleKVReuseStageAttentionFamily<
-    AM: AttentionMatmulFamily,
+pub struct PlaneKVReuseStageAttentionFamily<
+    FA: FragmentAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
 > {
-    _phantom: PhantomData<(AM, SK, SV, SO)>,
+    _phantom: PhantomData<(FA, SK, SV, SO)>,
 }
 
 impl<
-    AM: AttentionMatmulFamily,
+    FA: FragmentAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for SimpleKVReuseStageAttentionFamily<AM, SK, SV, SO>
+> StageAttentionFamily for PlaneKVReuseStageAttentionFamily<FA, SK, SV, SO>
 {
-    type Attention<AP: AttentionPrecision> = SimpleKVReuseStageAttention<
+    type Attention<AP: AttentionPrecision> = PlaneKVReuseStageAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        AM::Matmul<AP>,
+        FA::FragmentAttention<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = SimpleKVReuseStageConfig<AM::Config>;
+    type Config = PlaneKVReuseStageConfig<FA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -55,11 +55,11 @@ impl<
         line_sizes: &AttentionLineSizes,
     ) -> Result<Self::Config, AttentionSetupError> {
         let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * AM::computation_resources()?.num_planes(selection.plane_dim)?;
+            * FA::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config = AM::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
+        let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
-        SimpleKVReuseStageConfig::new(
+        PlaneKVReuseStageConfig::new(
             tile_config,
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),
