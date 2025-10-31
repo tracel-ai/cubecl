@@ -1,11 +1,7 @@
 use cubecl_common::CubeDim;
 use cubecl_ir::{Id, Scope, StorageType, Type};
-use enumset::EnumSet;
 
-use crate::{
-    compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility},
-    prelude::FastMath,
-};
+use crate::compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility};
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
@@ -36,7 +32,6 @@ pub struct KernelSettings {
 pub struct KernelOptions {
     pub kernel_name: String,
     pub debug_symbols: bool,
-    pub fp_math_mode: EnumSet<FastMath>,
     pub cluster_dim: Option<CubeDim>,
 }
 
@@ -58,12 +53,6 @@ impl KernelSettings {
     /// Activate debug symbols
     pub fn debug_symbols(mut self) -> Self {
         self.options.debug_symbols = true;
-        self
-    }
-
-    /// Set FP math mode
-    pub fn fp_math_mode(mut self, mode: EnumSet<FastMath>) -> Self {
-        self.options.fp_math_mode = mode;
         self
     }
 

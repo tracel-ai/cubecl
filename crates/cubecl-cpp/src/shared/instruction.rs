@@ -13,7 +13,7 @@ use std::{
 pub(crate) const INFO_NAME: &str = "info";
 pub(crate) const STATIC_INFO_NAME: &str = "static_info";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct BinaryInstruction<D: Dialect> {
     pub lhs: Variable<D>,
     pub rhs: Variable<D>,
@@ -36,7 +36,7 @@ pub struct IndexAssignInstruction<D: Dialect> {
     pub out: Variable<D>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct UnaryInstruction<D: Dialect> {
     pub input: Variable<D>,
     pub out: Variable<D>,
@@ -78,6 +78,8 @@ pub enum Instruction<D: Dialect> {
         out: Variable<D>,
     },
     Div(BinaryInstruction<D>),
+    FastDiv(BinaryInstruction<D>),
+    FastRecip(UnaryInstruction<D>),
     Mul(BinaryInstruction<D>),
     Sub(BinaryInstruction<D>),
     SaturatingSub(BinaryInstruction<D>),
@@ -160,14 +162,23 @@ pub enum Instruction<D: Dialect> {
     FindFirstSet(UnaryInstruction<D>),
     Abs(UnaryInstruction<D>),
     Exp(UnaryInstruction<D>),
+    FastExp(UnaryInstruction<D>),
     Log(UnaryInstruction<D>),
+    FastLog(UnaryInstruction<D>),
     Log1p(UnaryInstruction<D>),
     Cos(UnaryInstruction<D>),
+    FastCos(UnaryInstruction<D>),
     Sin(UnaryInstruction<D>),
+    FastSin(UnaryInstruction<D>),
     Tanh(UnaryInstruction<D>),
+    FastTanh(UnaryInstruction<D>),
     Powf(BinaryInstruction<D>),
+    FastPowf(BinaryInstruction<D>),
     Powi(BinaryInstruction<D>),
     Sqrt(UnaryInstruction<D>),
+    FastSqrt(UnaryInstruction<D>),
+    InverseSqrt(UnaryInstruction<D>),
+    FastInverseSqrt(UnaryInstruction<D>),
     Min(BinaryInstruction<D>),
     Max(BinaryInstruction<D>),
     Not(UnaryInstruction<D>),
@@ -223,7 +234,9 @@ pub enum Instruction<D: Dialect> {
     },
     Neg(UnaryInstruction<D>),
     Magnitude(UnaryInstruction<D>),
+    FastMagnitude(UnaryInstruction<D>),
     Normalize(UnaryInstruction<D>),
+    FastNormalize(UnaryInstruction<D>),
     Dot(BinaryInstruction<D>),
     Copy {
         input: Variable<D>,
@@ -312,6 +325,8 @@ impl<D: Dialect> Display for Instruction<D> {
             }
             Instruction::Mul(it) => Mul::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Div(it) => Div::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastDiv(it) => FastDiv::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastRecip(it) => FastRecip::format(f, &it.input, &it.out),
             Instruction::Sub(it) => Sub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::SaturatingSub(it) => SaturatingSub::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::HiMul(it) => HiMul::format(f, &it.lhs, &it.rhs, &it.out),
@@ -512,14 +527,23 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Erf(it) => Erf::format(f, &it.input, &it.out),
             Instruction::Abs(it) => Abs::format(f, &it.input, &it.out),
             Instruction::Exp(it) => Exp::format(f, &it.input, &it.out),
+            Instruction::FastExp(it) => FastExp::format(f, &it.input, &it.out),
             Instruction::Log(it) => Log::format(f, &it.input, &it.out),
+            Instruction::FastLog(it) => FastLog::format(f, &it.input, &it.out),
             Instruction::Log1p(it) => Log1p::format(f, &it.input, &it.out),
             Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
+            Instruction::FastCos(it) => FastCos::format(f, &it.input, &it.out),
             Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
+            Instruction::FastSin(it) => FastSin::format(f, &it.input, &it.out),
             Instruction::Tanh(it) => Tanh::format(f, &it.input, &it.out),
+            Instruction::FastTanh(it) => FastTanh::format(f, &it.input, &it.out),
             Instruction::Powf(it) => Powf::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastPowf(it) => FastPowf::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Powi(it) => Powi::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Sqrt(it) => Sqrt::format(f, &it.input, &it.out),
+            Instruction::FastSqrt(it) => FastSqrt::format(f, &it.input, &it.out),
+            Instruction::InverseSqrt(it) => InverseSqrt::format(f, &it.input, &it.out),
+            Instruction::FastInverseSqrt(it) => FastInverseSqrt::format(f, &it.input, &it.out),
             Instruction::Max(it) => Max::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Min(it) => Min::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::Not(it) => Not::format(f, &it.input, &it.out),
@@ -611,8 +635,16 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
                 let out = out.fmt_left();
                 writeln!(f, "{out} = -{input};")
             }
-            Instruction::Normalize(inst) => Normalize::format(f, &inst.input, &inst.out),
-            Instruction::Magnitude(inst) => Magnitude::format(f, &inst.input, &inst.out),
+            Instruction::Normalize(inst) => {
+                Normalize::<D, InverseSqrt>::format(f, &inst.input, &inst.out)
+            }
+            Instruction::FastNormalize(inst) => {
+                Normalize::<D, FastInverseSqrt>::format(f, &inst.input, &inst.out)
+            }
+            Instruction::Magnitude(inst) => Magnitude::<D, Sqrt>::format(f, &inst.input, &inst.out),
+            Instruction::FastMagnitude(inst) => {
+                Magnitude::<D, FastSqrt>::format(f, &inst.input, &inst.out)
+            }
             Instruction::Dot(inst) => Dot::format(f, &inst.lhs, &inst.rhs, &inst.out),
             Instruction::VecInit { inputs, out } => {
                 let item = out.item();
@@ -904,11 +936,12 @@ impl<D: Dialect> Remainder<D> {
     }
 }
 
-struct Magnitude<D: Dialect> {
+struct Magnitude<D: Dialect, S: FunctionFmt<D>> {
     _dialect: PhantomData<D>,
+    _sqrt: PhantomData<S>,
 }
 
-impl<D: Dialect> Magnitude<D> {
+impl<D: Dialect, S: FunctionFmt<D>> Magnitude<D, S> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<D>,
@@ -928,16 +961,17 @@ impl<D: Dialect> Magnitude<D> {
 
         let out = out.fmt_left();
         write!(f, "{out} = ")?;
-        Sqrt::format_unary(f, &mag, elem)?;
+        S::format_unary(f, &mag, elem)?;
         f.write_str(";\n")
     }
 }
 
-struct Normalize<D: Dialect> {
+struct Normalize<D: Dialect, InvS: FunctionFmt<D>> {
     _dialect: PhantomData<D>,
+    _rsqrt: PhantomData<InvS>,
 }
 
-impl<D: Dialect> Normalize<D> {
+impl<D: Dialect, InvS: FunctionFmt<D>> Normalize<D, InvS> {
     fn format(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<D>,
@@ -957,17 +991,17 @@ impl<D: Dialect> Normalize<D> {
         }
 
         write!(f, "{norm} = ")?;
-        Sqrt::format_unary(f, &norm, elem)?;
+        InvS::format_unary(f, &norm, elem)?;
         f.write_str(";\n")?;
 
         if num == 1 {
-            writeln!(f, "{out} = {input} / {norm};")
+            writeln!(f, "{out} = {input} * {norm};")
         } else {
             write!(f, "{out} = {out_item}{{")?;
             for i in 0..num {
                 let input_i = input.index(i);
 
-                writeln!(f, "{input_i} / {norm},")?;
+                writeln!(f, "{input_i} * {norm},")?;
             }
 
             f.write_str("};\n")

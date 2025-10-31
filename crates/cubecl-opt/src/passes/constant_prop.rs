@@ -418,6 +418,13 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),
         Arithmetic::Tanh(op) => const_eval_float!(op.input; num::Float::tanh),
         Arithmetic::Sqrt(op) => const_eval_float!(op.input; num::Float::sqrt),
+        Arithmetic::InverseSqrt(op) => {
+            let sqrt = const_eval_float!(op.input; num::Float::sqrt)?;
+            let ConstantScalarValue::Float(val, kind) = sqrt else {
+                unreachable!()
+            };
+            Some(ConstantScalarValue::Float(1.0 / val, kind))
+        }
         Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
         Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),

@@ -200,6 +200,18 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    InverseSqrt,
+    inverse_sqrt,
+    __expand_inverse_sqrt,
+    Arithmetic::InverseSqrt,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Round,
     round,
     __expand_round,

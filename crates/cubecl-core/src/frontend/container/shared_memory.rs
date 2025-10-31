@@ -5,7 +5,7 @@ use crate::{
     prelude::{Lined, LinedExpand},
     unexpanded,
 };
-use cubecl_ir::{Instruction, Operation, VariableKind};
+use cubecl_ir::{Marker, VariableKind};
 use cubecl_macros::{cube, intrinsic};
 
 use crate::{
@@ -142,7 +142,7 @@ impl<T: CubePrimitive + Clone> SharedMemory<T> {
     /// *Must* be used in uniform control flow
     /// *Must not* have any dangling references to this shared memory
     pub unsafe fn free(self) {
-        intrinsic!(|scope| { scope.register(Instruction::no_out(Operation::Free(*self.expand))) })
+        intrinsic!(|scope| { scope.register(Marker::Free(*self.expand)) })
     }
 }
 

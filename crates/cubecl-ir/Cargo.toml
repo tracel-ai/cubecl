@@ -17,7 +17,7 @@ version.workspace = true
 [features]
 default = ["serde", "std"]
 
-serde = ["dep:serde", "hashbrown/serde"]
+serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
 std = []
 
 [dependencies]
@@ -29,6 +29,7 @@ cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.9" }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from"] }
+enumset = { workspace = true }
 float-ord = "0.3"
 fnv = { workspace = true }
 half = { workspace = true }

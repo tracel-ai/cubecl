@@ -19,7 +19,11 @@ pub(crate) fn assert_equals_approx<
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
-            (*a - *e).abs() < epsilon || (a.is_nan() && e.is_nan()),
+            (*a - *e).abs() < epsilon
+                || (a.is_nan() && e.is_nan())
+                || (a.is_infinite()
+                    && e.is_infinite()
+                    && a.is_sign_positive() == e.is_sign_positive()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
 actual: {:?}
@@ -47,7 +51,7 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*]) => {
         pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
-            #[cube(launch_unchecked)]
+            #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
@@ -264,6 +268,27 @@ test_unary_impl!(test_abs, F, F::abs, [
         out_vectorization: 4,
         input: as_type![F: -1., 0., 2., -3.],
         expected: as_type![F: 1., 0., 2., 3.]
+    }
+]);
+
+test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1.0, 4.0, 16.0, 0.25],
+        expected: as_type![F: 1.0, 0.5, 0.25, 2.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 9.0, 25.0, 0.0625, 100.0],
+        expected: as_type![F: 0.333_333_34, 0.2, 4.0, 0.1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0.0, 0.01, 64.0, 0.111111],
+        expected: as_type![F: f32::INFINITY, 10.0, 0.125, 3.0]
     }
 ]);
 
@@ -500,6 +525,7 @@ macro_rules! testgen_unary {
             }
 
             add_test!(test_normalize);
+            add_test!(test_inverse_sqrt);
             add_test!(test_magnitude);
             add_test!(test_abs);
             add_test!(test_trunc);

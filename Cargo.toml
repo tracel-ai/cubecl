@@ -73,7 +73,7 @@ num-traits = { version = "0.2.19", default-features = false, features = [
 
 cfg-if = "1.0.0"
 darling = "0.21.0"
-enumset = "1.1.10"
+enumset = { version = "1.1.10", default-features = false }
 ident_case = "1"
 paste = "1"
 proc-macro2 = "1"
@@ -104,7 +104,7 @@ tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 # tracel-llvm = { path = "../tracel-llvm/crates/tracel-llvm", features = ["mlir-helpers"] }
 
 # CubeCL-CUDA
-cudarc = { version = "0.17.3", features = [
+cudarc = { version = "0.17.5", features = [
     "std",
     "driver",
     "nvrtc",

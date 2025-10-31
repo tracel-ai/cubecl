@@ -130,6 +130,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    InverseSqrt {
+        input: Variable,
+        out: Variable,
+    },
     Recip {
         input: Variable,
         out: Variable,
@@ -602,6 +606,10 @@ impl Display for Instruction {
             Instruction::Sqrt { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
+            }
+            Instruction::InverseSqrt { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = inverseSqrt({input});")
             }
             Instruction::Log1p { input, out } => {
                 let out = out.fmt_left();

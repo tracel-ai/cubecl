@@ -129,6 +129,20 @@ operator!(BitwiseXor, "^");
 operator!(Or, "||");
 operator!(And, "&&");
 
+pub struct FastDiv;
+
+impl<D: Dialect> Binary<D> for FastDiv {
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        _out_item: Item<D>,
+    ) -> std::fmt::Result {
+        // f32 only
+        write!(f, "__fdividef({lhs}, {rhs})")
+    }
+}
+
 pub struct HiMul;
 
 impl<D: Dialect> Binary<D> for HiMul {
@@ -245,6 +259,20 @@ impl<D: Dialect> Binary<D> for Powf {
         }
 
         f.write_str("};\n")
+    }
+}
+
+pub struct FastPowf;
+
+impl<D: Dialect> Binary<D> for FastPowf {
+    // Only executed for f32
+    fn format_scalar<Lhs: Display, Rhs: Display>(
+        f: &mut std::fmt::Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        _item: Item<D>,
+    ) -> std::fmt::Result {
+        write!(f, "__powf({lhs}, {rhs})")
     }
 }
 

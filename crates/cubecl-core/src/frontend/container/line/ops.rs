@@ -4,7 +4,7 @@ use num_traits::{NumCast, ToPrimitive};
 
 use crate::{
     self as cubecl,
-    prelude::{IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub, Trunc},
+    prelude::{InverseSqrt, IsInf, IsNan, Powi, SaturatingAdd, SaturatingSub, Trunc},
 };
 use crate::{
     frontend::{
@@ -247,6 +247,7 @@ impl<P: CubePrimitive + Exp> Exp for Line<P> {}
 impl<P: CubePrimitive + Powf> Powf for Line<P> {}
 impl<P: CubePrimitive + Powi<I>, I: CubePrimitive> Powi<Line<I>> for Line<P> {}
 impl<P: CubePrimitive + Sqrt> Sqrt for Line<P> {}
+impl<P: CubePrimitive + InverseSqrt> InverseSqrt for Line<P> {}
 impl<P: CubePrimitive + Cos> Cos for Line<P> {}
 impl<P: CubePrimitive + Sin> Sin for Line<P> {}
 impl<P: CubePrimitive + Tanh> Tanh for Line<P> {}
