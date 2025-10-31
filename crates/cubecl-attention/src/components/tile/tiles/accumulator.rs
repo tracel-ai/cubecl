@@ -4,7 +4,7 @@ use cubecl_core::prelude::*;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::FragmentAttention;
-use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
+use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::RowWise;
 
 #[derive(CubeType)]

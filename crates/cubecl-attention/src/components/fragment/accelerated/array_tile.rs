@@ -15,7 +15,7 @@ use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 #[derive(CubeType)]
 /// Assumes:
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
-pub struct ArrayTile<E: Numeric> {
+pub struct LocalTile<E: Numeric> {
     array: Array<E>,
     layout: ArrayTileLayout,
 }
@@ -47,10 +47,10 @@ pub enum InnerLayout {
 }
 
 #[cube]
-impl<E: Numeric> ArrayTile<E> {
-    pub fn new(layout: ArrayTileLayout) -> ArrayTile<E> {
+impl<E: Numeric> LocalTile<E> {
+    pub fn new(layout: ArrayTileLayout) -> LocalTile<E> {
         let array = Array::<E>::new(comptime!(layout.unit_size.0 * layout.unit_size.1));
-        ArrayTile::<E> { array, layout }
+        LocalTile::<E> { array, layout }
     }
 
     pub fn zero(&mut self) {
@@ -120,7 +120,7 @@ impl FragmentLayout for ArrayTileLayout {
 }
 
 #[cube]
-impl<E: Float> FragmentSoftmax<E> for ArrayTile<E> {
+impl<E: Float> FragmentSoftmax<E> for LocalTile<E> {
     type Layout = ArrayTileLayout;
 
     fn rowwise_max(&self) -> RowWise<E> {
@@ -200,7 +200,7 @@ impl<E: Float> FragmentSoftmax<E> for ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Float> FragmentAccumulator<E> for ArrayTile<E> {
+impl<E: Float> FragmentAccumulator<E> for LocalTile<E> {
     fn rowwise_scale(&mut self, scale: &RowWise<E>) {
         #[unroll]
         for r in 0..self.layout.unit_size.0 {
@@ -215,7 +215,7 @@ impl<E: Float> FragmentAccumulator<E> for ArrayTile<E> {
 }
 
 #[cube]
-impl<E: Numeric> FragmentMask for ArrayTile<E> {
+impl<E: Numeric> FragmentMask for LocalTile<E> {
     type Layout = ArrayTileLayout;
 
     fn should_mask(&self, local_pos: Coords2d) -> bool {
@@ -225,7 +225,7 @@ impl<E: Numeric> FragmentMask for ArrayTile<E> {
 
 #[cube]
 fn array_tile_to_tmp_smem<E: Numeric>(
-    array_tile: &ArrayTile<E>,
+    array_tile: &LocalTile<E>,
     #[comptime] num_planes: u32,
 ) -> SliceMut<E> {
     let tile_size = comptime!(array_tile.layout.total_size.0 * array_tile.layout.total_size.1);
@@ -254,7 +254,7 @@ fn array_tile_to_tmp_smem<E: Numeric>(
 }
 
 #[cube]
-fn tmp_smem_to_array_tile<E: Numeric>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut ArrayTile<E>) {
+fn tmp_smem_to_array_tile<E: Numeric>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut LocalTile<E>) {
     for r in 0..array_tile.layout.unit_size.0 {
         for c in 0..array_tile.layout.unit_size.1 {
             let (row, col) = array_tile.layout.absolute_pos((r, c));
@@ -267,7 +267,7 @@ fn tmp_smem_to_array_tile<E: Numeric>(tmp_smem_slice: &SliceMut<E>, array_tile: 
 #[cube]
 fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
-    array_tile: &mut ArrayTile<E2>,
+    array_tile: &mut LocalTile<E2>,
 ) {
     for r in 0..array_tile.layout.unit_size.0 {
         for c in 0..array_tile.layout.unit_size.1 {
@@ -280,7 +280,7 @@ fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
 
 #[cube]
 fn array_tile_to_slice<E: Numeric, E2: Numeric>(
-    array_tile: &ArrayTile<E>,
+    array_tile: &LocalTile<E>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
     for r in 0..array_tile.layout.unit_size.0 {

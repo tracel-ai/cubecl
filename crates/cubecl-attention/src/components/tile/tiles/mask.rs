@@ -148,6 +148,8 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaterializedTileMask<AP,
 
 #[cube]
 impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> FragmentMask for MaskTile<AP, FA> {
+    type Layout = <FA::Mask as FragmentMask>::Layout;
+
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {
         match self {
             MaskTile::Materialized(materialized_tile_mask) => {

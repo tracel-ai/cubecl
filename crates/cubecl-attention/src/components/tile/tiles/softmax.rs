@@ -5,7 +5,7 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::FragmentAttention;
 use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
+use crate::components::fragment::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::MaskTile;
 use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
