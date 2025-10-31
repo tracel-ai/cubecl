@@ -40,8 +40,7 @@ pub trait FragmentLayout: CubeType {
 }
 
 #[cube]
-/// Operations on a fragment, having a specific fragment layout
-pub trait FragmentOps<E: Float> {
+pub trait FragmentSoftmax<E: Float> {
     /// How the fragment is fragmented across units
     type Layout: FragmentLayout;
 
@@ -56,9 +55,6 @@ pub trait FragmentOps<E: Float> {
     /// Units only output values for rows they participate in
     fn rowwise_sum(&self) -> RowWise<E>;
 
-    /// Scale each element in a row by a value for this row
-    fn rowwise_scale(&mut self, val: &RowWise<E>);
-
     /// Scale every element by a constant factor, and masks values identified by the mask
     fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M);
 
@@ -67,8 +63,17 @@ pub trait FragmentOps<E: Float> {
 }
 
 #[cube]
+pub trait FragmentAccumulator<E: Float> {
+    /// Scale each element in a row by a value for this row
+    fn rowwise_scale(&mut self, val: &RowWise<E>);
+}
+
+#[cube]
 /// Describes which elements of a fragment should be masked
 pub trait FragmentMask: CubeType {
+    /// How the fragment is fragmented across units
+    type Layout: FragmentLayout;
+
     /// Returns `true` if the element at `local_pos` should be masked
     fn should_mask(&self, local_pos: Coords2d) -> bool;
 }

@@ -4,7 +4,9 @@ use cubecl_matmul::components::ComputeResources;
 use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
-use crate::components::fragment::{FragmentLayout, FragmentMask, FragmentOps};
+use crate::components::fragment::{
+    FragmentAccumulator, FragmentLayout, FragmentMask, FragmentSoftmax,
+};
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
@@ -17,9 +19,9 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type Config: FragmentAttentionConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
-    type Mask: FragmentMask;
-    type Softmax: FragmentOps<SM<AP>, Layout = Self::FragmentLayout>;
-    type Accumulator: FragmentOps<ACC<AP>, Layout = Self::FragmentLayout>;
+    type Mask: FragmentMask<Layout = Self::FragmentLayout>;
+    type Softmax: FragmentSoftmax<SM<AP>, Layout = Self::FragmentLayout>;
+    type Accumulator: FragmentAccumulator<ACC<AP>>;
     type FragmentLayout: FragmentLayout;
 
     fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout;

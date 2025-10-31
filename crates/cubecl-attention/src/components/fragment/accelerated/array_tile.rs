@@ -1,25 +1,18 @@
-use std::cmp::max;
-
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::AttentionPrecision;
-use crate::components::attention_types::*;
-use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{
+    FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand,
+    FragmentSoftmax, FragmentSoftmaxExpand,
+};
 use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
-use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
-use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
+use crate::components::fragment::FragmentAttentionConfig as _;
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
-use crate::components::fragment::{FragmentSoftmax, FragmentSoftmaxExpand};
-
-pub struct DummyRegisterFragmentAttention;
 
 #[derive(CubeType)]
-/// Mimics fragment behaviour, but execution is not efficient
 /// Assumes:
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
 pub struct ArrayTile<E: Numeric> {
@@ -296,206 +289,5 @@ fn array_tile_to_slice<E: Numeric, E2: Numeric>(
             let index = row * array_tile.layout.total_size.1 + col;
             slice[index] = Line::cast_from(array_tile.array[r * array_tile.layout.unit_size.1 + c]);
         }
-    }
-}
-
-#[cube]
-impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAttention {
-    type Config = DummyRegisterAttentionMatmulConfig;
-
-    type Query = ArrayTile<QT<AP>>;
-    type KeyValue = ArrayTile<KVT<AP>>;
-    type Mask = ArrayTile<MSK<AP>>;
-    type Softmax = ArrayTile<SM<AP>>;
-    type Accumulator = ArrayTile<ACC<AP>>;
-    type FragmentLayout = ArrayTileLayout;
-
-    fn softmax_layout(#[comptime] config: Self::Config) -> ArrayTileLayout {
-        ArrayTileLayout::new(
-            (
-                config.attention_tile_size().seq_q,
-                config.attention_tile_size().seq_kv,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        )
-    }
-
-    fn score_matmul(
-        lhs: &Self::Query,
-        rhs: &Self::KeyValue,
-        out: &mut Self::Softmax,
-        #[comptime] config: Self::Config,
-    ) {
-        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(out, config.num_planes());
-        sync_cube();
-
-        if UNIT_POS_X == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
-
-            for i in 0..m {
-                for j in 0..n {
-                    let mut sum = SM::<AP>::from_int(0);
-                    for ki in 0..k {
-                        let lhs_val = tmp_lhs_smem_slice[i * k + ki];
-                        let rhs_val = tmp_rhs_smem_slice[ki * n + j];
-                        sum += SM::<AP>::cast_from(lhs_val) * SM::<AP>::cast_from(rhs_val);
-                    }
-                    tmp_out_smem_slice[i * n + j] = tmp_out_smem_slice[i * n + j] + sum;
-                }
-            }
-        }
-
-        sync_cube();
-        tmp_smem_to_array_tile(&tmp_out_smem_slice, out);
-        sync_cube();
-    }
-
-    fn value_matmul(
-        lhs: &Self::Softmax,
-        rhs: &Self::KeyValue,
-        out: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
-    ) {
-        sync_cube();
-        let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<SM<AP>>(lhs, config.num_planes());
-        let tmp_rhs_smem_slice = array_tile_to_tmp_smem::<KVT<AP>>(rhs, config.num_planes());
-        let mut tmp_out_smem_slice = array_tile_to_tmp_smem::<ACC<AP>>(out, config.num_planes());
-        sync_cube();
-
-        if UNIT_POS_X == 0 {
-            let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
-
-            for i in 0..m {
-                for j in 0..n {
-                    let mut sum = ACC::<AP>::from_int(0);
-                    for ki in 0..k {
-                        let lhs_val = tmp_lhs_smem_slice[i * k + ki];
-                        let rhs_val = tmp_rhs_smem_slice[ki * n + j];
-                        sum += ACC::<AP>::cast_from(lhs_val) * ACC::<AP>::cast_from(rhs_val);
-                    }
-                    tmp_out_smem_slice[i * n + j] = tmp_out_smem_slice[i * n + j] + sum;
-                }
-            }
-        }
-
-        sync_cube();
-        tmp_smem_to_array_tile(&tmp_out_smem_slice, out);
-        sync_cube();
-    }
-
-    fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(ArrayTileLayout::new(
-            (
-                comptime!(max(
-                    config.attention_tile_size().head_dim,
-                    config.attention_tile_size().seq_kv,
-                )),
-                comptime!(max(
-                    config.attention_tile_size().seq_kv,
-                    config.attention_tile_size().val_dim,
-                )),
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        ))
-    }
-
-    fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(ArrayTileLayout::new(
-            (
-                config.attention_tile_size().head_dim,
-                config.attention_tile_size().seq_kv,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        ))
-    }
-
-    fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        ArrayTile::new(ArrayTileLayout::new(
-            (
-                config.attention_tile_size().seq_kv,
-                config.attention_tile_size().val_dim,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        ))
-    }
-
-    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
-    }
-
-    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
-    }
-
-    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
-        ArrayTile::new(ArrayTileLayout::new(
-            (
-                config.attention_tile_size().seq_q,
-                config.attention_tile_size().val_dim,
-            ),
-            config.plane_dim(),
-            config.inner_layout(),
-        ))
-    }
-
-    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query {
-        let seq_q = config.attention_tile_size().seq_q;
-        let head_dim = config.attention_tile_size().head_dim;
-
-        ArrayTile::new(ArrayTileLayout::new(
-            (seq_q, head_dim),
-            config.plane_dim(),
-            config.inner_layout(),
-        ))
-    }
-
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
-        strided_tile_to_array_tile(tile, fragment);
-
-        sync_cube();
-    }
-
-    fn fill_key_value<E: Float>(
-        tile: &StridedTile<E>,
-        rhs: &mut Self::KeyValue,
-        #[comptime] _config: Self::Config,
-    ) {
-        strided_tile_to_array_tile(tile, rhs);
-
-        sync_cube();
-    }
-
-    fn fill_mask<E: Numeric>(
-        tile: &StridedTile<E>,
-        mask: &mut Self::Mask,
-        #[comptime] _config: Self::Config,
-    ) {
-        strided_tile_to_array_tile(tile, mask);
-
-        sync_cube();
-    }
-
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
-        softmax.zero();
-        sync_cube();
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator) {
-        acc.zero();
-        sync_cube();
-    }
-
-    fn write_results<E: Float>(
-        out: &Self::Accumulator,
-        slice: &mut SliceMut<Line<E>>,
-        #[comptime] _config: Self::Config,
-    ) {
-        array_tile_to_slice(out, slice);
     }
 }

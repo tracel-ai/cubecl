@@ -9,13 +9,14 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 
 use crate::components::fragment::FragmentAttention;
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
-use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
 
 pub struct UnitRegisterFragmentAttention;
 
@@ -74,7 +75,7 @@ impl FragmentLayout for UnitTileLayout {
 }
 
 #[cube]
-impl<E: Float> FragmentOps<E> for UnitTile<E> {
+impl<E: Float> FragmentSoftmax<E> for UnitTile<E> {
     type Layout = UnitTileLayout;
 
     fn rowwise_max(&self) -> RowWise<E> {
@@ -123,18 +124,6 @@ impl<E: Float> FragmentOps<E> for UnitTile<E> {
         }
     }
 
-    fn rowwise_scale(&mut self, scale: &RowWise<E>) {
-        #[unroll]
-        for r in 0..self.layout.num_rows {
-            let row_offset = r * self.layout.num_cols;
-            #[unroll]
-            for c in 0..self.layout.num_cols {
-                let index = row_offset + c;
-                self.data[index] = self.data[index] * scale.index(r);
-            }
-        }
-    }
-
     fn scale_and_mask<M: FragmentMask>(this: &mut Self, scale: E, mask: &M) {
         #[unroll]
         for r in 0..this.layout.num_rows {
@@ -166,7 +155,24 @@ impl<E: Float> FragmentOps<E> for UnitTile<E> {
 }
 
 #[cube]
+impl<E: Float> FragmentAccumulator<E> for UnitTile<E> {
+    fn rowwise_scale(&mut self, scale: &RowWise<E>) {
+        #[unroll]
+        for r in 0..self.layout.num_rows {
+            let row_offset = r * self.layout.num_cols;
+            #[unroll]
+            for c in 0..self.layout.num_cols {
+                let index = row_offset + c;
+                self.data[index] = self.data[index] * scale.index(r);
+            }
+        }
+    }
+}
+
+#[cube]
 impl<E: Numeric> FragmentMask for UnitTile<E> {
+    type Layout = UnitTileLayout;
+
     fn should_mask(&self, local_pos: Coords2d) -> bool {
         bool::cast_from(self.data[local_pos.0 * self.layout.num_cols + local_pos.1])
     }
