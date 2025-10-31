@@ -34,6 +34,12 @@ impl FragmentMask for MaskTODO {
     }
 }
 
+#[derive(CubeType)]
+/// Navigates between cmma fragment (for matmuls) and shared memory (for row wise ops)
+pub struct HybridFragment {
+    cmma::Matrix<E>,
+}
+
 #[cube]
 impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragmentAttention {
     type Config = BlackboxAcceleratedAttentionMatmulConfig;
