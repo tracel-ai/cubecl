@@ -41,13 +41,18 @@ impl CpuServer {
 #[derive(Debug)]
 pub struct CpuContext {
     memory_management: MemoryManagement<BytesStorage>,
+    memory_management_shared_memory: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
 }
 
 impl CpuContext {
-    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
+    pub fn new(
+        memory_management: MemoryManagement<BytesStorage>,
+        memory_management_shared_memory: MemoryManagement<BytesStorage>,
+    ) -> Self {
         Self {
             memory_management,
+            memory_management_shared_memory,
             timestamps: TimestampProfiler::default(),
         }
     }
@@ -185,6 +190,7 @@ impl ComputeServer for CpuServer {
             bindings,
             kind,
             &mut self.ctx.memory_management,
+            &mut self.ctx.memory_management_shared_memory,
         );
     }
 
