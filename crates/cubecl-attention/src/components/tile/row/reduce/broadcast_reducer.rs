@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::FragmentLayout;
 use crate::components::fragment::{FragmentLayoutExpand, FragmentOps, FragmentOpsExpand};
 use crate::components::tile::ReduceOp;
@@ -17,10 +17,10 @@ pub struct BroadcastReducer {}
 
 #[cube]
 impl Reducer for BroadcastReducer {
-    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, FC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
-        #[comptime] config: TC,
+        #[comptime] config: FC,
     ) {
         let num_units_per_row = data.layout().num_units_per_row();
         let num_shares_within_plane = comptime!((num_units_per_row as f32).log2().ceil() as u32);

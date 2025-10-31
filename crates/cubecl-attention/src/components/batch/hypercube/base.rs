@@ -53,8 +53,6 @@ impl CubeCountPlan {
 
 #[derive(CubeType, CubeLaunch)]
 /// CubeCountPlan stripped of non-essential runtime information
-///
-/// This enum is given as runtime input to the matmul
 pub enum CubeCountInput {
     Tmp { dummy: u32 },
 }

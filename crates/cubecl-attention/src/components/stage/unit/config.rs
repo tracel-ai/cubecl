@@ -1,13 +1,12 @@
-use cubecl_matmul::components::{MatrixLayout, StageIdent, TilingScheme, stage::StageMemoryConfig};
-
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme, fragment::AttentionMatmulConfig,
-    stage::StageAttentionConfig,
+    AttentionSetupError, AttentionTilingScheme,
+    fragment::FragmentAttentionConfig,
+    stage::{AttentionStageMemoryConfig, StageAttentionConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SimpleKVReuseStageConfig<FC: AttentionMatmulConfig> {
-    tile_config: FC,
+pub struct UnitKVReuseStageConfig<FC: FragmentAttentionConfig> {
+    fragment_config: FC,
     score_stage_memory_config: AttentionStageMemoryConfig,
     value_stage_memory_config: AttentionStageMemoryConfig,
     tiling_scheme: AttentionTilingScheme,
@@ -15,19 +14,19 @@ pub struct SimpleKVReuseStageConfig<FC: AttentionMatmulConfig> {
     num_planes: u32,
 }
 
-impl<FC: AttentionMatmulConfig> StageAttentionConfig for SimpleKVReuseStageConfig<FC> {
-    type AttentionMatmulConfig = FC;
+impl<FC: FragmentAttentionConfig> StageAttentionConfig for UnitKVReuseStageConfig<FC> {
+    type FragmentAttentionConfig = FC;
 
     fn plane_dim(&self) -> u32 {
-        32
+        self.fragment_config.plane_dim()
     }
 
     fn num_planes(&self) -> u32 {
         self.num_planes
     }
 
-    fn tile_config(&self) -> Self::AttentionMatmulConfig {
-        self.tile_config
+    fn tile_config(&self) -> Self::FragmentAttentionConfig {
+        self.fragment_config
     }
 
     fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
@@ -47,13 +46,13 @@ impl<FC: AttentionMatmulConfig> StageAttentionConfig for SimpleKVReuseStageConfi
     }
 
     fn num_rows_per_unit(&self) -> u32 {
-        self.tile_config.num_rows_per_unit()
+        self.fragment_config.num_rows_per_unit()
     }
 }
 
-impl<FC: AttentionMatmulConfig> SimpleKVReuseStageConfig<FC> {
+impl<FC: FragmentAttentionConfig> UnitKVReuseStageConfig<FC> {
     pub fn new(
-        tile_config: FC,
+        fragment_config: FC,
         score_stage_memory_config: AttentionStageMemoryConfig,
         value_stage_memory_config: AttentionStageMemoryConfig,
         tiling_scheme: AttentionTilingScheme,
@@ -61,7 +60,7 @@ impl<FC: AttentionMatmulConfig> SimpleKVReuseStageConfig<FC> {
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
-            tile_config,
+            fragment_config,
             score_stage_memory_config,
             value_stage_memory_config,
             tiling_scheme,
@@ -84,25 +83,5 @@ impl<FC: AttentionMatmulConfig> SimpleKVReuseStageConfig<FC> {
         }
 
         Ok(self)
-    }
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AttentionStageMemoryConfig {
-    pub matmul_tiling_scheme: TilingScheme,
-}
-
-impl AttentionStageMemoryConfig {
-    pub fn into_matmul_config(&self, ident: StageIdent) -> StageMemoryConfig {
-        StageMemoryConfig {
-            num_main_flow_planes: 1,
-            elements_in_tile_row: self.matmul_tiling_scheme.elements_in_tile_row(ident),
-            elements_in_tile_col: self.matmul_tiling_scheme.elements_in_tile_col(ident),
-            tiles_in_stage_row: self.matmul_tiling_scheme.tiles_in_stage_row(ident),
-            tiles_in_stage_col: self.matmul_tiling_scheme.tiles_in_stage_col(ident),
-            stage_line_size: 1,
-            matrix_layout: MatrixLayout::RowMajor,
-            num_stages: 1,
-        }
     }
 }

@@ -59,7 +59,6 @@ impl DeviceState for CpuServer {
             num_tensor_cores: None,
             min_tensor_cores_dim: None,
         };
-        let storage = BytesStorage::default();
 
         const ALIGNMENT: u64 = 4;
         let mem_properties = MemoryDeviceProperties {
@@ -68,12 +67,20 @@ impl DeviceState for CpuServer {
         };
 
         let memory_management = MemoryManagement::from_configuration(
-            storage,
+            BytesStorage::default(),
             &mem_properties,
             options.memory_config,
             logger.clone(),
-            MemoryManagementOptions::new("test"),
+            MemoryManagementOptions::new("Main CPU"),
         );
+        let memory_management_shared_memory = MemoryManagement::from_configuration(
+            BytesStorage::default(),
+            &mem_properties,
+            MemoryConfiguration::ExclusivePages,
+            logger.clone(),
+            MemoryManagementOptions::new("Shared Memory"),
+        );
+
         let mut device_props = DeviceProperties::new(
             Default::default(),
             mem_properties,
@@ -82,7 +89,7 @@ impl DeviceState for CpuServer {
         );
         register_supported_types(&mut device_props);
 
-        let ctx = CpuContext::new(memory_management);
+        let ctx = CpuContext::new(memory_management, memory_management_shared_memory);
         let utilities = ServerUtilities::new(device_props, logger, ());
         CpuServer::new(ctx, utilities)
     }

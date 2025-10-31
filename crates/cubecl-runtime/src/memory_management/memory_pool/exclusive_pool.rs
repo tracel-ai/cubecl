@@ -114,6 +114,9 @@ impl ExclusiveMemoryPool {
 }
 
 impl MemoryPool for ExclusiveMemoryPool {
+    fn accept(&self, size: u64) -> bool {
+        self.max_alloc_size >= size
+    }
     /// Returns the resource from the storage, for the specified handle.
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         let binding_id = *binding.id();
@@ -172,10 +175,6 @@ impl MemoryPool for ExclusiveMemoryPool {
             bytes_padding: used_slices.iter().map(|page| page.slice.padding).sum(),
             bytes_reserved: self.pages.iter().map(|page| page.alloc_size).sum(),
         }
-    }
-
-    fn max_alloc_size(&self) -> u64 {
-        self.max_alloc_size
     }
 
     fn cleanup<Storage: ComputeStorage>(
