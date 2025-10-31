@@ -320,6 +320,9 @@ impl ComputeServer for CudaServer {
                         channels_per_pixel,
                         pixels_per_column,
                     } => unsafe {
+                        use cudarc::driver::sys::{
+                            CUtensorMapIm2ColWideMode, cuTensorMapEncodeIm2colWide,
+                        };
                         cuTensorMapEncodeIm2colWide(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.storage_ty),
