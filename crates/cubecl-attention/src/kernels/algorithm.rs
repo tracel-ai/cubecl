@@ -1,6 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::components::fragment::AttentionMatmulFamily;
+use crate::components::fragment::FragmentAttentionFamily;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, batch::BatchAttentionFamily,
@@ -8,7 +8,7 @@ use crate::components::{
 };
 
 pub trait Algorithm {
-    type FragmentAttention: AttentionMatmulFamily;
+    type FragmentAttention: FragmentAttentionFamily;
     type StageAttention: StageAttentionFamily;
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;

@@ -68,6 +68,12 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         max_plane_per_cube / (4 * precision_factor)
     });
 
+    if row_count == 0 {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
+        ));
+    }
+
     let (rows_per_plane, stage_size_m, partition_shape_n) = select_size(
         options.multi_row_strategy,
         row_count as usize,

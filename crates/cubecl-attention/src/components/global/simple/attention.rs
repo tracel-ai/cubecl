@@ -8,14 +8,13 @@ use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
-use crate::components::global::simple::writer::AttentionWriter;
+use crate::components::global::simple::{AttentionWriter, AttentionWriterExpand, MaskReader};
 use crate::components::global::{
     AttentionGlobalLayout,
     simple::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::StageAttention;
+use crate::components::stage::{AttentionPartitioner, StageAttention};
 use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
@@ -42,7 +41,7 @@ impl<
     type ValueReader = DummyValueReader<AP, Self::Config>;
     type MaskReader = MaskReader<AP>;
 
-    type Writer = AttentionWriter<(OG<AP>, OS<AP>)>;
+    type Writer = <SA::Partitioner as AttentionPartitioner>::Writer<OS<AP>, OG<AP>>;
 
     type Config = SimpleGlobalConfig<SA::Config>;
 
@@ -161,6 +160,8 @@ impl<
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
         let step = reduction_step::<Self::Config>(config);
+        let inner_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index()
+            * config.tiling_scheme().elements_in_partition_seq_q();
 
         match mask {
             CubeOption::Some(mask) => {
@@ -170,9 +171,15 @@ impl<
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
-                MaskReader::new_materialized(q_offset, mask.view(layout), step, seq_kv_shape)
+                MaskReader::new_materialized(
+                    q_offset,
+                    inner_q_offset,
+                    mask.view(layout),
+                    step,
+                    seq_kv_shape,
+                )
             }
-            CubeOption::None => MaskReader::new_logical(q_offset, step),
+            CubeOption::None => MaskReader::new_logical(q_offset + inner_q_offset, step),
         }
     }
 

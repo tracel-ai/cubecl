@@ -4,12 +4,9 @@ use cubecl_core::prelude::*;
 use crate::components::{
     AccG, LhsG, MatmulPrecision, RhsG,
     batch::SliceIndex,
-    global::{self, GlobalConfig},
+    global::{self, GlobalConfig, args::MatmulArgs},
 };
-use cubecl_std::{
-    CubeOption, CubeOptionExpand,
-    tensor::{View, layout::Coords3d},
-};
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[derive(CubeType)]
 /// Area of a tensor a cube is responsible of performing matmul
@@ -31,11 +28,8 @@ pub struct PartitionRangeDim {
 #[cube]
 /// Iterates on several global matmul across a global partition
 pub trait GlobalPartitionMatmul: 'static + Send + Sync {
-    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        a: View<Line<LhsG<MP>>, Coords3d>,
-        b: View<Line<RhsG<MP>>, Coords3d>,
-        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
-        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
+    fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         partition_ranges: PartitionRanges,
         acc: GMM::Accumulators,
         k_range: (u32, u32),
@@ -82,11 +76,8 @@ impl PartitionRangeDim {
 
 #[cube]
 impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
-    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        a: View<Line<LhsG<MP>>, Coords3d>,
-        b: View<Line<RhsG<MP>>, Coords3d>,
-        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
-        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
+    fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulators,
         k_range: (u32, u32),
@@ -109,8 +100,8 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                 for col in 0..num_steps_col {
                     let col_offset = ranges.col.start + col * ranges.col.step;
 
-                    execute_global_matmul::<MP, GMM>(
-                        a, b, c, out, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                    execute_global_matmul::<Args, MP, GMM>(
+                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
                     );
                 }
             }
@@ -120,11 +111,8 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
 
 #[cube]
 impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
-    fn execute<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-        a: View<Line<LhsG<MP>>, Coords3d>,
-        b: View<Line<RhsG<MP>>, Coords3d>,
-        c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
-        out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
+    fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
+        state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
         mut acc: GMM::Accumulators,
         k_range: (u32, u32),
@@ -147,8 +135,8 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                 for row in 0..num_steps_row {
                     let row_offset = ranges.row.start + row * ranges.row.step;
 
-                    execute_global_matmul::<MP, GMM>(
-                        a, b, c, out, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                    execute_global_matmul::<Args, MP, GMM>(
+                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
                     );
                 }
             }
@@ -159,11 +147,12 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
 #[cube]
 /// Execute global matmul on lhs, rhs, writing in out.
 /// m and n offsets are absolute rows and columns
-pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
-    a: View<Line<LhsG<MP>>, Coords3d>,
-    b: View<Line<RhsG<MP>>, Coords3d>,
-    c: CubeOption<View<Line<AccG<MP>>, Coords3d>>,
-    out: View<Line<AccG<MP>>, Coords3d, ReadWrite>,
+pub(crate) fn execute_global_matmul<
+    Args: MatmulArgs,
+    MP: MatmulPrecision,
+    GMM: global::GlobalMatmul<MP>,
+>(
+    state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
     nth_batch: u32,
     m_offset: u32,
     n_offset: u32,
@@ -176,16 +165,25 @@ pub(crate) fn execute_global_matmul<MP: MatmulPrecision, GMM: global::GlobalMatm
     let stage_n = tiling.elements_in_stage_n().runtime();
     let k_size = k_range.1 - k_range.0;
 
-    let a = a.view(SliceIndex::new(nth_batch, a.shape()));
-    let b = b.view(SliceIndex::new(nth_batch, b.shape()));
+    let a = Args::view_lhs(state);
+    let b = Args::view_rhs(state);
+    let c = Args::view_acc(state);
+    let out = Args::view_out(state);
+
+    let a_batch = Args::batch_lhs(state, nth_batch);
+    let a = a.view(SliceIndex::new(a_batch, a.shape()));
+    let b_batch = Args::batch_rhs(state, nth_batch);
+    let b = b.view(SliceIndex::new(b_batch, b.shape()));
+    let c_batch = Args::batch_acc(state, nth_batch);
     let c = match c {
         CubeOption::Some(c) => {
-            let c = c.view(SliceIndex::new(nth_batch, c.shape()));
+            let c = c.view(SliceIndex::new(c_batch, c.shape()));
             CubeOption::new_Some(c.slice_unchecked((m_offset, n_offset), (stage_m, stage_n)))
         }
         CubeOption::None => CubeOption::new_None(),
     };
-    let out = out.view_mut(SliceIndex::new(nth_batch, out.shape()));
+    let out_batch = Args::batch_out(state, nth_batch);
+    let out = out.view_mut(SliceIndex::new(out_batch, out.shape()));
 
     GMM::execute(
         GMM::init_lhs_global_reader(
