@@ -472,16 +472,30 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for HipDialect<M> {
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_up({var}, {offset})")
+        match elem {
+            Elem::BF16 => write!(
+                f,
+                "half_to_bfloat16(__shfl_up(reinterpret_cast<__half&>({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_up({var}, {offset})"),
+        }
     }
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_down({var}, {offset})")
+        match elem {
+            Elem::BF16 => write!(
+                f,
+                "half_to_bfloat16(__shfl_down(reinterpret_cast<__half&>({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_down({var}, {offset})"),
+        }
     }
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,
