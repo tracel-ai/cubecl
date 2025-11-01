@@ -875,7 +875,7 @@ fn check_tma_im2col(
         map.rank
     );
     assert!(
-        lower_corner
+        upper_corner
             .iter()
             .all(|it| *it >= range_lower && *it <= range_upper),
         "Upper corner must be in range [{range_lower}, {range_upper}] for {}D im2col",
