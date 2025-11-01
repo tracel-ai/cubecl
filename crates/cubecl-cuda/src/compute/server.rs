@@ -753,7 +753,7 @@ fn check_tma_generic(
     if !matches!(map.interleave, TensorMapInterleave::None) {
         assert!(
             (device_ptr as usize).is_multiple_of(32),
-            "Tensor pointer must be 16 byte aligned"
+            "Tensor pointer must be 32 byte aligned"
         );
     }
 
