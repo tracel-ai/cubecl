@@ -3,12 +3,11 @@ use std::any::TypeId;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::{
-    FastDivmodArgs,
+    CubeOptionArgs, FastDivmodArgs,
     tensor::{
-        View,
         launch::ViewArg,
         layout::{
-            Coords3d,
+            VirtualLayoutLaunch,
             chain::{Chain, ChainLaunch},
         },
     },
@@ -33,7 +32,13 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         MatmulIdent, MatmulLineSizes, MatmulSelection,
-        global::args::{TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch},
+        global::{
+            args::{
+                TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
+                TensorOutput, TensorOutputLaunch,
+            },
+            memory::{NoopLayout, NoopLayoutLaunch},
+        },
     },
 };
 
@@ -109,16 +114,20 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
 
         TensorInputsLaunch::new(
             ViewArg::new::<LhsLayout>(lhs.data().as_array_arg(line_sizes.lhs), layout_lhs),
+            VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()),
             ViewArg::new::<RhsLayout>(rhs.data().as_array_arg(line_sizes.rhs), layout_rhs),
+            VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()),
             bias.map(|bias| {
                 ViewArg::new::<BiasLayout>(bias.as_array_arg(line_sizes.out), layout_bias)
             })
             .into(),
+            bias.map(|_| VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new()))
+                .into(),
         )
     }
 }
 
-impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> {
+impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
     fn create<'a, R: Runtime>(
         client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
@@ -136,7 +145,9 @@ impl<EG: Numeric> ConcreteOutputFactory for View<Line<EG>, Coords3d, ReadWrite> 
             config.global_memory_config(MatmulIdent::Out),
         );
         let layout = ChainLaunch::new(global, layout);
-        ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout)
+        let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);
+        let batch = VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new());
+        TensorOutputLaunch::new(view, batch)
     }
 }
 
@@ -231,6 +242,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             ViewArg::new_tensor_map::<TmaDummyLayout>(lhs, lhs_layout),
             ViewArg::new_tensor_map::<TmaWeightLayout>(rhs, rhs_layout),
             bias.into(),
+            CubeOptionArgs::Some(VirtualLayoutLaunch::new::<NoopLayout>(
+                NoopLayoutLaunch::new(),
+            )),
         )
     }
 }

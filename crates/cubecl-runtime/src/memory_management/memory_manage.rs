@@ -31,6 +31,13 @@ enum DynamicPool {
 }
 
 impl MemoryPool for DynamicPool {
+    fn accept(&self, size: u64) -> bool {
+        match self {
+            DynamicPool::Sliced(pool) => pool.accept(size),
+            DynamicPool::Exclusive(pool) => pool.accept(size),
+        }
+    }
+
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
@@ -60,13 +67,6 @@ impl MemoryPool for DynamicPool {
         match self {
             DynamicPool::Sliced(m) => m.get_memory_usage(),
             DynamicPool::Exclusive(m) => m.get_memory_usage(),
-        }
-    }
-
-    fn max_alloc_size(&self) -> u64 {
-        match self {
-            DynamicPool::Sliced(m) => m.max_alloc_size(),
-            DynamicPool::Exclusive(m) => m.max_alloc_size(),
         }
     }
 
@@ -441,7 +441,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
         let pool = self
             .pools
             .iter_mut()
-            .find(|p| p.max_alloc_size() >= size)
+            .find(|p| p.accept(size))
             .ok_or(IoError::BufferTooBig(size as usize))?;
 
         if let Some(slice) = pool.try_reserve(size) {

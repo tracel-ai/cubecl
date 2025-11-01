@@ -44,6 +44,10 @@ impl UnrollProcessor {
         inst: &Instruction,
         mappings: &mut Mappings,
     ) -> TransformAction {
+        if matches!(inst.operation, Operation::Free(_)) {
+            return TransformAction::Ignore;
+        }
+
         if inst.operation.args().is_none() {
             // Detect unhandled ops that can't be reflected
             match &inst.operation {
@@ -623,7 +627,7 @@ fn create_unrolled(
                 allocator.create_local_mut(item)
             }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
-            _ => panic!("Out must be local"),
+            other => panic!("Out must be local, found {other:?}"),
         })
         .collect()
 }

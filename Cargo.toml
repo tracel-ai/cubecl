@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.88"
-version = "0.7.0"
+version = "0.9.0"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
@@ -85,7 +85,7 @@ tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.27.1", features = ["derive"] }
-tracel-xtask = { version = "=2.1.8" }
+tracel-xtask = { version = "=2.1.11" }
 
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",
@@ -107,16 +107,17 @@ tracel-llvm = { version = "20.1.4-5", features = ["mlir-helpers"] }
 cudarc = { version = "0.17.3", features = [
     "std",
     "driver",
+    "nvrtc",
     "cuda-version-from-build-system",
     "dynamic-loading",
 ], default-features = false }
 
 # CubeCL-SPIR-V
-rspirv = { git = "https://github.com/tracel-ai/tracel-rspirv.git", rev = "9b4037a2e14fe4138c8d4a8cfcac40c6577b5549", package = "tracel-rspirv" }
+rspirv = { package = "tracel-rspirv", version = "0.12.0" }
 
 # CubeCL-WGPU
 ash = "0.38"
-tracel-ash = { git = "https://github.com/tracel-ai/tracel-ash.git", rev = "cedd894bbdb03f0635900e7c0d317020fdd38263" }
+tracel-ash = "0.38.0"
 
 # Build deps
 cfg_aliases = "0.2.1"

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::AttentionMatmulConfig;
+use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::FragmentOps;
 use crate::components::tile::RowMax;
 use crate::components::tile::RowSum;
@@ -9,7 +9,7 @@ use crate::components::tile::RowWise;
 
 #[cube]
 /// Computes the sum of rows on a fragment, using the Reducer's strategy
-pub fn row_sum<E: Float, F: FragmentOps<E>, R: Reducer, TC: AttentionMatmulConfig>(
+pub fn row_sum<E: Float, F: FragmentOps<E>, R: Reducer, TC: FragmentAttentionConfig>(
     vals: &mut RowWise<E>,
     data: &F,
     #[comptime] config: TC,
@@ -21,7 +21,7 @@ pub fn row_sum<E: Float, F: FragmentOps<E>, R: Reducer, TC: AttentionMatmulConfi
 #[cube]
 /// Computes the max of rows on a fragment, using the Reducer's strategy
 /// Starts max at base
-pub fn row_max<E: Float, F: FragmentOps<E>, R: Reducer, TC: AttentionMatmulConfig>(
+pub fn row_max<E: Float, F: FragmentOps<E>, R: Reducer, TC: FragmentAttentionConfig>(
     vals: &mut RowWise<E>,
     base: &RowWise<E>,
     data: &F,
@@ -35,7 +35,7 @@ pub fn row_max<E: Float, F: FragmentOps<E>, R: Reducer, TC: AttentionMatmulConfi
 /// Strategy for reducing across units participating in the same row
 pub trait Reducer: CubeType {
     /// Reduction algorithm, applied inplace in vals
-    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: AttentionMatmulConfig>(
+    fn reduce<E: Float, F: FragmentOps<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] config: TC,
