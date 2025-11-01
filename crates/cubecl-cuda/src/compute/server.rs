@@ -785,7 +785,7 @@ fn check_tma_generic(
     if matches!(map.interleave, TensorMapInterleave::B32) {
         assert!(
             strides.iter().all(|it| it.is_multiple_of(32)),
-            "Strides must be 16 byte aligned when interleave is B32"
+            "Strides must be 32 byte aligned when interleave is B32"
         );
     }
 
