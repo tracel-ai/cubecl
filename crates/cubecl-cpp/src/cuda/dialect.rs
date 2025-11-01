@@ -516,16 +516,54 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_up_sync(-1, {var}, {offset})")
+        match elem {
+            Elem::F16 => write!(
+                f,
+                "__half_as_ushort(__shfl_up_sync(-1, __ushort_as_half({var}), {offset}))"
+            ),
+            Elem::F16x2 => write!(
+                f,
+                "__uint_as_half2(__shfl_up_sync(-1, __half2_as_uint({var}), {offset}))"
+            ),
+            Elem::BF16 => write!(
+                f,
+                "__ushort_as_bfloat16(__shfl_up_sync(-1, __bfloat16_as_ushort({var}), {offset}))"
+            ),
+            Elem::BF16x2 => write!(
+                f,
+                "__uint_as_bfloat162(__shfl_up_sync(-1, __bfloat162_as_uint({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_up_sync(-1, {var}, {offset})"),
+        }
     }
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<Self>,
         offset: &str,
     ) -> std::fmt::Result {
-        write!(f, "__shfl_down_sync(-1, {var}, {offset})")
+        match elem {
+            Elem::F16 => write!(
+                f,
+                "__half_as_ushort(__shfl_down_sync(-1, __ushort_as_half({var}), {offset}))"
+            ),
+            Elem::F16x2 => write!(
+                f,
+                "__uint_as_half2(__shfl_down_sync(-1, __half2_as_uint({var}), {offset}))"
+            ),
+            Elem::BF16 => write!(
+                f,
+                "__ushort_as_bfloat16(__shfl_down_sync(-1, __bfloat16_as_ushort({var}), {offset}))"
+            ),
+            Elem::BF16x2 => write!(
+                f,
+                "__uint_as_bfloat162(__shfl_down_sync(-1, __bfloat162_as_uint({var}), {offset}))"
+            ),
+            _ => write!(f, "__shfl_down_sync(-1, {var}, {offset})"),
+        }
     }
     fn compile_warp_all<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,

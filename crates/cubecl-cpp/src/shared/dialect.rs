@@ -656,11 +656,13 @@ pub trait DialectInstructions<D: Dialect> {
     fn compile_warp_shuffle_up(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_shuffle_down(
         f: &mut std::fmt::Formatter<'_>,
         var: &str,
+        elem: &Elem<D>,
         offset: &str,
     ) -> std::fmt::Result;
     fn compile_warp_all<T: Component<D>>(

@@ -160,6 +160,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     D::compile_warp_shuffle_up(
                         f,
                         &format!("{}", input.index(i)),
+                        input.item().elem(),
                         &format!("{delta}"),
                     )?;
                 }
@@ -174,6 +175,7 @@ impl<D: Dialect> Display for WarpInstruction<D> {
                     D::compile_warp_shuffle_down(
                         f,
                         &format!("{}", input.index(i)),
+                        input.item().elem(),
                         &format!("{delta}"),
                     )?;
                 }
@@ -244,12 +246,13 @@ pub(crate) fn reduce_inclusive<D: Dialect>(
         let tmp = Variable::tmp(Item::scalar(acc_item.elem, false));
         let tmp_left = tmp.fmt_left();
         let lane_id = Variable::<D>::UnitPosPlane;
+        let acc_elem = acc_item.elem();
         write!(
             f,
             "
 {tmp_left} = "
         )?;
-        D::compile_warp_shuffle_up(f, &acc_indexed, "offset")?;
+        D::compile_warp_shuffle_up(f, &acc_indexed, acc_elem, "offset")?;
         write!(
             f,
             ";
@@ -275,11 +278,12 @@ pub(crate) fn reduce_exclusive<D: Dialect>(
     reduce_inclusive(f, input, &inclusive, op)?;
     let shfl = Variable::tmp(acc_item);
     writeln!(f, "{} = {{", shfl.fmt_left())?;
+    let acc_elem = acc_item.elem();
     for k in 0..acc_item.vectorization {
         let inclusive_indexed = maybe_index(&inclusive, k);
         let comma = if k > 0 { ", " } else { "" };
         write!(f, "{comma}")?;
-        D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), "1")?;
+        D::compile_warp_shuffle_up(f, &inclusive_indexed.to_string(), acc_elem, "1")?;
     }
     writeln!(f, "}};")?;
     let lane_id = Variable::<D>::UnitPosPlane;
