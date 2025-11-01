@@ -6,11 +6,12 @@ use cubecl_core::{
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     components::{
         AccG, LhsG, MatmulSetupError, RhsG,
-        tile::{accelerated::AcceleratedMatmul, io::Filled},
+        tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
         Selection,
@@ -55,21 +56,35 @@ use super::{
 /// Most strategies have a selection input that can be overwritten or inferred from minimal information
 /// Some strategies must have a specified loading strategy
 pub enum Strategy {
-    Simple(SyncReadingStrategy, Selection<SimpleArgs>),
-    SimpleBarrier(AsyncReadingStrategy),
-    DoubleBuffering(SyncPartialReadingStrategy, Selection<DoubleBufferingArgs>),
+    Simple {
+        read_strategy: SyncReadingStrategy,
+        selection: Selection<SimpleArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
+    SimpleBarrier {
+        read_strategy: AsyncReadingStrategy,
+        tile_kind: AcceleratedTileKind,
+    },
+    DoubleBuffering {
+        read_strategy: SyncPartialReadingStrategy,
+        selection: Selection<DoubleBufferingArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
     DoubleUnit(Selection<DoubleUnitSelectionArgs>),
     SimpleVecMat(Selection<()>),
     DoubleVecMat(Selection<()>),
-    OrderedDoubleBuffering(Selection<OrderedSelectionArgs>),
+    OrderedDoubleBuffering {
+        selection: Selection<OrderedSelectionArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
     Naive,
     #[default]
     /// Tries using a Simple matmul, then a SimpleUnit if the former failed
     Auto,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 /// Which reader to use in simple algorithms
 pub enum SyncReadingStrategy {
     Cyclic,
@@ -77,7 +92,7 @@ pub enum SyncReadingStrategy {
     Tilewise,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 /// Which reader to use in double buffering algorithms
 pub enum SyncPartialReadingStrategy {
     Cyclic,
@@ -85,7 +100,7 @@ pub enum SyncPartialReadingStrategy {
     Hybrid,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 /// Which reader to use in barrier algorithm
 pub enum AsyncReadingStrategy {
     Cooperative,
@@ -93,6 +108,29 @@ pub enum AsyncReadingStrategy {
     MaximizeSliceLength,
     MaximizeUnitCount,
     Tma,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+/// Which tile matmul to use for accelerated algorithms
+pub enum AcceleratedTileKind {
+    #[default]
+    Cmma,
+    Mma,
+}
+
+macro_rules! with_tile_kind {
+    ($kind: expr, $T: ident, $launch: expr) => {
+        match $kind {
+            AcceleratedTileKind::Cmma => {
+                type $T = CmmaMatmul<Filled>;
+                ($launch)()
+            }
+            AcceleratedTileKind::Mma => {
+                type $T = MmaMatmul<Filled>;
+                ($launch)()
+            }
+        }
+    };
 }
 
 pub enum MatmulInputHandle<R: Runtime, E: CubePrimitive, S: CubePrimitive = f32> {
@@ -332,10 +370,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
 ) -> Result<(), MatmulSetupError> {
-    type Accelerated = AcceleratedMatmul<Filled>;
-
     match strategy {
-        Strategy::Simple(loading_strategy, selection) => match loading_strategy {
+        Strategy::Simple {
+            read_strategy,
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             SyncReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
@@ -361,8 +401,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-        },
-        Strategy::SimpleBarrier(loading_strategy) => match loading_strategy {
+        }),
+        Strategy::SimpleBarrier {
+            read_strategy,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             AsyncReadingStrategy::Cooperative => {
                 layered::launch_ref::<
                     R,
@@ -413,8 +456,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     &Default::default(),
                 )
             }
-        },
-        Strategy::DoubleBuffering(loading_strategy, selection) => match loading_strategy {
+        }),
+        Strategy::DoubleBuffering {
+            read_strategy,
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             SyncPartialReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
@@ -430,12 +477,17 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     client, lhs, rhs, out, selection,
                 )
             }
-        },
-        Strategy::OrderedDoubleBuffering(selection) => {
-            layered::launch_ref::<R, MP, OrderedDoubleBufferingAlgorithm<Accelerated>>(
-                client, lhs, rhs, out, selection,
-            )
-        }
+        }),
+        Strategy::OrderedDoubleBuffering {
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref::<
+            R,
+            MP,
+            OrderedDoubleBufferingAlgorithm<Accelerated>,
+        >(
+            client, lhs, rhs, out, selection,
+        )),
         Strategy::SimpleUnit(selection) => {
             layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection)
         }
@@ -447,7 +499,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
+            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<CmmaMatmul<Filled>>>(
                 client,
                 lhs,
                 rhs,

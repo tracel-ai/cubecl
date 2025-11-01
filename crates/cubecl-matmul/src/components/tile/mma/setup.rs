@@ -1,15 +1,19 @@
-use crate::components::tile::{
-    TileMatmulFamily,
-    mma::{
-        MmaMatmul,
-        config::MmaMatmulConfig,
-        reader::{MmaFragmentReader, MmaStageReader},
+use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{
+    TileSize,
+    tile::{
+        TileMatmulFamily,
+        mma::{
+            MmaMatmul,
+            config::MmaMatmulConfig,
+            reader::{MmaFragmentReader, MmaStageReader},
+        },
     },
 };
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
 use crate::components::{error::MatmulSetupError, tile::io::Strided};
 use crate::components::{resource::ComputeResources, tile::io::TileKind};
-use cubecl_core::prelude::*;
+use cubecl_core::{ir::StorageType, prelude::*};
+use cubecl_runtime::MmaConfig;
 
 impl<Tile: TileKind> TileMatmulFamily for MmaMatmul<Tile>
 where
@@ -49,5 +53,25 @@ where
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
         )
+    }
+
+    fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
+        client.properties().features.mma.contains(&config)
+    }
+
+    fn supported_sizes<R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        lhs_ty: StorageType,
+        rhs_ty: StorageType,
+        acc_ty: StorageType,
+    ) -> Vec<TileSize> {
+        client
+            .properties()
+            .features
+            .mma
+            .iter()
+            .filter(|it| it.a_type == lhs_ty && it.b_type == rhs_ty && it.cd_type == acc_ty)
+            .map(|it| (it.m, it.n, it.k).into())
+            .collect()
     }
 }
