@@ -70,10 +70,7 @@ impl<
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let mut stage_memory = StridedStage::new(
-            comptime!(ident.into_stage()),
-            config.stage_memory_config(ident),
-        );
+        let mut stage_memory = StridedStage::new(config.stage_memory_config(ident));
         let (shape_row, shape_col) = view.shape();
         let tensor_reader = GlobalIterator::new(view, k_step, ident.view_direction(), true);
 

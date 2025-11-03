@@ -1,8 +1,5 @@
 use std::marker::PhantomData;
 
-use super::StageBuffer;
-use super::TaskCounter;
-use crate::components::MatmulIdent;
 use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
@@ -11,8 +8,11 @@ use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
+use crate::components::global::read::StageBuffer;
+use crate::components::global::read::TaskCounter;
 use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
+use crate::components::{MatmulIdent, global::read::SyncStrategy};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
@@ -20,20 +20,23 @@ use cubecl_std::{
     tensor::{View, layout::Coords2d},
 };
 
+pub type SyncBarrier<S> = <S as SyncStrategy>::Barrier;
+
 #[cube]
-/// A strategy for synchronously loading partial stage memory
-pub trait SyncPartialLoadingStrategy:
+/// A strategy for synchronously loading a full stage memory.
+pub trait FullLoadingStrategy:
     'static + Send + Sync + Clone + LoadingValidation + LoadMaxRoundPlaneCount
 {
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
+    /// The synchronization strategy that should be used with this loading strategy
+    type SyncStrategy: SyncStrategy;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout>;
+    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
-        #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
@@ -41,64 +44,55 @@ pub trait SyncPartialLoadingStrategy:
 }
 
 #[derive(Clone, CubeType)]
-/// Loads a stage from stage memory using synchronous data movement operations.
+/// Loads the entire stage memory.
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct SyncPartialStageGlobalReader<
-    IP: MatrixPrecision,
-    G: GlobalConfig,
-    L: SyncPartialLoadingStrategy,
-> {
+pub struct FullStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> {
     global_iter: GlobalIterator<Line<IP::Global>>,
-    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
-    loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
+    stage: StridedStage<IP::Stage, L::TilingLayout>,
+    loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
-    _config: PhantomData<G>,
+    _phantom: PhantomData<(G, L)>,
 }
 
 #[cube]
-impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
-    SyncPartialStageGlobalReader<IP, G, L>
-{
-    /// Create a new SyncPartialStageGlobalReader
+impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlobalReader<IP, G, L> {
+    /// Create a new SyncFullStageGlobalReader
     pub fn new(
         tensor: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StridedStage::new(
-            comptime!(ident.into_stage()),
-            config.stage_memory_config(ident),
-        );
+        // Maybe make align a property on the strategy, but it's fine to over-align so this works
+        // for now. Swizzling will require more though.
+        let stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
         let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some((
-                L::new_job::<IP, G>(0u32, ident, tensor.line_size(), config),
-                L::new_job::<IP, G>(1u32, ident, tensor.line_size(), config),
-            )),
+            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, tensor.line_size(), config)),
             false => CubeOption::new_None(),
         };
 
-        SyncPartialStageGlobalReader::<IP, G, L> {
+        FullStageGlobalReader::<IP, G, L> {
             global_iter,
-            stage_memory,
+            stage,
             loading_job,
             ident,
-            _config: PhantomData::<G>,
+            _phantom: PhantomData::<(G, L)>,
         }
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(
-        &self,
-        #[comptime] stage_buffer: StageBuffer,
-    ) -> StridedStage<IP::Stage, L::TilingLayout> {
-        self.stage_memory.with_buffer_index(stage_buffer.to_index())
+    pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
+        self.stage
+    }
+
+    pub fn free_stage(self) {
+        unsafe { self.stage.free() };
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
@@ -107,20 +101,16 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
     }
 
     /// Accomplish the entire job of loading data into the stage memory
-    pub fn load_stage(&mut self, #[comptime] stage_buffer: StageBuffer, #[comptime] config: G) {
+    pub fn load_stage(
+        &mut self,
+        barrier: &mut SyncBarrier<L::SyncStrategy>,
+        #[comptime] config: G,
+    ) {
         let mut loading_job = match self.loading_job {
-            CubeOption::Some(job) => match stage_buffer {
-                StageBuffer::A => job.0,
-                StageBuffer::B => job.1,
-            },
-            CubeOption::None => match stage_buffer {
-                StageBuffer::A => {
-                    L::new_job::<IP, G>(0u32, self.ident, self.global_iter.line_size(), config)
-                }
-                StageBuffer::B => {
-                    L::new_job::<IP, G>(1u32, self.ident, self.global_iter.line_size(), config)
-                }
-            },
+            CubeOption::Some(loading_job) => loading_job,
+            CubeOption::None => {
+                L::new_job::<IP, G>(self.ident, self.global_iter.line_size(), config)
+            }
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -131,7 +121,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
                 &mut loading_job,
                 task_id,
                 &self.global_iter,
-                &mut self.stage_memory,
+                &mut self.stage,
+                barrier,
                 config,
             );
         }
@@ -139,31 +130,25 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy>
 }
 
 #[cube]
-impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExecutor<G>
-    for SyncPartialStageGlobalReader<IP, G, L>
+impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G, L::SyncStrategy>
+    for FullStageGlobalReader<IP, G, L>
 {
-    type JobIterator = SyncPartialJobIterator<IP, L>;
+    type JobIterator = FullStageJobIterator<IP, L>;
 
     fn create_job_iterator(
         this: &Self,
-        #[comptime] stage_buffer: StageBuffer,
+        #[comptime] _stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) -> Self::JobIterator {
         let view = this.global_iter.view();
         let job = match this.loading_job {
-            CubeOption::Some(job) => match stage_buffer {
-                StageBuffer::A => job.0,
-                StageBuffer::B => job.1,
-            },
-            CubeOption::None => match stage_buffer {
-                StageBuffer::A => L::new_job::<IP, G>(0u32, this.ident, view.line_size(), config),
-                StageBuffer::B => L::new_job::<IP, G>(1u32, this.ident, view.line_size(), config),
-            },
+            CubeOption::Some(loading_job) => loading_job,
+            CubeOption::None => L::new_job::<IP, G>(this.ident, view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);
 
-        SyncPartialJobIterator::<IP, L> {
+        FullStageJobIterator::<IP, L> {
             job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
@@ -172,7 +157,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
 
     fn execute_task(
         this: &mut Self,
-        job_iterator: &mut SyncPartialJobIterator<IP, L>,
+        job_iterator: &mut FullStageJobIterator<IP, L>,
+        barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] config: G,
     ) {
         let task_id = job_iterator.current.read().counter;
@@ -181,7 +167,8 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
             &mut job_iterator.job,
             task_id,
             &this.global_iter,
-            &mut this.stage_memory,
+            &mut this.stage,
+            barrier,
             config,
         );
 
@@ -193,23 +180,21 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
     fn execute_all_remaining_tasks(
         this: &mut Self,
         job_iterator: &mut Self::JobIterator,
+        barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] config: G,
     ) {
         let task_counter = job_iterator.current.read().counter;
 
-        let mut task_id = comptime![task_counter];
-
-        #[allow(clippy::explicit_counter_loop)]
         #[unroll]
-        for _ in task_counter..job_iterator.num_tasks {
+        for task_id in task_counter..job_iterator.num_tasks {
             L::Job::<IP>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
                 &this.global_iter,
-                &mut this.stage_memory,
+                &mut this.stage,
+                barrier,
                 config,
             );
-            comptime![task_id += 1];
         }
 
         job_iterator.current.store(TaskCounter {
@@ -219,20 +204,22 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: SyncPartialLoadingStrategy> JobExe
 
     fn execute_whole_job(
         this: &mut Self,
+        barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     ) {
         Self::execute_all_remaining_tasks(
             this,
             &mut Self::create_job_iterator(this, stage_buffer, config),
+            barrier,
             config,
         );
     }
 }
 
 #[derive(CubeType)]
-/// Accomplish the entire job of filling the stage
-pub struct SyncPartialJobIterator<IP: MatrixPrecision, L: SyncPartialLoadingStrategy> {
+/// A comptime iterator over a job for sync full stage reader
+pub struct FullStageJobIterator<IP: MatrixPrecision, L: FullLoadingStrategy> {
     job: L::Job<IP>,
     #[cube(comptime)]
     pub num_tasks: u32,
@@ -240,9 +227,7 @@ pub struct SyncPartialJobIterator<IP: MatrixPrecision, L: SyncPartialLoadingStra
 }
 
 #[cube]
-impl<IP: MatrixPrecision, L: SyncPartialLoadingStrategy> JobIterator
-    for SyncPartialJobIterator<IP, L>
-{
+impl<IP: MatrixPrecision, L: FullLoadingStrategy> JobIterator for FullStageJobIterator<IP, L> {
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter
     }

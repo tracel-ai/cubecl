@@ -10,9 +10,9 @@ use crate::components::{MatmulIdent, MatrixPrecision};
 use crate::components::{MatrixLayout, global::memory::GlobalIterator};
 
 /// TMA uses contiguous tiling, but with a special tiling order
-pub type TmaTiling = ContiguousTilingLayout<TmaTilingOrder>;
+pub type TmaTilingLayout = ContiguousTilingLayout<TmaTilingOrder>;
 /// TMA uses standard full stage to tile reader
-pub type TmaStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaTiling>;
+pub type TmaStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaTilingLayout>;
 
 #[derive(CubeType, Clone, Copy)]
 /// A special tiling order where:
@@ -63,7 +63,7 @@ impl TilingOrder for TmaTilingOrder {
 /// Loads the entire stage memory using TMA (Tensor Memory Accelerator)
 pub struct TmaGlobalReader<IP: MatrixPrecision> {
     global_iter: GlobalIterator<Line<IP::Global>>,
-    stage: StridedStage<IP::Stage, TmaTiling>,
+    stage: StridedStage<IP::Stage, TmaTilingLayout>,
     #[cube(comptime)]
     config: StageMemoryConfig,
 }
@@ -78,7 +78,7 @@ impl<IP: MatrixPrecision> TmaGlobalReader<IP> {
         #[comptime] config: StageMemoryConfig,
     ) -> Self {
         let global_iter = GlobalIterator::new(global_view, k_step, ident.view_direction(), false);
-        let stage = StridedStage::new_aligned(comptime!(ident.into_stage()), 128u32, config);
+        let stage = StridedStage::new_aligned(128u32, config);
 
         TmaGlobalReader::<IP> {
             global_iter,

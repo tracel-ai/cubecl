@@ -3,7 +3,7 @@ use crate::components::{
     error::MatmulSetupError,
     global::{
         GlobalWriterFamily, WriteTiling,
-        read::SyncFullLoadingStrategy,
+        read::FullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
     stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
@@ -20,8 +20,8 @@ use crate::components::{
 /// Simple matmul family for any precision
 pub struct SimpleMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy,
     GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
@@ -38,8 +38,8 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = SimpleMatmul<

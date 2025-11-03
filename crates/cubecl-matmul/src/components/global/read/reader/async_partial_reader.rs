@@ -67,10 +67,7 @@ impl<IP: MatrixPrecision, S: stage::StageConfig, CM: CopyMechanism, L: AsyncPart
         #[comptime] ident: MatmulIdent,
         #[comptime] config: DoubleBufferingGlobalConfig<S>,
     ) -> Self {
-        let stage = StridedStage::new(
-            comptime!(ident.into_stage()),
-            config.stage_memory_config(ident),
-        );
+        let stage = StridedStage::new(config.stage_memory_config(ident));
         let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), true);
 
         let loading_job = match config.precompute_job() {

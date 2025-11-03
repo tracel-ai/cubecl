@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
         GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
-        read::{SyncFullStageGlobalReader, sync_full_cyclic},
+        read::{FullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
     stage::{RowMajorTilingOrder, StageMatmul, StridedStage},
@@ -46,13 +46,13 @@ where
             OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
-    type LhsGlobalReader = SyncFullStageGlobalReader<
+    type LhsGlobalReader = FullStageGlobalReader<
         MP::Lhs,
         Self::Config,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
-    type RhsGlobalReader = SyncFullStageGlobalReader<
+    type RhsGlobalReader = FullStageGlobalReader<
         MP::Rhs,
         Self::Config,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
@@ -83,11 +83,13 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
+        let mut barrier = ();
+
         for _ in 0..num_loops {
             sync_cube();
 
-            lhs_reader.load_stage(config);
-            rhs_reader.load_stage(config);
+            lhs_reader.load_stage(&mut barrier, config);
+            rhs_reader.load_stage(&mut barrier, config);
 
             sync_cube();
 

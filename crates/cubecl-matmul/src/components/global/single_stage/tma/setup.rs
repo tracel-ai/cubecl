@@ -1,6 +1,6 @@
 use crate::components::MatmulPrecision;
 use crate::components::global::read::NoLoadingValidation;
-use crate::components::global::read::TmaTiling;
+use crate::components::global::read::TmaTilingLayout;
 use crate::components::global::single_stage::tma::SimpleTmaConfig;
 use crate::components::global::single_stage::tma::matmul::SimpleTmaMatmul;
 use crate::components::stage::StageConfig;
@@ -35,7 +35,7 @@ where
 {
     type Matmul<MP: MatmulPrecision> = SimpleTmaMatmul<
         MP,
-        SMM::Matmul<MP, TmaTiling, TmaTiling, NoTilingLayout, WriteTiling>,
+        SMM::Matmul<MP, TmaTilingLayout, TmaTilingLayout, NoTilingLayout, WriteTiling>,
         GW::Writer<MP::Acc>,
     >;
     type Config = SimpleTmaConfig<SMM::Config>;

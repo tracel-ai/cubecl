@@ -43,7 +43,7 @@ use super::{
             ordered_double_buffering::OrderedDoubleBufferingAlgorithm,
             simple::SimpleAlgorithm,
             simple_barrier::SimpleBarrierAlgorithm,
-            simple_tma::SimpleTmaAlgorithm,
+            simple_tma::SimpleTmaAlgorithm2,
             simple_unit::SimpleUnitAlgorithm,
         },
         naive,
@@ -447,7 +447,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 >(client, lhs, rhs, out, &Default::default())
             }
             AsyncReadingStrategy::Tma => {
-                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm2<Accelerated>>(
                     client,
                     lhs,
                     rhs,

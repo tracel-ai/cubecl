@@ -6,22 +6,27 @@ use crate::{
     components::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
-        global::{PlaneWriterFamily, single_stage::tma::SimpleTmaMatmulFamily},
+        global::{
+            PlaneWriterFamily, read::async_full_tma::AsyncFullTmaLoading,
+            single_stage::tma::SimpleTmaMatmulFamily,
+        },
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
         tile::{
             TileMatmulFamily,
             io::{Filled, Strided},
         },
     },
-    kernels::layered::{Algorithm, selector::plane_matmul_selection},
+    kernels::layered::{Algorithm, selector::plane_matmul_selection, simple::SimpleAlgorithm},
 };
 
+pub type SimpleTmaAlgorithm<TMM> = SimpleAlgorithm<TMM, AsyncFullTmaLoading, AsyncFullTmaLoading>;
+
 /// Plane accelerated single stage matmul with tma loading
-pub struct SimpleTmaAlgorithm<TMM> {
+pub struct SimpleTmaAlgorithm2<TMM> {
     pub _tmm: PhantomData<TMM>,
 }
 
-impl<TMM> Algorithm for SimpleTmaAlgorithm<TMM>
+impl<TMM> Algorithm for SimpleTmaAlgorithm2<TMM>
 where
     TMM:
         TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,

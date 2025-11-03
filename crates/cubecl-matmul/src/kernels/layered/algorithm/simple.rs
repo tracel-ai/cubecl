@@ -12,7 +12,7 @@ use crate::{
         },
         global::{
             PlaneWriterFamily,
-            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            read::{FullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
@@ -51,8 +51,8 @@ impl<TMM, LL, RL> Algorithm for SimpleAlgorithm<TMM, LL, RL>
 where
     TMM:
         TileMatmulFamily<LhsTile = Strided, RhsTile = Strided, AccTile = Filled, OutTile = Strided>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
 {
     type SelectionArgs = SimpleArgs;
     type TileMatmul = TMM;

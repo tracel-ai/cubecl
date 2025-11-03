@@ -1,10 +1,10 @@
-use crate::components::global::Specializer;
 use crate::components::global::{self, GlobalConfig, GlobalWriter};
+use crate::components::global::{Specializer, read::sync::Synchronous};
 use crate::components::{
     AccG,
     global::read::{
-        StageBuffer, SyncFullLoadingStrategy, SyncFullStageGlobalReader,
-        SyncPartialLoadingStrategy, SyncPartialStageGlobalReader, ZeroGlobalReader,
+        FullLoadingStrategy, FullStageGlobalReader, PartialLoadingStrategy,
+        PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
 use crate::components::{AccS, global::multi_stage::ordered::LL};
@@ -31,7 +31,7 @@ use super::OrderedDoubleBufferingGlobalConfig;
 pub struct OrderedDoubleBufferingMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy,
     GW: GlobalWriter<MP::Acc>,
 > {
     _ms: PhantomData<MP>,
@@ -47,17 +47,17 @@ impl<MP: MatmulPrecision, SMM, RL, GW> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, <LL as SyncFullLoadingStrategy>::TilingLayout>,
+            LhsStage = StridedStage<LhsS<MP>, <LL as FullLoadingStrategy>::TilingLayout>,
             RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy<SyncStrategy = Synchronous>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
-    type LhsGlobalReader = SyncFullStageGlobalReader<MP::Lhs, Self::Config, LL>;
-    type RhsGlobalReader = SyncPartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
+    type LhsGlobalReader = FullStageGlobalReader<MP::Lhs, Self::Config, LL>;
+    type RhsGlobalReader = PartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
     type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
@@ -89,11 +89,21 @@ where
         let rhs_stage_a = rhs_reader.stage(StageBuffer::A);
         let rhs_stage_b = rhs_reader.stage(StageBuffer::B);
 
+        let mut barrier = ();
+
         let specializer = Specializer::new::<Self::Config>(config);
 
-        read_first::<MP, SMM, Self::LhsGlobalReader, Self::RhsGlobalReader, Self::Config>(
+        read_first::<
+            MP,
+            SMM,
+            Synchronous,
+            Self::LhsGlobalReader,
+            Self::RhsGlobalReader,
+            Self::Config,
+        >(
             &mut lhs_reader,
             &mut rhs_reader,
+            &mut barrier,
             &specializer,
             StageBuffer::A,
             config,
@@ -107,6 +117,7 @@ where
             execute_current_and_read_next::<
                 MP,
                 SMM,
+                Synchronous,
                 Self::LhsGlobalReader,
                 Self::RhsGlobalReader,
                 Self::Config,
@@ -118,6 +129,7 @@ where
                 acc,
                 &mut lhs_reader,
                 &mut rhs_reader,
+                &mut barrier,
                 &specializer,
                 &partition_scheduler,
                 StageBuffer::B,
@@ -132,6 +144,7 @@ where
             execute_current_and_read_next::<
                 MP,
                 SMM,
+                Synchronous,
                 Self::LhsGlobalReader,
                 Self::RhsGlobalReader,
                 Self::Config,
@@ -143,6 +156,7 @@ where
                 acc,
                 &mut lhs_reader,
                 &mut rhs_reader,
+                &mut barrier,
                 &specializer,
                 &partition_scheduler,
                 StageBuffer::A,
@@ -157,6 +171,7 @@ where
         execute_current_and_read_next::<
             MP,
             SMM,
+            Synchronous,
             Self::LhsGlobalReader,
             Self::RhsGlobalReader,
             Self::Config,
@@ -168,6 +183,7 @@ where
             acc,
             &mut lhs_reader,
             &mut rhs_reader,
+            &mut barrier,
             &specializer,
             &partition_scheduler,
             StageBuffer::B,
@@ -194,7 +210,7 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
         let k_step = lhs_k_step::<Self::Config>(config);
-        SyncFullStageGlobalReader::<MP::Lhs, Self::Config, LL>::new(
+        FullStageGlobalReader::<MP::Lhs, Self::Config, LL>::new(
             lhs,
             k_step,
             MatmulIdent::Lhs,
@@ -207,7 +223,7 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         let k_step = rhs_k_step::<Self::Config>(config);
-        SyncPartialStageGlobalReader::<MP::Rhs, Self::Config, RL>::new(
+        PartialStageGlobalReader::<MP::Rhs, Self::Config, RL>::new(
             rhs,
             k_step,
             MatmulIdent::Rhs,

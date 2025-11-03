@@ -7,5 +7,13 @@ macro_rules! testgen_matmul_tma_algorithm {
 
             $crate::testgen_matmul_tma_precision!(SimpleTmaAlgorithm<TMM>);
         }
+
+        #[cfg(all(feature = "matmul_tests_double"))]
+        mod double_buffering_tma {
+            use super::*;
+            use $crate::kernels::layered::double_buffering::TmaDoubleBufferingAlgorithm;
+
+            $crate::testgen_matmul_tma_precision!(TmaDoubleBufferingAlgorithm<TMM>);
+        }
     };
 }

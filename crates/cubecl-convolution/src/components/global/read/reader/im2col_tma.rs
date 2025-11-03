@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
-use cubecl_matmul::components::{MatrixPrecision, StageIdent, stage::StageMemoryConfig};
+use cubecl_matmul::components::{MatrixPrecision, stage::StageMemoryConfig};
 use cubecl_std::FastDivmod;
 
 use crate::{
@@ -40,7 +40,7 @@ impl<IP: MatrixPrecision> TmaIm2colGlobalReader<IP> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StridedStage::new_aligned(StageIdent::Lhs, 128u32, config))
+            stages.push(StridedStage::new_aligned(128u32, config))
         }
 
         let (n_offs, spatial_offsets) = div_mod_seq(x_offset, &runtime_args.shape_out);
