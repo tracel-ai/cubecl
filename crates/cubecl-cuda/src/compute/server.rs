@@ -262,8 +262,6 @@ impl ComputeServer for CudaServer {
                         debug_assert_eq!(tile_size.len(), map.rank, "Tile shape should match rank");
                         let tile_size: Vec<_> = tile_size.iter().rev().copied().collect();
 
-                        println!("map: {map:?}, tile_size: {tile_size:?}");
-
                         cuTensorMapEncodeTiled(
                             map_ptr.as_mut_ptr(),
                             elem_to_tensor_map_type(map.storage_ty),

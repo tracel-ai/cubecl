@@ -19,6 +19,7 @@ use crate::{
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
+        simple_tma::SimpleTmaAlgorithm,
         simple_unit::SimpleUnitSelectionArgs,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
@@ -447,12 +448,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 >(client, lhs, rhs, out, &Default::default())
             }
             AsyncReadingStrategy::Tma => {
-                layered::matmul_cmma_tma_ref_no_check::<R, MP, SimpleTmaAlgorithm2<Accelerated>>(
+                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
                     client,
                     lhs,
                     rhs,
                     out,
-                    (false, false),
                     &Default::default(),
                 )
             }

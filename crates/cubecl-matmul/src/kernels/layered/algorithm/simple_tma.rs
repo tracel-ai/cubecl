@@ -4,7 +4,8 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
+        AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+        MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             PlaneWriterFamily, read::async_full_tma::AsyncFullTmaLoading,
@@ -52,5 +53,13 @@ where
         _args: &Self::SelectionArgs,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(client, problem, plane_dim, elems, Default::default())
+    }
+
+    fn filter_line_sizes(_available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        AvailableLineSizes {
+            lhs: vec![1],
+            rhs: vec![1],
+            out: vec![1],
+        }
     }
 }
