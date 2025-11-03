@@ -4,8 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 
 use crate::{
     components::{
-        AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
-        MatmulSetupError,
+        MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{PlaneWriterFamily, single_stage::tma::SimpleTmaMatmulFamily},
         stage::{FilledStageFamily, PlaneMatmulFamily, StridedStageFamily},
