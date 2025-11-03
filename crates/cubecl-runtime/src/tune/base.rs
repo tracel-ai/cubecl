@@ -24,6 +24,11 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     }
 
     /// Tag the current tunable as part of the given [group](TuneGroup).
+    /// `group` is a tuning group with a corresponding priority function.
+    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    ///
+    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
+    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
     pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
@@ -188,7 +193,7 @@ impl TunePlan {
     fn group_plan_next(&mut self, priority: i8) -> (Vec<usize>, Cleanup) {
         let plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = plan.priorities.pop().unwrap();
-        let next_indices = plan.indices.remove(&within_group_prio).unwrap();
+        let mut next_indices = plan.indices.remove(&within_group_prio).unwrap();
 
         let mut cleanup_groups = Vec::new();
         let mut cleanup_tunables = Vec::new();
@@ -214,6 +219,11 @@ impl TunePlan {
             if num_empty_tunables == num_tunables {
                 cleanup_groups.push(*pg);
             }
+        }
+
+        if within_group_prio < 0 {
+            // Discard algorithms with negative priority
+            next_indices.clear();
         }
 
         (

@@ -172,11 +172,11 @@ impl MatmulAutotuneKey {
 /// Defines the non-contiguous stride alignment in terms of powers of two
 fn stride_align(strides: &[usize], exclude_dim: usize, elem: ElemType) -> u8 {
     let max = MAX_STRIDE_FACTOR;
-    let mut strides = strides.to_vec();
-    strides.remove(exclude_dim);
     let factor = strides
         .iter()
-        .map(|it| (*it * elem.size_bits()) / 8)
+        .enumerate()
+        .filter(|(i, _)| *i != exclude_dim)
+        .map(|(_, it)| (*it * elem.size_bits()) / 8)
         .map(|it| it.trailing_zeros())
         .min()
         .unwrap_or(max);
