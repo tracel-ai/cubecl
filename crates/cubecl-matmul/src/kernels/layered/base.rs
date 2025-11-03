@@ -115,6 +115,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs
     };
 
+    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+        lhs.data().elem_size,
+        rhs.data().elem_size,
+        out.elem_size,
+    );
+
     launch_inner_ref::<R, (MP, TensorArgs), A>(
         client,
         lhs,
@@ -122,6 +128,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         out,
         (lhs_transposed, rhs_transposed),
         selection,
+        line_sizes,
     )
 }
 
@@ -165,6 +172,8 @@ pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         rhs
     };
 
+    let line_sizes = AvailableLineSizes::from_type_size_tma::<R>(out.elem_size);
+
     launch_inner_ref::<R, (MP, TensorMapArgs), A>(
         client,
         lhs,
@@ -172,6 +181,7 @@ pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         out,
         (lhs_transposed, rhs_transposed),
         selection,
+        line_sizes,
     )
 }
 
@@ -183,6 +193,7 @@ fn launch_inner_ref<R: Runtime, MS: MatmulSpec, A: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
+    line_sizes: AvailableLineSizes,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
@@ -237,8 +248,6 @@ where
     let lhs = lhs_handle.data();
     let rhs = rhs_handle.data();
 
-    let line_sizes =
-        AvailableLineSizes::from_type_sizes::<R>(lhs.elem_size, rhs.elem_size, out.elem_size);
     let line_sizes = A::filter_line_sizes(line_sizes);
     let mut line_sizes = line_sizes
         .filter_lhs_with_tensor(lhs.strides, lhs.shape, problem.lhs_layout)

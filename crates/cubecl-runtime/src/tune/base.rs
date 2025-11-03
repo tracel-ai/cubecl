@@ -188,7 +188,7 @@ impl TunePlan {
     fn group_plan_next(&mut self, priority: i8) -> (Vec<usize>, Cleanup) {
         let plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = plan.priorities.pop().unwrap();
-        let next_indices = plan.indices.remove(&within_group_prio).unwrap();
+        let mut next_indices = plan.indices.remove(&within_group_prio).unwrap();
 
         let mut cleanup_groups = Vec::new();
         let mut cleanup_tunables = Vec::new();
@@ -214,6 +214,11 @@ impl TunePlan {
             if num_empty_tunables == num_tunables {
                 cleanup_groups.push(*pg);
             }
+        }
+
+        if within_group_prio < 0 {
+            // Discard algorithms with negative priority
+            next_indices.clear();
         }
 
         (
