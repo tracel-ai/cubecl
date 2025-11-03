@@ -24,6 +24,11 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     }
 
     /// Tag the current tunable as part of the given [group](TuneGroup).
+    /// `group` is a tuning group with a corresponding priority function.
+    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    ///
+    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
+    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
     pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
