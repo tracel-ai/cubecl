@@ -369,42 +369,55 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         let lhs_rank = lhs.shape.len();
         let mut lhs_shape = vec![
-            problem.lhs_batches[0],
+            problem.lhs_batches.iter().product(),
             lhs.shape[lhs_rank - 2],
             lhs.shape[lhs_rank - 1],
         ];
         let mut lhs_strides = if lhs_rank > 2 {
             lhs.strides[lhs_rank - 3..].to_vec()
         } else {
-            vec![1, lhs.strides[lhs_rank - 2], lhs.strides[lhs_rank - 1]]
+            vec![lhs.strides[0], lhs.strides[1]]
         };
 
         let rhs_rank = rhs.shape.len();
         let mut rhs_shape = vec![
-            problem.rhs_batches[0],
+            problem.rhs_batches.iter().product(),
             rhs.shape[rhs_rank - 2],
             rhs.shape[rhs_rank - 1],
         ];
         let mut rhs_strides = if rhs_rank > 2 {
             rhs.strides[rhs_rank - 3..].to_vec()
         } else {
-            vec![1, rhs.strides[rhs_rank - 2], rhs.strides[rhs_rank - 1]]
+            vec![rhs.strides[0], rhs.strides[1]]
         };
 
         let mut lhs_transposed = false;
         let mut rhs_transposed = false;
 
+        let lhs_rank = lhs_strides.len();
+        let rhs_rank = rhs_strides.len();
+
         // TMA assumes the last stride is contiguous and won't even take it, so we need to map it
         // with transposed shape and stride. Tensor metadata still has the normal layout.
         if matches!(problem.lhs_layout, components::MatrixLayout::ColMajor) {
-            lhs_shape.swap(lhs_rank - 1, lhs_rank - 2);
+            lhs_shape.swap(2, 1);
             lhs_strides.swap(lhs_rank - 1, lhs_rank - 2);
             lhs_transposed = true;
         }
         if matches!(problem.rhs_layout, components::MatrixLayout::ColMajor) {
-            rhs_shape.swap(rhs_rank - 1, rhs_rank - 2);
+            rhs_shape.swap(2, 1);
             rhs_strides.swap(rhs_rank - 1, rhs_rank - 2);
             rhs_transposed = true;
+        }
+
+        // Insert batch stride after swap so we can easily get the non-contiguous stride
+        if lhs_rank == 2 {
+            let stride = lhs_strides[0];
+            lhs_strides.insert(0, stride);
+        }
+        if rhs_rank == 2 {
+            let stride = rhs_strides[0];
+            rhs_strides.insert(0, stride);
         }
 
         fn prefetch(bytes: usize) -> TensorMapPrefetch {
