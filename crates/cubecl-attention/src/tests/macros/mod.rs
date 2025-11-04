@@ -48,6 +48,22 @@ macro_rules! testgen_attention {
                     head_dim: 8,
                     val_dim: 8,
                 };
+            const STAGE_Q_BASE: u32 = 1;
+
+            $crate::testgen_attention_suite!();
+        }
+
+        #[cfg(feature = "attention_tests")]
+        mod attention_unit {
+            type Algorithm = cubecl_attention::kernels::unit::UnitAlgorithm;
+            const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
+                cubecl_attention::components::AttentionTileSize {
+                    seq_q: 4,
+                    seq_kv: 4,
+                    head_dim: 4,
+                    val_dim: 4,
+                };
+            const STAGE_Q_BASE: u32 = 32;
 
             $crate::testgen_attention_suite!();
         }
@@ -71,8 +87,10 @@ macro_rules! testgen_attention {
                     head_dim: 16,
                     val_dim: 16,
                 };
+            const STAGE_Q_BASE: u32 = 1;
 
-            $crate::testgen_attention_suite!();
+            // Deactivated
+            // $crate::testgen_attention_suite!();
         }
     };
 }

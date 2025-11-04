@@ -85,7 +85,7 @@ tracy-client = { version = "0.18.0" }
 
 ### For xtask crate ###
 strum = { version = "0.27.1", features = ["derive"] }
-tracel-xtask = { version = "=2.1.8" }
+tracel-xtask = { version = "=2.1.11" }
 
 portable-atomic = { version = "1.11", default-features = false, features = [
     "serde",

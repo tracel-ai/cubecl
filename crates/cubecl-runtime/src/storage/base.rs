@@ -15,7 +15,7 @@ impl core::fmt::Display for StorageId {
 }
 
 /// Defines if data uses a full memory chunk or a slice of it.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorageUtilization {
     /// The offset in bytes from the chunk start.
     pub offset: u64,

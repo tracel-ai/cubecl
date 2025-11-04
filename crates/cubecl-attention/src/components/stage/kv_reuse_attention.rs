@@ -7,26 +7,35 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::attention_types::*;
-use crate::components::fragment::AttentionMatmul;
-use crate::components::global::simple::MaskReader;
 use crate::components::global::simple::QueryReader;
-use crate::components::stage::simple_kv_reuse::MaskPartition;
-use crate::components::stage::simple_kv_reuse::SoftmaxPartition;
-use crate::components::stage::simple_kv_reuse::{
-    AccumulatorPartition, KeyValues, QueryPartition, SimpleKVReuseStageConfig,
-};
-use crate::components::stage::{StageAttention, StageAttentionConfig};
+use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
+use crate::components::{attention_types::*, stage::StageAttention};
+use crate::components::{
+    fragment::FragmentAttention,
+    stage::tile_partitions::{
+        AccumulatorPartition, KeyValues, MaskPartition, QueryPartition, SoftmaxPartition,
+    },
+};
+use crate::components::{global::simple::MaskReader, stage::partitioner::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
-pub struct SimpleKVReuseStageAttention<AP: AttentionPrecision, SK, SV, SO, AM: AttentionMatmul<AP>>
-{
-    _phantom: PhantomData<(AP, SK, SV, SO, AM)>,
+#[derive(CubeType)]
+pub struct KVReuseStageAttention<
+    AP: AttentionPrecision,
+    SK,
+    SV,
+    SO,
+    FA: FragmentAttention<AP>,
+    P: AttentionPartitioner,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+> {
+    #[cube(comptime)]
+    _phantom: PhantomData<(AP, SK, SV, SO, FA, P, S)>,
 }
 
 #[cube]
@@ -35,38 +44,41 @@ impl<
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
-    AM: AttentionMatmul<AP>,
-> StageAttention<AP> for SimpleKVReuseStageAttention<AP, SK, SV, SO, AM>
+    FA: FragmentAttention<AP>,
+    P: AttentionPartitioner,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+> StageAttention<AP> for KVReuseStageAttention<AP, SK, SV, SO, FA, P, S>
 {
-    type Config = SimpleKVReuseStageConfig<AM::Config>;
-
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type QueryRegisters = QueryPartition<AP, AM, Self::Config>;
-    type KeyValueRegisters = KeyValues<AP, AM, Self::Config>;
-    type SoftmaxRegisters = SoftmaxPartition<AP, AM, Self::Config>;
-    type AccumulatorRegisters = AccumulatorPartition<AP, AM, Self::Config>;
-    type MaskRegisters = MaskPartition<AP, AM, Self::Config>;
+    type Config = S;
+    type Partitioner = P;
+
+    type QueryRegisters = QueryPartition<AP, FA, S>;
+    type KeyValueRegisters = KeyValues<AP, FA, S>;
+    type SoftmaxRegisters = SoftmaxPartition<AP, FA, S>;
+    type AccumulatorRegisters = AccumulatorPartition<AP, FA, S>;
+    type MaskRegisters = MaskPartition<AP, FA, S>;
 
     fn execute(
-        query_partition: &Self::QueryRegisters,
-        key_stage: &Self::KeyStage,
-        value_stage: &Self::ValueStage,
-        key_value_partition: &mut Self::KeyValueRegisters,
-        mask_partition: &Self::MaskRegisters,
-        softmax_partition: &mut Self::SoftmaxRegisters,
-        accumulator_partition: &mut Self::AccumulatorRegisters,
+        query_partition: &QueryPartition<AP, FA, S>,
+        key_stage: &SK,
+        value_stage: &SV,
+        key_value_partition: &mut KeyValues<AP, FA, S>,
+        mask_partition: &MaskPartition<AP, FA, S>,
+        softmax_partition: &mut SoftmaxPartition<AP, FA, S>,
+        accumulator_partition: &mut AccumulatorPartition<AP, FA, S>,
         state: &mut Sequence<RunningState<SM<AP>>>,
-        #[comptime] config: Self::Config,
+        #[comptime] config: S,
     ) {
         let p = config.tiling_scheme().partition_size;
 
         let mut max_placeholder =
-            TileAttention::<AP, AM>::init_max_placeholder(config.num_rows_per_unit());
+            TileAttention::<AP, FA>::init_max_placeholder(config.num_rows_per_unit());
         let mut sum_placeholder =
-            TileAttention::<AP, AM>::init_sum_placeholder(config.num_rows_per_unit());
+            TileAttention::<AP, FA>::init_sum_placeholder(config.num_rows_per_unit());
 
         #[unroll]
         for kv in 0..p.seq_kv {
@@ -105,7 +117,7 @@ impl<
 
                 let state_q = state.index_mut(q);
 
-                scales.push(TileAttention::softmax(
+                scales.push(TileAttention::softmax::<P::Reducer>(
                     softmax_tile,
                     mask_tile,
                     state_q,
@@ -146,9 +158,9 @@ impl<
     }
 
     fn rescale(
-        acc: &mut Self::AccumulatorRegisters,
+        acc: &mut AccumulatorPartition<AP, FA, S>,
         state: Sequence<RunningState<SM<AP>>>,
-        #[comptime] config: Self::Config,
+        #[comptime] config: S,
     ) {
         let p = config.tiling_scheme().partition_size;
 
@@ -156,31 +168,31 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                TileAttention::<AP, AM>::rescale(
-                    Self::AccumulatorRegisters::get_at_mut(acc, q, vd, config),
+                TileAttention::<AP, FA>::rescale(
+                    AccumulatorPartition::<AP, FA, S>::get_at_mut(acc, q, vd, config),
                     state.index(q),
                 );
             }
         }
     }
 
-    fn init_state(#[comptime] config: Self::Config) -> Sequence<RunningState<SM<AP>>> {
+    fn init_state(#[comptime] config: S) -> Sequence<RunningState<SM<AP>>> {
         let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TileAttention::<AP, AM>::init_state(config.tile_config()));
+            sequence.push(TileAttention::<AP, FA>::init_state(config.tile_config()));
         }
 
         sequence
     }
 
     fn write<W: WriteEventListener, G: GlobalAttentionConfig>(
-        acc: &Self::AccumulatorRegisters,
-        stage: &mut Self::OutStage,
+        acc: &AccumulatorPartition<AP, FA, S>,
+        stage: &mut SO,
         writer: &mut W,
-        #[comptime] stage_config: Self::Config,
+        #[comptime] stage_config: S,
     ) {
         let p = stage_config.tiling_scheme().partition_size;
 
@@ -190,12 +202,12 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                let tile_pos = (q + UNIT_POS_Y * p.seq_q, vd.runtime());
-                let mut tile = Self::OutStage::tile(stage, tile_pos);
+                let tile_pos = (q + P::seq_q_index() * p.seq_q, vd.runtime());
+                let mut tile = SO::tile(stage, tile_pos);
 
-                TileAttention::write_results(
+                TileAttention::<AP, FA>::write_results(
                     &mut tile,
-                    Self::AccumulatorRegisters::get_at(acc, q, vd, stage_config),
+                    AccumulatorPartition::<AP, FA, S>::get_at(acc, q, vd, stage_config),
                     stage_config.tile_config(),
                 );
 
@@ -206,33 +218,33 @@ impl<
         W::on_event(writer, WriteEvent::new_Finish());
     }
 
-    fn init_query(#[comptime] config: Self::Config) -> Self::QueryRegisters {
-        Self::QueryRegisters::new(config)
+    fn init_query(#[comptime] config: S) -> QueryPartition<AP, FA, S> {
+        QueryPartition::<AP, FA, S>::new(config)
     }
 
-    fn init_key_value(#[comptime] config: Self::Config) -> Self::KeyValueRegisters {
-        Self::KeyValueRegisters::new(config)
+    fn init_key_value(#[comptime] config: S) -> KeyValues<AP, FA, S> {
+        KeyValues::<AP, FA, S>::new(config)
     }
 
-    fn init_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxRegisters {
-        Self::SoftmaxRegisters::new(config)
+    fn init_softmax(#[comptime] config: S) -> SoftmaxPartition<AP, FA, S> {
+        SoftmaxPartition::<AP, FA, S>::new(config)
     }
 
-    fn init_accumulator(#[comptime] config: Self::Config) -> Self::AccumulatorRegisters {
-        Self::AccumulatorRegisters::new(config)
+    fn init_accumulator(#[comptime] config: S) -> AccumulatorPartition<AP, FA, S> {
+        AccumulatorPartition::<AP, FA, S>::new(config)
     }
 
     fn init_mask(
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] config: Self::Config,
-    ) -> Self::MaskRegisters {
-        Self::MaskRegisters::new(out_of_bounds, config)
+        #[comptime] config: S,
+    ) -> MaskPartition<AP, FA, S> {
+        MaskPartition::<AP, FA, S>::new(out_of_bounds, config)
     }
 
     fn read_query(
         reader: &QueryReader<AP>,
-        registers: &mut Self::QueryRegisters,
-        #[comptime] config: Self::Config,
+        registers: &mut QueryPartition<AP, FA, S>,
+        #[comptime] config: S,
     ) {
         let p = config.tiling_scheme().partition_size;
 
@@ -241,7 +253,7 @@ impl<
             #[unroll]
             for hd in 0..p.head_dim {
                 let tile_to_write = registers.get_at_mut(q, hd, config);
-                let tile_read = reader.get_tile::<Self::Config>((q, hd).runtime(), config);
+                let tile_read = reader.get_tile::<P, S>((q, hd).runtime(), config);
 
                 tile_to_write.update(&tile_read);
             }
@@ -250,8 +262,8 @@ impl<
 
     fn read_mask(
         reader: &MaskReader<AP>,
-        registers: &mut Self::MaskRegisters,
-        #[comptime] config: Self::Config,
+        registers: &mut MaskPartition<AP, FA, S>,
+        #[comptime] config: S,
     ) {
         let p = config.tiling_scheme().partition_size;
 
@@ -261,7 +273,7 @@ impl<
             for kv in 0..p.seq_kv {
                 let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
 
-                let (new_origin, tile) = reader.read::<Self::Config>((q, kv), config);
+                let (new_origin, tile) = reader.read::<P, S>((q, kv), config);
                 mask_tile.update(new_origin, tile);
             }
         }

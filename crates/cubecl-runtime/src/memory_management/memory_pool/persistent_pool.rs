@@ -61,8 +61,8 @@ impl PersistentPool {
 }
 
 impl MemoryPool for PersistentPool {
-    fn max_alloc_size(&self) -> u64 {
-        self.max_alloc_size
+    fn accept(&self, size: u64) -> bool {
+        self.max_alloc_size >= size
     }
 
     fn get(&self, binding: &super::SliceBinding) -> Option<&crate::storage::StorageHandle> {
