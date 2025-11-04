@@ -399,15 +399,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                         sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
                         sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection)
             }
-            ReadingStrategy::Tma => layered::launch_ref::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                client,
-                lhs,
-                rhs,
-                out,
-                &Default::default()
-            ),
+            ReadingStrategy::Tma =>
+                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection
+                ),
         }),
         Strategy::SimpleBarrier {
             read_strategy,
@@ -475,7 +472,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                 )
             }
             PartialReadingStrategy::Tma => {
-                layered::launch_ref::<R, MP, TmaDoubleBufferingAlgorithm<Accelerated>>(
+                layered::launch_ref_tma::<R, MP, TmaDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
