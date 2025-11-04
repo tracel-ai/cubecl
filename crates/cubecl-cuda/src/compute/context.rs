@@ -117,7 +117,6 @@ impl CudaContext {
 
         let compute_kernel = kernel_compiled.repr.as_ref().unwrap();
         let cube_dim = kernel_compiled.cube_dim;
-        let fast_math = compute_kernel.flags.inst_fast_math;
         let arch = if self.arch.version >= 90 {
             format!("--gpu-architecture=sm_{}a", self.arch)
         } else {
@@ -129,9 +128,6 @@ impl CudaContext {
         let cccl_include_path = cccl_include_path();
         let cccl_include_option = format!("--include-path={}", cccl_include_path.to_str().unwrap());
         let mut options = vec![arch.as_str(), include_option.as_str(), "-lineinfo"];
-        if fast_math {
-            options.push("--use_fast_math");
-        }
         if cccl_include_path.exists() {
             options.push(&cccl_include_option);
         }

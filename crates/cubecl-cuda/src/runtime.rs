@@ -97,7 +97,10 @@ impl DeviceState for CudaServer {
             alignment: mem_alignment as u64,
         };
 
-        let mut comp_opts = CompilationOptions::default();
+        let mut comp_opts = CompilationOptions {
+            supports_fast_math: true,
+            ..Default::default()
+        };
 
         let hardware_props = unsafe {
             use cudarc::driver::{result::device::get_attribute, sys::CUdevice_attribute::*};
