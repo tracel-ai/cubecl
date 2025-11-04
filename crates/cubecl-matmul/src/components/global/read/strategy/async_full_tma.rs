@@ -1,4 +1,4 @@
-use crate::components::global::{GlobalConfig, read::async_tma::AsyncTma};
+use crate::components::global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
@@ -48,14 +48,18 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
         #[comptime] _line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
+        let role_rule_config = config.role_rule_config();
+        let loading_sides = config.specialized_loading_sides();
         let config = config.stage_memory_config(ident);
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
         };
 
+        let is_elected = RoleRule::new(role_rule_config).is_tma_load_unit(ident, loading_sides);
+
         AsyncFullTmaJob {
-            is_elected: UNIT_POS == 0,
+            is_elected,
             num_tasks: tile_count_col,
             ident,
         }
