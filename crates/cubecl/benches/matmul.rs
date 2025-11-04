@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 use cubecl::prelude::*;
-use cubecl_matmul::AsyncReadingStrategy;
+use cubecl_matmul::AcceleratedTileKind;
 use cubecl_matmul::components::batch::HypercubeSelection;
 use cubecl_matmul::components::stage::PartitionBuffering;
 use cubecl_matmul::components::{
@@ -15,7 +15,6 @@ use cubecl_matmul::kernels::layered::simple_unit::SimpleUnitSelectionArgs;
 use cubecl_matmul::kernels::layered::{Selection, TileSizeSelection};
 use cubecl_matmul::{self as matmul, MatmulInputHandle, PartialReadingStrategy, ReadingStrategy};
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use cubecl::benchmark::{Benchmark, BenchmarkComputations, BenchmarkDurations, TimingMethod};
 use cubecl::future;
@@ -123,6 +122,7 @@ struct MatmulBench<R: Runtime, MP> {
     _mp: PhantomData<MP>,
 }
 
+#[allow(unused)]
 fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
     let expected = 2 * 6144 * 6144 * 6144;
     let num_ops = 2 * m * n * k;
@@ -134,7 +134,7 @@ fn entry(m: usize, n: usize, k: usize) -> (usize, usize, usize, usize) {
     (b, m, n, k)
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::single_element_loop)]
 fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Strategy) {
     for tl in [true, false] {
         for tr in [true, false] {
@@ -210,7 +210,7 @@ fn run_one<R: Runtime, MP: MatmulPrecision>(
     }
 }
 
-#[allow(unused)]
+#[allow(unused, clippy::single_element_loop)]
 // This function should be customized to help build a proper selector that reduces the number of
 // possibilities.
 fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
@@ -246,10 +246,11 @@ fn run_grid_search<R: Runtime, MP: MatmulPrecision>() {
                     .build();
                 let result = run_one::<R, MP>(
                     Default::default(),
-                    matmul::Strategy::Simple(
-                        ReadingStrategy::Cyclic,
-                        Selection::Forced(selection.clone()),
-                    ),
+                    matmul::Strategy::Simple {
+                        read_strategy: ReadingStrategy::Cyclic,
+                        selection: Selection::Forced(selection.clone()),
+                        tile_kind: AcceleratedTileKind::Cmma,
+                    },
                     (4096, 10, 64, 10),
                     (false, false),
                 );
@@ -347,47 +348,54 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
     println!("Simple");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::Simple(
-            ReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: false }),
-        ),
+        matmul::Strategy::Simple {
+            read_strategy: ReadingStrategy::Cyclic,
+            selection: Selection::Inferred(SimpleArgs { multi_rows: false }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Simple multi rows");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::Simple(
-            ReadingStrategy::Cyclic,
-            Selection::Inferred(SimpleArgs { multi_rows: true }),
-        ),
+        matmul::Strategy::Simple {
+            read_strategy: ReadingStrategy::Cyclic,
+            selection: Selection::Inferred(SimpleArgs { multi_rows: true }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            PartialReadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: false }),
-        ),
+        matmul::Strategy::DoubleBuffering {
+            read_strategy: PartialReadingStrategy::Tilewise,
+            selection: Selection::Inferred(DoubleBufferingArgs { specialized: false }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering Specialized");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::DoubleBuffering(
-            PartialReadingStrategy::Tilewise,
-            Selection::Inferred(DoubleBufferingArgs { specialized: true }),
-        ),
+        matmul::Strategy::DoubleBuffering {
+            read_strategy: PartialReadingStrategy::Tilewise,
+            selection: Selection::Inferred(DoubleBufferingArgs { specialized: true }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 
     println!("Double Buffering Ordered");
     run::<R, MP>(
         Default::default(),
-        matmul::Strategy::OrderedDoubleBuffering(Selection::Inferred(OrderedSelectionArgs {
-            row_count: Some(8),
-            rows_per_plane: Some(2),
-            partition_k: Some(2),
-        })),
+        matmul::Strategy::OrderedDoubleBuffering {
+            selection: Selection::Inferred(OrderedSelectionArgs {
+                row_count: Some(8),
+                rows_per_plane: Some(2),
+                partition_k: Some(2),
+            }),
+            tile_kind: AcceleratedTileKind::Cmma,
+        },
     );
 }
 
