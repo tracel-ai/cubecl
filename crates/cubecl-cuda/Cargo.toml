@@ -17,13 +17,11 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
     "cudarc/dynamic-loading",
-    "cuda-12050",
+    "cudarc/cuda-version-from-build-system",
+    "cudarc/fallback-latest",
 ]
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-
-cuda-12050 = ["cudarc/cuda-12050"]
-cuda-12080 = ["cudarc/cuda-12080"]
 
 attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]
@@ -127,3 +125,6 @@ cubecl-std = { path = "../cubecl-std", version = "0.9.0", features = [
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[build-dependencies]
+cudarc = { workspace = true }

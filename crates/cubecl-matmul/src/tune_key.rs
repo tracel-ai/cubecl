@@ -15,6 +15,11 @@ pub struct MatmulAutotuneKey {
     pub analysis: MatmulAutotuneAnalysis,
 }
 
+/// Maximum factor relevant for strides. Currently set to 2^5, or 32 since that's the maximum align
+/// relevant for CUDA (for interleaved tensors). This can be changed if other platforms or features
+/// require more.
+const MAX_STRIDE_FACTOR: u32 = 5;
+
 #[derive(Hash, Eq, PartialEq, Debug, Clone, Serialize, Deserialize, AutotuneKey)]
 pub struct MatmulProblemDefinition {
     #[autotune(anchor)]
@@ -24,7 +29,11 @@ pub struct MatmulProblemDefinition {
     #[autotune(anchor)]
     pub k: usize,
     pub lhs_pow2_factor: u8,
+    /// Power of two that lhs strides are aligned to
+    pub lhs_stride_factor: u8,
     pub rhs_pow2_factor: u8,
+    /// Power of two that rhs strides are aligned to
+    pub rhs_stride_factor: u8,
     pub elem_lhs: MatmulElemType,
     pub elem_rhs: MatmulElemType,
     pub elem_out: MatmulElemType,
@@ -118,12 +127,33 @@ impl MatmulAutotuneKey {
             MatrixBatchLayout::HighlyPermuted => 0,
         };
 
+        let lhs_stride_factor = match matrix_layout_lhs {
+            MatrixBatchLayout::Contiguous => stride_align(lhs_strides, ndims - 1, elem_lhs.elem),
+            // TMA can't handle discontiguous batches because they're all combined into one dim
+            MatrixBatchLayout::MildlyPermuted {
+                transposed: true,
+                batch_swap: false,
+            } => stride_align(lhs_strides, ndims - 2, elem_lhs.elem),
+            _ => 0,
+        };
+        let rhs_stride_factor = match matrix_layout_rhs {
+            MatrixBatchLayout::Contiguous => stride_align(rhs_strides, ndims - 1, elem_rhs.elem),
+            // TMA can't handle discontiguous batches because they're all combined into one dim
+            MatrixBatchLayout::MildlyPermuted {
+                transposed: true,
+                batch_swap: false,
+            } => stride_align(rhs_strides, ndims - 2, elem_rhs.elem),
+            _ => 0,
+        };
+
         let definition = MatmulProblemDefinition::new(
             m,
             n,
             k,
             lhs_pow2_factor,
+            lhs_stride_factor,
             rhs_pow2_factor,
+            rhs_stride_factor,
             elem_lhs,
             elem_rhs,
             elem_out,
@@ -139,13 +169,21 @@ impl MatmulAutotuneKey {
     }
 }
 
+/// Defines the non-contiguous stride alignment in terms of powers of two
+fn stride_align(strides: &[usize], exclude_dim: usize, elem: ElemType) -> u8 {
+    let max = MAX_STRIDE_FACTOR;
+    let factor = strides
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != exclude_dim)
+        .map(|(_, it)| (*it * elem.size_bits()) / 8)
+        .map(|it| it.trailing_zeros())
+        .min()
+        .unwrap_or(max);
+    factor.min(max) as u8
+}
+
 /// Defines the potential vectorization.
 fn pow2_factor(axis: usize) -> u8 {
-    for i in (1..4).rev() {
-        if axis.is_multiple_of(2usize.pow(i as u32)) {
-            return i;
-        }
-    }
-
-    0
+    axis.trailing_zeros().min(4) as u8
 }
