@@ -59,7 +59,7 @@ impl KernelFn {
             .as_ref()
             .map(|value| {
                 let fast_math = frontend_type("fast_math_expand");
-                quote![#fast_math(scope, #value, |scope| {#body});]
+                quote![#fast_math(scope, #value, |scope| {#body})]
             })
             .unwrap_or_else(|| quote![#body]);
 
