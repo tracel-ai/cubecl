@@ -15,11 +15,10 @@ use crate::{
     },
     kernels::layered::{
         Selection,
-        double_buffering::DoubleBufferingArgs,
+        double_buffering::{DoubleBufferingArgs, TmaDoubleBufferingAlgorithm},
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
-        simple_tma::SimpleTmaAlgorithm,
         simple_unit::SimpleUnitSelectionArgs,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
@@ -42,9 +41,8 @@ use super::{
                 TilewiseDoubleBufferingAlgorithm,
             },
             ordered_double_buffering::OrderedDoubleBufferingAlgorithm,
-            simple::SimpleAlgorithm,
+            simple::{SimpleAlgorithm, SimpleTmaAlgorithm},
             simple_barrier::SimpleBarrierAlgorithm,
-            simple_tma::SimpleTmaAlgorithm2,
             simple_unit::SimpleUnitAlgorithm,
         },
         naive,
@@ -58,7 +56,7 @@ use super::{
 /// Some strategies must have a specified loading strategy
 pub enum Strategy {
     Simple {
-        read_strategy: SyncReadingStrategy,
+        read_strategy: ReadingStrategy,
         selection: Selection<SimpleArgs>,
         tile_kind: AcceleratedTileKind,
     },
@@ -67,7 +65,7 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     DoubleBuffering {
-        read_strategy: SyncPartialReadingStrategy,
+        read_strategy: PartialReadingStrategy,
         selection: Selection<DoubleBufferingArgs>,
         tile_kind: AcceleratedTileKind,
     },
@@ -87,18 +85,20 @@ pub enum Strategy {
 
 #[derive(Debug, Clone, Copy)]
 /// Which reader to use in simple algorithms
-pub enum SyncReadingStrategy {
+pub enum ReadingStrategy {
     Cyclic,
     Strided,
     Tilewise,
+    Tma,
 }
 
 #[derive(Debug, Clone, Copy)]
 /// Which reader to use in double buffering algorithms
-pub enum SyncPartialReadingStrategy {
+pub enum PartialReadingStrategy {
     Cyclic,
     Tilewise,
     Hybrid,
+    Tma,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -108,7 +108,6 @@ pub enum AsyncReadingStrategy {
     Cyclic,
     MaximizeSliceLength,
     MaximizeUnitCount,
-    Tma,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -377,12 +376,12 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             selection,
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
-            SyncReadingStrategy::Cyclic => {
+            ReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncReadingStrategy::Strided => layered::launch_ref::<
+            ReadingStrategy::Strided => layered::launch_ref::<
                 R,
                 MP,
                 SimpleAlgorithm<
@@ -391,7 +390,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     sync_full_strided::SyncFullStridedLoading,
                 >,
             >(client, lhs, rhs, out, selection),
-            SyncReadingStrategy::Tilewise => {
+            ReadingStrategy::Tilewise => {
                 layered::launch_ref::<
                     R,
                     MP,
@@ -402,6 +401,13 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
+            ReadingStrategy::Tma => layered::launch_ref::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                client,
+                lhs,
+                rhs,
+                out,
+                &Default::default()
+            ),
         }),
         Strategy::SimpleBarrier {
             read_strategy,
@@ -447,33 +453,29 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncReadingStrategy::Tma => {
-                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client,
-                    lhs,
-                    rhs,
-                    out,
-                    &Default::default(),
-                )
-            }
         }),
         Strategy::DoubleBuffering {
             read_strategy,
             selection,
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
-            SyncPartialReadingStrategy::Cyclic => {
+            PartialReadingStrategy::Cyclic => {
                 layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncPartialReadingStrategy::Tilewise => {
+            PartialReadingStrategy::Tilewise => {
                 layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }
-            SyncPartialReadingStrategy::Hybrid => {
+            PartialReadingStrategy::Hybrid => {
                 layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection,
+                )
+            }
+            PartialReadingStrategy::Tma => {
+                layered::launch_ref::<R, MP, TmaDoubleBufferingAlgorithm<Accelerated>>(
                     client, lhs, rhs, out, selection,
                 )
             }

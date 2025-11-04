@@ -6,10 +6,7 @@ use cubecl_core::{
 
 use crate::components::{
     LhsS, MatmulIdent, MatmulPrecision, RhsS,
-    global::{
-        GlobalConfig,
-        read::{SyncStrategy, arrive_tma},
-    },
+    global::{GlobalConfig, read::SyncStrategy},
 };
 
 /// Asynchronous barrier for TMA loads
@@ -36,5 +33,15 @@ impl SyncStrategy for AsyncTma {
         };
         arrive_tma(barrier, num_bytes);
         barrier.wait();
+    }
+}
+
+#[cube]
+/// Barrier for TMA
+pub fn arrive_tma(barrier: &Barrier, #[comptime] num_bytes: u32) {
+    if UNIT_POS == 0 {
+        barrier.arrive_tx(1, num_bytes);
+    } else {
+        barrier.arrive();
     }
 }

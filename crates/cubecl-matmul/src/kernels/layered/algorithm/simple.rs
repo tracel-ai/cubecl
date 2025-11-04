@@ -12,7 +12,10 @@ use crate::{
         },
         global::{
             PlaneWriterFamily,
-            read::{FullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            read::{
+                FullLoadingStrategy, async_full_tma::AsyncFullTmaLoading,
+                sync_full_cyclic::SyncFullCyclicLoading,
+            },
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
@@ -40,6 +43,8 @@ pub struct SimpleAlgorithm<
     pub _ll: PhantomData<LL>,
     pub _rl: PhantomData<RL>,
 }
+
+pub type SimpleTmaAlgorithm<TMM> = SimpleAlgorithm<TMM, AsyncFullTmaLoading, AsyncFullTmaLoading>;
 
 #[derive(Default, Debug, Clone)]
 pub struct SimpleArgs {

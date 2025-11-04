@@ -213,6 +213,51 @@ impl TilingOrder for OrderedTilingOrder {
     }
 }
 
+#[derive(CubeType, Clone, Copy)]
+/// A special tiling order where:
+/// - If the matrix data layout is row-major, the tiling order is col-major
+/// - If the matrix data layout is col-major, the tiling order is row-major
+pub struct TmaTilingOrder;
+
+#[cube]
+impl TilingOrder for TmaTilingOrder {
+    fn to_row_col(
+        nth: u32,
+        tile_count_rows: u32,
+        tile_count_cols: u32,
+        #[comptime] config: StageMemoryConfig,
+    ) -> Coords2d {
+        match config.matrix_layout {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_row_col(nth, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_row_col(nth, tile_count_rows, tile_count_cols, config)
+            }
+        }
+    }
+
+    fn to_nth_tile(
+        tile: Coords2d,
+        tile_count_rows: u32,
+        tile_count_cols: u32,
+        #[comptime] config: StageMemoryConfig,
+    ) -> u32 {
+        match config.matrix_layout {
+            MatrixLayout::RowMajor => {
+                ColMajorTilingOrder::to_nth_tile(tile, tile_count_rows, tile_count_cols, config)
+            }
+            MatrixLayout::ColMajor => {
+                RowMajorTilingOrder::to_nth_tile(tile, tile_count_rows, tile_count_cols, config)
+            }
+        }
+    }
+
+    fn to_enum() -> comptime_type!(TilingOrderEnum) {
+        TilingOrderEnum::Tma
+    }
+}
+
 #[cube]
 /// Describes how tiles are arranged in shared memory.
 pub trait TilingLayout: 'static + Send + Sync + Clone + Copy + TilingValidation {
@@ -234,6 +279,9 @@ pub trait TilingValidation {
 pub struct ContiguousTilingLayout<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
+
+/// TMA uses contiguous tiling, but with a special tiling order
+pub type TmaTilingLayout = ContiguousTilingLayout<TmaTilingOrder>;
 
 #[derive(Clone, Copy)]
 /// Tiles follow a strided layout that often mirrors global memory layout.

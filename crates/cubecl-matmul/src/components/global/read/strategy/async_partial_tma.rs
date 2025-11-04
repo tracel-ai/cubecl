@@ -1,11 +1,11 @@
-use crate::components::global::GlobalConfig;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{
     MatrixLayout,
-    global::read::{PartialLoadingStrategy, TmaTilingLayout, async_tma::AsyncTma},
+    global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
 };
+use crate::components::{global::GlobalConfig, stage::TmaTilingLayout};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
