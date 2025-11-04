@@ -10,7 +10,7 @@ macro_rules! testgen_conv2d_accelerated {
             use super::*;
             use cubecl_std::CubeOption;
             use cubecl_matmul::components::tile::io::Strided;
-            type TMM = cubecl_matmul::components::tile::accelerated::AcceleratedMatmul<CubeOption<Strided>>;
+            type TMM = cubecl_matmul::components::tile::cmma::CmmaMatmul<CubeOption<Strided>>;
 
             ::paste::paste! {
                 $(mod [<$float _ty>] {
