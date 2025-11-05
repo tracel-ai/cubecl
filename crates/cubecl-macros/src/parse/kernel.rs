@@ -512,15 +512,14 @@ impl Launch {
 
         for param in func.sig.generics.params.iter() {
             // We remove generic arguments based on defined types.
-            if let syn::GenericParam::Type(tp) = param {
-                if func
+            if let syn::GenericParam::Type(tp) = param
+                && func
                     .sig
                     .parameters
                     .iter()
                     .any(|p| p.defines.contains(&tp.ident))
-                {
-                    continue;
-                }
+            {
+                continue;
             };
 
             kernel_generics.params.push(param.clone());
