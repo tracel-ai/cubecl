@@ -18,7 +18,7 @@ use crate::{
         double_buffering::{DoubleBufferingArgs, TmaDoubleBufferingAlgorithm},
         double_unit::{DoubleUnitAlgorithm, DoubleUnitSelectionArgs},
         ordered_double_buffering::OrderedSelectionArgs,
-        simple::{SimpleArgs, SimpleBarrierAlgorithm},
+        simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
@@ -59,10 +59,6 @@ pub enum Strategy {
         selection: Selection<SimpleArgs>,
         tile_kind: AcceleratedTileKind,
     },
-    SimpleBarrier {
-        read_strategy: AsyncReadingStrategy,
-        tile_kind: AcceleratedTileKind,
-    },
     DoubleBuffering {
         read_strategy: PartialReadingStrategy,
         selection: Selection<DoubleBufferingArgs>,
@@ -88,6 +84,10 @@ pub enum ReadingStrategy {
     Cyclic,
     Strided,
     Tilewise,
+    AsyncCooperative,
+    AsyncCyclic,
+    AsyncMaximizeSliceLength,
+    AsyncMaximizeUnitCount,
     Tma,
 }
 
@@ -98,15 +98,6 @@ pub enum PartialReadingStrategy {
     Tilewise,
     Hybrid,
     Tma,
-}
-
-#[derive(Debug, Clone, Copy)]
-/// Which reader to use in barrier algorithm
-pub enum AsyncReadingStrategy {
-    Cooperative,
-    Cyclic,
-    MaximizeSliceLength,
-    MaximizeUnitCount,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
@@ -400,55 +391,54 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
                     >,
                 >(client, lhs, rhs, out, selection)
             }
-            ReadingStrategy::Tma =>
-                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection
-                ),
-        }),
-        Strategy::SimpleBarrier {
-            read_strategy,
-            tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
-            AsyncReadingStrategy::Cooperative => {
+            ReadingStrategy::AsyncCooperative => {
                 layered::launch_ref::<
                     R,
                     MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_cooperative::AsyncFullCooperativeLoading,
+                        async_full_cooperative::AsyncFullCooperativeLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection)
             }
-            AsyncReadingStrategy::Cyclic => {
+            ReadingStrategy::AsyncCyclic => {
                 layered::launch_ref::<
                     R,
                     MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
                         async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
+                        async_full_cyclic::AsyncFullCyclicLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, selection)
             }
-            AsyncReadingStrategy::MaximizeSliceLength => {
+            ReadingStrategy::AsyncMaximizeSliceLength => {
                 layered::launch_ref::<
                     R,
                     MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
+                        async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                         async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
-            AsyncReadingStrategy::MaximizeUnitCount => {
+            ReadingStrategy::AsyncMaximizeUnitCount => {
                 layered::launch_ref::<
                     R,
                     MP,
-                    SimpleBarrierAlgorithm<
+                    SimpleAlgorithm<
                         Accelerated,
+                        async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                         async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                     >,
                 >(client, lhs, rhs, out, &Default::default())
             }
+            ReadingStrategy::Tma =>
+                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection
+                ),
         }),
         Strategy::DoubleBuffering {
             read_strategy,
