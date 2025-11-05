@@ -84,17 +84,6 @@ impl<
 
         #[unroll]
         for kv in 0..p.seq_kv {
-            #[unroll]
-            for hd in 0..p.head_dim {
-                let key_tile = SK::tile(key_stage, (hd, kv).runtime());
-
-                TileAttention::fill_key(
-                    &key_tile,
-                    key_value_partition.get_key_at_mut(hd, kv, config),
-                    config.tile_config(),
-                );
-            }
-
             let mut scales = Sequence::<RowWise<SM<AP>>>::new();
 
             #[unroll]
@@ -107,7 +96,10 @@ impl<
                 #[unroll]
                 for hd in 0..p.head_dim {
                     let query_tile = query_partition.get_at(q, hd, config);
-                    let key_tile = key_value_partition.get_key_at(hd, kv, config);
+                    let key_tile = key_value_partition.get_key_mut();
+                    let key_smem_tile = SK::tile(key_stage, (hd, kv).runtime());
+
+                    TileAttention::fill_key(&key_smem_tile, key_tile, config.tile_config());
 
                     TileAttention::accumulate_score(
                         query_tile,
@@ -131,25 +123,19 @@ impl<
             }
 
             #[unroll]
-            for vd in 0..p.val_dim {
-                let value_tile = SV::tile(value_stage, (kv, vd).runtime());
-
-                TileAttention::fill_value(
-                    &value_tile,
-                    key_value_partition.get_value_at_mut(kv, vd, config),
-                    config.tile_config(),
-                );
-            }
-
-            #[unroll]
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at(q);
 
                 #[unroll]
                 for vd in 0..p.val_dim {
+                    let value_smem_tile = SV::tile(value_stage, (kv, vd).runtime());
+                    let value_tile = key_value_partition.get_value_mut();
+
+                    TileAttention::fill_value(&value_smem_tile, value_tile, config.tile_config());
+
                     TileAttention::accumulate_value(
                         softmax_tile,
-                        key_value_partition.get_value_at(kv, vd, config),
+                        key_value_partition.get_value(),
                         accumulator_partition.get_at_mut(q, vd, config),
                         scales.index(q),
                         config.tile_config(),

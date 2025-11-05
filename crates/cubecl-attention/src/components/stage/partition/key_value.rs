@@ -59,18 +59,11 @@ impl<
                 _phantom: PhantomData,
             })
         } else {
-            let p = config.tiling_scheme().partition_size;
             let mut keys = Sequence::new();
             let mut values = Sequence::new();
 
-            #[unroll]
-            for _ in 0..comptime!(p.head_dim * p.seq_kv) {
-                keys.push(KeyValueTile::new_key(config.tile_config()));
-            }
-            #[unroll]
-            for _ in 0..comptime!(p.seq_kv * p.val_dim) {
-                values.push(KeyValueTile::new_value(config.tile_config()));
-            }
+            keys.push(KeyValueTile::new_key(config.tile_config()));
+            values.push(KeyValueTile::new_value(config.tile_config()));
 
             KeyValues::<AP, FA, S>::new_Separate(
                 KeyValueSequence::<AP, FA, S> {
@@ -85,55 +78,31 @@ impl<
         }
     }
 
-    pub fn get_key_at(
-        &self,
-        #[comptime] hd: u32,
-        #[comptime] kv: u32,
-        #[comptime] config: S,
-    ) -> &KeyValueTile<AP, FA> {
-        let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
+    pub fn get_key(&self) -> &KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(index),
-            KeyValues::Separate(keys, _) => keys.sequence.index(index),
+            KeyValues::Reuse(key_values) => key_values.sequence.index(0u32),
+            KeyValues::Separate(keys, _) => keys.sequence.index(0u32),
         }
     }
 
-    pub fn get_key_at_mut(
-        &mut self,
-        #[comptime] hd: u32,
-        #[comptime] kv: u32,
-        #[comptime] config: S,
-    ) -> &mut KeyValueTile<AP, FA> {
-        let index = hd * config.tiling_scheme().partition_size.seq_kv + kv;
+    pub fn get_key_mut(&mut self) -> &mut KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
-            KeyValues::Separate(keys, _) => keys.sequence.index_mut(index),
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(0u32),
+            KeyValues::Separate(keys, _) => keys.sequence.index_mut(0u32),
         }
     }
 
-    pub fn get_value_at(
-        &self,
-        #[comptime] kv: u32,
-        #[comptime] vd: u32,
-        #[comptime] config: S,
-    ) -> &KeyValueTile<AP, FA> {
-        let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
+    pub fn get_value(&self) -> &KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(index),
-            KeyValues::Separate(_, values) => values.sequence.index(index),
+            KeyValues::Reuse(key_values) => key_values.sequence.index(0u32),
+            KeyValues::Separate(_, values) => values.sequence.index(0u32),
         }
     }
 
-    pub fn get_value_at_mut(
-        &mut self,
-        #[comptime] kv: u32,
-        #[comptime] vd: u32,
-        #[comptime] config: S,
-    ) -> &mut KeyValueTile<AP, FA> {
-        let index = kv * config.tiling_scheme().partition_size.val_dim + vd;
+    pub fn get_value_mut(&mut self) -> &mut KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(index),
-            KeyValues::Separate(_, values) => values.sequence.index_mut(index),
+            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(0u32),
+            KeyValues::Separate(_, values) => values.sequence.index_mut(0u32),
         }
     }
 }
