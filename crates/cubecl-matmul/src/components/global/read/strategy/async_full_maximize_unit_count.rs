@@ -1,16 +1,20 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
-        CopyMechanism, GlobalConfig,
+        GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
-        read::AsyncFullLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            FullLoadingStrategy, LoadingJob,
+            async_barrier::{AsyncBarrier, CubeManual},
+        },
     },
-    stage::{StageConfig, StridedStage, StridedTilingLayout, TilingValidation},
+    stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per unit.
@@ -51,19 +55,31 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
     }
 }
 
+impl LoadMaxRoundPlaneCount for AsyncFullMaximizeUnitCountLoading {
+    fn max_round_plane_count(
+        _tiling_scheme: &TilingScheme,
+        _ident: MatmulIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
+impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
+    type SyncStrategy = AsyncBarrier<CubeManual>;
     type Job<IP: MatrixPrecision> = AsyncFullMaximizeUnitCountJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> AsyncFullMaximizeUnitCountJob {
         let matrix_layout = config.matrix_layout(ident);
-        let line_size = config
-            .stage_config()
-            .stage_line_size(comptime!(ident.into_stage()));
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
@@ -91,10 +107,6 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
             ident,
         }
     }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
-    }
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -108,15 +120,15 @@ pub struct AsyncFullMaximizeUnitCountJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeManual>>
     for AsyncFullMaximizeUnitCountJob
 {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+    fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        _task_id: u32,
+        #[comptime] _task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
-        mechanism: &CM,
+        barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
         let mut destination: SliceMut<Line<IP::Stage>> = StridedTilingLayout::nth_slice::<IP::Stage>(
@@ -136,11 +148,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
         let src_segment = window.slice(seg_start, seg_end);
         let mut dest_segment = destination.slice_mut(seg_start, seg_end);
 
-        CM::memcpy_async(
-            mechanism,
-            &src_segment.try_cast_unchecked(),
-            &mut dest_segment,
-        );
+        barrier.memcpy_async(&src_segment.try_cast_unchecked(), &mut dest_segment);
     }
 
     fn task_count(_this: &Self) -> comptime_type!(u32) {

@@ -3,6 +3,7 @@
 mod base;
 pub use base::*;
 
+pub mod async_barrier;
 pub mod async_full_cooperative;
 pub mod async_full_cyclic;
 pub mod async_full_maximize_slice_length;

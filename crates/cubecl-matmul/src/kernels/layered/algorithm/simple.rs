@@ -45,6 +45,7 @@ pub struct SimpleAlgorithm<
 }
 
 pub type SimpleTmaAlgorithm<TMM> = SimpleAlgorithm<TMM, AsyncFullTmaLoading, AsyncFullTmaLoading>;
+pub type SimpleBarrierAlgorithm<TMM, L> = SimpleAlgorithm<TMM, L, L>;
 
 #[derive(Default, Debug, Clone)]
 pub struct SimpleArgs {

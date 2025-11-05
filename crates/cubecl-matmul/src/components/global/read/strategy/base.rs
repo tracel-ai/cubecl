@@ -1,4 +1,4 @@
-use crate::components::global::{CopyMechanism, GlobalConfig};
+use crate::components::global::GlobalConfig;
 use crate::components::stage::{StridedStage, TilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
@@ -18,8 +18,8 @@ pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        tensor_reader: &GlobalIterator<Line<IP::Global>>,
-        stage_memory: &mut StridedStage<IP::Stage, TL>,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
+        stage: &mut StridedStage<IP::Stage, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );
@@ -39,27 +39,6 @@ pub trait SyncStrategy {
         barrier: &mut Self::Barrier,
         #[comptime] config: G,
     );
-}
-
-#[cube]
-/// A loading job represents a sequence of loading tasks.
-/// Each task is the smallest unit of loading work:
-/// one unit at one iteration, operating at a specific point within a read view.
-/// The job holds shared information reused across read views and iterations.
-/// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait AsyncLoadingJob<IP: MatrixPrecision, TL: TilingLayout>: CubeType + Copy + Clone {
-    /// Execute the `task_id`th loading task
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
-        this: &mut Self,
-        task_id: u32,
-        tensor_reader: &GlobalIterator<Line<IP::Global>>,
-        stage_memory: &mut StridedStage<IP::Stage, TL>,
-        mechanism: &CM,
-        #[comptime] config: G,
-    );
-
-    /// Get the number of tasks
-    fn task_count(this: &Self) -> comptime_type!(u32);
 }
 
 /// Allows to verify configs are valid for a reader

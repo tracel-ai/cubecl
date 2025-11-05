@@ -1,16 +1,20 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
-        CopyMechanism, GlobalConfig,
+        GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
-        read::AsyncFullLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            FullLoadingStrategy, LoadingJob,
+            async_barrier::{AsyncBarrier, CubeManual},
+        },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one memcpy_async call per contiguous slice.
@@ -25,15 +29,30 @@ impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     }
 }
 
+impl LoadMaxRoundPlaneCount for AsyncFullMaximizeSliceLengthLoading {
+    fn max_round_plane_count(
+        _tiling_scheme: &TilingScheme,
+        _ident: MatmulIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
+impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type Job<IP: MatrixPrecision> = AsynFullMaximizeSliceLengthJob;
+    type SyncStrategy = AsyncBarrier<CubeManual>;
+    type Job<IP: MatrixPrecision> = AsyncFullMaximizeSliceLengthJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] _line_size: u32,
         #[comptime] config: G,
-    ) -> AsynFullMaximizeSliceLengthJob {
+    ) -> AsyncFullMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(ident);
 
         let num_slices = match matrix_layout {
@@ -44,21 +63,17 @@ impl AsyncFullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
         let num_tasks_per_unit = comptime!(div_ceil(num_slices, unit_count));
 
-        AsynFullMaximizeSliceLengthJob {
+        AsyncFullMaximizeSliceLengthJob {
             num_tasks_per_unit,
             unit_count,
             num_slices,
             ident,
         }
     }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
-    }
 }
 
 #[derive(CubeType, Clone, Copy)]
-pub struct AsynFullMaximizeSliceLengthJob {
+pub struct AsyncFullMaximizeSliceLengthJob {
     #[cube(comptime)]
     num_tasks_per_unit: u32,
     #[cube(comptime)]
@@ -70,36 +85,36 @@ pub struct AsynFullMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
-    for AsynFullMaximizeSliceLengthJob
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeManual>>
+    for AsyncFullMaximizeSliceLengthJob
 {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+    fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
-        tensor_reader: &GlobalIterator<Line<IP::Global>>,
+        #[comptime] task_id: u32,
+        global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
-        mechanism: &CM,
+        barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
         let nth_slice = this.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
-            load_nth_slice::<IP::Global, IP::Stage, CM, G>(
+            load_nth_slice::<IP::Global, IP::Stage, G>(
                 nth_slice,
-                tensor_reader,
+                global_iter,
                 stage,
-                mechanism,
+                barrier,
                 this.ident,
                 config,
             );
         } else {
             if nth_slice < this.num_slices {
-                load_nth_slice::<IP::Global, IP::Stage, CM, G>(
+                load_nth_slice::<IP::Global, IP::Stage, G>(
                     nth_slice,
-                    tensor_reader,
+                    global_iter,
                     stage,
-                    mechanism,
+                    barrier,
                     this.ident,
                     config,
                 );
@@ -113,11 +128,11 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
 }
 
 #[cube]
-fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
+fn load_nth_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
     nth_slice: u32,
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,
-    mechanism: &CM,
+    barrier: &Barrier,
     #[comptime] ident: MatmulIdent,
     #[comptime] config: G,
 ) {
@@ -132,5 +147,5 @@ fn load_nth_slice<EG: Numeric, ES: Numeric, CM: CopyMechanism, G: GlobalConfig>(
         comptime!(config.stage_memory_config(ident)),
     );
 
-    CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
+    barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
 }
