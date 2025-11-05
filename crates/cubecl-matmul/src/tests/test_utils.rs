@@ -266,13 +266,15 @@ impl Sample for flex32 {
         seed: u64,
     ) -> TensorHandle<R, Self> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform::<R>(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
+            dtype,
         );
 
         output
