@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
@@ -235,7 +237,13 @@ impl Launch {
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
         let io_map = self.io_mappings();
-        let register_type = self.analysis.register_types();
+        let mut mapping = HashMap::new();
+        for param in self.func.sig.parameters.iter() {
+            for define in param.defines.iter() {
+                mapping.insert(define.clone(), param.name.clone());
+            }
+        }
+        let register_type = self.analysis.register_types(&mapping);
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);
