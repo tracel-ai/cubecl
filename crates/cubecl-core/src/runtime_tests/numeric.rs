@@ -14,8 +14,8 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
 
     kernel_define::launch::<R>(
         &client,
-        CubeCount::Static(1, 1, 2),
-        CubeDim::default(),
+        CubeCount::Static(1, 1, 1),
+        CubeDim::new_1d(2),
         unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, 1, elem.size()) },
         elem,
     );
