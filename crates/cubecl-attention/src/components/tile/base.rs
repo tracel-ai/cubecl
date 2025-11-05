@@ -70,10 +70,6 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         MaskTile::new(out_of_bounds, partition_pos, config)
     }
 
-    pub fn init_softmax(#[comptime] config: FA::Config) -> SoftmaxTile<AP, FA> {
-        SoftmaxTile::new(config)
-    }
-
     pub fn init_state(#[comptime] config: FA::Config) -> RunningState<SM<AP>> {
         RunningState::<SM<AP>>::init(config.num_rows_per_unit())
     }

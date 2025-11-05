@@ -30,11 +30,6 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> SoftmaxTile<AP, FA> {
         SoftmaxTile::<AP, FA> { fragment }
     }
 
-    /// Init the running state used in softmax
-    pub fn init_state(#[comptime] num_rows: u32) -> RunningState<SM<AP>> {
-        RunningState::<SM<AP>>::init(num_rows)
-    }
-
     /// Scale the tile by a constant factor and apply the mask
     pub fn scale_and_mask(&mut self, scale: SM<AP>, mask: &MaskTile<AP, FA>) {
         FA::Softmax::scale_and_mask::<MaskTile<AP, FA>>(&mut self.fragment, scale, mask);
