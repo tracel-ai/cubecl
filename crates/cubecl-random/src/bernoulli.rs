@@ -14,23 +14,21 @@ use super::{
 };
 
 #[derive(CubeLaunch, CubeType)]
-pub(crate) struct Bernoulli<E: Numeric> {
+pub(crate) struct Bernoulli {
     probability: f32,
-    #[cube(comptime)]
-    _phantom: PhantomData<E>,
 }
 
 #[derive(Debug)]
 struct BernoulliFamily;
 
 impl RandomFamily for BernoulliFamily {
-    type Runtime<E: Numeric> = Bernoulli<E>;
+    type Runtime = Bernoulli;
 }
 
 #[cube]
-impl<E: Numeric> PrngRuntime<E> for Bernoulli<E> {
-    fn inner_loop(
-        args: Bernoulli<E>,
+impl PrngRuntime for Bernoulli {
+    fn inner_loop<E: Numeric>(
+        args: Bernoulli,
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
@@ -67,32 +65,26 @@ impl<E: Numeric> PrngRuntime<E> for Bernoulli<E> {
     }
 }
 
-impl<E: Numeric> PrngArgs<E> for Bernoulli<E> {
+impl PrngArgs for Bernoulli {
     type Args = Self;
 
-    fn args<'a, R: Runtime>(self) -> BernoulliLaunch<'a, E, R> {
-        BernoulliLaunch::new(ScalarArg::new(self.probability), PhantomData::<E>)
+    fn args<'a, R: Runtime>(self) -> BernoulliLaunch<'a, R> {
+        BernoulliLaunch::new(ScalarArg::new(self.probability))
     }
 }
 
 /// Pseudo-random generator with bernoulli distribution
-pub fn random_bernoulli<R: Runtime, E: Numeric>(
+pub fn random_bernoulli<R: Runtime>(
     client: &ComputeClient<R::Server>,
     probability: f32,
     out: TensorHandleRef<R>,
+    dtype: StorageType,
 ) {
     assert_eq!(
-        out.elem_size as u32,
-        E::elem_size(),
+        out.elem_size,
+        dtype.size(),
         "Tensor element type must be the same as type E"
     );
 
-    random::<BernoulliFamily, E, R>(
-        client,
-        Bernoulli::<E> {
-            probability,
-            _phantom: PhantomData,
-        },
-        out,
-    )
+    random::<BernoulliFamily, R>(client, Bernoulli { probability }, out, dtype)
 }

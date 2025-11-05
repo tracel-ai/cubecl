@@ -8,7 +8,8 @@ use rand::{
 };
 
 use crate::{
-    ReduceError, ReduceStrategy, instructions::*, launch::ReduceDtypes, precision::ReducePrecision, reduce, shared_sum
+    ReduceError, ReduceStrategy, instructions::*, launch::ReduceDtypes, precision::ReducePrecision,
+    reduce, shared_sum,
 };
 
 // All random values generated for tests will be in the set
