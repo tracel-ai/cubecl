@@ -7,7 +7,6 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::global::simple::QueryReader;
 use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
@@ -16,11 +15,13 @@ use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{attention_types::*, stage::StageAttention};
 use crate::components::{
     fragment::FragmentAttention,
-    stage::tile_partitions::{
-        AccumulatorPartition, KeyValues, MaskPartition, QueryPartition, SoftmaxPartition,
-    },
+    stage::{KeyValues, QueryPartition, SoftmaxPartition},
 };
 use crate::components::{global::simple::MaskReader, stage::partitioner::AttentionPartitioner};
+use crate::components::{
+    global::simple::QueryReader,
+    stage::{AccumulatorPartition, MaskPartition},
+};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
