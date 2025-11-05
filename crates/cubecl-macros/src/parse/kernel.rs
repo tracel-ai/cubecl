@@ -83,14 +83,18 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_types(&self) -> TokenStream {
+    pub fn register_types(&self, name_mapping: &HashMap<Ident, Ident>) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
+            let name = match name_mapping.get(name) {
+                Some(name) => quote! { self.#name.into() },
+                None => quote! {#name::as_type_native_unchecked()},
+            };
             output.extend(quote! {
                 builder
                     .scope
-                    .register_type::<#ty>(#name::as_type_native_unchecked());
+                    .register_type::<#ty>(#name);
             });
         }
 
@@ -212,7 +216,7 @@ pub enum KernelBody {
     Verbatim(TokenStream),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KernelSignature {
     pub name: Ident,
     pub parameters: Vec<KernelParam>,
@@ -227,7 +231,7 @@ impl KernelSignature {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum KernelReturns {
     ExpandType(Type),
     Plain(Type),
@@ -247,6 +251,7 @@ pub struct KernelParam {
     pub name: Ident,
     pub ty: Type,
     pub normalized_ty: Type,
+    pub defines: Vec<Ident>,
     pub is_const: bool,
     pub is_mut: bool,
     pub is_ref: bool,
@@ -275,6 +280,7 @@ impl KernelParam {
                     name: Ident::new("self", param.span()),
                     ty: *param.ty,
                     normalized_ty,
+                    defines: Vec::new(),
                     is_const: false,
                     is_mut,
                     is_ref,
@@ -287,13 +293,27 @@ impl KernelParam {
             mut is_mut,
             ..
         } = parse_pat(*param.pat.clone())?;
-        let is_const = param.attrs.iter().any(is_comptime_attr);
+        let mut is_const = false;
+        let mut defines = Vec::new();
+
+        for attr in param.attrs.iter() {
+            if is_comptime_attr(attr) {
+                is_const = true;
+            }
+            if attr.path().is_ident("define") {
+                let ident: Ident = attr.parse_args().unwrap();
+                defines.push(ident);
+                is_const = true;
+            }
+        }
+
         let ty = *param.ty.clone();
         let normalized_ty = normalize_kernel_ty(*param.ty, is_const, &mut is_ref, &mut is_mut);
 
         Ok(Self {
             name: ident,
             ty,
+            defines,
             normalized_ty,
             is_const,
             is_mut,
@@ -488,18 +508,37 @@ impl Launch {
         }
 
         let mut kernel_generics = func.sig.generics.clone();
+        kernel_generics.params.clear();
+
+        for param in func.sig.generics.params.iter() {
+            // We remove generic arguments based on defined types.
+            if let syn::GenericParam::Type(tp) = param {
+                if func
+                    .sig
+                    .parameters
+                    .iter()
+                    .any(|p| p.defines.contains(&tp.ident))
+                {
+                    continue;
+                }
+            };
+
+            kernel_generics.params.push(param.clone());
+        }
+
         kernel_generics.params.push(parse_quote![__R: #runtime]);
-        let mut expand_generics = kernel_generics.clone();
-        expand_generics.params =
-            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(expand_generics.params));
+        let mut launch_generics = kernel_generics.clone();
+        launch_generics.params =
+            Punctuated::from_iter(iter::once(parse_quote!['kernel]).chain(launch_generics.params));
+
         let analysis = GenericAnalysis::from_generics(&func.sig.generics);
 
         Ok(Launch {
             args,
             vis,
             func,
+            launch_generics,
             kernel_generics,
-            launch_generics: expand_generics,
             analysis,
         })
     }
