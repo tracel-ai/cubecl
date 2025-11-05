@@ -32,7 +32,7 @@ impl<
         let mut sequence = Sequence::new();
 
         #[unroll]
-        for _ in 0..comptime!(p.seq_q * p.seq_kv) {
+        for _ in 0..comptime!(p.seq_q) {
             sequence.push(SoftmaxTile::new(config.tile_config()));
         }
 
@@ -42,23 +42,15 @@ impl<
         }
     }
 
-    pub fn get_at(
-        &self,
-        #[comptime] q: u32,
-        #[comptime] kv: u32,
-        #[comptime] config: S,
-    ) -> &SoftmaxTile<AP, FA> {
-        let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
-        self.sequence.index(index)
+    pub fn get_at(&self, #[comptime] q: u32, #[comptime] config: S) -> &SoftmaxTile<AP, FA> {
+        self.sequence.index(q)
     }
 
     pub fn get_at_mut(
         &mut self,
         #[comptime] q: u32,
-        #[comptime] kv: u32,
         #[comptime] config: S,
     ) -> &mut SoftmaxTile<AP, FA> {
-        let index = q * config.tiling_scheme().partition_size.seq_kv + kv;
-        self.sequence.index_mut(index)
+        self.sequence.index_mut(q)
     }
 }

@@ -98,7 +98,7 @@ impl<
 
             #[unroll]
             for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at_mut(q, kv, config);
+                let softmax_tile = softmax_partition.get_at_mut(q, config);
                 TileAttention::zero_softmax(softmax_tile, config.tile_config());
 
                 let mask_tile = mask_partition.get_at(q, kv, config.tiling_scheme());
@@ -142,7 +142,7 @@ impl<
 
             #[unroll]
             for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at(q, kv, config);
+                let softmax_tile = softmax_partition.get_at(q, config);
 
                 #[unroll]
                 for vd in 0..p.val_dim {

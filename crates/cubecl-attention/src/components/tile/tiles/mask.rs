@@ -106,7 +106,7 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
 
         let pos = Coords2d::add(
             self.logical_iter_origin.read(),
-            Coords2d::add(self.partition_pos.runtime(), pos_in_tile),
+            pos_in_tile, // Coords2d::add(self.partition_pos.runtime(), pos_in_tile),
         );
 
         let causal_masked = self.causal && pos.0 < pos.1;
