@@ -407,6 +407,18 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+            Arithmetic::InverseSqrt(sqrt) => {
+                let input = self.get_variable(sqrt.input);
+                let value = self.append_operation_with_result(llvm_ods::intr_sqrt(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                let one = self.create_float_constant_from_item(sqrt.input.ty, 1.0);
+                let recip =
+                    self.append_operation_with_result(arith::divf(one, value, self.location));
+                self.insert_variable(out, recip);
+            }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);
                 let output = self.append_operation_with_result(llvm_ods::intr_sqrt(

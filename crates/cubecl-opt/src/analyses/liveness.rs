@@ -107,7 +107,7 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
 
 /// Shared memory liveness analysis and allocation
 pub mod shared {
-    use cubecl_ir::{Operation, Type, Variable, VariableKind};
+    use cubecl_ir::{Marker, Operation, Type, Variable, VariableKind};
 
     use crate::Uniformity;
 
@@ -331,10 +331,10 @@ pub mod shared {
                     }
                 });
 
-                if let Operation::Free(Variable {
+                if let Operation::Marker(Marker::Free(Variable {
                     kind: VariableKind::SharedMemory { id, .. },
                     ..
-                }) = &op.operation
+                })) = &op.operation
                 {
                     kill.insert(*id);
                     generated.remove(id);

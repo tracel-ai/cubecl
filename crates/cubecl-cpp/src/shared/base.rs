@@ -1,19 +1,19 @@
 use std::{collections::HashSet, fmt::Debug};
 
 use cubecl_common::ExecutionMode;
-use cubecl_core::CubeDim;
-use cubecl_core::ir::{FloatKind, Processor, UIntKind, VariableKind};
+use cubecl_core::ir::{FloatKind, InstructionModes, Processor, UIntKind, VariableKind};
 use cubecl_core::post_processing::checked_io::CheckedIoProcessor;
 use cubecl_core::{
     Compiler,
     ir::{self as gpu},
 };
+use cubecl_core::{CubeDim, ir::ElemType};
 use cubecl_core::{
     ir::{Operation, SourceLoc},
     prelude::{FastMath, KernelDefinition},
 };
 use cubecl_opt::{Optimizer, SharedLiveness};
-use cubecl_runtime::{DeviceProperties, TypeUsage};
+use cubecl_runtime::{DeviceProperties, EnumSet, TypeUsage};
 
 use crate::shared::MmaShape;
 
@@ -33,6 +33,7 @@ pub struct CompilationOptions {
     pub warp_size: u32,
     pub grid_constants: bool,
     pub supports_clusters: bool,
+    pub supports_fast_math: bool,
 }
 
 impl Default for CompilationOptions {
@@ -41,6 +42,7 @@ impl Default for CompilationOptions {
             warp_size: 32,
             grid_constants: false,
             supports_clusters: false,
+            supports_fast_math: false,
         }
     }
 }
@@ -78,7 +80,6 @@ pub struct Flags {
     pub indexes: CubeIndexFlags,
     pub op_barrier: bool,
     pub op_pipeline: bool,
-    pub inst_fast_math: bool,
     pub inst_tma: bool,
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
@@ -172,10 +173,6 @@ impl<D: Dialect> CppCompiler<D> {
             elem_bf16: self.flags.elem_bf16,
             elem_f16: self.flags.elem_f16,
             elem_tf32: self.flags.elem_tf32,
-            inst_fast_math: value
-                .options
-                .fp_math_mode
-                .contains(FastMath::ReducedPrecision),
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
             use_grid_constants: self.compilation_options.grid_constants,
@@ -312,7 +309,9 @@ impl<D: Dialect> CppCompiler<D> {
                     out: self.compile_variable(out.unwrap()),
                 }));
             }
-            gpu::Operation::Arithmetic(op) => self.compile_arithmetic(op, out, instructions),
+            gpu::Operation::Arithmetic(op) => {
+                self.compile_arithmetic(op, out, instruction.modes, instructions)
+            }
             gpu::Operation::Comparison(op) => self.compile_comparison(op, out, instructions),
             gpu::Operation::Bitwise(op) => self.compile_bitwise(op, out, instructions),
             gpu::Operation::Operator(op) => self.compile_operator(op, out, instructions),
@@ -628,7 +627,7 @@ impl<D: Dialect> CppCompiler<D> {
                     }
                 }
             }
-            gpu::Operation::Free(_) => {}
+            gpu::Operation::Marker(_) => {}
         }
     }
 
@@ -933,6 +932,7 @@ impl<D: Dialect> CppCompiler<D> {
         &mut self,
         value: gpu::Arithmetic,
         out: Option<gpu::Variable>,
+        modes: InstructionModes,
         instructions: &mut Vec<Instruction<D>>,
     ) {
         let out = out.unwrap();
@@ -947,7 +947,17 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Mul(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Div(op) => {
-                instructions.push(Instruction::Div(self.compile_binary(op, out)))
+                let op = self.compile_binary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::AllowReciprocal
+                        | FastMath::ReducedPrecision
+                        | FastMath::UnsignedZero
+                        | FastMath::NotInf,
+                    Instruction::Div(op),
+                    Instruction::FastDiv(op),
+                ))
             }
             gpu::Arithmetic::Sub(op) => {
                 instructions.push(Instruction::Sub(self.compile_binary(op, out)))
@@ -967,33 +977,92 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Abs(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Exp(op) => {
-                instructions.push(Instruction::Exp(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Exp(op),
+                    Instruction::FastExp(op),
+                ));
             }
             gpu::Arithmetic::Log(op) => {
-                instructions.push(Instruction::Log(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Log(op),
+                    Instruction::FastLog(op),
+                ));
             }
             gpu::Arithmetic::Log1p(op) => {
                 instructions.push(Instruction::Log1p(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Cos(op) => {
-                instructions.push(Instruction::Cos(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Cos(op),
+                    Instruction::FastCos(op),
+                ));
             }
             gpu::Arithmetic::Sin(op) => {
-                instructions.push(Instruction::Sin(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Sin(op),
+                    Instruction::FastSin(op),
+                ));
             }
             gpu::Arithmetic::Tanh(op) => {
-                let instruction = Instruction::Tanh(self.compile_unary(op, out));
+                let op = self.compile_unary(op, out);
+                let instruction = Instruction::Tanh(op);
                 D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(instruction)
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    instruction,
+                    Instruction::FastTanh(op),
+                ))
             }
             gpu::Arithmetic::Powf(op) => {
-                instructions.push(Instruction::Powf(self.compile_binary(op, out)))
+                let op = self.compile_binary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Powf(op),
+                    Instruction::FastPowf(op),
+                ))
             }
             gpu::Arithmetic::Powi(op) => {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
             gpu::Arithmetic::Sqrt(op) => {
-                instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Sqrt(op),
+                    Instruction::FastSqrt(op),
+                ))
+            }
+            gpu::Arithmetic::InverseSqrt(op) => {
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::InverseSqrt(op),
+                    Instruction::FastInverseSqrt(op),
+                ))
             }
             gpu::Arithmetic::Erf(op) => {
                 let instruction = Instruction::Erf(self.compile_unary(op, out));
@@ -1018,18 +1087,31 @@ impl<D: Dialect> CppCompiler<D> {
             }),
             gpu::Arithmetic::Recip(op) => {
                 let elem = op.input.ty.elem_type();
+                let input = self.compile_variable(op.input);
+                let out = self.compile_variable(out);
                 let lhs = match elem {
                     gpu::ElemType::Float(kind) => gpu::ConstantScalarValue::Float(1.0, kind),
                     gpu::ElemType::Int(kind) => gpu::ConstantScalarValue::Int(1, kind),
                     gpu::ElemType::UInt(kind) => gpu::ConstantScalarValue::UInt(1, kind),
                     gpu::ElemType::Bool => gpu::ConstantScalarValue::Bool(true),
                 };
-
-                instructions.push(Instruction::Div(BinaryInstruction {
+                let div = Instruction::Div(BinaryInstruction {
                     lhs: Variable::ConstantScalar(lhs, self.compile_elem(elem)),
-                    rhs: self.compile_variable(op.input),
-                    out: self.compile_variable(out),
-                }))
+                    rhs: input,
+                    out,
+                });
+                let recip = Instruction::FastRecip(UnaryInstruction { input, out });
+
+                instructions.push(self.select_fast_float(
+                    elem.into(),
+                    modes,
+                    FastMath::AllowReciprocal
+                        | FastMath::ReducedPrecision
+                        | FastMath::UnsignedZero
+                        | FastMath::NotInf,
+                    div,
+                    recip,
+                ))
             }
             gpu::Arithmetic::Round(op) => {
                 instructions.push(Instruction::Round(self.compile_unary(op, out)))
@@ -1056,15 +1138,50 @@ impl<D: Dialect> CppCompiler<D> {
                 instructions.push(Instruction::Neg(self.compile_unary(op, out)))
             }
             gpu::Arithmetic::Normalize(op) => {
-                instructions.push(Instruction::Normalize(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Normalize(op),
+                    Instruction::FastNormalize(op),
+                ))
             }
             gpu::Arithmetic::Magnitude(op) => {
-                instructions.push(Instruction::Magnitude(self.compile_unary(op, out)))
+                let op = self.compile_unary(op, out);
+                instructions.push(self.select_fast_float(
+                    out.ty,
+                    modes,
+                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                    Instruction::Magnitude(op),
+                    Instruction::FastMagnitude(op),
+                ))
             }
             gpu::Arithmetic::Dot(op) => {
                 instructions.push(Instruction::Dot(self.compile_binary(op, out)))
             }
         };
+    }
+
+    fn select_fast_float(
+        &self,
+        ty: gpu::Type,
+        modes: InstructionModes,
+        required_flags: EnumSet<FastMath>,
+        default: Instruction<D>,
+        fast: Instruction<D>,
+    ) -> Instruction<D> {
+        if !self.compilation_options.supports_fast_math
+            || !matches!(ty.elem_type(), ElemType::Float(FloatKind::F32))
+        {
+            return default;
+        }
+
+        if modes.fp_math_mode.is_superset(required_flags) {
+            fast
+        } else {
+            default
+        }
     }
 
     fn compile_comparison(

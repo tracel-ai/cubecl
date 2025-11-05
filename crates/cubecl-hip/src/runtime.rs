@@ -159,6 +159,7 @@ impl DeviceState for HipServer {
             warp_size: arch.warp_size(),
             grid_constants: false,
             supports_clusters: false,
+            supports_fast_math: true,
         };
         let hip_ctx = HipContext::new(comp_opts);
         let logger = Arc::new(ServerLogger::default());
