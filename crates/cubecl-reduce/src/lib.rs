@@ -103,6 +103,7 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
     axis: usize,
     strategy: Option<ReduceStrategy>,
     inst_config: Inst::Config,
+    dtypes: ReduceDtypes,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
@@ -118,13 +119,14 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, P, Out, Inst>(
+    launch_reduce::<R, Inst>(
         client,
         input,
         output,
         axis as u32,
         config,
         strategy,
+        dtypes,
         inst_config,
     );
     Ok(())
