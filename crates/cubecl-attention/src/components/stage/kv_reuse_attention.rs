@@ -7,15 +7,18 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::stage::StageAttentionConfig;
-use crate::components::tile::RowWise;
-use crate::components::tile::RunningState;
+use crate::components::{fragment::LhsValFormat, tile::RunningState};
 use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{attention_types::*, stage::StageAttention};
 use crate::components::{
     fragment::FragmentAttention,
     stage::{KeyValues, QueryPartition, SoftmaxPartition},
+};
+use crate::components::{fragment::RowwiseFormat, tile::RowWise};
+use crate::components::{
+    fragment::{AccScoreFormat, AccScoreFormatExpand},
+    stage::StageAttentionConfig,
 };
 use crate::components::{global::simple::MaskReader, stage::partitioner::AttentionPartitioner};
 use crate::components::{
@@ -88,8 +91,10 @@ impl<
 
             #[unroll]
             for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at_mut(q);
-                TileAttention::zero_softmax(softmax_tile, config.tile_config());
+                let softmax_score = softmax_partition.get_at_mut(q);
+
+                // TODO maybe remove and reset inside reset_to_acc_score
+                TileAttention::<AP, FA>::zero_softmax(softmax_score, config.tile_config());
 
                 read_mask::<AP, FA, P, S>((q, kv), mask_reader, mask_partition, config);
 
@@ -104,15 +109,16 @@ impl<
                     TileAttention::accumulate_score(
                         query_tile,
                         key_tile,
-                        softmax_tile,
+                        softmax_score,
                         config.tile_config(),
                     );
                 }
 
                 let state_q = state.index_mut(q);
+                let mut softmax_rowwise = softmax_score.to_rowwise_format();
 
                 scales.push(TileAttention::softmax::<P::Reducer>(
-                    softmax_tile,
+                    &mut softmax_rowwise,
                     mask_partition.get_mut(),
                     state_q,
                     &mut max_placeholder,
@@ -120,11 +126,8 @@ impl<
                     config.tiling_scheme().elements_in_partition_head_dim(),
                     config.tile_config(),
                 ));
-            }
 
-            #[unroll]
-            for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at(q);
+                let softmax_val = softmax_rowwise.to_lhs_val_format();
 
                 #[unroll]
                 for vd in 0..p.val_dim {
@@ -134,13 +137,15 @@ impl<
                     TileAttention::fill_value(&value_smem_tile, value_tile, config.tile_config());
 
                     TileAttention::accumulate_value(
-                        softmax_tile,
+                        &softmax_val,
                         key_value_partition.get_value(),
                         accumulator_partition.get_at_mut(q, vd, config),
                         scales.index(q),
                         config.tile_config(),
                     );
                 }
+
+                let softmax_score = softmax_val.reset_to_acc_score_format();
             }
         }
     }

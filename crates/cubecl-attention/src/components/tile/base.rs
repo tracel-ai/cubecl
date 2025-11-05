@@ -5,14 +5,12 @@ use cubecl_matmul::components::{
     tile::StridedTile,
 };
 
-use crate::components::tile::{
-    AccumulatorTile, KeyValueTile, MaskTile, QueryTile, Reducer, SoftmaxTile,
-};
+use crate::components::tile::{AccumulatorTile, KeyValueTile, MaskTile, QueryTile, Reducer};
 use crate::components::{
     AttentionPrecision,
     attention_types::*,
     fragment::FragmentAttentionConfig,
-    tile::{RowWise, RunningState},
+    tile::{RowWise, RunningState, row_max, scale_and_mask, to_prob},
 };
 use std::marker::PhantomData;
 
@@ -80,26 +78,21 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         FA::fill_key_value(tile, registers.value_mut(), config);
     }
 
-    pub fn zero_softmax(score: &mut SoftmaxTile<AP, FA>, #[comptime] config: FA::Config) {
-        FA::zero_softmax(&mut score.fragment, config);
+    pub fn zero_softmax(score: &mut FA::SoftmaxScore, #[comptime] config: FA::Config) {
+        FA::zero_softmax(score, config);
     }
 
     pub fn accumulate_score(
         query: &QueryTile<AP, FA>,
         key_value: &KeyValueTile<AP, FA>,
-        softmax: &mut SoftmaxTile<AP, FA>,
+        softmax: &mut FA::SoftmaxScore,
         #[comptime] config: FA::Config,
     ) {
-        FA::score_matmul(
-            &query.fragment,
-            key_value.key(),
-            &mut softmax.fragment,
-            config,
-        );
+        FA::score_matmul(&query.fragment, key_value.key(), softmax, config);
     }
 
     pub fn softmax<R: Reducer>(
-        softmax: &mut SoftmaxTile<AP, FA>,
+        rowwise_softmax: &mut <FA as FragmentAttention<AP>>::SoftmaxRowFormat,
         mask: &MaskTile<AP, FA>,
         state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
@@ -107,19 +100,30 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         #[comptime] dk: u32,
         #[comptime] config: FA::Config,
     ) -> RowWise<SM<AP>> {
-        SoftmaxTile::scale_and_mask(
-            softmax,
+        scale_and_mask::<AP, FA>(
+            rowwise_softmax,
             SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())),
             mask,
         );
 
-        softmax.row_max::<R, FA::Config>(max_placeholder, state.m(), config);
+        row_max::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRowFormat, R, FA::Config>(
+            max_placeholder,
+            state.m(),
+            rowwise_softmax,
+            config,
+        );
 
-        softmax.to_prob::<R, FA::Config>(state, max_placeholder, sum_placeholder, config)
+        to_prob::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRowFormat, R, FA::Config>(
+            rowwise_softmax,
+            state,
+            max_placeholder,
+            sum_placeholder,
+            config,
+        )
     }
 
     pub fn accumulate_value(
-        softmax: &SoftmaxTile<AP, FA>,
+        softmax: &<FA as FragmentAttention<AP>>::SoftmaxVal,
         key_value: &KeyValueTile<AP, FA>,
         accumulator: &mut AccumulatorTile<AP, FA>,
         scale: &RowWise<SM<AP>>,
@@ -128,7 +132,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         accumulator.scale_mul(scale);
 
         FA::value_matmul(
-            &softmax.fragment,
+            &softmax,
             key_value.value(),
             &mut accumulator.fragment,
             config,

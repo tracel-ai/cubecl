@@ -2,14 +2,14 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::FragmentSoftmax;
+use crate::components::fragment::RowwiseFormat;
 use crate::components::tile::RowMax;
 use crate::components::tile::RowSum;
 use crate::components::tile::RowWise;
 
 #[cube]
 /// Computes the sum of rows on a fragment, using the Reducer's strategy
-pub fn row_sum<E: Float, F: FragmentSoftmax<E>, R: Reducer, TC: FragmentAttentionConfig>(
+pub fn row_sum<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionConfig>(
     vals: &mut RowWise<E>,
     data: &F,
     #[comptime] config: TC,
@@ -21,7 +21,7 @@ pub fn row_sum<E: Float, F: FragmentSoftmax<E>, R: Reducer, TC: FragmentAttentio
 #[cube]
 /// Computes the max of rows on a fragment, using the Reducer's strategy
 /// Starts max at base
-pub fn row_max<E: Float, F: FragmentSoftmax<E>, R: Reducer, TC: FragmentAttentionConfig>(
+pub fn row_max<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionConfig>(
     vals: &mut RowWise<E>,
     base: &RowWise<E>,
     data: &F,
@@ -35,7 +35,7 @@ pub fn row_max<E: Float, F: FragmentSoftmax<E>, R: Reducer, TC: FragmentAttentio
 /// Strategy for reducing across units participating in the same row
 pub trait Reducer: CubeType {
     /// Reduction algorithm, applied inplace in vals
-    fn reduce<E: Float, F: FragmentSoftmax<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
+    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] config: TC,
@@ -46,11 +46,11 @@ pub trait Reducer: CubeType {
 /// A reduction operation
 pub trait ReduceOp<E: Float> {
     /// Applies the reduction on the elements of the same row held by the unit
-    fn reduce_local<F: FragmentSoftmax<E>>(data: &F) -> RowWise<E>;
+    fn reduce_local<F: RowwiseFormat<E>>(data: &F) -> RowWise<E>;
 
     /// Applies the reduction on the elements of the same row held by the unit,
     /// and to the accumulator, and store in the accumulator
-    fn reduce_local_accumulate<F: FragmentSoftmax<E>>(data: &F, acc: &mut RowWise<E>);
+    fn reduce_local_accumulate<F: RowwiseFormat<E>>(data: &F, acc: &mut RowWise<E>);
 
     /// The basic operation on two single values
     fn reduce_step_scalar(a: E, b: E) -> E;

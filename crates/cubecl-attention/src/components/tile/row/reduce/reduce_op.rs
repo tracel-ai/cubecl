@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::{FragmentSoftmax, FragmentSoftmaxExpand};
+use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
 use crate::components::tile::ReduceOp;
 use crate::components::tile::RowWise;
 
@@ -15,11 +15,11 @@ pub struct RowSum {}
 
 #[cube]
 impl<E: Float> ReduceOp<E> for RowMax {
-    fn reduce_local<F: FragmentSoftmax<E>>(data: &F) -> RowWise<E> {
+    fn reduce_local<F: RowwiseFormat<E>>(data: &F) -> RowWise<E> {
         data.rowwise_max()
     }
 
-    fn reduce_local_accumulate<F: FragmentSoftmax<E>>(data: &F, acc: &mut RowWise<E>) {
+    fn reduce_local_accumulate<F: RowwiseFormat<E>>(data: &F, acc: &mut RowWise<E>) {
         acc.max_inplace(&Self::reduce_local::<F>(data))
     }
 
@@ -37,11 +37,11 @@ impl<E: Float> ReduceOp<E> for RowMax {
 
 #[cube]
 impl<E: Float> ReduceOp<E> for RowSum {
-    fn reduce_local<F: FragmentSoftmax<E>>(data: &F) -> RowWise<E> {
+    fn reduce_local<F: RowwiseFormat<E>>(data: &F) -> RowWise<E> {
         data.rowwise_sum()
     }
 
-    fn reduce_local_accumulate<F: FragmentSoftmax<E>>(data: &F, acc: &mut RowWise<E>) {
+    fn reduce_local_accumulate<F: RowwiseFormat<E>>(data: &F, acc: &mut RowWise<E>) {
         acc.add_inplace(&Self::reduce_local::<F>(data))
     }
 

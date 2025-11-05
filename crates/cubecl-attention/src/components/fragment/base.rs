@@ -5,7 +5,7 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
 use crate::components::fragment::{
-    FragmentAccumulator, FragmentLayout, FragmentMask, FragmentSoftmax,
+    AccScoreFormat, FragmentAccumulator, FragmentLayout, FragmentMask, LhsValFormat, RowwiseFormat,
 };
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -20,7 +20,9 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type Query: CubeType;
     type KeyValue: CubeType;
     type Mask: FragmentMask<Layout = Self::FragmentLayout>;
-    type Softmax: FragmentSoftmax<SM<AP>, Layout = Self::FragmentLayout>;
+    type SoftmaxScore: AccScoreFormat<SM<AP>, RowWiseFormat = Self::SoftmaxRowFormat>;
+    type SoftmaxRowFormat: RowwiseFormat<SM<AP>, Layout = Self::FragmentLayout, LhsValFormat = Self::SoftmaxVal>;
+    type SoftmaxVal: LhsValFormat<SM<AP>, AccScoreFormat = Self::SoftmaxScore>;
     type Accumulator: FragmentAccumulator<ACC<AP>>;
     type FragmentLayout: FragmentLayout;
 
@@ -29,12 +31,12 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::Softmax,
+        out: &mut Self::SoftmaxScore,
         #[comptime] config: Self::Config,
     );
 
     fn value_matmul(
-        lhs: &Self::Softmax,
+        lhs: &Self::SoftmaxVal,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -47,7 +49,7 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
-    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxScore;
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
@@ -62,7 +64,7 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
         #[comptime] config: Self::Config,
     );
 
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
+    fn zero_softmax(softmax: &mut Self::SoftmaxScore, #[comptime] config: Self::Config);
     fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn write_results<E: Float>(

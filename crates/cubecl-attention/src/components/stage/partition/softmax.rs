@@ -4,7 +4,6 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::fragment::FragmentAttention;
-use crate::components::tile::SoftmaxTile;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]
@@ -15,7 +14,7 @@ pub struct SoftmaxPartition<
     FA: FragmentAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
-    sequence: Sequence<SoftmaxTile<AP, FA>>,
+    sequence: Sequence<FA::SoftmaxScore>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -33,7 +32,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(SoftmaxTile::new(config.tile_config()));
+            sequence.push(FA::allocate_softmax(config.tile_config()));
         }
 
         SoftmaxPartition::<AP, FA, S> {
@@ -42,11 +41,11 @@ impl<
         }
     }
 
-    pub fn get_at(&self, #[comptime] q: u32) -> &SoftmaxTile<AP, FA> {
+    pub fn get_at(&self, #[comptime] q: u32) -> &FA::SoftmaxScore {
         self.sequence.index(q)
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut SoftmaxTile<AP, FA> {
+    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut FA::SoftmaxScore {
         self.sequence.index_mut(q)
     }
 }

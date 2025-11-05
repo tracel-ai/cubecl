@@ -3,9 +3,10 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
+use crate::components::fragment::accelerated::FragWrapper;
 use crate::components::fragment::{
     FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand,
-    FragmentSoftmax, FragmentSoftmaxExpand,
+    RowwiseFormat, RowwiseFormatExpand,
 };
 use crate::components::tile::{RowVal, RowWise};
 
@@ -120,8 +121,13 @@ impl FragmentLayout for ArrayTileLayout {
 }
 
 #[cube]
-impl<E: Float> FragmentSoftmax<E> for LocalTile<E> {
+impl<E: Float> RowwiseFormat<E> for LocalTile<E> {
     type Layout = ArrayTileLayout;
+    type LhsValFormat = FragWrapper<E>;
+
+    fn to_lhs_val_format(self) -> Self::LhsValFormat {
+        todo!()
+    }
 
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();
@@ -194,8 +200,8 @@ impl<E: Float> FragmentSoftmax<E> for LocalTile<E> {
         }
     }
 
-    fn layout(&self) -> Self::Layout {
-        self.layout
+    fn num_units_per_row(&self) -> comptime_type!(u32) {
+        self.layout.num_units_per_row()
     }
 }
 

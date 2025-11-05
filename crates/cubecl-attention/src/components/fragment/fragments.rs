@@ -40,12 +40,19 @@ pub trait FragmentLayout: CubeType {
 }
 
 #[cube]
-pub trait FragmentSoftmax<E: Float> {
+pub trait AccScoreFormat<E: Float> {
+    type RowWiseFormat: RowwiseFormat<E>;
+
+    fn to_rowwise_format(self) -> Self::RowWiseFormat;
+}
+
+#[cube]
+pub trait RowwiseFormat<E: Float> {
     /// How the fragment is fragmented across units
     type Layout: FragmentLayout;
+    type LhsValFormat: LhsValFormat<E>;
 
-    /// Get the layout of the fragment
-    fn layout(&self) -> Self::Layout;
+    fn num_units_per_row(&self) -> comptime_type!(u32);
 
     /// Return the maximum of each row
     /// Units only output values for rows they participate in
@@ -60,6 +67,15 @@ pub trait FragmentSoftmax<E: Float> {
 
     /// Changes each value x_ij for e^(x_ij - m_i) for every row
     fn exp_diff(&mut self, m: &RowWise<E>);
+
+    fn to_lhs_val_format(self) -> Self::LhsValFormat;
+}
+
+#[cube]
+pub trait LhsValFormat<E: Float> {
+    type AccScoreFormat: AccScoreFormat<E>;
+
+    fn reset_to_acc_score_format(self) -> Self::AccScoreFormat;
 }
 
 #[cube]
