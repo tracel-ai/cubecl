@@ -10,14 +10,13 @@ pub fn kernel_define<N: Numeric>(array: &mut Array<N>, #[define(N)] _elem: ElemT
 pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
     let handle = client.create(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
 
-    let vectorization = 2;
     let elem = ElemType::Float(FloatKind::F32);
 
     kernel_define::launch::<R>(
         &client,
-        CubeCount::Static(1, 1, 1),
+        CubeCount::Static(1, 1, 2),
         CubeDim::default(),
-        unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, vectorization, elem.size()) },
+        unsafe { ArrayArg::from_raw_parts_and_size(&handle, 2, 1, elem.size()) },
         elem,
     );
 
@@ -25,6 +24,7 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
     let actual = f32::from_bytes(&actual);
 
     assert_eq!(actual[0], f32::new(5.0));
+    assert_eq!(actual[1], f32::new(6.0));
 }
 
 #[allow(missing_docs)]
