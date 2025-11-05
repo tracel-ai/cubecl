@@ -25,12 +25,10 @@ pub enum MaskTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
 impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaskTile<AP, FA> {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] partition_pos: Coords2d,
         #[comptime] config: FA::Config,
     ) -> MaskTile<AP, FA> {
         let logical_mask = LogicalTileMask::<FA::FragmentLayout> {
             logical_iter_origin: LogicalIterOrigin::init(),
-            partition_pos,
             causal: config.causal_mask(),
             out_of_bounds,
             fragment_layout: FA::softmax_layout(config),
@@ -92,8 +90,6 @@ impl LogicalIterOrigin {
 pub struct LogicalTileMask<F: FragmentLayout> {
     logical_iter_origin: LogicalIterOrigin,
     #[cube(comptime)]
-    partition_pos: Coords2d,
-    #[cube(comptime)]
     causal: bool,
     out_of_bounds: CubeOption<Coords2d>,
     fragment_layout: F,
@@ -104,10 +100,7 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
         let pos_in_tile = self.fragment_layout.absolute_pos(local_pos);
 
-        let pos = Coords2d::add(
-            self.logical_iter_origin.read(),
-            pos_in_tile, // Coords2d::add(self.partition_pos.runtime(), pos_in_tile),
-        );
+        let pos = Coords2d::add(self.logical_iter_origin.read(), pos_in_tile);
 
         let causal_masked = self.causal && pos.0 < pos.1;
 

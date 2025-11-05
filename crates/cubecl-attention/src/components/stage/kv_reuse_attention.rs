@@ -68,7 +68,8 @@ impl<
         key_stage: &SK,
         value_stage: &SV,
         key_value_partition: &mut KeyValues<AP, FA, S>,
-        mask_partition: &MaskPartition<AP, FA, S>,
+        mask_reader: &MaskReader<AP>,
+        mask_partition: &mut MaskPartition<AP, FA, S>,
         softmax_partition: &mut SoftmaxPartition<AP, FA, S>,
         accumulator_partition: &mut AccumulatorPartition<AP, FA, S>,
         state: &mut Sequence<RunningState<SM<AP>>>,
@@ -98,10 +99,10 @@ impl<
 
             #[unroll]
             for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at_mut(q, config);
+                let softmax_tile = softmax_partition.get_at_mut(q);
                 TileAttention::zero_softmax(softmax_tile, config.tile_config());
 
-                let mask_tile = mask_partition.get_at(q, kv, config.tiling_scheme());
+                read_mask::<AP, FA, P, S>((q, kv), mask_reader, mask_partition, config);
 
                 #[unroll]
                 for hd in 0..p.head_dim {
@@ -120,7 +121,7 @@ impl<
 
                 scales.push(TileAttention::softmax::<P::Reducer>(
                     softmax_tile,
-                    mask_tile,
+                    mask_partition.get_mut(),
                     state_q,
                     &mut max_placeholder,
                     &mut sum_placeholder,
@@ -142,7 +143,7 @@ impl<
 
             #[unroll]
             for q in 0..p.seq_q {
-                let softmax_tile = softmax_partition.get_at(q, config);
+                let softmax_tile = softmax_partition.get_at(q);
 
                 #[unroll]
                 for vd in 0..p.val_dim {
@@ -260,23 +261,21 @@ impl<
             }
         }
     }
+}
 
-    fn read_mask(
-        reader: &MaskReader<AP>,
-        registers: &mut MaskPartition<AP, FA, S>,
-        #[comptime] config: S,
-    ) {
-        let p = config.tiling_scheme().partition_size;
-
-        #[unroll]
-        for q in 0..p.seq_q {
-            #[unroll]
-            for kv in 0..p.seq_kv {
-                let mask_tile = registers.get_at_mut(q, kv, config.tiling_scheme());
-
-                let (new_origin, tile) = reader.read::<P, S>((q, kv), config);
-                mask_tile.update(new_origin, tile);
-            }
-        }
-    }
+#[cube]
+fn read_mask<
+    AP: AttentionPrecision,
+    FA: FragmentAttention<AP>,
+    P: AttentionPartitioner,
+    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+>(
+    #[comptime] pos_in_partition: Coords2d,
+    reader: &MaskReader<AP>,
+    registers: &mut MaskPartition<AP, FA, S>,
+    #[comptime] config: S,
+) {
+    let mask_tile = registers.get_mut();
+    let (new_origin, tile) = reader.read::<P, S>(pos_in_partition, config);
+    mask_tile.update(new_origin, tile);
 }

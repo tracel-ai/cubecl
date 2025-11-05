@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::AttentionTilingScheme;
 use crate::components::fragment::FragmentAttention;
 use crate::components::tile::MaskTile;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
@@ -33,24 +32,9 @@ impl<
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] config: S,
     ) -> MaskPartition<AP, FA, S> {
-        let p = config.tiling_scheme().partition_size;
         let mut sequence = Sequence::new();
 
-        let mut q = comptime![0];
-
-        #[unroll]
-        for _ in 0..p.seq_q {
-            let mut kv = comptime![0];
-
-            #[unroll]
-            for _ in 0..p.seq_kv {
-                sequence.push(MaskTile::new(out_of_bounds, (q, kv), config.tile_config()));
-
-                comptime![kv += 1];
-            }
-
-            comptime![q += 1];
-        }
+        sequence.push(MaskTile::new(out_of_bounds, config.tile_config()));
 
         MaskPartition::<AP, FA, S> {
             sequence,
@@ -58,23 +42,11 @@ impl<
         }
     }
 
-    pub fn get_at(
-        &self,
-        #[comptime] q: u32,
-        #[comptime] kv: u32,
-        #[comptime] tiling_scheme: AttentionTilingScheme,
-    ) -> &MaskTile<AP, FA> {
-        let p = tiling_scheme.partition_size;
-        self.sequence.index(comptime!(q * p.seq_kv + kv))
+    pub fn get(&self) -> &MaskTile<AP, FA> {
+        self.sequence.index(0u32)
     }
 
-    pub fn get_at_mut(
-        &mut self,
-        #[comptime] q: u32,
-        #[comptime] kv: u32,
-        #[comptime] tiling_scheme: AttentionTilingScheme,
-    ) -> &mut MaskTile<AP, FA> {
-        let p = tiling_scheme.partition_size;
-        self.sequence.index_mut(comptime!(q * p.seq_kv + kv))
+    pub fn get_mut(&mut self) -> &mut MaskTile<AP, FA> {
+        self.sequence.index_mut(0u32)
     }
 }

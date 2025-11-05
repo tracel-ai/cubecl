@@ -42,15 +42,11 @@ impl<
         }
     }
 
-    pub fn get_at(&self, #[comptime] q: u32, #[comptime] config: S) -> &SoftmaxTile<AP, FA> {
+    pub fn get_at(&self, #[comptime] q: u32) -> &SoftmaxTile<AP, FA> {
         self.sequence.index(q)
     }
 
-    pub fn get_at_mut(
-        &mut self,
-        #[comptime] q: u32,
-        #[comptime] config: S,
-    ) -> &mut SoftmaxTile<AP, FA> {
+    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut SoftmaxTile<AP, FA> {
         self.sequence.index_mut(q)
     }
 }

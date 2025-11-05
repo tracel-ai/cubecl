@@ -17,8 +17,6 @@ use crate::components::{
 use std::marker::PhantomData;
 
 use crate::components::fragment::FragmentAttention;
-use cubecl_std::CubeOption;
-use cubecl_std::tensor::layout::Coords2d;
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
@@ -60,14 +58,6 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
 
     pub fn init_value(#[comptime] config: FA::Config) -> KeyValueTile<AP, FA> {
         KeyValueTile::new_value(config)
-    }
-
-    pub fn init_mask(
-        out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] partition_pos: Coords2d,
-        #[comptime] config: FA::Config,
-    ) -> MaskTile<AP, FA> {
-        MaskTile::new(out_of_bounds, partition_pos, config)
     }
 
     pub fn init_state(#[comptime] config: FA::Config) -> RunningState<SM<AP>> {

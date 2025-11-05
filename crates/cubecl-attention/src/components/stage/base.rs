@@ -78,7 +78,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_stage: &Self::KeyStage,
         value_stage: &Self::ValueStage,
         key_value: &mut Self::KeyValueRegisters,
-        mask_partition: &Self::MaskRegisters,
+        mask_reader: &MaskReader<AP>,
+        mask_partition: &mut Self::MaskRegisters,
         score: &mut Self::SoftmaxRegisters,
         accumulator: &mut Self::AccumulatorRegisters,
         prev_state: &mut Sequence<RunningState<SM<AP>>>,
@@ -110,11 +111,6 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn read_query(
         reader: &QueryReader<AP>,
         registers: &mut Self::QueryRegisters,
-        #[comptime] config: Self::Config,
-    );
-    fn read_mask(
-        reader: &MaskReader<AP>,
-        registers: &mut Self::MaskRegisters,
         #[comptime] config: Self::Config,
     );
 }
