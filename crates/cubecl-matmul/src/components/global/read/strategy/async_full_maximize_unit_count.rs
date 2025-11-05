@@ -74,6 +74,8 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type SyncStrategy = AsyncBarrier<CubeManual>;
     type Job<IP: MatrixPrecision> = AsyncFullMaximizeUnitCountJob;
 
+    const SHOULD_CLEAR: bool = true;
+
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,

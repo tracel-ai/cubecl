@@ -50,6 +50,8 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
     type SyncStrategy = AsyncBarrier<CubeCoop>;
     type Job<IP: MatrixPrecision> = AsyncFullCooperativeJob;
 
+    const SHOULD_CLEAR: bool = true;
+
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,

@@ -63,6 +63,8 @@ impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type SyncStrategy = AsyncBarrier<CubeManual>;
     type Job<IP: MatrixPrecision> = AsyncFullCyclicJob;
 
+    const SHOULD_CLEAR: bool = true;
+
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,

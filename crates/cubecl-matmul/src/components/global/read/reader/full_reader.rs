@@ -35,6 +35,8 @@ pub trait FullLoadingStrategy:
     /// The [LoadingJob] for this strategy.
     type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy>;
 
+    const SHOULD_CLEAR: bool = false;
+
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
@@ -62,20 +64,47 @@ pub struct FullStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: FullLo
 impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlobalReader<IP, G, L> {
     /// Create a new SyncFullStageGlobalReader
     pub fn new(
-        tensor: View<Line<IP::Global>, Coords2d>,
+        view: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
-        let stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
-        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
+        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
+        let (shape_row, shape_col) = view.shape();
+        let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, tensor.line_size(), config)),
+            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, view.line_size(), config)),
             false => CubeOption::new_None(),
         };
+
+        if L::SHOULD_CLEAR {
+            // Slices are clamped to the shape, so if the slice size is smaller than the stage size
+            // we are partially out of bounds.
+            match ident {
+                MatmulIdent::Lhs =>
+                {
+                    #[allow(clippy::collapsible_if)]
+                    if config.check_row_bounds(ident) {
+                        if shape_row < config.tiling_scheme().elements_in_stage_m() {
+                            stage.clear_all::<G>(ident, config);
+                        }
+                    }
+                }
+                MatmulIdent::Rhs =>
+                {
+                    #[allow(clippy::collapsible_if)]
+                    if config.check_col_bounds(ident) {
+                        if shape_col < config.tiling_scheme().elements_in_stage_n() {
+                            stage.clear_all::<G>(ident, config);
+                        }
+                    }
+                }
+                MatmulIdent::Out => comptime!(unreachable!()),
+            }
+        }
 
         FullStageGlobalReader::<IP, G, L> {
             global_iter,
@@ -89,6 +118,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
     /// Give a reader to the loaded stage memory.
     pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
         self.stage
+    }
+
+    pub fn clear_stage(&mut self, #[comptime] config: G) {
+        self.stage.clear_all::<G>(self.ident, config);
     }
 
     pub fn free_stage(self) {

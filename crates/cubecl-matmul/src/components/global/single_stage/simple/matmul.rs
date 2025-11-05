@@ -75,8 +75,16 @@ where
 
         let mut barrier = LL::SyncStrategy::create_barrier();
 
-        for _ in 0..num_loops {
+        for i in 0..num_loops {
             sync_cube();
+
+            #[allow(clippy::collapsible_if)]
+            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds()] {
+                if i == num_loops - 1 {
+                    lhs_reader.clear_stage(config);
+                    rhs_reader.clear_stage(config);
+                }
+            }
 
             lhs_reader.load_stage(&mut barrier, config);
             rhs_reader.load_stage(&mut barrier, config);
