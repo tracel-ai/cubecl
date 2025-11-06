@@ -15,6 +15,7 @@ impl ToTokens for Launch {
         let name = &self.func.sig.name;
         let launch = self.launch();
         let launch_unchecked = self.launch_unchecked();
+        let aliases = self.create_type_alias();
         let dummy = self.create_dummy_kernel();
         let kernel = self.kernel_definition();
         let mut func = self.func.clone();
@@ -24,6 +25,8 @@ impl ToTokens for Launch {
         let out = quote! {
             #vis mod #name {
                 use super::*;
+
+                #aliases
 
                 #[allow(unused, clippy::all)]
                 #func
@@ -147,6 +150,22 @@ impl Launch {
         }
     }
 
+    fn create_type_alias(&self) -> TokenStream {
+        let mut index = 0u8;
+        let mut aliases = quote! {};
+
+        for input in self.func.sig.parameters.iter() {
+            for define in input.defines.iter() {
+                aliases.extend(quote! {
+                    /// Type to be used as a generic for launch kernel argument.
+                    pub type #define = NumericExpand<#index>;
+                });
+                index += 1;
+            }
+        }
+
+        aliases
+    }
     fn create_dummy_kernel(&self) -> TokenStream {
         if self.args.create_dummy_kernel.is_present() {
             let cube_count = prelude_type("CubeCount");

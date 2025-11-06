@@ -149,14 +149,23 @@ macro_rules! function {
 }
 
 function!(Log, "log");
+function!(FastLog, "__logf", false);
 function!(Cos, "cos");
+function!(FastCos, "__cosf", false);
 function!(Sin, "sin");
+function!(FastSin, "__sinf", false);
 function!(Sqrt, "sqrt");
+function!(InverseSqrt, "rsqrt");
+function!(FastSqrt, "__fsqrt_rn", false);
+function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
+function!(FastExp, "__expf", false);
 function!(Ceil, "ceil");
 function!(Trunc, "trunc");
 function!(Floor, "floor");
 function!(Round, "rint");
+function!(FastRecip, "__frcp_rn", false);
+function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);

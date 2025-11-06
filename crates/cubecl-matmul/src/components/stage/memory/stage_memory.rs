@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
-use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
+use crate::components::{MatmulIdent, MatrixLayout};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
 use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
@@ -27,9 +27,6 @@ pub struct StridedStage<ES: Numeric, T: TilingLayout> {
     buffer_index: u32,
 
     #[cube(comptime)]
-    ident: StageIdent,
-
-    #[cube(comptime)]
     config: StageMemoryConfig,
 
     #[cube(comptime)]
@@ -39,10 +36,7 @@ pub struct StridedStage<ES: Numeric, T: TilingLayout> {
 #[cube]
 impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
     /// Instantiate a new stage memory for the given identifier
-    pub fn new(
-        #[comptime] ident: StageIdent,
-        #[comptime] config: StageMemoryConfig,
-    ) -> StridedStage<ES, T> {
+    pub fn new(#[comptime] config: StageMemoryConfig) -> StridedStage<ES, T> {
         let line_size = config.stage_line_size;
 
         let smem = SharedMemory::new_lined(
@@ -50,35 +44,32 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
             line_size,
         );
 
-        Self::new_with_smem(smem, ident, config)
+        Self::new_with_smem(smem, config)
     }
 
     /// Instantiate a new stage memory for the given identifier, with shared memory alignment
     pub fn new_aligned(
-        #[comptime] ident: StageIdent,
         #[comptime] alignment: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedStage<ES, T> {
         let line_size = config.stage_line_size;
 
         let smem = SharedMemory::new_aligned(
-            comptime!(config.elements_in_stage() / line_size),
+            comptime!(config.num_stages * config.elements_in_stage() / line_size),
             line_size,
             alignment,
         );
 
-        Self::new_with_smem(smem, ident, config)
+        Self::new_with_smem(smem, config)
     }
 
     /// Instantiate with a custom shared memory
     pub fn new_with_smem(
         smem: SharedMemory<Line<ES>>,
-        #[comptime] ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedStage<ES, T> {
         StridedStage::<ES, T> {
             smem,
-            ident,
             config,
             buffer_index: 0u32,
             _phantom: PhantomData::<T>,
@@ -88,7 +79,6 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
     pub fn with_buffer_index(&self, buffer_idx: u32) -> Self {
         StridedStage::<ES, T> {
             smem: self.smem,
-            ident: self.ident,
             config: self.config,
             buffer_index: buffer_idx,
             _phantom: PhantomData::<T>,
@@ -97,7 +87,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 
     /// Get the tile at position (row, col)
     pub fn get_tile(&self, tile: Coords2d) -> StridedTile<ES> {
-        T::get_tile::<ES>(self, tile, self.buffer_index, self.ident, self.config)
+        T::get_tile::<ES>(self, tile, self.config)
     }
 
     /// Get the tile at position (row, col)
@@ -112,12 +102,20 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 
     /// Return the whole stage as a slice, for reading
     pub fn as_slice(&self, #[comptime] line_size: u32) -> Slice<Line<ES>> {
-        self.smem.to_slice().with_line_size(line_size)
+        let stage_size = comptime![self.config.elements_in_stage() / self.smem.line_size()];
+        let stage_offset = self.buffer_index * stage_size;
+        self.smem
+            .slice(stage_offset, stage_offset + stage_size)
+            .with_line_size(line_size)
     }
 
     /// Return the whole stage as a mutable slice, for loading
     pub fn as_slice_mut(&mut self, #[comptime] line_size: u32) -> SliceMut<Line<ES>> {
-        self.smem.to_slice_mut().with_line_size(line_size)
+        let stage_size = comptime![self.config.elements_in_stage() / self.smem.line_size()];
+        let stage_offset = self.buffer_index * stage_size;
+        self.smem
+            .slice_mut(stage_offset, stage_offset + stage_size)
+            .with_line_size(line_size)
     }
 
     /// Zero out the shared memory

@@ -469,7 +469,7 @@ impl WgslCompiler {
                 panic!("Barrier isn't supported on wgpu.")
             }
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
-            cube::Operation::Free(_) => {}
+            cube::Operation::Marker(_) => {}
         }
     }
 
@@ -798,6 +798,12 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::InverseSqrt(op) => {
+                instructions.push(wgsl::Instruction::InverseSqrt {
+                    input: self.compile_variable(op.input),
+                    out: self.compile_variable(out),
+                })
+            }
             cube::Arithmetic::Round(op) => instructions.push(wgsl::Instruction::Round {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

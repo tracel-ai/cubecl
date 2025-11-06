@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_matmul::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::memory::{GlobalIterator, ViewDirection},
     stage::StageMemoryConfig,
 };
@@ -33,7 +33,7 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StridedStage::new_aligned(StageIdent::Rhs, 128u32, config));
+            stages.push(StridedStage::new_aligned(128u32, config));
         }
 
         let global_iter = GlobalIterator::new(global_view, k_step, ViewDirection::Row, false);

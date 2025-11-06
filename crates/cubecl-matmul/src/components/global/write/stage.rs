@@ -1,8 +1,8 @@
+use crate::components::stage::RowMajorTilingOrder;
 use crate::components::stage::StridedStage;
 use crate::components::stage::{ContiguousTilingLayout, StageFamily};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
-use crate::components::{StageIdent, stage::RowMajorTilingOrder};
 use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -30,7 +30,7 @@ pub struct PartitionedStage<ES: Numeric> {
 impl<ES: Numeric> PartitionedStage<ES> {
     /// Instantiate a new stage memory for the given identifier
     pub fn new(unit_pos: Coords2d, #[comptime] config: StageMemoryConfig) -> PartitionedStage<ES> {
-        let inner = StridedStage::<ES, WriteTiling>::new(StageIdent::Out, config);
+        let inner = StridedStage::<ES, WriteTiling>::new(config);
         let tile = inner.get_tile_mut(unit_pos);
 
         PartitionedStage::<ES> {

@@ -137,9 +137,11 @@ impl CubeImplItem {
             body,
             full_name: func.full_name.clone(),
             span: func.span,
-            context: Context::new(func.context.return_type.clone(), func.debug_symbols),
-            src_file: func.src_file.clone(),
-            debug_symbols: func.debug_symbols,
+            context: Context::new(
+                func.context.return_type.clone(),
+                func.args.debug_symbols.is_present(),
+            ),
+            args: func.args.clone(),
         }
     }
 
@@ -194,9 +196,11 @@ impl CubeImplItem {
             body: KernelBody::Verbatim(body),
             full_name: func.full_name.clone(),
             span: func.span,
-            context: Context::new(func.context.return_type.clone(), func.debug_symbols),
-            src_file: func.src_file.clone(),
-            debug_symbols: func.debug_symbols,
+            context: Context::new(
+                func.context.return_type.clone(),
+                func.args.debug_symbols.is_present(),
+            ),
+            args: func.args.clone(),
         }
     }
 }

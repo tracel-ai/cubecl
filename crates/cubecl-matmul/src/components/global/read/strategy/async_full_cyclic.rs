@@ -1,18 +1,22 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
-        CopyMechanism, GlobalConfig, RoleRule,
+        GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
-        read::AsyncFullLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            FullLoadingStrategy, LoadingJob,
+            async_barrier::{AsyncBarrier, CubeManual},
+        },
     },
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads the content of all tiles in the stage memory using all planes,
@@ -40,17 +44,33 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     }
 }
 
+impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
+    fn max_round_plane_count(
+        _tiling_scheme: &TilingScheme,
+        _ident: MatmulIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
+impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
+    type SyncStrategy = AsyncBarrier<CubeManual>;
     type Job<IP: MatrixPrecision> = AsyncFullCyclicJob;
+
+    const SHOULD_CLEAR: bool = true;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> AsyncFullCyclicJob {
         let total_units = config.plane_dim() * config.num_loading_planes(ident);
-        let line_size = config.global_line_size(ident);
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
             MatrixLayout::RowMajor => (
@@ -83,10 +103,6 @@ impl<TO: TilingOrder> AsyncFullLoadingStrategy for AsyncFullCyclicLoading<TO> {
             line_size,
         }
     }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
-    }
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -110,15 +126,15 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingLayout<TO>>
-    for AsyncFullCyclicJob
+impl<IP: MatrixPrecision, TO: TilingOrder>
+    LoadingJob<IP, ContiguousTilingLayout<TO>, AsyncBarrier<CubeManual>> for AsyncFullCyclicJob
 {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+    fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
-        mechanism: &CM,
+        barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
         let slice_index = this.unit_id + this.total_units * task_id;
@@ -149,7 +165,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> AsyncLoadingJob<IP, ContiguousTilingL
                 slice_destination_offset + this.slice_length_in_lines,
             );
 
-            CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
+            barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
         }
     }
 

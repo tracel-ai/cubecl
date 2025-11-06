@@ -19,3 +19,4 @@
   - [Struct](./language-support/struct.md)
 - [Advanced Usage](./advanced-usage/summary.md)
   - [Configuration](./advanced-usage/config.md)
+  - [Math Optimizations](./advanced-usage/math_optimizations.md)
