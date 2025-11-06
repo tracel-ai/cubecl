@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{
-    tile::{RowWise, RowwiseFormat, RowwiseFormatExpand},
     stage::ReduceOp,
+    tile::{RowWise, RowwiseFormat, RowwiseFormatExpand},
 };
 
 #[derive(CubeType)]

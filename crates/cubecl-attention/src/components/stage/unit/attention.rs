@@ -3,12 +3,12 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords1d;
 
 use crate::components::{
-    tile::FragmentAttention,
     global::simple::UnitAttentionWriter,
     stage::{
         UnitReducer, kv_reuse_attention::KVReuseStageAttention, partitioner::AttentionPartitioner,
         unit::UnitKVReuseStageConfig,
     },
+    tile::FragmentAttention,
 };
 
 pub type UnitKVReuseStageAttention<AP, SK, SV, SO, FA> = KVReuseStageAttention<

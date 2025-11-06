@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::tile::FragmentAttention;
 use crate::components::stage::QueryTile;
+use crate::components::tile::FragmentAttention;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]

@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::tile::accelerated::BlackboxAcceleratedFragmentAttention;
 use crate::components::stage::plane::PlaneKVReuseStageAttentionFamily;
+use crate::components::tile::accelerated::BlackboxAcceleratedFragmentAttention;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,

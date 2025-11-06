@@ -1,11 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::stage::ReduceOp;
+use crate::components::stage::Reducer;
 use crate::components::tile::FragmentAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RowwiseFormat;
-use crate::components::stage::ReduceOp;
-use crate::components::stage::Reducer;
 
 #[derive(CubeType)]
 /// Trivial reducer for one unit

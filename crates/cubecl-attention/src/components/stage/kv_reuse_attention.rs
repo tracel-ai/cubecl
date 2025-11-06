@@ -9,19 +9,19 @@ use std::marker::PhantomData;
 
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig, stage::tile_softmax};
 use crate::components::{attention_types::*, stage::StageAttention};
-use crate::components::{
-    tile::FragmentAttention,
-    stage::{KeyValues, QueryPartition, SoftmaxPartition},
-};
-use crate::components::{tile::RowWise, stage::StageAttentionConfig};
-use crate::components::{
-    tile::{SoftmaxFragment, SoftmaxFragmentExpand},
-    stage::RunningState,
-};
 use crate::components::{global::simple::MaskReader, stage::partitioner::AttentionPartitioner};
 use crate::components::{
     global::simple::QueryReader,
     stage::{AccumulatorPartition, MaskPartition},
+};
+use crate::components::{
+    stage::RunningState,
+    tile::{SoftmaxFragment, SoftmaxFragmentExpand},
+};
+use crate::components::{stage::StageAttentionConfig, tile::RowWise};
+use crate::components::{
+    stage::{KeyValues, QueryPartition, SoftmaxPartition},
+    tile::FragmentAttention,
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;

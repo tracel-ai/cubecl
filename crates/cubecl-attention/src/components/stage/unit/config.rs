@@ -1,7 +1,7 @@
 use crate::components::{
     AttentionSetupError, AttentionTilingScheme,
-    tile::FragmentAttentionConfig,
     stage::{AttentionStageMemoryConfig, StageAttentionConfig},
+    tile::FragmentAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

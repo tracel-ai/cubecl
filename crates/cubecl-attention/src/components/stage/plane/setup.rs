@@ -2,11 +2,11 @@ use std::marker::PhantomData;
 
 use crate::components::{
     attention_types::*,
-    tile::FragmentAttentionFamily,
     stage::{
         AttentionStageMemoryConfig, AttentionTilingLayout,
         plane::{PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},
     },
+    tile::FragmentAttentionFamily,
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{

@@ -3,8 +3,8 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::tile::FragmentAttention;
 use crate::components::stage::MaskTile;
+use crate::components::tile::FragmentAttention;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
