@@ -145,7 +145,7 @@ pub type InputRuntimeArg<'a, MA, R> = <InputArg<MA> as LaunchArg>::RuntimeArg<'a
 /// Output runtime argument
 pub type OutputRuntimeArg<'a, MA, R> = <OutputArg<MA> as LaunchArg>::RuntimeArg<'a, R>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct MatmulElems {
     pub lhs_global: StorageType,
     pub rhs_global: StorageType,

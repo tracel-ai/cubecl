@@ -92,7 +92,7 @@ pub fn index_offset_contiguous_fastdivmod(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel<N: CubePrimitive>(
+fn into_contiguous_kernel<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
@@ -118,7 +118,7 @@ fn into_contiguous_kernel<N: CubePrimitive>(
 }
 
 #[cube(launch)]
-fn into_contiguous_kernel_pack<N: CubePrimitive>(
+fn into_contiguous_kernel_pack<N: Numeric>(
     input: &LinearView<Line<N>>,
     output: &mut Tensor<Line<N>>,
     out_layout: LinearLayout,
@@ -265,6 +265,7 @@ pub fn into_contiguous_pitched<R: Runtime>(
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
+    println!("Into contiguous pitched...");
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
@@ -371,6 +372,7 @@ pub fn into_contiguous_ref<R: Runtime>(
         into_contiguous_kernel::launch::<R>
     };
 
+    println!("Launch");
     launch(
         client,
         cube_count,
