@@ -78,7 +78,7 @@ impl<E: Float> SoftmaxFragment<E> for HybridFragment<E> {
 
         sync_plane();
 
-        self.local_tile.fill_from(&self.smem_slice.to_slice());
+        self.local_tile.fill_from_slice(&self.smem_slice.to_slice());
 
         sync_plane();
 

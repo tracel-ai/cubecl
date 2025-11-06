@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
-use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
@@ -11,23 +10,10 @@ use crate::components::fragment::accelerated::hybrid_fragment::HybridFragment;
 use crate::components::fragment::accelerated::local_tile::LocalTile;
 use crate::components::fragment::accelerated::local_tile::LocalTileLayout;
 use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
-use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
 /// because the fragment layout is blackbox
 pub struct BlackboxAcceleratedFragmentAttention;
-
-#[derive(CubeType)]
-pub struct MaskTODO {}
-
-#[cube]
-impl FragmentMask for MaskTODO {
-    type Layout = LocalTileLayout;
-
-    fn should_mask(&self, _local_pos: Coords2d) -> bool {
-        false.runtime()
-    }
-}
 
 #[cube]
 impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragmentAttention {
@@ -35,7 +21,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
 
     type Query = cmma::Matrix<QT<AP>>;
     type KeyValue = cmma::Matrix<KVT<AP>>;
-    type Mask = MaskTODO;
+    type Mask = LocalTile<SM<AP>>;
     type Softmax = HybridFragment<SM<AP>>;
     type SoftmaxRow = LocalTile<SM<AP>>;
     type Accumulator = HybridFragment<ACC<AP>>;
@@ -132,7 +118,12 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        MaskTODO {}
+        let size = config.attention_tile_size();
+        LocalTile::new(LocalTileLayout::new(
+            (size.seq_q, size.seq_kv),
+            config.plane_dim(),
+            config.inner_layout(),
+        ))
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
@@ -165,7 +156,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         mask: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        // todo!()
+        mask.fill_from_strided_tile(tile)
     }
 
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {

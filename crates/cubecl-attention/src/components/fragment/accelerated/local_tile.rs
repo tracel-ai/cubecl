@@ -58,13 +58,23 @@ impl<E: Numeric> LocalTile<E> {
         }
     }
 
-    pub fn fill_from(&mut self, smem_slice: &Slice<E>) {
+    pub fn fill_from_slice(&mut self, smem_slice: &Slice<E>) {
         for r in 0..self.layout.unit_size.0 {
             for c in 0..self.layout.unit_size.1 {
                 let (row, col) = self.layout.absolute_pos((r, c));
                 let index = row * self.layout.total_size.1 + col;
 
                 self.array[r * self.layout.unit_size.1 + c] = smem_slice[index];
+            }
+        }
+    }
+
+    pub fn fill_from_strided_tile<E2: Numeric>(&mut self, strided_tile: &StridedTile<E2>) {
+        for r in 0..self.layout.unit_size.0 {
+            for c in 0..self.layout.unit_size.1 {
+                let (row, col) = self.layout.absolute_pos((r, c));
+                self.array[r * self.layout.unit_size.1 + c] =
+                    E::cast_from(strided_tile.get_line(row, col))
             }
         }
     }
@@ -242,36 +252,6 @@ impl<E: Numeric> FragmentMask for LocalTile<E> {
     fn should_mask(&self, local_pos: Coords2d) -> bool {
         bool::cast_from(self.array[local_pos.0 * self.layout.unit_size.1 + local_pos.1])
     }
-}
-
-#[cube]
-fn array_tile_to_tmp_smem<E: Numeric>(
-    array_tile: &LocalTile<E>,
-    #[comptime] num_planes: u32,
-) -> SliceMut<E> {
-    let tile_size = comptime!(array_tile.layout.total_size.0 * array_tile.layout.total_size.1);
-    let mut tmp_smem = SharedMemory::<E>::new(comptime!(num_planes * tile_size));
-
-    let start = UNIT_POS_Y * tile_size;
-    let end = start + tile_size;
-    let mut tmp_smem_slice = tmp_smem.slice_mut(start, end);
-
-    if UNIT_POS_X == 0 {
-        for i in 0..tile_size {
-            tmp_smem_slice[i] = E::from_int(0);
-        }
-    }
-    sync_cube();
-
-    for r in 0..array_tile.layout.unit_size.0 {
-        for c in 0..array_tile.layout.unit_size.1 {
-            let (row, col) = array_tile.layout.absolute_pos((r, c));
-            let index = row * array_tile.layout.total_size.1 + col;
-            tmp_smem_slice[index] = array_tile.array[r * array_tile.layout.unit_size.1 + c];
-        }
-    }
-
-    tmp_smem_slice
 }
 
 // #[cube]
