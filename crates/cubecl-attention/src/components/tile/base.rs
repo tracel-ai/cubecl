@@ -10,7 +10,11 @@ use crate::components::{
     AttentionPrecision,
     attention_types::*,
     fragment::FragmentAttentionConfig,
-    tile::{RowWise, RunningState, row_max, scale_and_mask, to_prob},
+    tile::{RowWise, RunningState, row_max},
+};
+use crate::components::{
+    fragment::{RowwiseFormat, RowwiseFormatExpand},
+    tile::row_sum,
 };
 use std::marker::PhantomData;
 
@@ -100,7 +104,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         #[comptime] dk: u32,
         #[comptime] config: FA::Config,
     ) -> RowWise<SM<AP>> {
-        scale_and_mask::<AP, FA>(
+        FA::SoftmaxRow::scale_and_mask::<MaskTile<AP, FA>>(
             rowwise_softmax,
             SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())),
             mask,
@@ -113,13 +117,21 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
             config,
         );
 
-        to_prob::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
-            rowwise_softmax,
-            state,
-            max_placeholder,
+        rowwise_softmax.exp_diff(max_placeholder);
+
+        row_sum::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
             sum_placeholder,
+            &rowwise_softmax,
             config,
-        )
+        );
+
+        let exp_m_diff = state.m().exp_diff(max_placeholder);
+
+        let new_l = exp_m_diff.mul(state.l()).add(sum_placeholder);
+
+        state.update(max_placeholder, &new_l);
+
+        exp_m_diff
     }
 
     pub fn accumulate_value(

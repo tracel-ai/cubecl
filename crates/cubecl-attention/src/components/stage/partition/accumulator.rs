@@ -6,7 +6,7 @@ use cubecl_core as cubecl;
 use crate::components::fragment::FragmentAttention;
 use crate::components::tile::AccumulatorTile;
 
-use crate::components::{AttentionPrecision, stage::StageAttentionConfig, };
+use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]
 /// Contains all seq_q·val_dim materialized tiles at once because they're accumulators

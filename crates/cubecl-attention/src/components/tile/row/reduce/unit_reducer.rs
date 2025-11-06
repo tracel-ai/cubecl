@@ -13,12 +13,7 @@ pub struct UnitReducer {}
 
 #[cube]
 impl Reducer for UnitReducer {
-    fn reduce<
-        E: Float,
-        F: RowwiseFormat<E>,
-        RO: ReduceOp<E>,
-        FC: FragmentAttentionConfig,
-    >(
+    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, FC: FragmentAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] _config: FC,

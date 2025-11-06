@@ -253,31 +253,3 @@ impl<E: Numeric> FragmentMask for LocalTile<E> {
         bool::cast_from(self.array[local_pos.0 * self.layout.unit_size.1 + local_pos.1])
     }
 }
-
-// #[cube]
-// fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
-//     strided_tile: &StridedTile<E>,
-//     array_tile: &mut LocalTile<E2>,
-// ) {
-//     for r in 0..array_tile.layout.unit_size.0 {
-//         for c in 0..array_tile.layout.unit_size.1 {
-//             let (row, col) = array_tile.layout.absolute_pos((r, c));
-//             array_tile.array[r * array_tile.layout.unit_size.1 + c] =
-//                 E2::cast_from(strided_tile.get_line(row, col))
-//         }
-//     }
-// }
-
-// #[cube]
-// fn array_tile_to_slice<E: Numeric, E2: Numeric>(
-//     array_tile: &LocalTile<E>,
-//     slice: &mut SliceMut<Line<E2>>,
-// ) {
-//     for r in 0..array_tile.layout.unit_size.0 {
-//         for c in 0..array_tile.layout.unit_size.1 {
-//             let (row, col) = array_tile.layout.absolute_pos((r, c));
-//             let index = row * array_tile.layout.total_size.1 + col;
-//             slice[index] = Line::cast_from(array_tile.array[r * array_tile.layout.unit_size.1 + c]);
-//         }
-//     }
-// }

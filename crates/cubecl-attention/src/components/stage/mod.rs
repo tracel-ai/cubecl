@@ -7,5 +7,5 @@ mod partition;
 mod partitioner;
 
 pub use base::*;
-pub use partitioner::*;
 pub use partition::*;
+pub use partitioner::*;
