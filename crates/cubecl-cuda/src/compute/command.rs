@@ -429,12 +429,12 @@ pub(crate) unsafe fn write_to_gpu(
         unsafe {
             cuMemcpy2DAsync_v2(&cpy, stream)
                 .result()
-                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {e}")))?;
         }
     } else {
         unsafe {
             cudarc::driver::result::memcpy_htod_async(dst_ptr, data, stream)
-                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+                .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {e}")))?;
         }
     };
 
@@ -454,7 +454,7 @@ pub(crate) unsafe fn write_to_cpu(
     if rank <= 1 {
         unsafe {
             cudarc::driver::result::memcpy_dtoh_async(bytes.deref_mut(), resource_ptr, stream)
-                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {}", e)))?;
+                .map_err(|e| IoError::Unknown(format!("CUDA memcpy failed: {e}")))?;
         }
         return Ok(());
     }
@@ -480,7 +480,7 @@ pub(crate) unsafe fn write_to_cpu(
     unsafe {
         cuMemcpy2DAsync_v2(&cpy, stream)
             .result()
-            .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {}", e)))?;
+            .map_err(|e| IoError::Unknown(format!("CUDA 2D memcpy failed: {e}")))?;
     }
 
     Ok(())

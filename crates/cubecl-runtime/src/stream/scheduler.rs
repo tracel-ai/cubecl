@@ -165,8 +165,7 @@ impl<B: SchedulerStreamBackend> SchedulerMultiStream<B> {
             |level| !matches!(level, StreamingLogLevel::Disabled),
             || {
                 format!(
-                    "Flushing streams {:?} before registering more tasks on {stream_id}",
-                    to_flush
+                    "Flushing streams {to_flush:?} before registering more tasks on {stream_id}"
                 )
             },
         );
