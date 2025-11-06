@@ -391,6 +391,19 @@ impl Optimizer {
                 visit_read(self, offset_source);
                 visit_read(self, offset_out);
             }
+            BarrierOps::MemCopyAsyncTx {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
             BarrierOps::TmaLoad {
                 barrier,
                 offset_out,
@@ -439,8 +452,13 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, transaction_count_update);
             }
-            BarrierOps::Wait { barrier } => {
+            BarrierOps::Wait { barrier, token } => {
                 visit_read(self, barrier);
+                visit_read(self, token);
+            }
+            BarrierOps::WaitParity { barrier, phase } => {
+                visit_read(self, barrier);
+                visit_read(self, phase);
             }
         }
     }

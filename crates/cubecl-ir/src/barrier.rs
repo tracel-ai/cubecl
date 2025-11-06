@@ -10,6 +10,7 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
 pub enum BarrierLevel {
     Unit,
+    CubeUnit(u32),
     CubeCoop(u32),
     CubeManual(u32),
 }
@@ -26,6 +27,14 @@ pub enum BarrierOps {
     },
     /// Copy source to destination
     MemCopyAsync {
+        barrier: Variable,
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+    },
+    /// Copy source to destination, with transaction count
+    MemCopyAsyncTx {
         barrier: Variable,
         source: Variable,
         source_length: Variable,
@@ -60,6 +69,11 @@ pub enum BarrierOps {
     },
     Wait {
         barrier: Variable,
+        token: Variable,
+    },
+    WaitParity {
+        barrier: Variable,
+        phase: Variable,
     },
     /// Waits until data is loaded
     ArriveAndWait {
@@ -87,6 +101,18 @@ impl Display for BarrierOps {
                 write!(
                     f,
                     "out[{offset_out}] = mem_copy_async({barrier}, source: {source}[{offset_source}])",
+                )
+            }
+            BarrierOps::MemCopyAsyncTx {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+                ..
+            } => {
+                write!(
+                    f,
+                    "out[{offset_out}] = mem_copy_async_tx({barrier}, source: {source}[{offset_source}])",
                 )
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
@@ -140,7 +166,10 @@ impl Display for BarrierOps {
                 barrier,
                 transaction_count_update,
             } => write!(f, "expect_tx({barrier}, {transaction_count_update})"),
-            BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
+            BarrierOps::Wait { barrier, token } => write!(f, "wait({barrier}, {token})"),
+            BarrierOps::WaitParity { barrier, phase } => {
+                write!(f, "wait_parity({barrier}, {phase})")
+            }
         }
     }
 }

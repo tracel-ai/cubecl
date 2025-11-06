@@ -250,6 +250,7 @@ impl Uniformity {
             | VariableKind::Versioned { .. }
             | VariableKind::Matrix { .. }
             | VariableKind::Barrier { .. }
+            | VariableKind::BarrierToken { .. }
             | VariableKind::Pipeline { .. } => {
                 self.variable_uniformity.get(&var).copied().unwrap_or(true)
             }

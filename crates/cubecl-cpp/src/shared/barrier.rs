@@ -20,6 +20,15 @@ pub enum BarrierOps<D: Dialect> {
         offset_out: Variable<D>,
         level: BarrierLevel,
     },
+    MemCopyAsyncTx {
+        barrier: Variable<D>,
+        source: Variable<D>,
+        destination: Variable<D>,
+        source_length: Variable<D>,
+        offset_source: Variable<D>,
+        offset_out: Variable<D>,
+        level: BarrierLevel,
+    },
     MemCopyAsyncTensorGlobalToShared {
         barrier: Variable<D>,
         smem_buffer: Variable<D>,
@@ -37,10 +46,11 @@ pub enum BarrierOps<D: Dialect> {
     },
     Arrive {
         barrier: Variable<D>,
-        level: BarrierLevel,
+        token: Variable<D>,
     },
     ArriveTx {
         barrier: Variable<D>,
+        token: Variable<D>,
         arrive_count_update: Variable<D>,
         transaction_count_update: Variable<D>,
     },
@@ -50,7 +60,11 @@ pub enum BarrierOps<D: Dialect> {
     },
     Wait {
         barrier: Variable<D>,
-        level: BarrierLevel,
+        token: Variable<D>,
+    },
+    WaitParity {
+        barrier: Variable<D>,
+        phase: Variable<D>,
     },
     ArriveAndWait {
         barrier: Variable<D>,
@@ -62,11 +76,13 @@ impl<D: Dialect> BarrierOps<D> {
     pub fn barrier_id(&self) -> u32 {
         match self {
             BarrierOps::MemCopyAsync { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::MemCopyAsyncTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Init { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ArriveAndWait { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Arrive { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ArriveTx { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::Wait { barrier, .. } => barrier.id().unwrap(),
+            BarrierOps::WaitParity { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::MemCopyAsyncTensorGlobalToShared { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::TmaLoadIm2col { barrier, .. } => barrier.id().unwrap(),
             BarrierOps::ExpectTx { barrier, .. } => barrier.id().unwrap(),
@@ -96,6 +112,19 @@ cuda::barrier<cuda::thread_scope_thread> {barrier};
 init(&{barrier}, 1);
 {proxy_fence}
                 "
+                    ),
+                    BarrierLevel::CubeUnit(elected_unit) => write!(
+                        f,
+                        "
+cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
+__shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
+cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
+if (threadIdxGlobal == {elected_unit}) {{
+   init(&{barrier}, 1);
+   {proxy_fence}
+}}
+__syncthreads();
+"
                     ),
                     BarrierLevel::CubeCoop(elected_unit) => write!(
                         f,
@@ -136,22 +165,37 @@ __syncthreads();
                 let item = source.item();
                 let size = format!("sizeof({item})");
                 match level {
-                    BarrierLevel::Unit => write!(
+                    BarrierLevel::Unit | BarrierLevel::CubeManual(_) => write!(
                         f,
                         "
 cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                     "
                     ),
-                    BarrierLevel::CubeCoop(_) => write!(
+                    BarrierLevel::CubeUnit(_) | BarrierLevel::CubeCoop(_) => write!(
                         f,
                         "
 cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                         "
                     ),
-                    BarrierLevel::CubeManual(_) => write!(
+                }
+            }
+            BarrierOps::MemCopyAsyncTx {
+                barrier,
+                source,
+                destination,
+                source_length,
+                offset_source,
+                offset_out,
+                level,
+            } => {
+                let item = source.item();
+                let size = format!("sizeof({item})");
+                match level {
+                    BarrierLevel::Unit => panic!("Can't use `memcpy_async_tx` with unit barrier"),
+                    BarrierLevel::CubeUnit(_) | BarrierLevel::CubeCoop(_) | BarrierLevel::CubeManual(_) => write!(
                         f,
                         "
-cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
+cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                         "
                     ),
                 }
@@ -196,17 +240,18 @@ cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {so
                     args.join(", ")
                 )
             }
-            BarrierOps::Arrive { barrier, .. } => {
-                writeln!(f, "{barrier}_token = {barrier}.arrive();")
+            BarrierOps::Arrive { barrier, token, .. } => {
+                writeln!(f, "{token} = {barrier}.arrive();")
             }
             BarrierOps::ArriveTx {
                 barrier,
+                token,
                 arrive_count_update,
                 transaction_count_update,
             } => {
                 writeln!(
                     f,
-                    "{barrier}_token = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
+                    "{token} = cuda::device::barrier_arrive_tx({barrier}, {arrive_count_update}, {transaction_count_update});"
                 )
             }
             BarrierOps::ExpectTx {
@@ -218,8 +263,11 @@ cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {so
                     "cuda::device::barrier_expect_tx({barrier}, {transaction_count_update});"
                 )
             }
-            BarrierOps::Wait { barrier, .. } => {
-                writeln!(f, "{barrier}.wait(std::move({barrier}_token));")
+            BarrierOps::Wait { barrier, token } => {
+                writeln!(f, "{barrier}.wait(std::move({token}));")
+            }
+            BarrierOps::WaitParity { barrier, phase } => {
+                writeln!(f, "{barrier}.wait_parity({phase});")
             }
             BarrierOps::ArriveAndWait { barrier, .. } => {
                 writeln!(f, "{barrier}.arrive_and_wait();")

@@ -90,7 +90,7 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+        let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
 
         for _ in 0..num_loops {
             sync_cube();
@@ -98,9 +98,9 @@ where
             lhs_reader.fill_stage(&barrier, 0u32);
             rhs_reader.fill_stage(&barrier, 0u32);
 
-            arrive_tma(&barrier, stages_bytes);
+            let token = arrive_tma(&barrier, stages_bytes);
 
-            barrier.wait();
+            barrier.wait(token);
 
             SMM::execute(
                 &lhs_reader.stage(0u32),

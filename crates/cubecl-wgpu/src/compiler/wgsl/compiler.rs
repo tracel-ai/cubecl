@@ -380,7 +380,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } => {
+            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),

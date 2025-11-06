@@ -114,7 +114,7 @@ where
         // Create barriers and prefetch each stage
         #[unroll]
         for stage in 0..num_stages {
-            let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+            let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
 
             lhs_reader.fill_stage(&barrier, stage);
             rhs_reader.fill_stage(&barrier, stage);
@@ -127,8 +127,11 @@ where
             barriers.push(barrier);
         }
 
+        let mut phase = 0;
+
         for k in 0..num_loops {
             let k = k * num_stages;
+            phase ^= 1;
 
             // Loop through all stages
             #[unroll]
@@ -141,7 +144,7 @@ where
                     let barrier = barriers.index(stage);
 
                     // Wait for load and execute matmul on this stage
-                    barrier.wait();
+                    barrier.wait_parity(phase ^ 1);
                     SMM::execute(
                         &lhs_reader.stage(stage),
                         &rhs_reader.stage(stage),
@@ -155,7 +158,7 @@ where
 
                     // Check if there's any stages left to load in the k dimension
                     if next_k < k_range.1 {
-                        barrier.wait();
+                        barrier.wait_parity(phase ^ 1);
 
                         // Refill stage and advance view
                         lhs_reader.fill_stage(barrier, stage);

@@ -15,5 +15,13 @@ macro_rules! testgen_matmul_tma_algorithm {
 
             $crate::testgen_matmul_tma_precision!(TmaDoubleBufferingAlgorithm<TMM>);
         }
+
+        #[cfg(all(feature = "matmul_tests_double"))]
+        mod specialized_tma {
+            use super::*;
+            use $crate::kernels::layered::specialized::TmaSpecializedAlgorithm;
+
+            $crate::testgen_matmul_tma_precision!(TmaSpecializedAlgorithm<TMM>);
+        }
     };
 }

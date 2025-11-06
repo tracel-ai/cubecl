@@ -126,15 +126,6 @@ impl RoleRule {
         }
     }
 
-    /// Whether the current plane is a load-only plane
-    pub fn is_load_only(self) -> bool {
-        match self {
-            RoleRule::MainFlowOnly => false,
-            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only.threshold,
-            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow.threshold,
-        }
-    }
-
     /// The index of the current plane among planes that perform compute,
     /// ignoring load-only planes
     pub fn compute_index(self) -> u32 {
@@ -171,30 +162,45 @@ impl RoleRule {
         }
     }
 
-    /// Whether this unit should execute a TMA load. Will always be the lowest unit in the
-    /// correct group. The TMA accelerator is unique so there's no point calling it on multiple
-    /// planes.
-    pub fn is_tma_load_unit(
-        self,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
-    ) -> bool {
+    /// Whether this unit is the leader of the loading units. Will always be the lowest unit in the
+    /// correct group.
+    pub fn elect_load_leader(self) -> bool {
+        match self {
+            RoleRule::MainFlowOnly => UNIT_POS == 0,
+            RoleRule::LoadOnlyFirst(_) => UNIT_POS == 0,
+            RoleRule::LoadOnlyLast(main_flow) => {
+                UNIT_POS_Y == main_flow.threshold && UNIT_POS_X == 0
+            }
+        }
+    }
+
+    /// Whether the current plane is a load-only plane
+    pub fn is_load_plane(self) -> bool {
+        match self {
+            RoleRule::MainFlowOnly => false,
+            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only.threshold,
+            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow.threshold,
+        }
+    }
+
+    /// Whether this unit is the leader of the compute units. Will always be the lowest unit in the
+    /// correct group.
+    pub fn elect_compute_leader(self) -> bool {
         match self {
             RoleRule::MainFlowOnly => UNIT_POS == 0,
             RoleRule::LoadOnlyFirst(load_only) => {
-                if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
-                    UNIT_POS_Y == load_only.threshold && UNIT_POS_X == 0
-                } else {
-                    UNIT_POS == 0
-                }
+                UNIT_POS_Y == load_only.threshold && UNIT_POS_X == 0
             }
-            RoleRule::LoadOnlyLast(main_flow) => {
-                if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
-                    UNIT_POS_Y == main_flow.threshold && UNIT_POS_X == 0
-                } else {
-                    UNIT_POS == 0
-                }
-            }
+            RoleRule::LoadOnlyLast(_) => UNIT_POS == 0,
+        }
+    }
+
+    /// Whether this plane is part of the compute planes
+    pub fn is_compute_plane(self) -> bool {
+        match self {
+            RoleRule::MainFlowOnly => true,
+            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y >= load_only.threshold,
+            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y < main_flow.threshold,
         }
     }
 }

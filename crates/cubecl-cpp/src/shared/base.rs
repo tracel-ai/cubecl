@@ -504,6 +504,28 @@ impl<D: Dialect> CppCompiler<D> {
                         },
                     ));
                 }
+                gpu::BarrierOps::MemCopyAsyncTx {
+                    barrier,
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsyncTx {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
+                            level,
+                        },
+                    ));
+                }
                 gpu::BarrierOps::TmaLoad {
                     barrier,
                     tensor_map,
@@ -549,12 +571,9 @@ impl<D: Dialect> CppCompiler<D> {
                     ));
                 }
                 gpu::BarrierOps::Arrive { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Arrive {
                         barrier: self.compile_variable(barrier),
-                        level,
+                        token: self.compile_variable(out.unwrap()),
                     }))
                 }
                 gpu::BarrierOps::ArriveTx {
@@ -564,6 +583,7 @@ impl<D: Dialect> CppCompiler<D> {
                 } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::ArriveTx {
                         barrier: self.compile_variable(barrier),
+                        token: self.compile_variable(out.unwrap()),
                         arrive_count_update: self.compile_variable(arrive_count_update),
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
@@ -577,15 +597,18 @@ impl<D: Dialect> CppCompiler<D> {
                         transaction_count_update: self.compile_variable(transaction_count_update),
                     }))
                 }
-                gpu::BarrierOps::Wait { barrier } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
+                gpu::BarrierOps::Wait { barrier, token } => {
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Wait {
                         barrier: self.compile_variable(barrier),
-                        level,
+                        token: self.compile_variable(token),
                     }))
                 }
+                gpu::BarrierOps::WaitParity { barrier, phase } => instructions.push(
+                    Instruction::Barrier(super::barrier::BarrierOps::WaitParity {
+                        barrier: self.compile_variable(barrier),
+                        phase: self.compile_variable(phase),
+                    }),
+                ),
                 gpu::BarrierOps::ArriveAndWait { barrier } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
@@ -1609,6 +1632,17 @@ impl<D: Dialect> CppCompiler<D> {
                 }
                 Variable::Barrier { id, level }
             }
+            gpu::VariableKind::BarrierToken { id, level } => {
+                self.flags.op_barrier = true;
+                match level {
+                    gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
+                        self.flags.indexes.cube_dim = true;
+                        self.flags.indexes.unit_pos = true;
+                    }
+                    _ => {}
+                }
+                Variable::BarrierToken { id, level }
+            }
         }
     }
 
@@ -1655,7 +1689,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Type::Line(ty, line_size) => {
                 Item::new(self.compile_storage_type(ty), line_size as usize, false)
             }
-            gpu::Type::Semantic(_) => unimplemented!("Can't compile semantic type"),
+            gpu::Type::Semantic(_) => Item::new(Elem::Bool, 1, true),
         };
         if item.elem != super::Elem::TF32 {
             self.items.insert(item);
