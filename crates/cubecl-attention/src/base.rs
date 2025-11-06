@@ -24,11 +24,11 @@ pub enum Strategy {
 pub fn launch<R: Runtime, AP: AttentionPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
-    query: TensorHandle<R, QG<AP>>,
-    key: TensorHandle<R, KG<AP>>,
-    value: TensorHandle<R, VG<AP>>,
-    mask: Option<TensorHandle<R, MSK<AP>>>,
-    out: TensorHandle<R, OG<AP>>,
+    query: TensorHandle<R>,
+    key: TensorHandle<R>,
+    value: TensorHandle<R>,
+    mask: Option<TensorHandle<R>>,
+    out: TensorHandle<R>,
 ) -> Result<(), AttentionSetupError> {
     launch_ref::<R, AP>(
         strategy,
@@ -112,7 +112,8 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         two_rows_in_array_tile: false,
     };
 
-    let config = BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config =
+        BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config
         .hypercube_config()
