@@ -96,7 +96,7 @@ impl<E: Numeric> PrngArgs<E> for Normal<E> {
 
 /// Pseudo-random generator with uniform distribution
 pub fn random_normal<R: Runtime, E: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     mean: E,
     std: E,
     out: TensorHandleRef<R>,

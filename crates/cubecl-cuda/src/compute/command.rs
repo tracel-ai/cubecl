@@ -423,7 +423,14 @@ pub(crate) unsafe fn write_to_gpu(
             dstPitch: pitch,
             WidthInBytes: width_bytes,
             Height: dim_y,
-            ..Default::default()
+            srcXInBytes: Default::default(),
+            srcY: Default::default(),
+            srcDevice: Default::default(),
+            srcArray: Default::default(),
+            dstXInBytes: Default::default(),
+            dstY: Default::default(),
+            dstHost: Default::default(),
+            dstArray: Default::default(),
         };
 
         unsafe {
@@ -474,7 +481,14 @@ pub(crate) unsafe fn write_to_cpu(
         dstPitch: width_bytes,
         WidthInBytes: width_bytes,
         Height: dim_y,
-        ..Default::default()
+        srcXInBytes: Default::default(),
+        srcY: Default::default(),
+        srcArray: Default::default(),
+        dstXInBytes: Default::default(),
+        dstY: Default::default(),
+        dstArray: Default::default(),
+        srcHost: Default::default(),
+        dstDevice: Default::default(),
     };
 
     unsafe {

@@ -77,7 +77,7 @@ impl PlaneVecMatInnerProductConfig {
     /// - Line sizes do not evenly divide tile sizes in the lined axis
     /// - Types are unavailable
     pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         tiling_scheme: TilingScheme,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
@@ -154,7 +154,7 @@ impl PlaneVecMatInnerProductConfig {
 
     fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
         if !client.properties().features.plane.contains(Plane::Ops) {
             return Err(MatmulSetupError::Unavailable(

@@ -10,10 +10,13 @@ use crate::{
     kernels::layered::selector::launch_kernel_concrete,
 };
 use crate::{
-    components::{ConvolutionProblem, Dimensionality, global::args::ConcreteInputsFactory},
+    components::{
+        ConvolutionProblem, Dimensionality,
+        global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
+    },
     kernels::layered::algorithm::Algorithm,
 };
-use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::{
     self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
     MatrixPrecision, RhsG,
@@ -45,7 +48,7 @@ pub struct ConvolutionArgs<const N_SPATIAL: usize> {
 /// * `options` - The options to use for the convolution
 #[allow(clippy::result_large_err)]
 pub fn launch_conv<R: Runtime, MP: MatmulPrecision, Alg: Algorithm, const N_SPATIAL: usize>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -81,7 +84,7 @@ where
 }
 
 fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -166,7 +169,7 @@ where
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -178,10 +181,10 @@ where
     Input<Alg, MP>: ConcreteInputsFactory,
     Output<Alg, MP>: ConcreteOutputFactory,
 {
-    let line_sizes = AvailableLineSizes::from_types::<R>(
-        &LhsG::<MP>::as_type_native_unchecked(),
-        &RhsG::<MP>::as_type_native_unchecked(),
-        &AccG::<MP>::as_type_native_unchecked(),
+    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+        input.data().elem_size,
+        weight.data().elem_size,
+        out.elem_size,
     )
     .filter_lhs_with_tensor(input.data().strides, input.data().shape, problem.lhs_layout)
     .filter_rhs_with_tensor(

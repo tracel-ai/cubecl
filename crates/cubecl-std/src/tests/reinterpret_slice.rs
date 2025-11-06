@@ -11,10 +11,7 @@ fn kernel_read_global(input: &Array<Line<i8>>, output: &mut Array<f16>) {
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read_global<R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
-    line_size: usize,
-) {
+pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R::Server>, line_size: usize) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -47,10 +44,7 @@ fn kernel_write_global(output: &mut Array<Line<i8>>, input: &Array<f16>) {
     list.write(UNIT_POS, input[UNIT_POS]);
 }
 
-pub fn run_test_write_global<R: Runtime>(
-    client: ComputeClient<R::Server, R::Channel>,
-    line_size: usize,
-) {
+pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R::Server>, line_size: usize) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -92,7 +86,7 @@ fn kernel_read_shared_memory(output: &mut Array<f16>) {
     output[UNIT_POS] = list.read(UNIT_POS);
 }
 
-pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }
@@ -125,7 +119,7 @@ fn kernel_write_shared_memory(output: &mut Array<Line<i8>>, input: &Array<f16>) 
     output[2 * UNIT_POS + 1] = mem[2 * UNIT_POS + 1];
 }
 
-pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     if !client.properties().features.dynamic_line_size {
         return; // can't run test
     }

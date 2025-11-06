@@ -31,7 +31,7 @@ fn identity_kernel<C: Numeric>(output: &mut Tensor<Line<C>>, gap: u32) {
 /// Ensure output is a [`TensorHandle`] containing a square matrix.
 /// output will contain the identity matrix.
 pub fn launch<R: Runtime, C: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: &TensorHandle<R, C>,
 ) {
     launch_ref::<R, C>(client, &output.as_ref());
@@ -41,7 +41,7 @@ pub fn launch<R: Runtime, C: Numeric>(
 /// Ensure output is a [`TensorHandleRef`] containing a square matrix.
 /// output will contain the identity matrix.
 pub fn launch_ref<R: Runtime, C: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: &TensorHandleRef<R>,
 ) {
     assert_eq!(2, output.shape.len(), "input should be a matrix");

@@ -1,13 +1,40 @@
-use crate::components::tile::RowWise;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-#[cube]
-pub trait AccumulatorTile<E: Float>: CubeType {
-    fn scale(&mut self, scale: &RowWise<E>, #[comptime] scale_op: ScaleMode);
+use crate::components::AttentionPrecision;
+use crate::components::attention_types::*;
+use crate::components::fragment::FragmentAttention;
+use crate::components::fragment::{FragmentOps, FragmentOpsExpand};
+use crate::components::tile::RowWise;
+
+#[derive(CubeType)]
+/// Accumulator tile for Tile Attention
+pub struct AccumulatorTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+    pub fragment: FA::Accumulator,
 }
 
-pub enum ScaleMode {
-    Multiply,
-    Divide,
+#[cube]
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> {
+    pub fn new(#[comptime] config: FA::Config) -> AccumulatorTile<AP, FA> {
+        let mut fragment = FA::allocate_accumulator(config);
+        FA::zero_accumulator(&mut fragment);
+
+        AccumulatorTile::<AP, FA> { fragment }
+    }
+}
+
+#[cube]
+impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> {
+    /// Multiplies each row by a scale
+    pub fn scale_mul(&mut self, scale: &RowWise<SM<AP>>) {
+        self.fragment
+            .rowwise_scale(&RowWise::<SM<AP>>::cast_from(scale));
+    }
+
+    /// Divides each row by a scale
+    pub fn scale_div(&mut self, scale: &RowWise<SM<AP>>) {
+        let mut scale = RowWise::<SM<AP>>::cast_from(scale);
+        scale.recip_inplace();
+        self.fragment.rowwise_scale(&scale);
+    }
 }

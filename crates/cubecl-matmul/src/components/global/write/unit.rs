@@ -11,6 +11,7 @@ use crate::components::{
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{StageConfig, StageMemoryConfig, StagePartitioner, UnitPartitioner},
+    tile::StridedTile,
 };
 
 #[derive(CubeType)]
@@ -42,20 +43,26 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
     }
 
     fn write(&mut self, tile: Coords2d) {
-        let smem_tile = &self.stage.unit_tile;
-        let config = comptime![self.config];
+        unit_write(&mut self.global, &self.stage.unit_tile, tile, self.config)
+    }
+}
 
-        let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
-        let output_line_size = config.global_line_size;
-        let out_smem_slice = smem_tile.slice.with_line_size(output_line_size);
+#[cube]
+pub fn unit_write<ES: Numeric, EG: Numeric>(
+    global: &mut View<Line<EG>, TiledCoords, ReadWrite>,
+    smem_tile: &StridedTile<ES, ReadWrite>,
+    tile_pos: Coords2d,
+    #[comptime] config: GlobalMemoryConfig,
+) {
+    let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+    let output_line_size = global.line_size();
+    let out_smem_slice = smem_tile.slice.with_line_size(output_line_size);
 
-        let num_lines = tile_size / output_line_size;
+    let num_lines = tile_size / output_line_size;
 
-        for i in 0..num_lines {
-            let value = out_smem_slice[i];
-            self.global
-                .write_checked((tile, i * output_line_size), Line::cast_from(value));
-        }
+    for i in 0..num_lines {
+        let value = out_smem_slice[i];
+        global.write_checked((tile_pos, i * output_line_size), Line::cast_from(value));
     }
 }
 

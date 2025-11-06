@@ -23,7 +23,7 @@ pub fn seed(seed: u64) {
 
 /// Pseudo-random generator
 pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     prng: F::Runtime<E>,
     output: TensorHandleRef<'_, R>,
 ) {

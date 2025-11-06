@@ -1,5 +1,5 @@
 use cubecl::prelude::*;
-use cubecl_core::{self as cubecl, intrinsic};
+use cubecl_core::{self as cubecl};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::{
@@ -149,7 +149,6 @@ impl Layout for BlockScaledLayout {
 
         #[unroll]
         for i in 0..rank {
-            let i = unwrap(i);
             let dim = comptime![rank - i - 1];
             let block_size_local = comptime![self.block_size[dim as usize] as u32];
             let (rem, offs_local) = self.tensor_shape.index(dim).div_mod(offs);
@@ -185,7 +184,6 @@ impl BlockScaledLayout {
 
         #[unroll]
         for i in 0..rank {
-            let i = unwrap(i);
             let dim = comptime![rank - i - 1];
             let block_size_local = comptime![self.block_size[dim as usize] as u32];
             let (rem, offs_local) = self.tensor_shape.index(dim).div_mod(offs);
@@ -197,12 +195,6 @@ impl BlockScaledLayout {
     }
 }
 
-#[allow(unused_variables)]
-#[cube]
-fn unwrap(v: u32) -> comptime_type!(u32) {
-    intrinsic!(|_| v.constant().expect("Must be constant").as_u32())
-}
-
 /// [TensorView] with a linear layout inferred from the shape/strides at launch.
 /// Useful for elementwise kernels.
 pub type ScalesView<E, IO = ReadOnly> = TypedView<E, ScalesLayout, IO>;
@@ -212,7 +204,7 @@ pub type ScalesViewLaunch<'a, R> = TypedViewLaunch<'a, ScalesLayout, R>;
 /// Create a scales view from the values and scales handle, line size and quantization scheme.
 /// `values` should be *the quantized tensor*, and will be adjusted by `num_quants`.
 pub fn scales_view<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
     scales_line_size: u8,
@@ -227,7 +219,7 @@ pub fn scales_view<'a, R: Runtime>(
 }
 
 pub fn scales_layout<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     values: &'a TensorHandleRef<'a, R>,
     scales: &'a TensorHandleRef<'a, R>,
     scales_line_size: u8,
@@ -253,7 +245,7 @@ pub fn scales_layout<'a, R: Runtime>(
 }
 
 fn shape_divmod_quant<'a, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     shape: &'a [usize],
     num_quants: usize,
 ) -> SequenceArg<'a, R, FastDivmod> {

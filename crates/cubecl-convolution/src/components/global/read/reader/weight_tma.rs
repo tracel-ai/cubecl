@@ -15,7 +15,7 @@ pub type TmaWeightStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaWe
 
 #[derive(CubeType)]
 pub struct TmaWeightGlobalReader<IP: MatrixPrecision> {
-    pub global_iter: GlobalIterator<IP::Global>,
+    pub global_iter: GlobalIterator<Line<IP::Global>>,
     pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
     #[cube(comptime)]
     config: StageMemoryConfig,
@@ -24,7 +24,7 @@ pub struct TmaWeightGlobalReader<IP: MatrixPrecision> {
 #[cube]
 impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
     pub fn new(
-        global_view: View<IP::Global, Coords2d>,
+        global_view: View<Line<IP::Global>, Coords2d>,
         k_step: u32,
         #[comptime] num_stages: u32,
         #[comptime] config: StageMemoryConfig,

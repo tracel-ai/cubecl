@@ -66,7 +66,7 @@ where
         }
     }
 
-    pub fn empty(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn empty(client: &ComputeClient<R::Server>, shape: Vec<usize>) -> Self {
         let elem_size = E::size().expect("To be a native type");
         let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 
@@ -153,7 +153,7 @@ where
     R: Runtime,
     E: Numeric,
 {
-    pub fn zeros(client: &ComputeClient<R::Server, R::Channel>, shape: Vec<usize>) -> Self {
+    pub fn zeros(client: &ComputeClient<R::Server>, shape: Vec<usize>) -> Self {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape);

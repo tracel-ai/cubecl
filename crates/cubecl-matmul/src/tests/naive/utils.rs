@@ -15,7 +15,7 @@ impl MatmulTestCase {
         &self,
         lhs: &TensorHandle<R, F>,
         rhs: &TensorHandle<R, F>,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Vec<F> {
         let lhs_binding = &client.read_one_tensor(lhs.handle.clone().copy_descriptor(
             &lhs.shape,
@@ -60,28 +60,28 @@ impl MatmulTestCase {
 
     pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.m, self.k])
     }
 
     pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> TensorHandle<R, F> {
         self.random_tensor(client, vec![self.batch, self.k, self.n])
     }
 
     pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> TensorHandle<R, F> {
         TensorHandle::empty(client, vec![self.batch, self.m, self.n])
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: Vec<usize>,
     ) -> TensorHandle<R, F> {
         F::sample::<R>(client, &shape, 999)

@@ -10,10 +10,7 @@ pub struct CubeTuneId {
 
 impl CubeTuneId {
     /// Create a new ID.
-    pub fn new<R: crate::Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
-        device: &R::Device,
-    ) -> Self {
+    pub fn new<R: crate::Runtime>(client: &ComputeClient<R::Server>, device: &R::Device) -> Self {
         Self {
             device: device.to_id(),
             name: R::name(client),

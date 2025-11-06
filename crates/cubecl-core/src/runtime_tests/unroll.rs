@@ -14,7 +14,7 @@ pub fn unroll_add<F: Float>(output: &mut Array<Line<F>>) {
 
     let mut out = Line::empty(4u32);
     #[unroll]
-    for i in 0..4 {
+    for i in 0..4u32 {
         out[i] = c[i];
     }
 
@@ -35,9 +35,7 @@ pub fn unroll_load_store<F: Float>(output: &mut Array<Line<F>>) {
     output[0] = c;
 }
 
-pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
+pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     let handle = client.empty(4 * size_of::<F>());
 
     unroll_add::launch::<F, R>(
@@ -54,7 +52,7 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     let handle = client.create(as_bytes!(F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0));
 

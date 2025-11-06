@@ -3,6 +3,7 @@ use std::fmt::Display;
 use cubecl_core::{CubeElement, Runtime, prelude::Float};
 
 use crate::{
+    MatmulInputHandle,
     kernels::naive,
     tests::{
         naive::utils::MatmulTestCase,
@@ -16,6 +17,17 @@ pub fn test_small<R: Runtime, F: Float + CubeElement + Display + Sample>(device:
         m: 64,
         k: 64,
         n: 64,
+        batch: 1,
+    };
+
+    test_simple::<R, F>(case, device);
+}
+
+pub fn test_odd<R: Runtime, F: Float + CubeElement + Display + Sample>(device: &R::Device) {
+    let case = MatmulTestCase {
+        m: 1,
+        k: 101,
+        n: 255,
         batch: 1,
     };
 
@@ -70,7 +82,13 @@ fn test_simple<R: Runtime, F: Float + CubeElement + Display + Sample>(
     let expected = case.matmul_cpu::<R, F>(&lhs, &rhs, &client);
 
     let out: TensorHandle<R, F> = case.empty_out(&client);
-    naive::launch::<R, F, F>(&client, lhs, rhs, &out.as_ref()).unwrap();
+    naive::launch::<R, F, F>(
+        &client,
+        MatmulInputHandle::Normal(lhs),
+        MatmulInputHandle::Normal(rhs),
+        &out.as_ref(),
+    )
+    .unwrap();
 
     if let Err(e) = assert_equals_approx::<R, F>(
         &client,

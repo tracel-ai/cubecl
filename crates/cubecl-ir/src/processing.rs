@@ -159,7 +159,7 @@ impl ScopeProcessing {
                     Arithmetic::Sqrt(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
-                    Arithmetic::Rsqrt(op) => {
+                    Arithmetic::InverseSqrt(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
                     Arithmetic::Round(op) => {
@@ -169,6 +169,9 @@ impl ScopeProcessing {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
                     Arithmetic::Ceil(op) => {
+                        sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
+                    }
+                    Arithmetic::Trunc(op) => {
                         sanitize_constant_scalar_ref_var(&mut op.input, &inst.out.unwrap());
                     }
                     Arithmetic::Erf(op) => {
@@ -451,7 +454,7 @@ impl ScopeProcessing {
                 Operation::Tma(_) => {
                     // Nothing to do
                 }
-                Operation::Free(_) => {
+                Operation::Marker(_) => {
                     // Nothing to do
                 }
             });

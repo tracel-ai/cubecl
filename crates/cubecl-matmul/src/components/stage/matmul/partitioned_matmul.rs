@@ -173,20 +173,15 @@ where
         let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
         let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
 
-        let mut m_iter = comptime![0u32];
-
         W::on_event(listener, global::WriteEvent::new_Begin());
 
         // Iterate over each tile in the partition
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..comptime![m_iterations] {
+        for m_iter in 0..m_iterations {
             let m_load_iter = partition_scheduler.map_m(m_iter);
-            let mut n_iter = comptime![0u32];
 
             #[unroll]
-            #[allow(clippy::explicit_counter_loop)]
-            for _ in 0..comptime![n_iterations] {
+            for n_iter in 0..n_iterations {
                 let n_load_iter = partition_scheduler.map_n(n_iter);
 
                 let tile_accumulator =
@@ -199,10 +194,7 @@ where
                 // all tiles in the partition
                 TM::write_results(&mut tile, tile_accumulator, stage_config.tile_config());
                 W::on_event(listener, global::WriteEvent::new_TileStored(tile_pos));
-
-                comptime![n_iter += 1];
             }
-            comptime![m_iter += 1];
         }
 
         W::on_event(listener, global::WriteEvent::new_Finish());

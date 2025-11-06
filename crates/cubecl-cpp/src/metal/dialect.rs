@@ -7,8 +7,8 @@ use crate::{
         self, AtomicKind, Binding, Component, CubeIndexFlags, DialectBindings, DialectCubeBuiltins,
         DialectIncludes, DialectInstructions, DialectProcessors, DialectTypes,
         DialectWarpReduceCompiler, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
-        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SupportedMmaCombinations,
-        Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
+        FragmentIdent, FragmentLayout, Instruction, Item, ManualMma, SharedMemory,
+        SupportedMmaCombinations, Variable, WarpInstruction, WmmaInstruction, wmma_api_base,
     },
 };
 use cubecl_core::{
@@ -33,94 +33,104 @@ impl Dialect for MslDialect {
     type Architecture = MetalArchitecture;
 }
 
+impl MslDialect {
+    fn warp_op_vectorized(
+        f: &mut core::fmt::Formatter<'_>,
+        input: &Variable<Self>,
+        out: &Variable<Self>,
+        simd_op_prefix: &str,
+        simd_op_suffix: &str,
+    ) -> core::fmt::Result {
+        let out = out.fmt_left();
+        let vectorization = input.item().vectorization;
+
+        f.write_fmt(format_args!("{out} = {} {{", input.item()))?;
+
+        for k in 0..vectorization {
+            let index = if vectorization > 1 {
+                format!(".i_{k}")
+            } else {
+                String::new()
+            };
+            let comma = if k + 1 < vectorization { "," } else { "" };
+
+            writeln!(f, "{simd_op_prefix}{input}{index}{simd_op_suffix}{comma}")?;
+        }
+
+        f.write_fmt(format_args!("}};\n"))
+    }
+}
+
 impl DialectWarpReduceCompiler<Self> for MslDialect {
     fn warp_reduce_sum(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_sum({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_sum(", ")")
     }
     fn warp_reduce_prod(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_product({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_product(", ")")
     }
     fn warp_reduce_max(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_max({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_max(", ")")
     }
     fn warp_reduce_min(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_min({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_min(", ")")
     }
     fn warp_reduce_all(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_and({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_and(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_any(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!("{out} = simd_or({input});\n"))
+        Self::warp_op_vectorized(f, input, out, "simd_or(", "? 1u : 0u) != 0u")
     }
     fn warp_reduce_sum_inclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_inclusive_sum({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_sum(", ")")
     }
     fn warp_reduce_prod_inclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_inclusive_product({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_inclusive_product(", ")")
     }
     fn warp_reduce_sum_exclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_exclusive_sum({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_sum(", ")")
     }
     fn warp_reduce_prod_exclusive(
         f: &mut core::fmt::Formatter<'_>,
         input: &Variable<Self>,
         out: &Variable<Self>,
     ) -> core::fmt::Result {
-        let out = out.fmt_left();
-        f.write_fmt(format_args!(
-            "{out} = simd_prefix_exclusive_product({input});\n"
-        ))
+        Self::warp_op_vectorized(f, input, out, "simd_prefix_exclusive_product(", ")")
     }
 }
 
@@ -316,6 +326,22 @@ struct alignas({alignment}) {item} {{"
     fn compile_local_memory_qualifier(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "thread")
     }
+
+    fn compile_shared_memory_declaration(
+        f: &mut std::fmt::Formatter<'_>,
+        shared: &SharedMemory<Self>,
+    ) -> std::fmt::Result {
+        let item = shared.item;
+        let index = shared.index;
+        let offset = shared.offset;
+        let size = shared.length;
+        let size_bytes = size * shared.item.size() as u32;
+        writeln!(f, "// Shared memory size: {size}, {size_bytes} bytes")?;
+        writeln!(
+            f,
+            "threadgroup {item}* shared_memory_{index} = reinterpret_cast<threadgroup {item}*>(&dynamic_shared_mem[{offset}]);"
+        )
+    }
 }
 
 // Kernel argument bindings
@@ -413,16 +439,8 @@ void {kernel_name}("
                 .map(|it| it.offset + it.size())
                 .max()
                 .unwrap();
-            let max_align = body
-                .shared_memories
-                .iter()
-                .map(|smem| smem.align)
-                .max()
-                .unwrap();
-            writeln!(
-                f,
-                "threadgroup alignas({max_align}) uchar dynamic_shared_mem[{size}];",
-            )?;
+
+            writeln!(f, "threadgroup uchar dynamic_shared_mem[{size}];",)?;
         }
         Ok(())
     }

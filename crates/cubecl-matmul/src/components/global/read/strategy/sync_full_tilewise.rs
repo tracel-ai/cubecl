@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -69,6 +69,8 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
             }));
         }
 
+        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -80,9 +82,9 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
-        let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();

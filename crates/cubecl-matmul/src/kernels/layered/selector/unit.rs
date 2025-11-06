@@ -1,10 +1,9 @@
-use cubecl_core::{Runtime, client::ComputeClient};
-
 use crate::components::{
-    MatmulKind, MatmulProblem, MatmulSelection, MatrixLayout, TilingScheme,
+    MatmulKind, MatmulLineSizes, MatmulProblem, MatmulSelection, MatrixLayout, TilingScheme,
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::PartitionBuffering,
 };
+use cubecl_core::{Runtime, client::ComputeClient};
 
 #[derive(Default, Clone, Copy, Debug)]
 pub enum TileSizeSelection {
@@ -38,37 +37,58 @@ pub struct UnitMatmulSelectionOptions {
 
 /// Computes a [MatmulSelection] depending on the problem kind
 pub fn unit_matmul_selection<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
+    line_size: &MatmulLineSizes,
     options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
     let kind: MatmulKind = problem.into();
     let num_sms = client.properties().hardware.num_streaming_multiprocessors;
+    let min_tile_size = u8::max(line_size.lhs, line_size.rhs);
+    let min_tile_size = u8::max(line_size.out, min_tile_size) as u32;
+    let tile_size = u32::max(min_tile_size, 4);
 
     match kind {
-        MatmulKind::General => {
-            general_unit_selector(problem, plane_dim, double_buffering, num_sms, options)
-        }
-        MatmulKind::MatVec => {
-            matvec_unit_selector(problem, plane_dim, double_buffering, num_sms, options)
-        }
-        MatmulKind::VecMat => vecmat_unit_selector(problem, plane_dim, double_buffering, num_sms),
+        MatmulKind::General => general_unit_selector(
+            problem,
+            plane_dim,
+            double_buffering,
+            tile_size,
+            num_sms,
+            options,
+        ),
+        MatmulKind::MatVec => matvec_unit_selector(
+            problem,
+            plane_dim,
+            double_buffering,
+            tile_size,
+            num_sms,
+            options,
+        ),
+        MatmulKind::VecMat => vecmat_unit_selector(
+            problem,
+            plane_dim,
+            double_buffering,
+            tile_size,
+            num_sms,
+            options,
+        ),
         MatmulKind::ScalarVec => {
-            scalarvec_unit_selector(problem, plane_dim, double_buffering, num_sms)
+            scalarvec_unit_selector(problem, plane_dim, double_buffering, tile_size, num_sms)
         }
         MatmulKind::VecScalar => {
-            vecscalar_unit_selector(problem, plane_dim, double_buffering, num_sms)
+            vecscalar_unit_selector(problem, plane_dim, double_buffering, tile_size, num_sms)
         }
         MatmulKind::InnerProduct => {
-            inner_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
+            inner_product_unit_selector(problem, plane_dim, double_buffering, tile_size, num_sms)
         }
         MatmulKind::OuterProduct => {
-            outer_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
+            outer_product_unit_selector(problem, plane_dim, double_buffering, tile_size, num_sms)
         }
         MatmulKind::ScalarProduct => {
-            scalar_product_unit_selector(problem, plane_dim, double_buffering, num_sms)
+            scalar_product_unit_selector(problem, plane_dim, double_buffering, tile_size, num_sms)
         }
     }
 }
@@ -78,6 +98,7 @@ fn general_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
     options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
@@ -87,7 +108,7 @@ fn general_unit_selector(
     let (tile_size, mut partition_size) =
         match (problem.lhs_layout, problem.rhs_layout, options.tile) {
             (RowMajor, _, TileSizeSelection::MinTileSize) => (
-                (1, 4, 4),
+                (1, tile_size, tile_size),
                 (
                     scale_partition(options.partition, problem.m, 4, 9),
                     2,
@@ -95,11 +116,11 @@ fn general_unit_selector(
                 ),
             ),
             (ColMajor, RowMajor, TileSizeSelection::MinTileSize) => (
-                (4, 4, 1),
+                (tile_size, tile_size, 1),
                 (2, 2, scale_partition(options.partition, problem.k, 3, 10)),
             ),
             (ColMajor, ColMajor, _) | (_, _, TileSizeSelection::MaxTileSize) => (
-                (4, 4, 4),
+                (tile_size, tile_size, tile_size),
                 (
                     scale_partition(options.partition, problem.m, 2, 9),
                     2,
@@ -108,9 +129,16 @@ fn general_unit_selector(
             ),
         };
 
-    // It seems to be faster, it's not a requirement of the algo.
-    if double_buffering && partition_size.2 > 2 {
-        partition_size.2 /= 2;
+    let mut num_plane = 8;
+
+    if double_buffering {
+        if partition_size.0 > 2 {
+            partition_size.0 /= 2;
+        }
+        if partition_size.2 > 2 {
+            partition_size.2 /= 2;
+        }
+        num_plane /= 2;
     }
 
     selection(
@@ -120,7 +148,7 @@ fn general_unit_selector(
         plane_dim,
         StageSelection::WithPlane {
             plane_dim,
-            num_plane: 8,
+            num_plane,
         },
         num_sms,
         GlobalOrderSelection::SwizzleRow {
@@ -136,13 +164,13 @@ fn matvec_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
-    options: UnitMatmulSelectionOptions,
+    _options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
-    use MatrixLayout::*;
-    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout, options.tile) {
-        (RowMajor, _, TileSizeSelection::MinTileSize) => ((1, 1, 4), (1, 1, 4)),
-        _ => ((4, 1, 4), (1, 1, 4)),
+    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
+        (MatrixLayout::RowMajor, _) => ((1, 1, tile_size), (1, 1, tile_size * 2)),
+        _ => ((tile_size, 1, tile_size), (1, 1, 1)),
     };
 
     selection(
@@ -150,44 +178,36 @@ fn matvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 8 },
+        StageSelection::Fixed {
+            m: plane_dim / 2,
+            n: 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
-        options.stage,
+        StageScaling::Disabled,
     )
 }
 
 /// (1, K) @ (K, N) → (1, N)
 fn vecmat_unit_selector(
-    problem: &MatmulProblem,
+    _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
+    _options: UnitMatmulSelectionOptions,
 ) -> MatmulSelection {
-    use MatrixLayout::*;
-    let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (RowMajor, ColMajor) => (
-            (1, 4, 4),
-            (2, 1, scale_partition(Default::default(), problem.k, 3, 7)),
-        ),
-        (ColMajor, RowMajor) => ((1, 4, 4), (1, 1, 4)),
-        (ColMajor, ColMajor) => (
-            (1, 4, 4),
-            (
-                2,
-                1,
-                scale_partition(PartitionScaling::Enabled, problem.k, 3, 7),
-            ),
-        ),
-    };
+    let (tile_size, partition_size) = ((1, tile_size, tile_size), (1, 1, 1));
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 8 },
+        StageSelection::Fixed {
+            m: 2,
+            n: plane_dim / 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -199,14 +219,15 @@ fn scalarvec_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 4, 4), (1, 2, 1)),
-        (RowMajor, ColMajor) => ((1, 4, 4), (1, 2, 1)),
-        (ColMajor, RowMajor) => ((1, 4, 4), (1, 2, 1)),
-        (ColMajor, ColMajor) => ((1, 4, 4), (2, 2, 1)),
+        (RowMajor, RowMajor) => ((1, tile_size, tile_size), (1, 2, 1)),
+        (RowMajor, ColMajor) => ((1, tile_size, tile_size), (1, 2, 1)),
+        (ColMajor, RowMajor) => ((1, tile_size, tile_size), (1, 2, 1)),
+        (ColMajor, ColMajor) => ((1, tile_size, tile_size), (2, 2, 1)),
     };
 
     selection(
@@ -214,7 +235,10 @@ fn scalarvec_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 4, n: 8 },
+        StageSelection::Fixed {
+            m: 2,
+            n: plane_dim / 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -226,16 +250,20 @@ fn vecscalar_unit_selector(
     _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
-    let (tile_size, partition_size) = ((4, 1, 4), (1, 1, 2));
+    let (tile_size, partition_size) = ((tile_size, 1, 1), (1, 1, 1));
 
     selection(
         tile_size,
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 8, n: 4 },
+        StageSelection::Fixed {
+            m: plane_dim / 2,
+            n: 2,
+        },
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -247,14 +275,15 @@ fn inner_product_unit_selector(
     problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     use MatrixLayout::*;
     let (tile_size, partition_size) = match (problem.lhs_layout, problem.rhs_layout) {
-        (RowMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
-        (RowMajor, ColMajor) => ((1, 1, 4), (1, 1, 1)),
-        (ColMajor, RowMajor) => ((1, 1, 4), (1, 1, 1)),
-        (ColMajor, ColMajor) => ((1, 1, 4), (1, 1, 1)),
+        (RowMajor, RowMajor) => ((1, 1, tile_size), (1, 1, 1)),
+        (RowMajor, ColMajor) => ((1, 1, tile_size), (1, 1, 1)),
+        (ColMajor, RowMajor) => ((1, 1, tile_size), (1, 1, 1)),
+        (ColMajor, ColMajor) => ((1, 1, tile_size), (1, 1, 1)),
     };
 
     selection(
@@ -262,7 +291,7 @@ fn inner_product_unit_selector(
         partition_size,
         PartitionBuffering::Single,
         plane_dim,
-        StageSelection::Fixed { m: 4, n: 8 },
+        StageSelection::Fixed { m: plane_dim, n: 1 }, // TODO: most planes does nothing.
         num_sms,
         GlobalOrderSelection::Default,
         StageScaling::Disabled,
@@ -274,9 +303,10 @@ fn outer_product_unit_selector(
     _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
-    let (tile_size, partition_size) = ((4, 4, 1), (1, 1, 1));
+    let (tile_size, partition_size) = ((tile_size, tile_size, 1), (1, 1, 1));
 
     selection(
         tile_size,
@@ -295,6 +325,7 @@ fn scalar_product_unit_selector(
     _problem: &MatmulProblem,
     plane_dim: u32,
     _double_buffering: bool,
+    _tile_size: u32,
     num_sms: Option<u32>,
 ) -> MatmulSelection {
     let (tile_size, partition_size) = ((1, 1, 1), (1, 1, 1));
@@ -306,7 +337,7 @@ fn scalar_product_unit_selector(
         plane_dim,
         StageSelection::WithPlane {
             plane_dim,
-            num_plane: 8,
+            num_plane: 1,
         },
         num_sms,
         GlobalOrderSelection::Default,

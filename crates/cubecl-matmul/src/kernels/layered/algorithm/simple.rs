@@ -67,7 +67,7 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
@@ -93,20 +93,23 @@ where
 }
 
 fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
     elems: MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
     let supported = |m: u32, n: u32, k: u32| {
-        client.properties().features.cmma.contains(&MmaConfig {
-            a_type: elems.lhs_register,
-            b_type: elems.rhs_register,
-            cd_type: elems.acc_register,
-            m,
-            n,
-            k,
-        })
+        TMM::is_supported::<R>(
+            client,
+            MmaConfig {
+                a_type: elems.lhs_register,
+                b_type: elems.rhs_register,
+                cd_type: elems.acc_register,
+                m,
+                n,
+                k,
+            },
+        )
     };
     let cube_count_plan = match client.properties().hardware.num_streaming_multiprocessors {
         Some(num_sms) => CubeCountPlanSelection::Sm {

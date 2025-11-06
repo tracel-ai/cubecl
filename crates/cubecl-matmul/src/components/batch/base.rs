@@ -3,11 +3,10 @@ use crate::components::{
     MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, RhsG, TilingScheme,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, GlobalConfig as _},
+    global::{self, GlobalConfig as _, args::MatmulArgs},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [matmuls](BatchMatmul) working with any [precision](MatmulPrecision).
@@ -22,7 +21,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -34,7 +33,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     ///
     /// Out-of-bounds can happen
     unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
@@ -73,11 +72,8 @@ pub trait BatchMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     type Config: BatchConfig;
 
     /// Performs batchwise matrix multiplication over tensors.
-    fn execute(
-        a: VirtualTensor<LhsG<MP>>,
-        b: VirtualTensor<RhsG<MP>>,
-        c: CubeOption<VirtualTensor<AccG<MP>>>,
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
+    fn execute<Args: MatmulArgs>(
+        state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     );

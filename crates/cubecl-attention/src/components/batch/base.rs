@@ -1,6 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::r#virtual::VirtualTensor;
+use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -25,7 +25,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
     ///
     /// Out-of-bounds can happen
     unsafe fn launch_unchecked<'a, MS: AttentionSpec, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server, <R as Runtime>::Channel>,
+        client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MS, R>,
@@ -38,7 +38,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
     fn setup<AP: AttentionPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -61,6 +61,7 @@ pub trait BatchAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         query: VirtualTensor<QG<AP>>,
         key: VirtualTensor<KG<AP>>,
         value: VirtualTensor<VG<AP>>,
+        mask: CubeOption<VirtualTensor<MSK<AP>>>,
         out: VirtualTensor<OG<AP>, ReadWrite>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,

@@ -17,13 +17,11 @@ default = [
     "cubecl-common/default",
     "cubecl-core/default",
     "cudarc/dynamic-loading",
-    "cuda-12050",
+    "cudarc/cuda-version-from-build-system",
+    "cudarc/fallback-latest",
 ]
 ptx-wmma = []
 std = ["cubecl-runtime/std", "cubecl-common/std", "cubecl-core/std"]
-
-cuda-12050 = ["cudarc/cuda-12050"]
-cuda-12080 = ["cudarc/cuda-12080"]
 
 attention_tests = ["cubecl-attention/attention_tests"]
 conv_tests = ["cubecl-convolution/conv_tests"]
@@ -80,14 +78,14 @@ matmul_tests_unit = ["cubecl-matmul/matmul_tests_unit"]
 matmul_tests_vecmat = ["cubecl-matmul/matmul_tests_vecmat"]
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.7.0", default-features = false, features = [
+cubecl-common = { path = "../cubecl-common", version = "0.9.0", default-features = false, features = [
     "cache",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "0.7.0", default-features = false }
-cubecl-cpp = { path = "../cubecl-cpp", version = "0.7.0", default-features = false, features = [
+cubecl-core = { path = "../cubecl-core", version = "0.9.0", default-features = false }
+cubecl-cpp = { path = "../cubecl-cpp", version = "0.9.0", default-features = false, features = [
     "cuda",
 ] }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.7.0", default-features = false, features = [
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.9.0", default-features = false, features = [
     "channel-mutex",
 ] }
 
@@ -100,30 +98,33 @@ log = { workspace = true }
 serde = { workspace = true }
 
 [dev-dependencies]
-cubecl-attention = { path = "../cubecl-attention", version = "0.7.0", features = [
+cubecl-attention = { path = "../cubecl-attention", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-convolution = { path = "../cubecl-convolution", version = "0.7.0", features = [
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "0.7.0", features = [
+cubecl-core = { path = "../cubecl-core", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-matmul = { path = "../cubecl-matmul", version = "0.7.0", features = [
+cubecl-matmul = { path = "../cubecl-matmul", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-quant = { path = "../cubecl-quant", version = "0.7.0", features = [
+cubecl-quant = { path = "../cubecl-quant", version = "0.9.0", features = [
     "export_tests",
     "kernels",
 ] }
-cubecl-random = { path = "../cubecl-random", version = "0.7.0", features = [
+cubecl-random = { path = "../cubecl-random", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-reduce = { path = "../cubecl-reduce", version = "0.7.0", features = [
+cubecl-reduce = { path = "../cubecl-reduce", version = "0.9.0", features = [
     "export_tests",
 ] }
-cubecl-std = { path = "../cubecl-std", version = "0.7.0", features = [
+cubecl-std = { path = "../cubecl-std", version = "0.9.0", features = [
     "export_tests",
 ] }
 paste = { workspace = true }
 pretty_assertions = { workspace = true }
+
+[build-dependencies]
+cudarc = { workspace = true }

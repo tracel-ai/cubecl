@@ -54,7 +54,7 @@ impl Optimizer {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
-            Operation::Free(_) => {}
+            Operation::Marker(_) => {}
         }
     }
 
@@ -106,10 +106,11 @@ impl Optimizer {
             | Arithmetic::Degrees(unary_operator)
             | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
-            | Arithmetic::Rsqrt(unary_operator)
+            | Arithmetic::InverseSqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)
             | Arithmetic::Ceil(unary_operator)
+            | Arithmetic::Trunc(unary_operator)
             | Arithmetic::Erf(unary_operator)
             | Arithmetic::Recip(unary_operator)
             | Arithmetic::Neg(unary_operator)
@@ -273,7 +274,11 @@ impl Optimizer {
     fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut Self, &mut Variable)) {
         match plane {
             Plane::Elect => {}
-            Plane::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Plane::Broadcast(binary_operator)
+            | Plane::Shuffle(binary_operator)
+            | Plane::ShuffleXor(binary_operator)
+            | Plane::ShuffleUp(binary_operator)
+            | Plane::ShuffleDown(binary_operator) => self.visit_binop(binary_operator, visit_read),
             Plane::All(unary_operator)
             | Plane::Any(unary_operator)
             | Plane::Sum(unary_operator)

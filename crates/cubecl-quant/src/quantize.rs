@@ -163,7 +163,7 @@ fn quantize_symmetric_packed_kernel<F: Float, FS: CubePrimitive>(
 
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     scale: &TensorHandleRef<'_, R>,
@@ -237,7 +237,7 @@ pub fn launch_ref<R: Runtime, F: Float + CubeElement>(
 }
 
 fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -246,7 +246,7 @@ fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
 ) {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(&F::as_type_native_unchecked()),
+        R::io_optimized_line_sizes_unchecked(size_of::<F>()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -303,7 +303,7 @@ fn quantize_native<R: Runtime, F: Float, FS: CubePrimitive>(
 }
 
 fn quantize_packed<R: Runtime, F: Float, FS: CubePrimitive>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     scheme: &QuantScheme,
     scale: &TensorHandleRef<'_, R>,

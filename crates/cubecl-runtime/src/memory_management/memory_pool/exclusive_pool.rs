@@ -1,5 +1,5 @@
 use crate::{
-    memory_management::MemoryUsage,
+    memory_management::{BytesFormat, MemoryUsage},
     server::IoError,
     storage::{ComputeStorage, StorageHandle, StorageUtilization},
 };
@@ -20,6 +20,28 @@ pub struct ExclusiveMemoryPool {
     last_dealloc_check: u64,
     max_alloc_size: u64,
     cur_avg_size: f64,
+}
+
+impl core::fmt::Display for ExclusiveMemoryPool {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(
+            " - Exclusive Pool max_alloc_size={}\n",
+            BytesFormat::new(self.max_alloc_size)
+        ))?;
+
+        for page in self.pages.iter() {
+            let is_free = page.slice.is_free();
+            let size = BytesFormat::new(page.slice.effective_size());
+
+            f.write_fmt(format_args!("   - Page {size} is_free={is_free}\n"))?;
+        }
+
+        if !self.pages.is_empty() {
+            f.write_fmt(format_args!("\n{}\n", self.get_memory_usage()))?;
+        }
+
+        Ok(())
+    }
 }
 
 const SIZE_AVG_DECAY: f64 = 0.01;
@@ -92,6 +114,9 @@ impl ExclusiveMemoryPool {
 }
 
 impl MemoryPool for ExclusiveMemoryPool {
+    fn accept(&self, size: u64) -> bool {
+        self.max_alloc_size >= size
+    }
     /// Returns the resource from the storage, for the specified handle.
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         let binding_id = *binding.id();
@@ -150,10 +175,6 @@ impl MemoryPool for ExclusiveMemoryPool {
             bytes_padding: used_slices.iter().map(|page| page.slice.padding).sum(),
             bytes_reserved: self.pages.iter().map(|page| page.alloc_size).sum(),
         }
-    }
-
-    fn max_alloc_size(&self) -> u64 {
-        self.max_alloc_size
     }
 
     fn cleanup<Storage: ComputeStorage>(

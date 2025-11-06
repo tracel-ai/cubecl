@@ -53,7 +53,7 @@ use crate::ReduceError;
 /// }
 /// ```
 pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     cube_count: u32,
@@ -71,8 +71,7 @@ pub fn shared_sum<R: Runtime, N: Numeric + CubeElement>(
     let input_len = input.shape.iter().map(|s| *s as u32).product::<u32>();
 
     // Compute the optimal line size.
-    let elem = N::as_type_native_unchecked();
-    let line_size = R::io_optimized_line_sizes_unchecked(&elem)
+    let line_size = R::io_optimized_line_sizes_unchecked(size_of::<N>())
         .filter(|line_size| input_len % *line_size as u32 == 0)
         .max()
         .unwrap_or(1) as u32;

@@ -1,3 +1,4 @@
+use crate::config::memory::MemoryConfig;
 use crate::config::streaming::StreamingConfig;
 
 use super::{autotune::AutotuneConfig, compilation::CompilationConfig, profiling::ProfilingConfig};
@@ -26,6 +27,10 @@ pub struct GlobalConfig {
     /// Configuration for streaming settings.
     #[serde(default)]
     pub streaming: StreamingConfig,
+
+    /// Configuration for memory settings.
+    #[serde(default)]
+    pub memory: MemoryConfig,
 }
 
 impl GlobalConfig {

@@ -44,6 +44,10 @@ impl UnrollProcessor {
         inst: &Instruction,
         mappings: &mut Mappings,
     ) -> TransformAction {
+        if matches!(inst.operation, Operation::Marker(_)) {
+            return TransformAction::Ignore;
+        }
+
         if inst.operation.args().is_none() {
             // Detect unhandled ops that can't be reflected
             match &inst.operation {
@@ -81,7 +85,7 @@ impl UnrollProcessor {
                     }
                     _ => return TransformAction::Ignore,
                 },
-                Operation::Branch(_) | Operation::NonSemantic(_) => {
+                Operation::Branch(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                     return TransformAction::Ignore;
                 }
                 _ => {
@@ -505,6 +509,7 @@ impl UnrollProcessor {
                 Instruction {
                     out,
                     source_loc: inst.source_loc.clone(),
+                    modes: inst.modes,
                     operation,
                 }
             })
@@ -623,7 +628,7 @@ fn create_unrolled(
                 allocator.create_local_mut(item)
             }
             VariableKind::LocalConst { .. } => allocator.create_local(item),
-            _ => panic!("Out must be local"),
+            other => panic!("Out must be local, found {other:?}"),
         })
         .collect()
 }

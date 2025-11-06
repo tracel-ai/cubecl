@@ -1,15 +1,24 @@
 use super::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryPoolOptions, MemoryUsage, PoolType,
-    memory_pool::{ExclusiveMemoryPool, MemoryPool, SlicedPool, StaticPool},
+    memory_pool::{ExclusiveMemoryPool, MemoryPool, PersistentPool, SlicedPool},
 };
 use crate::{
+    config::{
+        GlobalConfig,
+        memory::{MemoryLogLevel, PersistentMemory},
+    },
+    logging::ServerLogger,
+    memory_management::BytesFormat,
     server::IoError,
     storage::{ComputeStorage, StorageHandle},
 };
 
+use alloc::format;
+use alloc::string::{String, ToString};
 #[cfg(not(exclusive_memory_only))]
 use alloc::vec;
 use alloc::vec::Vec;
+use cubecl_common::stub::Arc;
 
 pub use super::memory_pool::{SliceBinding, handle::*};
 
@@ -22,6 +31,13 @@ enum DynamicPool {
 }
 
 impl MemoryPool for DynamicPool {
+    fn accept(&self, size: u64) -> bool {
+        match self {
+            DynamicPool::Sliced(pool) => pool.accept(size),
+            DynamicPool::Exclusive(pool) => pool.accept(size),
+        }
+    }
+
     fn get(&self, binding: &SliceBinding) -> Option<&StorageHandle> {
         match self {
             DynamicPool::Sliced(m) => m.get(binding),
@@ -54,13 +70,6 @@ impl MemoryPool for DynamicPool {
         }
     }
 
-    fn max_alloc_size(&self) -> u64 {
-        match self {
-            DynamicPool::Sliced(m) => m.max_alloc_size(),
-            DynamicPool::Exclusive(m) => m.max_alloc_size(),
-        }
-    }
-
     fn cleanup<Storage: ComputeStorage>(
         &mut self,
         storage: &mut Storage,
@@ -74,24 +83,27 @@ impl MemoryPool for DynamicPool {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 /// The mode of allocation used.
 pub enum MemoryAllocationMode {
     /// Use the automatic memory management strategy for allocation.
     #[default]
     Auto,
-    /// Use a static memory management strategy, meaning that all allocations are for data that is
-    /// never going to be freed.
-    Static,
+    /// Use a persistent memory management strategy, meaning that all allocations are for data that is
+    /// likely never going to be freed.
+    Persistent,
 }
 
 /// Reserves and keeps track of chunks of memory in the storage, and slices upon these chunks.
 pub struct MemoryManagement<Storage> {
-    static_pool: StaticPool,
+    name: String,
+    persistent: PersistentPool,
     pools: Vec<DynamicPool>,
     storage: Storage,
     alloc_reserve_count: u64,
     mode: MemoryAllocationMode,
+    config: PersistentMemory,
+    logger: Arc<ServerLogger>,
 }
 
 fn generate_bucket_sizes(
@@ -122,12 +134,49 @@ fn generate_bucket_sizes(
 const DEALLOC_SCALE_MB: u64 = 1024 * 1024 * 1024;
 const BASE_DEALLOC_PERIOD: u64 = 5000;
 
+/// The options for creating a new [MemoryManagement] instance.
+#[derive(Debug)]
+pub struct MemoryManagementOptions {
+    /// The name of the memory management.
+    name: String,
+    /// The [MemoryAllocationOption] used by this instance.
+    memory: MemoryAllocationOption,
+}
+
+impl MemoryManagementOptions {
+    /// Creates a new [MemoryManagementOptions].
+    pub fn new<S: Into<String>>(name: S) -> Self {
+        Self {
+            name: name.into(),
+            memory: MemoryAllocationOption::FromConfig,
+        }
+    }
+
+    /// Forces the [MemoryAllocationMode] during execution to always be the provided one.
+    pub fn mode(mut self, mode: MemoryAllocationMode) -> Self {
+        self.memory = MemoryAllocationOption::Provided(mode);
+        self
+    }
+}
+
+#[derive(Default, Debug)]
+/// Determines which [MemoryAllocationMode] is used during allocations.
+enum MemoryAllocationOption {
+    #[default]
+    /// Uses the [GlobalConfig] to determine the mode of allocation.
+    FromConfig,
+    /// Use the provided [MemoryAllocationMode].
+    Provided(MemoryAllocationMode),
+}
+
 impl<Storage: ComputeStorage> MemoryManagement<Storage> {
     /// Creates the options from device limits.
     pub fn from_configuration(
         storage: Storage,
         properties: &MemoryDeviceProperties,
         config: MemoryConfiguration,
+        logger: Arc<ServerLogger>,
+        options: MemoryManagementOptions,
     ) -> Self {
         let pool_options = match config {
             #[cfg(not(exclusive_memory_only))]
@@ -222,9 +271,16 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             MemoryConfiguration::Custom { pool_options } => pool_options,
         };
 
-        for pool in pool_options.iter() {
-            log::trace!("Using memory pool: \n {pool:?}");
-        }
+        logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled),
+            || {
+                let mut msg = String::new();
+                for pool in pool_options.iter() {
+                    msg += &format!("[{}] Using memory pool: \n {pool:?}", options.name);
+                }
+                msg
+            },
+        );
 
         let pools: Vec<_> = pool_options
             .iter()
@@ -247,23 +303,57 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             })
             .collect();
 
+        let config = GlobalConfig::get().memory.persistent_memory.clone();
+
+        let mode = match options.memory {
+            MemoryAllocationOption::Provided(mode) => mode,
+            MemoryAllocationOption::FromConfig => match config {
+                PersistentMemory::Enabled => MemoryAllocationMode::Auto,
+                PersistentMemory::Disabled => MemoryAllocationMode::Auto,
+                PersistentMemory::Enforced => MemoryAllocationMode::Persistent,
+            },
+        };
+
         Self {
-            static_pool: StaticPool::new(properties.max_page_size),
+            name: options.name,
+            persistent: PersistentPool::new(properties.max_page_size, properties.alignment),
             pools,
             storage,
             alloc_reserve_count: 0,
-            mode: MemoryAllocationMode::Auto,
+            mode,
+            config,
+            logger,
         }
     }
 
     /// Change the mode of allocation.
     pub fn mode(&mut self, mode: MemoryAllocationMode) {
+        // We override the mode based on the cubecl config.
+        let mode = match self.config {
+            PersistentMemory::Enabled => mode,
+            PersistentMemory::Disabled | PersistentMemory::Enforced => return,
+        };
+
+        self.logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled),
+            || {
+                format!(
+                    "[{}] Setting memory allocation mode: from {:?} => {mode:?}",
+                    self.name, self.mode
+                )
+            },
+        );
         self.mode = mode;
     }
 
     /// Cleanup allocations in pools that are deemed unnecessary.
     pub fn cleanup(&mut self, explicit: bool) {
-        self.static_pool
+        self.logger.log_memory(
+            |level| !matches!(level, MemoryLogLevel::Disabled) && explicit,
+            || "Manual memory cleanup ...".to_string(),
+        );
+
+        self.persistent
             .cleanup(&mut self.storage, self.alloc_reserve_count, explicit);
 
         for pool in self.pools.iter_mut() {
@@ -273,7 +363,7 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Returns the storage from the specified binding
     pub fn get(&mut self, binding: SliceBinding) -> Option<StorageHandle> {
-        if let Some(val) = self.static_pool.get(&binding) {
+        if let Some(val) = self.persistent.get(&binding) {
             return Some(val.clone());
         }
 
@@ -304,26 +394,73 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
 
     /// Finds a spot in memory for a resource with the given size in bytes, and returns a handle to it
     pub fn reserve(&mut self, size: u64) -> Result<SliceHandle, IoError> {
-        if let MemoryAllocationMode::Static = self.mode {
-            return self.static_pool.alloc(&mut self.storage, size);
-        }
-
         // If this happens every nanosecond, counts overflows after 585 years, so not worth thinking too
         // hard about overflow here.
         self.alloc_reserve_count += 1;
+
+        if let Some(val) = self.persistent.try_reserve(size) {
+            self.logger.log_memory(
+                |level| matches!(level, MemoryLogLevel::Full),
+                || {
+                    format!(
+                        "[{}] Reserved memory {size} using persistent memory",
+                        self.name
+                    )
+                },
+            );
+            return Ok(val);
+        }
+
+        if matches!(self.mode, MemoryAllocationMode::Persistent) || self.persistent.has_size(size) {
+            let allocated = self.persistent.alloc(&mut self.storage, size);
+
+            self.logger.log_memory(
+                |level| !matches!(level, MemoryLogLevel::Disabled),
+                || {
+                    format!(
+                        "[{}] Allocated a new memory page using persistent memory, \n{}",
+                        self.name, self,
+                    )
+                },
+            );
+            return allocated;
+        }
+
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || {
+                format!(
+                    "[{}] Reserved memory {} using dynamic pool",
+                    self.name,
+                    BytesFormat::new(size)
+                )
+            },
+        );
 
         // Find first pool that fits this allocation
         let pool = self
             .pools
             .iter_mut()
-            .find(|p| p.max_alloc_size() >= size)
+            .find(|p| p.accept(size))
             .ok_or(IoError::BufferTooBig(size as usize))?;
 
         if let Some(slice) = pool.try_reserve(size) {
             return Ok(slice);
         }
 
-        pool.alloc(&mut self.storage, size)
+        let allocated = pool.alloc(&mut self.storage, size);
+
+        self.logger.log_memory(
+            |level| matches!(level, MemoryLogLevel::Full),
+            || {
+                format!(
+                    "[{}], Allocated a new memory page, current usage: \n{}",
+                    self.name, self
+                )
+            },
+        );
+
+        allocated
     }
 
     /// Fetch the storage used by the memory manager.
@@ -351,13 +488,32 @@ impl<Storage: ComputeStorage> MemoryManagement<Storage> {
             },
             |m1, m2| m1.combine(m2),
         );
-        memory_usage.combine(self.static_pool.get_memory_usage())
+        memory_usage.combine(self.persistent.get_memory_usage())
     }
 
     /// Print out a report of the current memory usage.
     pub fn print_memory_usage(&self) {
         #[cfg(feature = "std")]
         log::info!("{}", self.memory_usage());
+    }
+}
+impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("\n# MemoryManagement\n\n")?;
+        f.write_fmt(format_args!(" - name: {:?}\n", self.name))?;
+        f.write_fmt(format_args!("\n## Persistent\n\n{}", self.persistent))?;
+        f.write_str("\n## Dynamic\n\n")?;
+
+        for pool in self.pools.iter() {
+            match pool {
+                DynamicPool::Sliced(pool) => f.write_fmt(format_args!("{pool}\n"))?,
+                DynamicPool::Exclusive(pool) => f.write_fmt(format_args!("{pool}\n"))?,
+            }
+        }
+        let memory_usage = self.memory_usage();
+        f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
+
+        Ok(())
     }
 }
 
@@ -383,6 +539,13 @@ mod tests {
         alignment: 32,
     };
 
+    fn options() -> MemoryManagementOptions {
+        MemoryManagementOptions {
+            name: "test".into(),
+            memory: MemoryAllocationOption::FromConfig,
+        }
+    }
+
     // Test pools with slices.
     #[test]
     #[cfg(not(exclusive_memory_only))]
@@ -391,6 +554,8 @@ mod tests {
             BytesStorage::default(),
             &DUMMY_MEM_PROPS,
             MemoryConfiguration::SubSlices,
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(10).unwrap();
         let other_ref = handle.clone();
@@ -416,6 +581,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(100);
         let usage = memory_management.memory_usage();
@@ -446,6 +613,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -475,6 +644,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -504,6 +675,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 768;
@@ -534,6 +707,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size);
@@ -566,6 +741,8 @@ mod tests {
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
@@ -588,6 +765,8 @@ mod tests {
                 alignment: 32,
             },
             MemoryConfiguration::SubSlices,
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)
@@ -617,6 +796,8 @@ mod tests {
                 alignment: 32,
             },
             MemoryConfiguration::SubSlices,
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a mix of small and large chunks
         let sizes = [50, 1000, 100, 5000, 200, 10000, 300];
@@ -648,6 +829,8 @@ mod tests {
                 alignment: 32,
             }),
             MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         let handle = memory_management.reserve(10).unwrap();
         let other_ref = handle.clone();
@@ -669,6 +852,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -695,6 +880,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 512;
@@ -721,6 +908,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
 
         let alloc_size = 768;
@@ -748,6 +937,8 @@ mod tests {
                     dealloc_period: None,
                 }],
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         let alloc_size = 40;
         let _handle = memory_management.reserve(alloc_size);
@@ -778,6 +969,8 @@ mod tests {
             MemoryConfiguration::Custom {
                 pool_options: pools,
             },
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate one thing on each page.
         let alloc_sizes = [50, 150, 250, 350];
@@ -796,6 +989,8 @@ mod tests {
                 alignment: 32,
             },
             MemoryConfiguration::ExclusivePages,
+            Arc::new(ServerLogger::default()),
+            options(),
         );
         // Allocate a bunch
         let handles: Vec<_> = (0..5)

@@ -1,16 +1,17 @@
-use std::fmt::Display;
+use std::{fmt::Display, sync::LazyLock};
 
 use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
+use enumset::EnumSet;
 
 #[track_caller]
 pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -45,6 +46,10 @@ expected: {:?}",
     }
 }
 
+// Needs lazy because const trait fns aren't stable
+static FAST_MATH: LazyLock<EnumSet<FastMath>> =
+    LazyLock::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
+
 macro_rules! test_binary_impl {
     (
         $test_name:ident,
@@ -57,8 +62,8 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked, fast_math = FastMath::AllowTransform | FastMath::UnsignedZero)]
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+            #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -201,7 +206,7 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
             $(
             {
                 let lhs = $lhs;
@@ -270,7 +275,7 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
             $(
             {
                 let lhs = $lhs;

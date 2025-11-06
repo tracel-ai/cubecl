@@ -11,7 +11,8 @@ use cubecl_core::{
     server::{Handle, IoError, ProfileError, ProfilingToken},
 };
 use cubecl_runtime::{
-    memory_management::MemoryDeviceProperties, timestamp_profiler::TimestampProfiler,
+    logging::ServerLogger, memory_management::MemoryDeviceProperties,
+    timestamp_profiler::TimestampProfiler,
 };
 use std::{future::Future, num::NonZero, pin::Pin, sync::Arc};
 use wgpu::ComputePipeline;
@@ -45,6 +46,7 @@ impl WgpuStream {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         tasks_max: usize,
+        logger: Arc<ServerLogger>,
     ) -> Self {
         let timings = if timing_method == TimingMethod::Device {
             Timings::Device(QueryProfiler::new(&queue, &device))
@@ -62,7 +64,8 @@ impl WgpuStream {
         let poll = WgpuPoll::new(device.clone());
 
         #[allow(unused_mut)]
-        let mut mem_manage = WgpuMemManager::new(device.clone(), memory_properties, memory_config);
+        let mut mem_manage =
+            WgpuMemManager::new(device.clone(), memory_properties, memory_config, logger);
 
         Self {
             mem_manage,

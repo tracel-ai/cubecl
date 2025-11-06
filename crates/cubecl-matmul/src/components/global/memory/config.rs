@@ -2,7 +2,7 @@ use std::{fmt::Debug, hash::Hash};
 
 use crate::components::MatrixLayout;
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub struct GlobalMemoryConfig {
     pub elements_in_tile_row: u32,
     pub elements_in_tile_col: u32,

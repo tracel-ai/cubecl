@@ -1,16 +1,16 @@
+use crate::components::batch::CubeCountInput;
 use crate::components::batch::base::BatchMatmul;
-use crate::components::global::args::{TensorLhs, TensorRhs};
-use crate::components::{batch::CubeCountInput, global::args::TensorAcc};
 use crate::components::{
     batch::{BatchConfig, BatchMatmulFamily},
-    global::args::{MatmulArgs, TensorOutput},
+    global::args::MatmulArgs,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand, tensor::r#virtual::VirtualTensor};
 
 type Input<Args, Lhs, Rhs, AccG> = <Args as MatmulArgs>::Input<Lhs, Rhs, AccG>;
 type Output<Args, AccG> = <Args as MatmulArgs>::Output<AccG>;
+
+type GlobalConf<BMMF> = <<BMMF as BatchMatmulFamily>::Config as BatchConfig>::GlobalConfig;
 
 #[cube(launch_unchecked)]
 /// Launches the matmul kernel
@@ -36,32 +36,14 @@ pub(crate) fn matmul<
         }
     }
 
-    let mut state = Args::init_state(inputs, output);
+    let mut state = Args::init_state::<LhsG, RhsG, AccG, GlobalConf<BMMF>>(
+        inputs,
+        output,
+        config.global_config(),
+    );
 
-    let lhs = TensorLhs::<LhsG, RhsG, AccG, Args>::new(&state);
-    let rhs = TensorRhs::<LhsG, RhsG, AccG, Args>::new(&state);
-    let mut out = TensorOutput::<LhsG, RhsG, AccG, Args>::new(&mut state);
-
-    let has_acc = Args::has_acc(&state);
-    let acc: CubeOption<VirtualTensor<AccG>> = match has_acc {
-        CubeOption::Some(_) => {
-            let acc = TensorAcc::<LhsG, RhsG, AccG, Args>::new(&state);
-            let acc = VirtualTensor::<AccG>::new::<TensorAcc<LhsG, RhsG, AccG, Args>>(&acc);
-            CubeOption::new_Some(acc)
-        }
-        CubeOption::None => CubeOption::new_None(),
-    };
-
-    let lhs = VirtualTensor::<LhsG>::new::<TensorLhs<LhsG, RhsG, AccG, Args>>(&lhs);
-    let rhs = VirtualTensor::<RhsG>::new::<TensorRhs<LhsG, RhsG, AccG, Args>>(&rhs);
-    let out =
-        VirtualTensor::<AccG, ReadWrite>::new::<TensorOutput<LhsG, RhsG, AccG, Args>>(&mut out);
-
-    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute(
-        lhs,
-        rhs,
-        acc,
-        out,
+    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute::<Args>(
+        &mut state,
         cube_count_args,
         config,
     );

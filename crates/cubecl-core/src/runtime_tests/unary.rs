@@ -10,7 +10,7 @@ pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: Handle,
     expected: &[F],
     epsilon: F,
@@ -20,7 +20,11 @@ pub(crate) fn assert_equals_approx<
 
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         assert!(
-            (*a - *e).abs() < epsilon || (a.is_nan() && e.is_nan()),
+            (*a - *e).abs() < epsilon
+                || (a.is_nan() && e.is_nan())
+                || (a.is_infinite()
+                    && e.is_infinite()
+                    && a.is_sign_positive() == e.is_sign_positive()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
 actual: {:?}
@@ -65,8 +69,8 @@ macro_rules! test_unary_impl {
             expected: $expected:expr
         }),*],
         $epsilon:expr) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked)]
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+            #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < input.len() {
                     output[ABSOLUTE_POS] = $unary_func(input[ABSOLUTE_POS]);
@@ -108,7 +112,7 @@ macro_rules! test_unary_impl_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$float_type: Float>(input: &Array<$float_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -153,7 +157,7 @@ macro_rules! test_unary_impl_int {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$int_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -199,7 +203,7 @@ macro_rules! test_unary_impl_int_fixed {
             input: $input:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $int_type: Int + CubeElement>(client: ComputeClient<R::Server>) {
             #[cube(launch_unchecked)]
             fn test_function<$int_type: Int>(input: &Array<$int_type>, output: &mut Array<$out_type>) {
                 if ABSOLUTE_POS < input.len() {
@@ -506,27 +510,6 @@ test_unary_impl!(test_sqrt, F, F::sqrt, [
     }
 ]);
 
-test_unary_impl!(test_rsqrt, F, F::rsqrt, [
-    {
-        input_vectorization: 1,
-        out_vectorization: 1,
-        input: as_type![F: 1., 4., 9., 16., 25.],
-        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25, 0.2]
-    },
-    {
-        input_vectorization: 2,
-        out_vectorization: 2,
-        input: as_type![F: 1., 4., 9., 16.],
-        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25]
-    },
-    {
-        input_vectorization: 4,
-        out_vectorization: 4,
-        input: as_type![F: 1., 4., 9., 16.],
-        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25]
-    }
-]);
-
 test_unary_impl!(test_degrees, F, F::to_degrees, [
     {
         input_vectorization: 1,
@@ -622,6 +605,27 @@ test_unary_impl!(test_abs, F, F::abs, [
     }
 ]);
 
+test_unary_impl!(test_inverse_sqrt, F, F::inverse_sqrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1.0, 4.0, 16.0, 0.25],
+        expected: as_type![F: 1.0, 0.5, 0.25, 2.0]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 9.0, 25.0, 0.0625, 100.0],
+        expected: as_type![F: 0.333_333_34, 0.2, 4.0, 0.1]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0.0, 0.01, 64.0, 0.111111],
+        expected: as_type![F: f32::INFINITY, 10.0, 0.125, 3.0]
+    }
+]);
+
 test_unary_impl!(
     test_normalize,
     F,
@@ -658,6 +662,29 @@ test_unary_impl!(
             expected: as_type![F: f32::NAN, f32::NAN, 1., 0.]
         }
     ]
+);
+
+test_unary_impl!(
+    test_trunc,
+    F,
+    F::trunc,
+    [{
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: -1.2, -1., -0., 0.],
+        expected: as_type![F: -1., -1., -0., 0.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: f32::NAN, 1., 1.2, 1.9],
+        expected: as_type![F: f32::NAN, 1., 1., 1.0]
+    },{
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: -0.9, 0.2, f32::NAN, 1.99],
+        expected: as_type![F: -0., 0., f32::NAN, 1.]
+    }]
 );
 
 test_unary_impl_fixed!(
@@ -848,8 +875,9 @@ macro_rules! testgen_unary {
             add_test!(test_normalize);
             add_test!(test_magnitude);
             add_test!(test_sqrt);
-            add_test!(test_rsqrt);
+            add_test!(test_inverse_sqrt);
             add_test!(test_abs);
+            add_test!(test_trunc);
             add_test!(test_is_nan);
             add_test!(test_is_inf);
         }

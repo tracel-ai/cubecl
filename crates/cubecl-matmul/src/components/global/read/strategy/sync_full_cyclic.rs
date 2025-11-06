@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -36,6 +36,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -59,10 +61,10 @@ impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
-        let line_size = config.global_line_size(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
         let num_stage_lines = num_stage_elements.div_ceil(line_size);

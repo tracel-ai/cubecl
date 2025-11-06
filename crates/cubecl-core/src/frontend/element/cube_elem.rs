@@ -1,7 +1,5 @@
-use cubecl_ir::{ExpandElement, StorageType};
-use cubecl_runtime::{
-    TypeUsage, channel::ComputeChannel, client::ComputeClient, server::ComputeServer,
-};
+use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_runtime::{TypeUsage, client::ComputeClient, server::ComputeServer};
 use enumset::EnumSet;
 
 use crate::frontend::CubeType;
@@ -47,12 +45,23 @@ pub trait CubePrimitive:
         Self::as_type_native().map(|t| t.size_bits())
     }
 
+    /// Only native element types have a size.
+    fn size_bits_unchecked() -> usize {
+        Self::as_type_native_unchecked().size_bits()
+    }
+
     fn from_expand_elem(elem: ExpandElement) -> Self::ExpandType {
         ExpandElementTyped::new(elem)
     }
 
-    fn supported_uses<S: ComputeServer, C: ComputeChannel<S>>(
-        client: &ComputeClient<S, C>,
+    fn from_const_value(value: ConstantScalarValue) -> Self;
+
+    fn into_lit_unchecked(self) -> Self {
+        self
+    }
+
+    fn supported_uses<S: ComputeServer>(
+        client: &ComputeClient<S>,
     ) -> EnumSet<TypeUsage> {
         let elem = Self::as_type_native_unchecked();
         client.properties().features.type_usage(elem)

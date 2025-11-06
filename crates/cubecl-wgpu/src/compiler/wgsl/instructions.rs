@@ -179,7 +179,7 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
-    Rsqrt {
+    InverseSqrt {
         input: Variable,
         out: Variable,
     },
@@ -315,6 +315,10 @@ pub enum Instruction {
         out: Variable,
     },
     Ceil {
+        input: Variable,
+        out: Variable,
+    },
+    Trunc {
         input: Variable,
         out: Variable,
     },
@@ -652,9 +656,9 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
             }
-            Instruction::Rsqrt { input, out } => {
+            Instruction::InverseSqrt { input, out } => {
                 let out = out.fmt_left();
-                writeln!(f, "{out} = rsqrt({input});")
+                writeln!(f, "{out} = inverseSqrt({input});")
             }
             Instruction::Log1p { input, out } => {
                 let out = out.fmt_left();
@@ -958,6 +962,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Ceil { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ceil({input});")
+            }
+            Instruction::Trunc { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = trunc({input});")
             }
             Instruction::Subgroup(op) => write!(f, "{op}"),
             Instruction::Bitcast { input, out } => {

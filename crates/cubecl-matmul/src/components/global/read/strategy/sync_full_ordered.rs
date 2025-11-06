@@ -1,4 +1,3 @@
-use crate::components::global::RoleRule;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::SyncFullLoadingStrategy;
 use crate::components::stage::OrderedTilingOrder;
@@ -6,6 +5,7 @@ use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
+use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -67,6 +67,8 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
+        ContiguousTilingLayout::<OrderedTilingOrder>::check(config.global_memory_config(ident))?;
+
         Ok(())
     }
 }
@@ -89,9 +91,9 @@ impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> Self::Job<IP> {
-        let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();

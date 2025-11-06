@@ -230,96 +230,272 @@ impl<
 }
 
 mod dynamic {
-    use crate::tensor::layout::{VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch};
+    use cubecl_common::quant::scheme::QuantScheme;
+
+    use crate::{
+        quant,
+        tensor::layout::{
+            VirtualLayout, VirtualLayoutCompilationArg, VirtualLayoutLaunch,
+            as_dyn::{IntoDyn, IntoDynLayout, IntoDynLayoutLaunch},
+        },
+    };
 
     use super::*;
 
-    pub struct ViewLaunch<'a, C: Coordinates, R: Runtime> {
-        _phantom_runtime: PhantomData<R>,
-        _phantom_a: PhantomData<&'a ()>,
-        buffer: ArrayArg<'a, R>,
-        layout: VirtualLayoutLaunch<'a, C, Coords1d, R>,
+    pub enum ViewArg<'a, C: Coordinates, R: Runtime> {
+        Array(ArrayArg<'a, R>, VirtualLayoutLaunch<'a, C, Coords1d, R>),
+        TensorMap(
+            TensorMapArg<'a, R>,
+            VirtualLayoutLaunch<'a, C, Sequence<i32>, R>,
+        ),
+        Quantized {
+            values: Box<ViewArg<'a, C, R>>,
+            scales: Box<ViewArg<'a, C, R>>,
+            scheme: QuantScheme,
+        },
     }
-    impl<'a, C: Coordinates, R: Runtime> ViewLaunch<'a, C, R> {
+    impl<'a, C: Coordinates, R: Runtime> ViewArg<'a, C, R> {
         pub fn new<L: Layout<Coordinates = C, SourceCoordinates = Coords1d> + LaunchArg>(
             buffer: ArrayArg<'a, R>,
             layout: L::RuntimeArg<'a, R>,
         ) -> Self {
-            Self {
-                _phantom_runtime: core::marker::PhantomData,
-                _phantom_a: core::marker::PhantomData,
-                buffer,
-                layout: VirtualLayoutLaunch::new::<L>(layout),
+            ViewArg::Array(buffer, VirtualLayoutLaunch::new::<L>(layout))
+        }
+
+        pub fn new_tensor_map<
+            L: Layout<Coordinates = C, SourceCoordinates: IntoDyn> + LaunchArg,
+        >(
+            buffer: TensorMapArg<'a, R>,
+            layout: L::RuntimeArg<'a, R>,
+        ) -> Self {
+            let layout = IntoDynLayoutLaunch::new(layout);
+            ViewArg::TensorMap(buffer, VirtualLayoutLaunch::new::<IntoDynLayout<L>>(layout))
+        }
+
+        /// Create a new view arg that dequantizes on read.
+        /// The scales layout should take values indices and map them to the corresponding scale.
+        pub fn new_quantized(values: Self, scales: Self, scheme: QuantScheme) -> Self {
+            Self::Quantized {
+                values: Box::new(values),
+                scales: Box::new(scales),
+                scheme,
             }
         }
     }
-    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewLaunch<'a, C, R> {
+    impl<'a, C: Coordinates, R: Runtime> ArgSettings<R> for ViewArg<'a, C, R> {
         fn register(&self, launcher: &mut KernelLauncher<R>) {
-            self.buffer.register(launcher);
-            self.layout.register(launcher);
+            match self {
+                ViewArg::Array(buffer, layout) => {
+                    buffer.register(launcher);
+                    layout.register(launcher);
+                }
+                ViewArg::TensorMap(buffer, layout) => {
+                    buffer.register(launcher);
+                    layout.register(launcher);
+                }
+                ViewArg::Quantized { values, scales, .. } => {
+                    values.register(launcher);
+                    scales.register(launcher);
+                }
+            }
         }
     }
     #[derive(Clone)]
-    pub struct ViewCompilationArg<C: Coordinates> {
-        buffer: ArrayCompilationArg,
-        layout: VirtualLayoutCompilationArg<C, Coords1d>,
+    pub enum ViewCompilationArg<C: Coordinates> {
+        Array {
+            buffer: ArrayCompilationArg,
+            layout: VirtualLayoutCompilationArg<C, Coords1d>,
+        },
+        TensorMap {
+            buffer: TensorMapCompilationArg,
+            layout: VirtualLayoutCompilationArg<C, Sequence<i32>>,
+        },
+        Quantized {
+            values: Box<ViewCompilationArg<C>>,
+            scales: Box<ViewCompilationArg<C>>,
+            scheme: QuantScheme,
+        },
     }
 
     impl<C: Coordinates + 'static> CompilationArg for ViewCompilationArg<C> {}
     impl<C: Coordinates> Eq for ViewCompilationArg<C> {}
     impl<C: Coordinates> PartialEq for ViewCompilationArg<C> {
         fn eq(&self, other: &Self) -> bool {
-            self.buffer == other.buffer && self.layout == other.layout
+            match (self, other) {
+                (
+                    ViewCompilationArg::Array { buffer, layout },
+                    ViewCompilationArg::Array {
+                        buffer: buffer_other,
+                        layout: layout_other,
+                    },
+                ) => buffer == buffer_other && layout == layout_other,
+                (
+                    ViewCompilationArg::TensorMap { buffer, layout },
+                    ViewCompilationArg::TensorMap {
+                        buffer: buffer_other,
+                        layout: layout_other,
+                    },
+                ) => buffer == buffer_other && layout == layout_other,
+                (
+                    ViewCompilationArg::Quantized {
+                        values,
+                        scales,
+                        scheme,
+                    },
+                    ViewCompilationArg::Quantized {
+                        values: values_other,
+                        scales: scales_other,
+                        scheme: scheme_other,
+                    },
+                ) => values == values_other && scales == scales_other && scheme == scheme_other,
+                _ => false,
+            }
         }
     }
     impl<C: Coordinates> core::hash::Hash for ViewCompilationArg<C> {
         fn hash<H: core::hash::Hasher>(&self, ra_expand_state: &mut H) {
-            self.buffer.hash(ra_expand_state);
-            self.layout.hash(ra_expand_state);
+            match self {
+                ViewCompilationArg::Array { buffer, layout } => {
+                    buffer.hash(ra_expand_state);
+                    layout.hash(ra_expand_state);
+                }
+                ViewCompilationArg::TensorMap { buffer, layout } => {
+                    buffer.hash(ra_expand_state);
+                    layout.hash(ra_expand_state);
+                }
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => {
+                    values.hash(ra_expand_state);
+                    scales.hash(ra_expand_state);
+                    scheme.hash(ra_expand_state);
+                }
+            }
         }
     }
     impl<C: Coordinates> core::fmt::Debug for ViewCompilationArg<C> {
         fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
-            f.debug_struct("ViewCompilationArg")
-                .field("buffer", &self.buffer)
-                .field("layout", &self.layout)
-                .finish()
+            match self {
+                ViewCompilationArg::Array { buffer, layout } => f
+                    .debug_struct("ArrayView")
+                    .field("buffer", &buffer)
+                    .field("layout", &layout)
+                    .finish(),
+                ViewCompilationArg::TensorMap { buffer, layout } => f
+                    .debug_struct("TensorMapView")
+                    .field("buffer", &buffer)
+                    .field("layout", &layout)
+                    .finish(),
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => f
+                    .debug_struct("QuantizedView")
+                    .field("values", &values)
+                    .field("scales", &scales)
+                    .field("scheme", &scheme)
+                    .finish(),
+            }
         }
     }
 
     impl<E: CubePrimitive, C: Coordinates + 'static, IO: SliceVisibility> LaunchArg for View<E, C, IO> {
-        type RuntimeArg<'a, R: Runtime> = ViewLaunch<'a, C, R>;
+        type RuntimeArg<'a, R: Runtime> = ViewArg<'a, C, R>;
         type CompilationArg = ViewCompilationArg<C>;
 
         fn compilation_arg<'a, R: Runtime>(
             runtime_arg: &Self::RuntimeArg<'a, R>,
         ) -> Self::CompilationArg {
-            let buffer = Array::<E>::compilation_arg(&runtime_arg.buffer);
-            let layout = VirtualLayout::<C, Coords1d>::compilation_arg(&runtime_arg.layout);
-            ViewCompilationArg { buffer, layout }
+            match runtime_arg {
+                ViewArg::Array(buffer, layout) => {
+                    let buffer = Array::<E>::compilation_arg(buffer);
+                    let layout = VirtualLayout::<C, Coords1d>::compilation_arg(layout);
+                    ViewCompilationArg::Array { buffer, layout }
+                }
+                ViewArg::TensorMap(buffer, layout) => {
+                    let buffer = TensorMap::<E>::compilation_arg(buffer);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::compilation_arg(layout);
+                    ViewCompilationArg::TensorMap { buffer, layout }
+                }
+                ViewArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => {
+                    // Type isn't real, but doesn't matter for compilation arg
+                    let values = View::<E, C, IO>::compilation_arg(values);
+                    let scales = View::<E, C, IO>::compilation_arg(scales);
+                    ViewCompilationArg::Quantized {
+                        values: Box::new(values),
+                        scales: Box::new(scales),
+                        scheme: *scheme,
+                    }
+                }
+            }
         }
         fn expand(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let buffer = Array::<E>::expand(&arg.buffer, builder);
-            let layout = VirtualLayout::<C, Coords1d>::expand(&arg.layout, builder);
-            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
-            ViewExpand::<E, C, IO> {
-                inner: ViewType::ReadWrite(Arc::new(view)),
-                _io: PhantomData,
+            match arg {
+                ViewCompilationArg::Array { buffer, layout } => {
+                    let buffer = Array::<E>::expand(buffer, builder);
+                    let layout = VirtualLayout::<C, Coords1d>::expand(layout, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::TensorMap { buffer, layout } => {
+                    let buffer = TensorMap::<E>::expand(buffer, builder);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::expand(layout, builder);
+                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
+                        buffer, layout,
+                    );
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::Quantized {
+                    values,
+                    scales,
+                    scheme,
+                } => quant::view::expand_dynamic(values, scales, *scheme, builder),
             }
         }
         fn expand_output(
             arg: &Self::CompilationArg,
             builder: &mut KernelBuilder,
         ) -> <Self as CubeType>::ExpandType {
-            let buffer = Array::<E>::expand_output(&arg.buffer, builder);
-            let layout = VirtualLayout::<C, Coords1d>::expand_output(&arg.layout, builder);
-            let view = VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
-            ViewExpand::<E, C, IO> {
-                inner: ViewType::ReadWrite(Arc::new(view)),
-                _io: PhantomData,
+            match arg {
+                ViewCompilationArg::Array { buffer, layout } => {
+                    let buffer = Array::<E>::expand_output(buffer, builder);
+                    let layout = VirtualLayout::<C, Coords1d>::expand_output(layout, builder);
+                    let view =
+                        VirtualViewMutExpand::<E, C, Coords1d, Array<E>>::new(buffer, layout);
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::TensorMap { buffer, layout } => {
+                    let buffer = TensorMap::<E>::expand_output(buffer, builder);
+                    let layout = VirtualLayout::<C, Sequence<i32>>::expand_output(layout, builder);
+                    let view = VirtualViewMutExpand::<E, C, Sequence<i32>, TensorMap<E>>::new(
+                        buffer, layout,
+                    );
+                    ViewExpand::<E, C, IO> {
+                        inner: ViewType::ReadWrite(Arc::new(view)),
+                        _io: PhantomData,
+                    }
+                }
+                ViewCompilationArg::Quantized { .. } => panic!("Quantized views must be readonly"),
             }
         }
     }

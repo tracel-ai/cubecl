@@ -66,7 +66,7 @@ impl MmaMatmulConfig {
     /// - cmma is unavailable
     /// - cmma is unavailable for given types
     pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         tile_size: TileSize,
         plane_dim: u32,
         lhs_layout: MatrixLayout,
@@ -93,7 +93,7 @@ impl MmaMatmulConfig {
 
     fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
         let lhs = Lhs::as_type_native_unchecked();
         let rhs = Rhs::as_type_native_unchecked();

@@ -104,6 +104,15 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Trunc(trunc) => {
+                let value = self.get_variable(trunc.input);
+                let result = self.append_operation_with_result(llvm_ods::intr_trunc(
+                    self.context,
+                    value,
+                    self.location,
+                ));
+                self.insert_variable(out, result);
+            }
             Arithmetic::Clamp(clamp) => {
                 let value = self.get_variable(clamp.input);
                 let mut min = self.get_variable(clamp.min_value);
@@ -479,15 +488,6 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
-            Arithmetic::Rsqrt(rsqrt) => {
-                let input = self.get_variable(rsqrt.input);
-                let output = self.append_operation_with_result(math_ods::rsqrt(
-                    self.context,
-                    input,
-                    self.location,
-                ));
-                self.insert_variable(out, output);
-            }
             Arithmetic::Sin(sin) => {
                 let input = self.get_variable(sin.input);
                 let output = self.append_operation_with_result(llvm_ods::intr_sin(
@@ -505,6 +505,18 @@ impl<'a> Visitor<'a> {
                     self.location,
                 ));
                 self.insert_variable(out, result);
+            }
+            Arithmetic::InverseSqrt(sqrt) => {
+                let input = self.get_variable(sqrt.input);
+                let value = self.append_operation_with_result(llvm_ods::intr_sqrt(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                let one = self.create_float_constant_from_item(sqrt.input.ty, 1.0);
+                let recip =
+                    self.append_operation_with_result(arith::divf(one, value, self.location));
+                self.insert_variable(out, recip);
             }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);

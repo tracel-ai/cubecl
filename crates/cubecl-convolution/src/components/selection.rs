@@ -75,7 +75,7 @@ pub(crate) fn find_stage_size_m_n(
 }
 
 pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     plane_dim: u32,
     matmul_elems: MatmulElems,
@@ -84,22 +84,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // to be the rough cutoff for the k=4 size.
     let stage_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let tile_size = find_instruction_size(
-        if TMM::requires_accelerator() {
-            Some((
-                client.properties(),
-                (
-                    matmul_elems.lhs_register,
-                    matmul_elems.rhs_register,
-                    matmul_elems.acc_register,
-                ),
-            ))
-        } else {
-            None
-        },
-        problem.m,
-        problem.n,
-    );
+    let tile_size = find_instruction_size::<R, TMM>(client, &matmul_elems, problem.m, problem.n);
 
     let hardware = &client.properties().hardware;
     let num_sm = hardware

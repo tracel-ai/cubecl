@@ -7,6 +7,7 @@ use cubecl_core::{
 };
 use cubecl_hip_sys::{
     HIP_SUCCESS, hipMemcpyKind_hipMemcpyDeviceToHost, hipMemcpyKind_hipMemcpyHostToDevice,
+    ihipStream_t,
 };
 use cubecl_runtime::{
     id::KernelId,
@@ -14,7 +15,7 @@ use cubecl_runtime::{
     memory_management::{MemoryAllocationMode, MemoryHandle},
     stream::ResolvedStreams,
 };
-use std::sync::Arc;
+use std::{ffi::c_void, sync::Arc};
 
 use crate::{
     compute::{
@@ -31,7 +32,7 @@ use crate::{
 /// registration, and task execution.
 pub struct Command<'a> {
     ctx: &'a mut HipContext,
-    streams: ResolvedStreams<'a, HipStreamBackend>,
+    pub(crate) streams: ResolvedStreams<'a, HipStreamBackend>,
 }
 
 impl<'a> Command<'a> {
@@ -274,58 +275,13 @@ impl<'a> Command<'a> {
             return Err(IoError::UnsupportedStrides);
         }
 
-        let rank = shape.len();
         let resource = self.resource(binding)?;
         let stream = match stream_id {
             Some(id) => self.streams.get(&id),
             None => self.streams.current(),
         };
 
-        if rank <= 1 {
-            unsafe {
-                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                    bytes.as_mut_ptr() as *mut _,
-                    resource.ptr,
-                    bytes.len(),
-                    stream.sys,
-                );
-
-                if status != HIP_SUCCESS {
-                    return Err(IoError::Unknown(format!("HIP memcpy failed: {status}")));
-                }
-            }
-            return Ok(());
-        }
-
-        let dim_x = shape[rank - 1];
-        let width_bytes = dim_x * elem_size;
-        let dim_y: usize = shape.iter().rev().skip(1).product();
-        let pitch = strides[rank - 2] * elem_size;
-
-        unsafe {
-            let status = cubecl_hip_sys::hipMemcpy2DAsync(
-                bytes.as_mut_ptr() as *mut _,
-                width_bytes,
-                resource.ptr,
-                pitch,
-                width_bytes,
-                dim_y,
-                hipMemcpyKind_hipMemcpyDeviceToHost,
-                stream.sys,
-            );
-
-            // Fallback, sometimes the copy doesn't work.
-            if status != HIP_SUCCESS {
-                let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
-                    bytes.as_mut_ptr() as *mut _,
-                    resource.ptr,
-                    bytes.len(),
-                    stream.sys,
-                );
-                assert_eq!(status, HIP_SUCCESS, "Should send data to device");
-            }
-        }
-        Ok(())
+        unsafe { write_to_cpu(shape, strides, elem_size, bytes, resource.ptr, stream.sys) }
     }
 
     /// Writes data from the host to GPU memory as specified by the copy descriptor.
@@ -468,4 +424,62 @@ impl<'a> Command<'a> {
             }
         };
     }
+}
+
+pub(crate) unsafe fn write_to_cpu(
+    shape: &[usize],
+    strides: &[usize],
+    elem_size: usize,
+    bytes: &mut Bytes,
+    resource_ptr: *mut c_void,
+    stream: *mut ihipStream_t,
+) -> Result<(), IoError> {
+    let rank = shape.len();
+
+    if rank <= 1 {
+        let status = unsafe {
+            cubecl_hip_sys::hipMemcpyDtoHAsync(
+                bytes.as_mut_ptr() as *mut _,
+                resource_ptr,
+                bytes.len(),
+                stream,
+            )
+        };
+
+        if status != HIP_SUCCESS {
+            return Err(IoError::Unknown(format!("HIP memcpy failed: {status}")));
+        }
+        return Ok(());
+    }
+
+    let dim_x = shape[rank - 1];
+    let width_bytes = dim_x * elem_size;
+    let dim_y: usize = shape.iter().rev().skip(1).product();
+    let pitch = strides[rank - 2] * elem_size;
+
+    unsafe {
+        let status = cubecl_hip_sys::hipMemcpy2DAsync(
+            bytes.as_mut_ptr() as *mut _,
+            width_bytes,
+            resource_ptr,
+            pitch,
+            width_bytes,
+            dim_y,
+            hipMemcpyKind_hipMemcpyDeviceToHost,
+            stream,
+        );
+
+        // Fallback, sometimes the copy doesn't work.
+        if status != HIP_SUCCESS {
+            let status = cubecl_hip_sys::hipMemcpyDtoHAsync(
+                bytes.as_mut_ptr() as *mut _,
+                resource_ptr,
+                bytes.len(),
+                stream,
+            );
+            assert_eq!(status, HIP_SUCCESS, "Should send data to device");
+        }
+    }
+
+    Ok(())
 }

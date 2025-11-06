@@ -139,6 +139,10 @@ impl<T: CubeType> Iterable<T> for SequenceExpand<T> {
             func(scope, elem);
         }
     }
+
+    fn const_len(&self) -> Option<usize> {
+        Some(self.values.borrow().len())
+    }
 }
 
 impl<T: CubeType> IntoMut for SequenceExpand<T> {
@@ -258,8 +262,11 @@ impl<T: CubeType> SequenceExpand<T> {
     }
 
     pub fn __expand_rev_method(self, _scope: &mut Scope) -> Self {
-        self.values.borrow_mut().reverse();
-        self
+        let mut values = self.values.borrow().clone();
+        values.reverse();
+        Self {
+            values: Rc::new(RefCell::new(values)),
+        }
     }
 
     pub fn __expand_clone_method(&self, _scope: &mut Scope) -> Self {

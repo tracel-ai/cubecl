@@ -7,6 +7,7 @@ use cubecl_core::{
     server::{MetadataBinding, ScalarBinding},
 };
 use cubecl_runtime::{
+    logging::ServerLogger,
     memory_management::MemoryDeviceProperties,
     stream::{StreamFactory, scheduler::SchedulerStreamBackend},
 };
@@ -60,6 +61,7 @@ pub struct WgpuStreamFactory {
     memory_config: MemoryConfiguration,
     timing_method: TimingMethod,
     tasks_max: usize,
+    logger: Arc<ServerLogger>,
 }
 
 impl StreamFactory for WgpuStreamFactory {
@@ -73,6 +75,7 @@ impl StreamFactory for WgpuStreamFactory {
             self.memory_config.clone(),
             self.timing_method,
             self.tasks_max,
+            self.logger.clone(),
         )
     }
 }
@@ -86,6 +89,7 @@ impl ScheduledWgpuBackend {
         memory_config: MemoryConfiguration,
         timing_method: TimingMethod,
         tasks_max: usize,
+        logger: Arc<ServerLogger>,
     ) -> Self {
         Self {
             factory: WgpuStreamFactory {
@@ -95,6 +99,7 @@ impl ScheduledWgpuBackend {
                 memory_config,
                 timing_method,
                 tasks_max,
+                logger,
             },
         }
     }
@@ -128,6 +133,10 @@ impl SchedulerStreamBackend for ScheduledWgpuBackend {
 
     fn enqueue(task: Self::Task, stream: &mut Self::Stream) {
         stream.enqueue_task(task);
+    }
+
+    fn flush(stream: &mut Self::Stream) {
+        stream.flush();
     }
 
     fn factory(&mut self) -> &mut Self::Factory {

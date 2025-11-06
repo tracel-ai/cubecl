@@ -1,6 +1,5 @@
-use cubecl_core::ir::StorageType;
 use cubecl_core::{Runtime, client::ComputeClient};
-use cubecl_runtime::{DeviceProperties, MmaConfig};
+use cubecl_runtime::MmaConfig;
 
 use crate::components::batch::{
     CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation,
@@ -30,7 +29,7 @@ pub struct PlaneMatmulSelectionOptions {
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
     elems: MatmulElems,
@@ -42,18 +41,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         ));
     }
 
-    let tile_size = find_instruction_size(
-        if TMM::requires_accelerator() {
-            Some((
-                client.properties(),
-                (elems.lhs_register, elems.rhs_register, elems.acc_register),
-            ))
-        } else {
-            None
-        },
-        problem.m,
-        problem.n,
-    );
+    let tile_size = find_instruction_size::<R, TMM>(client, &elems, problem.m, problem.n);
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
@@ -67,6 +55,12 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         };
         max_plane_per_cube / (4 * precision_factor)
     });
+
+    if row_count == 0 {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::PlaneDimUnsupported { plane_dim },
+        ));
+    }
 
     let (rows_per_plane, stage_size_m, partition_shape_n) = select_size(
         options.multi_row_strategy,
@@ -158,24 +152,24 @@ fn select_size(
 ///
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
-pub fn find_instruction_size(
-    properties: Option<(&DeviceProperties, (StorageType, StorageType, StorageType))>,
+pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
+    client: &ComputeClient<R::Server>,
+    elems: &MatmulElems,
     m: usize,
     n: usize,
 ) -> TileSize {
     let supported = |m: u32, n: u32, k: u32| {
-        properties
-            .map(|(p, (a_type, b_type, cd_type))| {
-                p.features.cmma.contains(&MmaConfig {
-                    a_type,
-                    b_type,
-                    cd_type,
-                    m,
-                    n,
-                    k,
-                })
-            })
-            .unwrap_or(true)
+        TMM::is_supported::<R>(
+            client,
+            MmaConfig {
+                a_type: elems.lhs_register,
+                b_type: elems.rhs_register,
+                cd_type: elems.acc_register,
+                m,
+                n,
+                k,
+            },
+        )
     };
 
     if m >= 4 * n && supported(32, 8, 16) {
@@ -187,12 +181,20 @@ pub fn find_instruction_size(
     } else if supported(8, 8, 8) {
         (8, 8, 8).into()
     } else {
-        (16, 16, 8).into()
+        TMM::supported_sizes::<R>(
+            client,
+            elems.lhs_register,
+            elems.rhs_register,
+            elems.acc_register,
+        )
+        .first()
+        .copied()
+        .unwrap_or_else(|| (16, 16, 8).into())
     }
 }
 
 fn selection_tiny<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,

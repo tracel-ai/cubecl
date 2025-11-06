@@ -10,6 +10,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn s_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn trunc(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
@@ -29,6 +30,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
@@ -46,6 +48,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
 }
 
 pub mod glcompute {
+
     use super::*;
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
@@ -67,6 +70,10 @@ pub mod glcompute {
 
         fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_ceil_id(ty, Some(out), input).unwrap();
+        }
+
+        fn trunc(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_trunc_id(ty, Some(out), input).unwrap();
         }
 
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
@@ -143,6 +150,10 @@ pub mod glcompute {
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_sqrt_id(ty, Some(out), input).unwrap();
+        }
+
+        fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_inverse_sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {

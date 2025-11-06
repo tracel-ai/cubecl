@@ -1,13 +1,14 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
+use crate::components::fragment::FragmentAttentionFamily;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, batch::BatchAttentionFamily,
-    global::GlobalAttentionFamily, stage::StageAttentionFamily, tile::TileAttentionFamily,
+    global::GlobalAttentionFamily, stage::StageAttentionFamily,
 };
 
 pub trait Algorithm {
-    type TileAttention: TileAttentionFamily;
+    type FragmentAttention: FragmentAttentionFamily;
     type StageAttention: StageAttentionFamily;
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;
@@ -17,7 +18,7 @@ pub trait Algorithm {
     }
 
     fn setup<AP: AttentionPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
