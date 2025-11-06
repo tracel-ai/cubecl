@@ -27,7 +27,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 #[derive(CubeType)]
-pub struct KVReuseStageAttention<
+pub struct PartitionAttention<
     AP: AttentionPrecision,
     SK,
     SV,
@@ -49,7 +49,7 @@ impl<
     FA: FragmentAttention<AP>,
     P: AttentionPartitioner,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
-> StageAttention<AP> for KVReuseStageAttention<AP, SK, SV, SO, FA, P, S>
+> StageAttention<AP> for PartitionAttention<AP, SK, SV, SO, FA, P, S>
 {
     type KeyStage = SK;
     type ValueStage = SV;

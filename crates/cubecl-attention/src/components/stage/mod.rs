@@ -2,7 +2,7 @@ pub mod plane;
 pub mod unit;
 
 mod base;
-mod kv_reuse_attention;
+mod partition_attention;
 mod partition;
 mod partitioner;
 mod tile_ops;
