@@ -3,7 +3,7 @@ use cubecl_core::{
     Runtime,
     client::ComputeClient,
     ir::StorageType,
-    prelude::{CubePrimitive, Numeric, TensorHandleRef},
+    prelude::{CubePrimitive, TensorHandleRef},
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     components::{
-        AccG, LhsG, MatmulElems, MatmulSetupError, RhsG,
+        MatmulElems, MatmulSetupError,
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -27,7 +27,6 @@ use crate::{
 
 use super::{
     components::{
-        MatmulPrecision,
         global::read::{
             async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,

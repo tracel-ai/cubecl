@@ -4,7 +4,10 @@ use cubecl_core::{
 };
 use cubecl_core::{prelude::*, server::AllocationDescriptor};
 
-use crate::components::global::args::{ConcreteOutputFactory, TensorOutput};
+use crate::components::{
+    MatmulElems,
+    global::args::{ConcreteOutputFactory, TensorArgs, TensorOutput},
+};
 use crate::components::{MatmulProblem, MatmulSelection};
 use crate::components::{MatrixLayout, global::args::ConcreteInputsFactory};
 use crate::components::{
@@ -16,7 +19,7 @@ use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
 use crate::{
     MatmulInputHandleRef,
-    components::{AccG, AvailableLineSizes, MatmulIdent},
+    components::{AvailableLineSizes, MatmulIdent},
 };
 
 #[derive(Debug)]
@@ -66,12 +69,9 @@ pub fn test_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), R>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let dtypes = MatmulElems::new::<P::MP>(P::EG::as_type_native_unchecked());
+
+    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -98,18 +98,25 @@ pub fn test_matmul_algorithm<A, P, R>(
     );
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-    });
-    let rhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-    });
+    let lhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
     let out_handle = unsafe {
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
+    let dtypes = MatmulElems::new::<P::MP>(P::EG::as_type_native_unchecked());
 
     unsafe {
-        A::BatchMatmul::launch_unchecked::<P::MP, R>(
+        A::BatchMatmul::launch_unchecked::<TensorArgs, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -122,7 +129,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &line_sizes,
                 config,
             ),
-            TensorOutput::<AccG<P::MP>>::create(
+            TensorOutput::create(
                 &client,
                 &out_handle,
                 &selection,
@@ -132,6 +139,7 @@ pub fn test_matmul_algorithm<A, P, R>(
             ),
             cube_count_plan.as_args(),
             config,
+            &dtypes,
         );
     }
 

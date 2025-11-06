@@ -3,8 +3,8 @@ use crate::components::global::GlobalMatmulFamily;
 use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+    MatmulSetupError,
 };
 use cubecl_core::prelude::*;
 

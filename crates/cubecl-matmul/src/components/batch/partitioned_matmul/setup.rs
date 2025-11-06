@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::entry_point::matmul;
 use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
@@ -44,14 +43,14 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     }
 
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server>,
-        cube_dim: CubeDim,
-        cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MA, R>,
-        output: OutputRuntimeArg<'a, MA, R>,
-        cube_count_input: CubeCountInputArgs<'a, R>,
-        config: Self::Config,
-        dtypes: &MatmulElems,
+        _client: &ComputeClient<<R as Runtime>::Server>,
+        _cube_dim: CubeDim,
+        _cube_count: CubeCount,
+        _input: InputRuntimeArg<'a, MA, R>,
+        _output: OutputRuntimeArg<'a, MA, R>,
+        _cube_count_input: CubeCountInputArgs<'a, R>,
+        _config: Self::Config,
+        _dtypes: &MatmulElems,
     ) {
         todo!();
         // unsafe {

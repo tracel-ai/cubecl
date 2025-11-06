@@ -1,7 +1,7 @@
 use cubecl_core::{ir::StorageType, prelude::*};
 use half::{bf16, f16};
 
-use super::global::args::{MatmulArgs, TensorArgs};
+use super::global::args::MatmulArgs;
 
 /// Matrix multiplication precisions.
 pub trait MatmulPrecision: Send + Sync + Copy + 'static {

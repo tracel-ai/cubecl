@@ -2,11 +2,7 @@
 //!
 //! Each local unit will compute a single element of the output matrix.
 use cubecl::prelude::*;
-use cubecl_core::{
-    self as cubecl,
-    ir::{ElemType, IntKind, UIntKind},
-    tensor_line_size_parallel,
-};
+use cubecl_core::{self as cubecl, tensor_line_size_parallel};
 
 use cubecl_std::tensor::{
     MatrixBatchLayout, View, launch::ViewArg, layout::Coords3d, matrix_batch_layout,
@@ -211,7 +207,7 @@ pub fn launch_ref<R: Runtime>(
             ..Default::default()
         };
         match handle {
-            MatmulInputHandleRef::Normal(handle, dtype) => {
+            MatmulInputHandleRef::Normal(handle, _dtype) => {
                 let layout = GlobalLayoutLaunch::from_handle_batched(
                     client, handle, problem, line_size, config,
                 );
@@ -222,8 +218,7 @@ pub fn launch_ref<R: Runtime>(
                 scale,
                 shape,
                 scheme,
-                data_dtype,
-                scale_dtype,
+                ..
             } => {
                 let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
                     client, data, scale, shape, problem, **scheme, line_size, config,

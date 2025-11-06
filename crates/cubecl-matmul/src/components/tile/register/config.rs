@@ -1,6 +1,5 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_core::ir::{ElemType, FloatKind};
-use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::StorageType};
 use cubecl_runtime::TypeUsage;
 
@@ -211,15 +210,26 @@ impl RegisterConfig {
             _ => acc,
         };
 
-        // TODO
-        // if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
-        //     && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
-        //     && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
-        // {
-        //     return Err(MatmulSetupError::Unavailable(
-        //         MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
-        //     ));
-        // }
+        if !(client
+            .properties()
+            .features
+            .type_usage(lhs)
+            .contains(TypeUsage::Arithmetic)
+            && client
+                .properties()
+                .features
+                .type_usage(rhs)
+                .contains(TypeUsage::Arithmetic)
+            && client
+                .properties()
+                .features
+                .type_usage(output)
+                .contains(TypeUsage::Arithmetic))
+        {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
+            ));
+        }
 
         Ok(self)
     }

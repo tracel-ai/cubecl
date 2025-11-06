@@ -1,6 +1,5 @@
 use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
-use cubecl_core::prelude::Numeric;
 use cubecl_runtime::MmaConfig;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};

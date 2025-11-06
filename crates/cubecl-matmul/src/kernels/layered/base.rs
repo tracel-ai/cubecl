@@ -1,17 +1,15 @@
 use crate::components::global::args::{ConcreteInputsFactory, ConcreteOutputFactory};
 use crate::components::{
-    AvailableLineSizes, InputArg, InputRuntimeArg, MatmulAvailabilityError, MatmulLineSizes,
-    MatmulProblem, MatmulSelection, MatmulSetupError, MatrixLayout, OutputArg, OutputRuntimeArg,
+    AvailableLineSizes, InputArg, InputRuntimeArg, MatmulAvailabilityError, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatrixLayout, OutputArg, OutputRuntimeArg,
 };
 use crate::components::{
     MatmulElems,
     batch::{BatchMatmulFamily, CubeCountInputArgs},
     global::args::{MatmulArgs, TensorArgs, TensorMapArgs},
 };
-use crate::components::{MatmulPrecision, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::launch_kernel_concrete;
 use crate::{MatmulInputHandle, MatmulInputHandleRef};
-use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
 use cubecl_runtime::TypeUsage;
@@ -210,19 +208,30 @@ where
     let rhs_elem = dtypes.rhs_global;
     let acc_elem = dtypes.acc_global;
 
-    // TODO
-    // if !LhsG::<MA>::supported_uses(client).contains(TypeUsage::Conversion)
-    //     || !RhsG::<MA>::supported_uses(client).contains(TypeUsage::Conversion)
-    //     || !AccG::<MA>::supported_uses(client).contains(TypeUsage::Conversion)
-    // {
-    //     return Err(MatmulSetupError::Unavailable(
-    //         MatmulAvailabilityError::TypesUnavailable {
-    //             lhs: lhs_elem,
-    //             rhs: rhs_elem,
-    //             output: acc_elem,
-    //         },
-    //     ));
-    // }
+    if !client
+        .properties()
+        .features
+        .type_usage(lhs_elem)
+        .contains(TypeUsage::Conversion)
+        || !client
+            .properties()
+            .features
+            .type_usage(rhs_elem)
+            .contains(TypeUsage::Conversion)
+        || !client
+            .properties()
+            .features
+            .type_usage(acc_elem)
+            .contains(TypeUsage::Conversion)
+    {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::TypesUnavailable {
+                lhs: lhs_elem,
+                rhs: rhs_elem,
+                output: acc_elem,
+            },
+        ));
+    }
 
     let m = lhs_shape[rank - 2] as u32;
     let k = lhs_shape[rank - 1] as u32;

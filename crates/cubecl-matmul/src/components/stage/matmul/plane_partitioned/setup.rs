@@ -1,12 +1,15 @@
+use crate::components::AccS;
+use crate::components::ComputeResources;
+use crate::components::LhsS;
 use crate::components::MatmulElems;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
-use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxGlobalReaderPlanes;
+use crate::components::global::PartitionedStageFamily;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::StageFamily;
@@ -15,9 +18,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{AccR, AccS, ComputeResources};
-use crate::components::{LhsR, global::PartitionedStageFamily};
-use crate::components::{LhsS, tile::io::Strided};
+use crate::components::tile::io::Strided;
 use crate::components::{MatrixPrecision, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
