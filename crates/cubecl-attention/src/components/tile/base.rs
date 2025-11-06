@@ -121,7 +121,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
 
         row_sum::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
             sum_placeholder,
-            &rowwise_softmax,
+            rowwise_softmax,
             config,
         );
 
@@ -144,7 +144,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         accumulator.scale_mul(scale);
 
         FA::value_matmul(
-            &softmax,
+            softmax,
             key_value.value(),
             &mut accumulator.fragment,
             config,
