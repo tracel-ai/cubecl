@@ -120,7 +120,6 @@ pub fn launch_ref<R: Runtime>(
     out: &TensorHandleRef<'_, R>,
     dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    println!("{:?}", dtypes);
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let rank = lhs.shape().len();
     let dim1 = rank - 1;
@@ -130,7 +129,6 @@ pub fn launch_ref<R: Runtime>(
     let rhs_layout = matrix_batch_layout(rhs.data().strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        println!("Into contiguous lhs");
         lhs.into_contiguous(client)
     } else {
         MatmulInputHandle::from_ref(lhs)
@@ -143,7 +141,6 @@ pub fn launch_ref<R: Runtime>(
     // consecutively in memory, which allows to fetch them with fewer memory instructions
     let correct_rhs_layout = |mut rhs: MatmulInputHandle<R>| {
         rhs.swap_dims(dim1, dim2);
-        println!("Into contiguous rhs");
         let mut rhs = rhs.as_ref().into_contiguous(client);
 
         rhs.swap_dims(dim1, dim2);

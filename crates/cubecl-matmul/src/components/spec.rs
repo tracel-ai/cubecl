@@ -172,4 +172,28 @@ impl MatmulElems {
             acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),
         }
     }
+
+    pub fn from_globals(lhs: StorageType, rhs: StorageType, out: StorageType) -> Self {
+        let acc_type = |dtype: StorageType| {
+            if dtype == half::f16::as_type_native_unchecked()
+                || dtype == half::bf16::as_type_native_unchecked()
+            {
+                return f32::as_type_native_unchecked();
+            }
+
+            dtype
+        };
+
+        Self {
+            lhs_global: lhs,
+            rhs_global: rhs,
+            acc_global: out,
+            lhs_stage: lhs,
+            rhs_stage: rhs,
+            acc_stage: acc_type(out),
+            lhs_register: lhs,
+            rhs_register: rhs,
+            acc_register: acc_type(out),
+        }
+    }
 }

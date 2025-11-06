@@ -265,7 +265,6 @@ pub fn into_contiguous_pitched<R: Runtime>(
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
-    println!("Into contiguous pitched...");
     if input.shape.len() <= 1 {
         return into_contiguous(client, input, dtype);
     }
@@ -372,7 +371,6 @@ pub fn into_contiguous_ref<R: Runtime>(
         into_contiguous_kernel::launch::<R>
     };
 
-    println!("Launch");
     launch(
         client,
         cube_count,

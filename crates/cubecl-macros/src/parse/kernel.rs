@@ -101,7 +101,7 @@ impl GenericAnalysis {
             for key in name_mapping.keys() {
                 let err = syn::Error::new_spanned(
                     key,
-                    format!("Generic `{key}` isn't defined correctly. Only `Float` and `Numeric` generics can be defined"),
+                    format!("Generic `{key}` isn't defined correctly. Only `Float`, `Int` and `Numeric` generics can be defined with only a single trait bound."),
                 ).into_compile_error();
                 output.extend(err);
             }
@@ -172,8 +172,17 @@ impl GenericAnalysis {
         let mut map = HashMap::new();
 
         for param in generics.params.pairs() {
-            if let syn::GenericParam::Type(type_param) = param.value()
-                && let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
+            let type_param = if let syn::GenericParam::Type(type_param) = param.value() {
+                type_param
+            } else {
+                continue;
+            };
+
+            if type_param.bounds.len() > 1 {
+                continue;
+            }
+
+            if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
@@ -183,6 +192,9 @@ impl GenericAnalysis {
                 match name.as_str() {
                     "Float" => {
                         map.insert(type_param.ident.clone(), parse_quote!(FloatExpand<#index>));
+                    }
+                    "Int" => {
+                        map.insert(type_param.ident.clone(), parse_quote!(IntExpand<#index>));
                     }
                     "Numeric" => {
                         map.insert(

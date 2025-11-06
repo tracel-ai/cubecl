@@ -525,7 +525,7 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, P, O, K>(
+        let result = reduce::<R, K>(
             &client,
             input,
             output,
