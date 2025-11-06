@@ -5,11 +5,11 @@ use cubecl_matmul::components::tile::StridedTile;
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 
-use crate::components::fragment::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
-use crate::components::fragment::accelerated::hybrid_fragment::HybridFragment;
-use crate::components::fragment::accelerated::local_tile::LocalTile;
-use crate::components::fragment::accelerated::local_tile::LocalTileLayout;
-use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
+use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
+use crate::components::tile::accelerated::hybrid_fragment::HybridFragment;
+use crate::components::tile::accelerated::local_tile::LocalTile;
+use crate::components::tile::accelerated::local_tile::LocalTileLayout;
+use crate::components::tile::{FragmentAttention, FragmentAttentionConfig as _};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
 /// because the fragment layout is blackbox

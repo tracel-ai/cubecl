@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
-use crate::components::fragment::FragmentAttention;
+use crate::components::tile::FragmentAttention;
 
 #[derive(CubeType)]
 /// Key and Value inputs to the Tile Attention

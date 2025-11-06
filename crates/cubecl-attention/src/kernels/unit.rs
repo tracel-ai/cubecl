@@ -1,6 +1,6 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
-use crate::components::fragment::unit_register::UnitRegisterFragmentAttention;
+use crate::components::tile::unit_register::UnitRegisterFragmentAttention;
 use crate::components::stage::unit::UnitKVReuseStageAttentionFamily;
 use crate::{
     components::{

@@ -7,13 +7,12 @@ use cubecl_matmul::components::{
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::tile::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
+    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
-use crate::components::{attention_types::*, fragment::FragmentAttentionConfig};
+use crate::components::{attention_types::*, tile::FragmentAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;

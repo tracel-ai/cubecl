@@ -1,17 +1,17 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
-use crate::components::fragment::dummy_register::DummyRegisterFragmentAttention;
+use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
+use crate::components::tile::accelerated::BlackboxAcceleratedFragmentAttention;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, fragment::FragmentAttentionFamily,
+    AttentionSetupError, InvalidConfigError, tile::FragmentAttentionFamily,
 };
 
-impl FragmentAttentionFamily for DummyRegisterFragmentAttention {
-    type FragmentAttention<F: AttentionPrecision> = DummyRegisterFragmentAttention;
+impl FragmentAttentionFamily for BlackboxAcceleratedFragmentAttention {
+    type FragmentAttention<F: AttentionPrecision> = BlackboxAcceleratedFragmentAttention;
 
-    type Config = DummyRegisterAttentionMatmulConfig;
+    type Config = BlackboxAcceleratedAttentionMatmulConfig;
 
     fn requires_accelerator() -> bool {
         false
@@ -28,7 +28,7 @@ impl FragmentAttentionFamily for DummyRegisterFragmentAttention {
         line_sizes: &AttentionLineSizes,
         num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
-        DummyRegisterAttentionMatmulConfig::new::<AP>(
+        BlackboxAcceleratedAttentionMatmulConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             num_planes,

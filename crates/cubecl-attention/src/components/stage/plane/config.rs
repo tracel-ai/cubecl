@@ -1,6 +1,6 @@
 use crate::components::{
     AttentionSetupError, AttentionTilingScheme,
-    fragment::FragmentAttentionConfig,
+    tile::FragmentAttentionConfig,
     stage::{AttentionStageMemoryConfig, StageAttentionConfig},
 };
 

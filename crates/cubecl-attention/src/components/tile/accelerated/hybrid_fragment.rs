@@ -2,12 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::TileSize;
 
-use crate::components::fragment::FragmentAttentionConfig as _;
-use crate::components::fragment::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
-use crate::components::fragment::accelerated::local_tile::{LocalTile, LocalTileLayout};
-use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
-use crate::components::fragment::{SoftmaxFragment, SoftmaxFragmentExpand};
-use crate::components::tile::RowWise;
+use crate::components::tile::{FragmentAttentionConfig as _, RowWise};
+use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
+use crate::components::tile::accelerated::local_tile::{LocalTile, LocalTileLayout};
+use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
+use crate::components::tile::{SoftmaxFragment, SoftmaxFragmentExpand};
 
 #[derive(CubeType)]
 /// Navigates between cmma fragment (for matmuls) and shared memory (for row wise ops)

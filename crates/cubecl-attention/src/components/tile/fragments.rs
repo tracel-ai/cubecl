@@ -1,8 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::RowWise;
 use cubecl_std::tensor::layout::Coords2d;
+
+use crate::components::tile::RowWise;
 
 #[cube]
 /// Describes how a fragment is fragmented across units

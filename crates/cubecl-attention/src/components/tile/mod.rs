@@ -1,5 +1,11 @@
-mod row;
-mod tiles;
+pub mod accelerated;
+pub mod dummy_register;
+pub mod unit_register;
 
-pub use row::*;
-pub use tiles::*;
+mod base;
+mod fragments;
+mod rowwise;
+
+pub use base::*;
+pub use fragments::*;
+pub use rowwise::*;

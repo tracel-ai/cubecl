@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::fragment::FragmentAttentionConfig;
+use crate::components::tile::FragmentAttentionConfig;
 use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

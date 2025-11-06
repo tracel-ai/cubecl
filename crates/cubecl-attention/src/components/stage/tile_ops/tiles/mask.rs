@@ -5,8 +5,8 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
-use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig};
-use crate::components::fragment::{
+use crate::components::tile::{FragmentAttention, FragmentAttentionConfig};
+use crate::components::tile::{
     FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
 };
 use cubecl_matmul::components::tile::StridedTile;

@@ -1,11 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
-use crate::components::tile::ReduceOp;
-use crate::components::tile::Reducer;
-use crate::components::tile::RowWise;
+use crate::components::tile::{FragmentAttentionConfig, RowWise};
+use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::stage::{ReduceOp, Reducer};
 
 #[derive(CubeType)]
 /// Naive row reducer using shared memory

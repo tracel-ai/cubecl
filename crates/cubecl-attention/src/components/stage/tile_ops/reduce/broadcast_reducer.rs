@@ -1,11 +1,9 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
-use crate::components::tile::ReduceOp;
-use crate::components::tile::Reducer;
-use crate::components::tile::{RowVal, RowWise};
+use crate::components::tile::{FragmentAttentionConfig, RowVal, RowWise};
+use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::stage::{ReduceOp, Reducer};
 
 #[derive(CubeType)]
 /// Applies reduction on rows, masking planes that do not participate in the row

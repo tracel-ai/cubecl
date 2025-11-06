@@ -7,17 +7,17 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
-use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
-use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
-use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
-use crate::components::fragment::{SoftmaxFragment, SoftmaxFragmentExpand};
+use crate::components::tile::FragmentAttentionConfig;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
+use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
+use crate::components::tile::{FragmentMask, FragmentMaskExpand};
+use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::tile::{SoftmaxFragment, SoftmaxFragmentExpand};
 
-use crate::components::fragment::FragmentAttention;
-use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::tile::FragmentAttention;
+use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
 
 pub struct UnitRegisterFragmentAttention;
 

@@ -1,18 +1,11 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::tile::{MaskTile, Reducer};
-use crate::components::{
-    AttentionPrecision,
-    attention_types::*,
-    tile::{RowWise, RunningState, row_max},
-};
-use crate::components::{
-    fragment::{RowwiseFormat, RowwiseFormatExpand},
-    tile::row_sum,
-};
+use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::stage::{MaskTile, Reducer, RunningState, row_max, row_sum};
+use crate::components::{AttentionPrecision, attention_types::*};
 
-use crate::components::fragment::FragmentAttention;
+use crate::components::tile::{FragmentAttention, RowWise};
 
 #[cube]
 pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reducer>(

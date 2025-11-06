@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::FragmentAttention;
-use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
+use crate::components::tile::FragmentAttention;
 use crate::components::tile::RowWise;
+use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 
 #[derive(CubeType)]
 /// Accumulator tile for Tile Attention

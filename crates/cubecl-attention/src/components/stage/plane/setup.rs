@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::{
     attention_types::*,
-    fragment::FragmentAttentionFamily,
+    tile::FragmentAttentionFamily,
     stage::{
         AttentionStageMemoryConfig, AttentionTilingLayout,
         plane::{PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},

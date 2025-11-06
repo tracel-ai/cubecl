@@ -3,13 +3,12 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::fragment::{
-    FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand,
-    RowwiseFormat, RowwiseFormatExpand,
+use crate::components::tile::{
+    FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand, RowVal,
+    RowWise, RowwiseFormat, RowwiseFormatExpand,
 };
-use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
+use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
 
 #[derive(CubeType)]
 /// Assumes:

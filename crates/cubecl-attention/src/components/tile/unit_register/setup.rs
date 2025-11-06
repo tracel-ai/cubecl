@@ -1,11 +1,11 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::fragment::unit_register::UnitRegisterFragmentAttention;
-use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::tile::unit_register::UnitRegisterFragmentAttention;
+use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, fragment::FragmentAttentionFamily,
+    AttentionSetupError, InvalidConfigError, tile::FragmentAttentionFamily,
 };
 
 impl FragmentAttentionFamily for UnitRegisterFragmentAttention {

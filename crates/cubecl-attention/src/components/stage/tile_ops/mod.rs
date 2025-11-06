@@ -1,7 +1,7 @@
 mod reduce;
-mod rowwise;
 mod state;
+mod tiles;
 
 pub use reduce::*;
-pub use rowwise::*;
 pub use state::*;
+pub use tiles::*;

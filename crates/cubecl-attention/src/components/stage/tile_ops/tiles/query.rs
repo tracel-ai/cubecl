@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::FragmentAttention;
+use crate::components::tile::FragmentAttention;
 use cubecl_matmul::components::tile::StridedTile;
 
 #[derive(CubeType)]
