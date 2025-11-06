@@ -133,16 +133,16 @@ pub type AccS<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage;
 pub type AccR<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Register;
 
 /// Input argument
-pub type InputArg<MA> = <MA as MatmulArgs>::Input<f32, f32, f32>;
+pub type InputArg<MA> = <MA as MatmulArgs>::Input<NumericExpand<0>, NumericExpand<1>, NumericExpand<2>>;
 
 /// Output argument
-pub type OutputArg<MA> = <MA as MatmulArgs>::Output<f32>;
+pub type OutputArg<MA> = <MA as MatmulArgs>::Output<NumericExpand<2>>;
 
 /// Input runtime argument
-pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type InputRuntimeArg<'a, MA, R> = <InputArg<MA> as LaunchArg>::RuntimeArg<'a, R>;
 
 /// Output runtime argument
-pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type OutputRuntimeArg<'a, MA, R> = <OutputArg<MA> as LaunchArg>::RuntimeArg<'a, R>;
 
 pub struct MatmulElems {
     pub lhs_global: StorageType,

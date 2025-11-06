@@ -7,8 +7,8 @@ use crate::components::MatrixLayout;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
-use crate::components::global::args::{TensorArgs, TensorMapArgs};
-use crate::components::{AccG, AvailableLineSizes};
+use crate::components::global::args::{TensorMapArgs};
+use crate::components::{AvailableLineSizes};
 use crate::components::{MatmulElems, MatmulIdent};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
@@ -109,7 +109,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &line_sizes,
         config,
     );
-    let output = TensorOutput::<AccG<P::MP>>::create(
+    let output = TensorOutput::create(
         &client,
         &out_handle,
         &selection,
