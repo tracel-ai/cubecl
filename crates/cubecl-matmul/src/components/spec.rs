@@ -6,20 +6,8 @@ use super::global::args::{MatmulArgs, TensorArgs};
 /// Matrix multiplication spec defining each element types used in the computation as well as
 /// how the arguments are passed to the kernel.
 pub trait MatmulSpec: Send + Sync + Clone + 'static {
-    type Precision: MatmulPrecision;
     /// How the input and output tensors are passed as arguments.
     type Args: MatmulArgs;
-}
-
-impl<MP: MatmulPrecision, Args: MatmulArgs> MatmulSpec for (MP, Args) {
-    type Precision = MP;
-    type Args = Args;
-}
-
-// A simple default for TensorArgs
-impl<MP: MatmulPrecision> MatmulSpec for MP {
-    type Precision = MP;
-    type Args = TensorArgs;
 }
 
 /// Matrix multiplication precisions.
@@ -175,6 +163,7 @@ pub type Args<MS> = <MS as MatmulSpec>::Args;
 pub struct MatmulElems {
     pub lhs_global: StorageType,
     pub rhs_global: StorageType,
+    pub out_global: StorageType,
     pub acc_global: StorageType,
     pub lhs_stage: StorageType,
     pub rhs_stage: StorageType,
@@ -185,10 +174,11 @@ pub struct MatmulElems {
 }
 
 impl MatmulElems {
-    pub fn new<MP: MatmulPrecision>() -> Self {
+    pub fn new<MP: MatmulPrecision>(out: StorageType) -> Self {
         Self {
             lhs_global: <MP::Lhs as MatrixPrecision>::Global::as_type_native_unchecked(),
             rhs_global: <MP::Rhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            out_global: out,
             acc_global: <MP::Acc as MatrixPrecision>::Global::as_type_native_unchecked(),
             lhs_stage: <MP::Lhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
             rhs_stage: <MP::Rhs as MatrixPrecision>::Stage::as_type_native_unchecked(),

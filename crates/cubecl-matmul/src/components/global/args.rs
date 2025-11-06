@@ -159,7 +159,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
         let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
-            MatmulInputHandleRef::Normal(handle) => {
+            MatmulInputHandleRef::Normal(handle, dtype) => {
                 let layout = GlobalLayoutLaunch::from_handle(
                     handle,
                     line_size,
@@ -172,6 +172,8 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => {
                 let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
                     client,
@@ -191,7 +193,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
             }
         };
         let batch_layout = |handle: &'a MatmulInputHandleRef<'a, R>| match handle {
-            MatmulInputHandleRef::Normal(handle) => {
+            MatmulInputHandleRef::Normal(handle, dtype) => {
                 let layout = BatchLayoutLaunch::from_handle(client, handle, problem);
                 VirtualLayoutLaunch::new::<BatchLayout>(layout)
             }

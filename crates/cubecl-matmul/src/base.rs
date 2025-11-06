@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     components::{
-        AccG, LhsG, MatmulSetupError, RhsG,
+        AccG, LhsG, MatmulElems, MatmulSetupError, RhsG,
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -186,7 +186,7 @@ impl<R: Runtime> MatmulInputHandle<R> {
         }
     }
 
-    pub fn data(&self) -> &TensorHandle<R, E> {
+    pub fn data(&self) -> &TensorHandle<R> {
         match self {
             MatmulInputHandle::Normal(handle) => handle,
             MatmulInputHandle::Quantized { data, .. } => data,
@@ -214,7 +214,7 @@ impl<R: Runtime> MatmulInputHandle<R> {
     }
 }
 
-impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
+impl<R: Runtime> Clone for MatmulInputHandle<R> {
     fn clone(&self) -> Self {
         match self {
             Self::Normal(handle) => Self::Normal(handle.clone()),
@@ -350,7 +350,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                         // Unsafely cast to E
                         TensorHandle::from_ref(&data.as_ref(), data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R, E>(client, data, data_dtype),
+                    _ => into_contiguous_pitched::<R>(client, data, data_dtype),
                 };
                 MatmulInputHandle::Quantized {
                     data,
@@ -364,29 +364,32 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, MP: MatmulPrecision>(
+pub fn launch<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
-    lhs: MatmulInputHandle<R, LhsG<MP>>,
-    rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, AccG<MP>>,
+    lhs: MatmulInputHandle<R>,
+    rhs: MatmulInputHandle<R>,
+    out: TensorHandle<R>,
+    dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R, MP>(
+    launch_ref::<R>(
         strategy,
         client,
         &lhs.as_ref(),
         &rhs.as_ref(),
         &out.as_ref(),
+        &dtypes,
     )
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
+pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<R>,
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     match strategy {
         Strategy::Simple {
@@ -395,29 +398,27 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             SyncReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, SimpleAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             SyncReadingStrategy::Strided => layered::launch_ref::<
                 R,
-                MP,
                 SimpleAlgorithm<
                     Accelerated,
                     sync_full_strided::SyncFullStridedLoading,
                     sync_full_strided::SyncFullStridedLoading,
                 >,
-            >(client, lhs, rhs, out, selection),
+            >(client, lhs, rhs, out, selection, dtypes),
             SyncReadingStrategy::Tilewise => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
                         sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
         }),
         Strategy::SimpleBarrier {
@@ -427,50 +428,47 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             AsyncReadingStrategy::Cooperative => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleBarrierAlgorithm<
                         Accelerated,
                         async_full_cooperative::AsyncFullCooperativeLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             AsyncReadingStrategy::Cyclic => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleBarrierAlgorithm<
                         Accelerated,
                         async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             AsyncReadingStrategy::MaximizeSliceLength => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleBarrierAlgorithm<
                         Accelerated,
                         async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             AsyncReadingStrategy::MaximizeUnitCount => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleBarrierAlgorithm<
                         Accelerated,
                         async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             AsyncReadingStrategy::Tma => {
-                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
+                layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
                     client,
                     lhs,
                     rhs,
                     out,
                     &Default::default(),
+                    dtypes,
                 )
             }
         }),
@@ -480,18 +478,18 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             SyncPartialReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, CyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             SyncPartialReadingStrategy::Tilewise => {
-                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             SyncPartialReadingStrategy::Hybrid => {
-                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, HybridDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
         }),
@@ -500,37 +498,38 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref::<
             R,
-            MP,
             OrderedDoubleBufferingAlgorithm<Accelerated>,
         >(
-            client, lhs, rhs, out, selection,
+            client, lhs, rhs, out, selection, dtypes
         )),
         Strategy::SimpleUnit(selection) => {
-            layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::DoubleUnit(selection) => {
-            layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs, rhs, out)?;
+            naive::launch_ref::<R>(client, lhs, rhs, out, dtypes)?;
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<CmmaMatmul<Filled>>>(
+            if let Err(err) = layered::launch_ref::<R, SimpleAlgorithm<CmmaMatmul<Filled>>>(
                 client,
                 lhs,
                 rhs,
                 out,
                 &Default::default(),
+                dtypes,
             ) {
                 match err {
                     MatmulSetupError::Unavailable(_) => {
-                        layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+                        layered::launch_ref::<R, SimpleUnitAlgorithm>(
                             client,
                             lhs,
                             rhs,
                             out,
                             &Default::default(),
+                            dtypes,
                         )
                         .unwrap();
                     }
@@ -540,11 +539,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
 
             Ok(())
         }
-        Strategy::SimpleVecMat(selection) => {
-            layered::launch_ref::<R, MP, SimpleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
-        Strategy::DoubleVecMat(selection) => {
-            layered::launch_ref::<R, MP, DoubleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
+        Strategy::SimpleVecMat(selection) => layered::launch_ref::<R, SimpleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
+        Strategy::DoubleVecMat(selection) => layered::launch_ref::<R, DoubleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
     }
 }

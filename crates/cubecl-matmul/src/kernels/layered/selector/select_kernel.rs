@@ -25,13 +25,12 @@ pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MS>: ConcreteInputsFactory,
     OutputArg<MS>: ConcreteOutputFactory,
 {
-    let elems = MatmulElems::new::<MS::Precision>();
-
     let mut view_line_sizes = line_sizes;
 
     if let MatmulInputHandleRef::Quantized { scheme, .. } = lhs {
@@ -47,7 +46,7 @@ where
             A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, elems, args)?
         }
     };
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &view_line_sizes)?;
+    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
@@ -88,16 +87,15 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     view_line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    let elems = MatmulElems::new::<MS::Precision>();
-
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, elems, args)?
+            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, dtypes, args)?
         }
     };
-    let config = A::setup::<MS::Precision, R>(client, &problem, &selection, &view_line_sizes)?;
+    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
 
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,

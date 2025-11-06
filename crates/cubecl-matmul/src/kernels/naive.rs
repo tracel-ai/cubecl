@@ -15,7 +15,7 @@ use cubecl_std::tensor::{
 use crate::{
     MatmulInputHandle, MatmulInputHandleRef,
     components::{
-        MatmulAvailabilityError, MatmulProblem, MatmulSetupError, MatrixLayout,
+        MatmulAvailabilityError, MatmulElems, MatmulProblem, MatmulSetupError, MatrixLayout,
         global::memory::{GlobalLayout, GlobalLayoutConfig, GlobalLayoutLaunch, GlobalScaleLayout},
     },
 };
@@ -111,17 +111,9 @@ pub fn launch<R: Runtime>(
     lhs: MatmulInputHandle<R>,
     rhs: MatmulInputHandle<R>,
     out: &TensorHandleRef<'_, R>,
-    input_dtype: StorageType,
-    output_dtype: StorageType,
+    dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R>(
-        client,
-        &lhs.as_ref(),
-        &rhs.as_ref(),
-        out,
-        input_dtype,
-        output_dtype,
-    )
+    launch_ref::<R>(client, &lhs.as_ref(), &rhs.as_ref(), out, &dtypes)
 }
 
 #[allow(clippy::result_large_err)]
@@ -130,8 +122,7 @@ pub fn launch_ref<R: Runtime>(
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
-    input_dtype: StorageType,
-    output_dtype: StorageType,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let rank = lhs.shape().len();
@@ -207,10 +198,10 @@ pub fn launch_ref<R: Runtime>(
         rhs_layout: MatrixLayout::ColMajor,
     };
 
-    let acc_dtype = match input_dtype {
+    let acc_dtype = match input_dtype.elem_type() {
         ElemType::Int(IntKind::I8) => i16::as_type_native_unchecked(),
         ElemType::Int(_) => i32::as_type_native_unchecked(),
-        ElemType::UInt(IntKind::U8) => u16::as_type_native_unchecked(),
+        ElemType::UInt(UIntKind::U8) => u16::as_type_native_unchecked(),
         ElemType::UInt(_) => u32::as_type_native_unchecked(),
         ElemType::Float(..) => f32::as_type_native_unchecked(),
         _ => input_dtype,
@@ -278,9 +269,9 @@ pub fn launch_ref<R: Runtime>(
             lhs_view,
             rhs_view,
             out.as_tensor_arg(1),
-            input_dtype,
-            acc_dtype,
-            output_dtype,
+            dtypes.lhs_global,
+            dtypes.acc_global,
+            dtypes.out_global,
         );
     };
 
