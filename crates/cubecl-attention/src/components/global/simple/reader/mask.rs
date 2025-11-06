@@ -4,6 +4,7 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::global::memory::{GlobalIterator, ViewDirection};
 use cubecl_matmul::components::tile::StridedTile;
+use cubecl_std::tensor::layout::Coordinates;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::AttentionPrecision;
@@ -82,9 +83,10 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
             MaskReader::Materialized(materialized_mask_reader) => {
                 materialized_mask_reader.read::<P, S>(pos_in_partition, config)
             }
-            MaskReader::Logical(logical_iterator) => {
-                (logical_iterator.read(), CubeOption::new_None())
-            }
+            MaskReader::Logical(logical_iter) => (
+                Coords2d::add(logical_iter.read(), pos_in_partition.runtime()),
+                CubeOption::new_None(),
+            ),
         }
     }
 
@@ -137,7 +139,10 @@ impl<M: Numeric> MaterializedMaskReader<M> {
             MatrixLayout::RowMajor,
         );
 
-        (self.logical_iter.read(), CubeOption::new_Some(tile))
+        (
+            Coords2d::add(self.logical_iter.read(), pos_in_partition.runtime()),
+            CubeOption::new_Some(tile),
+        )
     }
 
     fn advance(&mut self) {

@@ -3,21 +3,21 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     MatrixLayout, StageIdent, TilingScheme,
     global::{WriteEventListener, WriteTiling},
-    stage::{StageFamily, StageMemoryConfig},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::tile::RunningState;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig,
-    tile::AttentionTilingLayout,
+    AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
-use crate::components::{attention_types::*, fragment::FragmentAttentionConfig};
+use crate::components::{attention_types::*, tile::FragmentAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
+
+pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
@@ -78,7 +78,8 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         key_stage: &Self::KeyStage,
         value_stage: &Self::ValueStage,
         key_value: &mut Self::KeyValueRegisters,
-        mask_partition: &Self::MaskRegisters,
+        mask_reader: &MaskReader<AP>,
+        mask_partition: &mut Self::MaskRegisters,
         score: &mut Self::SoftmaxRegisters,
         accumulator: &mut Self::AccumulatorRegisters,
         prev_state: &mut Sequence<RunningState<SM<AP>>>,
@@ -110,11 +111,6 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     fn read_query(
         reader: &QueryReader<AP>,
         registers: &mut Self::QueryRegisters,
-        #[comptime] config: Self::Config,
-    );
-    fn read_mask(
-        reader: &MaskReader<AP>,
-        registers: &mut Self::MaskRegisters,
         #[comptime] config: Self::Config,
     );
 }

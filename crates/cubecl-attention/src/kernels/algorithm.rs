@@ -1,6 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 
-use crate::components::fragment::FragmentAttentionFamily;
+use crate::components::tile::FragmentAttentionFamily;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError, AvailableLineSizes, batch::BatchAttentionFamily,

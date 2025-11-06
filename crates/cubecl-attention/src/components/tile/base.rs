@@ -1,159 +1,120 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::{
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder},
-    tile::StridedTile,
-};
+use cubecl_matmul::components::ComputeResources;
+use cubecl_matmul::components::tile::StridedTile;
 
+use crate::components::attention_types::*;
 use crate::components::tile::{
-    AccumulatorTile, KeyValueTile, MaskTile, QueryTile, Reducer, SoftmaxTile,
+    FragmentAccumulator, FragmentLayout, FragmentMask, RowwiseFormat, SoftmaxFragment,
 };
 use crate::components::{
-    AttentionPrecision,
-    attention_types::*,
-    fragment::FragmentAttentionConfig,
-    tile::{RowWise, RunningState},
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AttentionTileSize, AvailableLineSizes, InvalidConfigError,
 };
-use std::marker::PhantomData;
-
-use crate::components::fragment::FragmentAttention;
-use cubecl_std::CubeOption;
-use cubecl_std::tensor::layout::Coords2d;
-
-pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
-
-#[derive(CubeType)]
-pub struct TileAttention<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
-    #[cube(comptime)]
-    _phantom: PhantomData<(AP, FA)>,
-}
+use std::fmt::Debug;
+use std::hash::Hash;
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
-    pub fn rescale(acc: &mut AccumulatorTile<AP, FA>, prev_state: &RunningState<SM<AP>>) {
-        acc.scale_div(prev_state.l());
-    }
+pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
+    type Config: FragmentAttentionConfig;
+    type Query: CubeType;
+    type KeyValue: CubeType;
+    type Mask: FragmentMask<Layout = Self::FragmentLayout>;
 
-    pub fn write_results(
-        tile: &mut StridedTile<OS<AP>, ReadWrite>,
-        acc: &AccumulatorTile<AP, FA>,
-        #[comptime] config: FA::Config,
-    ) {
-        FA::write_results(&acc.fragment, &mut tile.slice, config)
-    }
+    type Softmax: SoftmaxFragment<SM<AP>, Layout = Self::FragmentLayout, SoftmaxRowFormat = Self::SoftmaxRow>;
+    type SoftmaxRow: RowwiseFormat<SM<AP>, Layout = Self::FragmentLayout>;
 
-    pub fn init_accumulator(#[comptime] config: FA::Config) -> AccumulatorTile<AP, FA> {
-        AccumulatorTile::new(config)
-    }
+    type Accumulator: FragmentAccumulator<ACC<AP>>;
+    type FragmentLayout: FragmentLayout;
 
-    pub fn init_query(#[comptime] config: FA::Config) -> QueryTile<AP, FA> {
-        QueryTile::new(config)
-    }
+    fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout;
 
-    pub fn init_key_value(#[comptime] config: FA::Config) -> KeyValueTile<AP, FA> {
-        KeyValueTile::new_key_value(config)
-    }
+    fn score_matmul(
+        lhs: &Self::Query,
+        rhs: &Self::KeyValue,
+        out: &mut Self::Softmax,
+        #[comptime] config: Self::Config,
+    );
 
-    pub fn init_key(#[comptime] config: FA::Config) -> KeyValueTile<AP, FA> {
-        KeyValueTile::new_key(config)
-    }
+    fn value_matmul(
+        lhs: &Self::Softmax,
+        rhs: &Self::KeyValue,
+        out: &mut Self::Accumulator,
+        #[comptime] config: Self::Config,
+    );
 
-    pub fn init_value(#[comptime] config: FA::Config) -> KeyValueTile<AP, FA> {
-        KeyValueTile::new_value(config)
-    }
+    fn allocate_query(#[comptime] config: Self::Config) -> Self::Query;
+    fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask;
 
-    pub fn init_mask(
-        out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] partition_pos: Coords2d,
-        #[comptime] config: FA::Config,
-    ) -> MaskTile<AP, FA> {
-        MaskTile::new(out_of_bounds, partition_pos, config)
-    }
+    fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue;
+    fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue;
 
-    pub fn init_softmax(#[comptime] config: FA::Config) -> SoftmaxTile<AP, FA> {
-        SoftmaxTile::new(config)
-    }
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax;
+    fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
-    pub fn init_state(#[comptime] config: FA::Config) -> RunningState<SM<AP>> {
-        RunningState::<SM<AP>>::init(config.num_rows_per_unit())
-    }
-
-    pub fn fill_key<E: Float>(
+    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
+    fn fill_key_value<E: Float>(
         tile: &StridedTile<E>,
-        registers: &mut KeyValueTile<AP, FA>,
-        #[comptime] config: FA::Config,
-    ) {
-        FA::fill_key_value(tile, registers.key_mut(), config);
-    }
-
-    pub fn fill_value<E: Float>(
+        fragment: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+    fn fill_mask<E: Numeric>(
         tile: &StridedTile<E>,
-        registers: &mut KeyValueTile<AP, FA>,
-        #[comptime] config: FA::Config,
-    ) {
-        FA::fill_key_value(tile, registers.value_mut(), config);
-    }
+        fragment: &mut Self::Mask,
+        #[comptime] config: Self::Config,
+    );
 
-    pub fn zero_softmax(score: &mut SoftmaxTile<AP, FA>, #[comptime] config: FA::Config) {
-        FA::zero_softmax(&mut score.fragment, config);
-    }
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
+    fn zero_accumulator(acc: &mut Self::Accumulator);
 
-    pub fn accumulate_score(
-        query: &QueryTile<AP, FA>,
-        key_value: &KeyValueTile<AP, FA>,
-        softmax: &mut SoftmaxTile<AP, FA>,
-        #[comptime] config: FA::Config,
-    ) {
-        FA::score_matmul(
-            &query.fragment,
-            key_value.key(),
-            &mut softmax.fragment,
-            config,
-        );
-    }
+    fn write_results<E: Float>(
+        out: &Self::Accumulator,
+        slice: &mut SliceMut<Line<E>>,
+        #[comptime] config: Self::Config,
+    );
+}
 
-    pub fn softmax<R: Reducer>(
-        softmax: &mut SoftmaxTile<AP, FA>,
-        mask: &MaskTile<AP, FA>,
-        state: &mut RunningState<SM<AP>>,
-        max_placeholder: &mut RowWise<SM<AP>>,
-        sum_placeholder: &mut RowWise<SM<AP>>,
-        #[comptime] dk: u32,
-        #[comptime] config: FA::Config,
-    ) -> RowWise<SM<AP>> {
-        SoftmaxTile::scale_and_mask(
-            softmax,
-            SM::<AP>::new(comptime!(1.0 / (dk as f32).sqrt())),
-            mask,
-        );
+/// Configuration for the Tile Attention level
+pub trait FragmentAttentionConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
+    fn plane_dim(&self) -> u32;
+    fn num_planes(&self) -> u32;
+    fn attention_tile_size(&self) -> AttentionTileSize;
+    fn num_rows_per_unit(&self) -> u32;
+    fn causal_mask(&self) -> bool;
+    fn materialized_mask(&self) -> bool;
+}
 
-        softmax.row_max::<R, FA::Config>(max_placeholder, state.m(), config);
+pub trait FragmentAttentionFamily: Send + Sync + 'static {
+    /// The specific [TileMatmul] implementation associated with this family.
+    type FragmentAttention<AP: AttentionPrecision>: FragmentAttention<AP, Config = Self::Config>;
 
-        softmax.to_prob::<R, FA::Config>(state, max_placeholder, sum_placeholder, config)
-    }
+    /// The configuration type associated with this matmul family.
+    type Config: FragmentAttentionConfig;
 
-    pub fn accumulate_value(
-        softmax: &SoftmaxTile<AP, FA>,
-        key_value: &KeyValueTile<AP, FA>,
-        accumulator: &mut AccumulatorTile<AP, FA>,
-        scale: &RowWise<SM<AP>>,
-        #[comptime] config: FA::Config,
-    ) {
-        accumulator.scale_mul(scale);
+    /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
+    fn requires_accelerator() -> bool;
 
-        FA::value_matmul(
-            &softmax.fragment,
-            key_value.value(),
-            &mut accumulator.fragment,
-            config,
-        );
-    }
+    /// Returns the compute resources required to run this tile matmul.
+    fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
 
-    pub fn init_max_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>> {
-        RowWise::new_min_value(num_rows)
-    }
+    /// Constructs the configuration based on the matmul problem, selection, and line sizes.
+    ///
+    /// This function may return an error if the configuration cannot be supported on the current runtime.
+    fn setup<AP: AttentionPrecision, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        problem: &AttentionProblem,
+        selection: &AttentionSelection,
+        line_sizes: &AttentionLineSizes,
+        num_planes: u32,
+    ) -> Result<Self::Config, AttentionSetupError>;
 
-    pub fn init_sum_placeholder(#[comptime] num_rows: u32) -> RowWise<SM<AP>> {
-        RowWise::new_zero(num_rows)
+    /// Filters out line sizes that are incompatible with this matmul family.
+    ///
+    /// By default, returns the input unchanged.
+    fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
+        available_line_sizes
     }
 }
