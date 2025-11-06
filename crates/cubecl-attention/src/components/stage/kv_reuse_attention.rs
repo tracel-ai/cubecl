@@ -7,9 +7,7 @@ use cubecl_matmul::components::{
 };
 use std::marker::PhantomData;
 
-use crate::components::stage::StageAttentionConfig;
 use crate::components::tile::RowWise;
-use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, global::GlobalAttentionConfig};
 use crate::components::{attention_types::*, stage::StageAttention};
 use crate::components::{
@@ -25,6 +23,7 @@ use crate::components::{
     global::simple::QueryReader,
     stage::{AccumulatorPartition, MaskPartition},
 };
+use crate::components::{stage::StageAttentionConfig, tile::tile_softmax};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
@@ -80,10 +79,8 @@ impl<
     ) {
         let p = config.tiling_scheme().partition_size;
 
-        let mut max_placeholder =
-            TileAttention::<AP, FA>::init_max_placeholder(config.num_rows_per_unit());
-        let mut sum_placeholder =
-            TileAttention::<AP, FA>::init_sum_placeholder(config.num_rows_per_unit());
+        let mut max_placeholder = RowWise::new_min_value(config.num_rows_per_unit());
+        let mut sum_placeholder = RowWise::new_zero(config.num_rows_per_unit());
 
         #[unroll]
         for kv in 0..p.seq_kv {
@@ -93,8 +90,7 @@ impl<
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at_mut(q);
 
-                // TODO maybe remove and reset inside reset_to_acc_score
-                TileAttention::<AP, FA>::zero_softmax(softmax_tile, config.tile_config());
+                FA::zero_softmax(softmax_tile, config.tile_config());
 
                 read_mask::<AP, FA, P, S>((q, kv), mask_reader, mask_partition, config);
 
@@ -104,11 +100,11 @@ impl<
                     let key_tile = key_value_partition.get_key_mut();
                     let key_smem_tile = SK::tile(key_stage, (hd, kv).runtime());
 
-                    TileAttention::fill_key(&key_smem_tile, key_tile, config.tile_config());
+                    FA::fill_key_value(&key_smem_tile, key_tile.key_mut(), config.tile_config());
 
-                    TileAttention::accumulate_score(
-                        query_tile,
-                        key_tile,
+                    FA::score_matmul(
+                        &query_tile.fragment,
+                        key_tile.key(),
                         softmax_tile,
                         config.tile_config(),
                     );
@@ -118,7 +114,7 @@ impl<
 
                 let softmax_rowwise = softmax_tile.rowwise_mut();
 
-                scales.push(TileAttention::softmax::<P::Reducer>(
+                scales.push(tile_softmax::<AP, FA, P::Reducer>(
                     softmax_rowwise,
                     mask_partition.get_mut(),
                     state_q,
@@ -135,13 +131,21 @@ impl<
                     let value_smem_tile = SV::tile(value_stage, (kv, vd).runtime());
                     let value_tile = key_value_partition.get_value_mut();
 
-                    TileAttention::fill_value(&value_smem_tile, value_tile, config.tile_config());
+                    FA::fill_key_value(
+                        &value_smem_tile,
+                        value_tile.value_mut(),
+                        config.tile_config(),
+                    );
 
-                    TileAttention::accumulate_value(
+                    let accumulator = accumulator_partition.get_at_mut(q, vd, config);
+                    let scale = scales.index(q);
+
+                    accumulator.scale_mul(scale);
+
+                    FA::value_matmul(
                         softmax_tile,
-                        key_value_partition.get_value(),
-                        accumulator_partition.get_at_mut(q, vd, config),
-                        scales.index(q),
+                        key_value_partition.get_value().value(),
+                        &mut accumulator.fragment,
                         config.tile_config(),
                     );
                 }
@@ -160,10 +164,8 @@ impl<
         for q in 0..p.seq_q {
             #[unroll]
             for vd in 0..p.val_dim {
-                TileAttention::<AP, FA>::rescale(
-                    AccumulatorPartition::<AP, FA, S>::get_at_mut(acc, q, vd, config),
-                    state.index(q),
-                );
+                AccumulatorPartition::<AP, FA, S>::get_at_mut(acc, q, vd, config)
+                    .scale_div(state.index(q).l());
             }
         }
     }
@@ -174,7 +176,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TileAttention::<AP, FA>::init_state(config.tile_config()));
+            sequence.push(RunningState::<SM<AP>>::init(config.num_rows_per_unit()));
         }
 
         sequence
@@ -197,9 +199,9 @@ impl<
                 let tile_pos = (q + P::seq_q_index() * p.seq_q, vd.runtime());
                 let mut tile = SO::tile(stage, tile_pos);
 
-                TileAttention::<AP, FA>::write_results(
-                    &mut tile,
-                    AccumulatorPartition::<AP, FA, S>::get_at(acc, q, vd, stage_config),
+                FA::write_results(
+                    &AccumulatorPartition::<AP, FA, S>::get_at(acc, q, vd, stage_config).fragment,
+                    &mut tile.slice,
                     stage_config.tile_config(),
                 );
 

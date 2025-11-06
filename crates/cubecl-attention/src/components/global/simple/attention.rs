@@ -14,8 +14,7 @@ use crate::components::global::{
     AttentionGlobalLayout,
     simple::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::{AttentionPartitioner, StageAttention};
-use crate::components::tile::AttentionTilingLayout;
+use crate::components::stage::{AttentionPartitioner, AttentionTilingLayout, StageAttention};
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,

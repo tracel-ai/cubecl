@@ -4,7 +4,7 @@ use crate::components::{
     attention_types::*,
     fragment::FragmentAttentionFamily,
     stage::{
-        AttentionStageMemoryConfig,
+        AttentionStageMemoryConfig, AttentionTilingLayout,
         plane::{PlaneKVReuseStageAttention, config::PlaneKVReuseStageConfig},
     },
 };
@@ -15,7 +15,7 @@ use cubecl_matmul::components::{
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, stage::StageAttentionFamily, tile::AttentionTilingLayout,
+    AttentionSetupError, stage::StageAttentionFamily,
 };
 
 pub struct PlaneKVReuseStageAttentionFamily<

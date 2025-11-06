@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 
 use crate::components::fragment::FragmentAttention;
 use crate::components::tile::QueryTile;
-use crate::components::{AttentionPrecision, stage::StageAttentionConfig, tile::TileAttention};
+use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]
 /// Contains all seq_q·head_dim materialized tiles at once because they are reused extensively
@@ -32,7 +32,7 @@ impl<
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q * p.head_dim) {
-            sequence.push(TileAttention::<AP, FA>::init_query(config.tile_config()));
+            sequence.push(QueryTile::<AP, FA>::new(config.tile_config()));
         }
 
         QueryPartition::<AP, FA, S> {
