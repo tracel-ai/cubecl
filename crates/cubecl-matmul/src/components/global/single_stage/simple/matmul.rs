@@ -2,7 +2,7 @@ use crate::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
         GlobalMatmul, GlobalWriter,
-        read::{SyncFullLoadingStrategy, SyncFullStageGlobalReader, ZeroGlobalReader},
+        read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},
         single_stage::simple::SimpleConfig,
     },
     stage::{FilledStage, StageMatmul, StridedStage},
@@ -24,8 +24,8 @@ use crate::components::global::GlobalConfig;
 pub struct SimpleMatmul<
     MP: MatmulPrecision,
     SMM: StageMatmul<MP>,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy,
     GW: GlobalWriter<MP::Acc>,
 > {
     _phantom: PhantomData<(MP, SMM, LL, RL, GW)>,
@@ -41,13 +41,13 @@ where
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleConfig<SMM::Config>;
-    type LhsGlobalReader = SyncFullStageGlobalReader<MP::Lhs, Self::Config, LL>;
-    type RhsGlobalReader = SyncFullStageGlobalReader<MP::Rhs, Self::Config, RL>;
+    type LhsGlobalReader = FullStageGlobalReader<MP::Lhs, Self::Config, LL>;
+    type RhsGlobalReader = FullStageGlobalReader<MP::Rhs, Self::Config, RL>;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
     type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;
@@ -73,13 +73,23 @@ where
         let lhs_stage = &lhs_reader.stage();
         let rhs_stage = &rhs_reader.stage();
 
-        for _ in 0..num_loops {
+        let mut barrier = LL::SyncStrategy::create_barrier();
+
+        for i in 0..num_loops {
             sync_cube();
 
-            lhs_reader.load_stage(config);
-            rhs_reader.load_stage(config);
+            #[allow(clippy::collapsible_if)]
+            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds()] {
+                if i == num_loops - 1 {
+                    lhs_reader.clear_stage(config);
+                    rhs_reader.clear_stage(config);
+                }
+            }
 
-            sync_cube();
+            lhs_reader.load_stage(&mut barrier, config);
+            rhs_reader.load_stage(&mut barrier, config);
+
+            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier, config);
 
             SMM::execute(
                 lhs_stage,

@@ -1,16 +1,20 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
-        CopyMechanism, GlobalConfig,
+        GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
-        read::AsyncPartialLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            LoadingJob, PartialLoadingStrategy,
+            async_barrier::{AsyncBarrier, CubeManual},
+        },
     },
-    stage::{StageConfig, StridedStage, StridedTilingLayout, TilingValidation},
+    stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Executes one `memcpy_async` call per contiguous slice.
@@ -25,21 +29,33 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
     }
 }
 
+impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
+    fn max_round_plane_count(
+        _tiling_scheme: &TilingScheme,
+        _ident: MatmulIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
+impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
+    type SyncStrategy = AsyncBarrier<CubeManual>;
     type Job<IP: MatrixPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
+        #[comptime] line_size: u32,
         #[comptime] config: G,
     ) -> AsyncPartialMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(ident);
-        let line_size = config
-            .stage_config()
-            .stage_line_size(comptime!(ident.into_stage()));
-        let num_stages = 2;
+        let num_stages = config.num_stages(ident);
 
         let total_row = config.tiling_scheme().elements_in_stage_row(ident);
         let total_col = config.tiling_scheme().elements_in_stage_col(ident);
@@ -76,6 +92,7 @@ impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
         let num_tasks_per_unit = comptime!(num_slices.div_ceil(unit_count));
 
         AsyncPartialMaximizeSliceLengthJob {
+            buffer_idx: stage_index,
             num_tasks_per_unit,
             unit_count,
             num_slices_stage_offset,
@@ -85,14 +102,11 @@ impl AsyncPartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
             num_slices,
         }
     }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
-    }
 }
 
 #[derive(CubeType, Clone, Copy)]
 pub struct AsyncPartialMaximizeSliceLengthJob {
+    buffer_idx: u32,
     #[cube(comptime)]
     num_tasks_per_unit: u32,
     #[cube(comptime)]
@@ -110,17 +124,18 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeManual>>
     for AsyncPartialMaximizeSliceLengthJob
 {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+    fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
-        mechanism: &CM,
+        barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
+        let mut stage = stage.with_buffer_index(this.buffer_idx);
         let nth_slice_in_stage = this.unit_count * task_id + UNIT_POS;
 
         let nth_slice = nth_slice_in_stage + this.num_slices_stage_offset;
@@ -131,8 +146,8 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
             comptime!(config.global_memory_config(this.ident)),
         );
         let mut destination: SliceMut<Line<IP::Stage>> = StridedTilingLayout::nth_slice::<IP::Stage>(
-            stage,
-            nth_slice,
+            &mut stage,
+            nth_slice_in_stage,
             comptime!(config.stage_memory_config(this.ident)),
         );
 
@@ -145,14 +160,13 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout>
         let end = start + Min::min(window.len() - limit, this.slice_length);
 
         let src = window.slice(start, end);
-        let mut dest = destination.slice_mut(start, end);
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
-            CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
+            barrier.memcpy_async(&src.try_cast_unchecked(), &mut destination);
         } else {
             if nth_slice_in_stage < this.num_slices {
-                CM::memcpy_async(mechanism, &src.try_cast_unchecked(), &mut dest);
+                barrier.memcpy_async(&src.try_cast_unchecked(), &mut destination);
             }
         };
     }

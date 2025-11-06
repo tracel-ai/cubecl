@@ -1,6 +1,6 @@
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{SyncFullLoadingStrategy, stage::FullStageLayout};
+use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{StridedStage, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
@@ -48,8 +48,9 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for SyncFullStridedLoading {
+impl FullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = SyncFullStridedJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -91,12 +92,13 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout> for SyncFullStridedJob {
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, Synchronous> for SyncFullStridedJob {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
+        _barrier: &mut (),
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;

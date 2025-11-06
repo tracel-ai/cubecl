@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    InvalidConfigError, MatrixLayout, StageIdent,
+    InvalidConfigError, MatrixLayout,
     global::memory::GlobalMemoryConfig,
     stage::{StageMemoryConfig, StridedStage, TilingLayout, TilingValidation},
     tile::StridedTile,
@@ -17,8 +17,6 @@ impl TilingLayout for BiasTilingLayout {
     fn get_tile<ES: Numeric>(
         stage: &StridedStage<ES, Self>,
         tile: Coords2d,
-        _buffer_index: u32,
-        #[comptime] _ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
         if comptime!(config.num_stages > 1) {

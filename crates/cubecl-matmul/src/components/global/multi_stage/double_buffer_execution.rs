@@ -1,4 +1,3 @@
-use crate::components::global::LoadingSides;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
 use crate::components::global::SpecializerKind;
@@ -6,6 +5,7 @@ use crate::components::global::multi_stage::DoubleBufferingEventListener;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::read::StageBuffer;
 use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::global::{LoadingSides, read::SyncStrategy};
 use crate::components::stage::PartitionScheduler;
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
@@ -18,12 +18,14 @@ use cubecl_core::prelude::*;
 pub fn read_first<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LJ: JobExecutor<G>,
-    RJ: JobExecutor<G>,
+    S: SyncStrategy,
+    LJ: JobExecutor<G, S>,
+    RJ: JobExecutor<G, S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_global_reader: &mut LJ,
     rhs_global_reader: &mut RJ,
+    barrier: &mut S::Barrier,
     specializer: &Specializer,
     #[comptime] stage_to_load: StageBuffer,
     #[comptime] config: G,
@@ -37,23 +39,23 @@ pub fn read_first<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_only() {
                 if main_flow_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
                 }
                 if main_flow_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
                 }
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
                 }
             }
         }
         SpecializerKind::NotSpecialized => {
-            LJ::execute_whole_job(lhs_global_reader, stage_to_load, config);
-            RJ::execute_whole_job(rhs_global_reader, stage_to_load, config);
+            LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+            RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
         }
     };
 }
@@ -65,8 +67,9 @@ pub fn read_first<
 pub fn execute_current_and_read_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
-    LJ: JobExecutor<G>,
-    RJ: JobExecutor<G>,
+    S: SyncStrategy,
+    LJ: JobExecutor<G, S>,
+    RJ: JobExecutor<G, S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -76,6 +79,7 @@ pub fn execute_current_and_read_next<
     acc: &mut SMM::Accumulators,
     lhs_global_reader: &mut LJ,
     rhs_global_reader: &mut RJ,
+    barrier: &mut S::Barrier,
     specializer: &Specializer,
     partition_scheduler: &PartitionScheduler,
     #[comptime] stage_to_load: StageBuffer,
@@ -89,7 +93,7 @@ pub fn execute_current_and_read_next<
         } => {
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_only() {
-                SMM::execute_with_listener::<DoubleBufferingEventListener<LJ, RJ, G>>(
+                SMM::execute_with_listener::<DoubleBufferingEventListener<S, LJ, RJ, G>>(
                     lhs_stage,
                     rhs_stage,
                     lhs_tile,
@@ -100,6 +104,7 @@ pub fn execute_current_and_read_next<
                         stage_to_load,
                         lhs_global_reader,
                         rhs_global_reader,
+                        barrier,
                         config,
                         main_flow_loading_side,
                     ),
@@ -107,15 +112,15 @@ pub fn execute_current_and_read_next<
                 );
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
                 }
             }
         }
         SpecializerKind::NotSpecialized => {
-            SMM::execute_with_listener::<DoubleBufferingEventListener<LJ, RJ, G>>(
+            SMM::execute_with_listener::<DoubleBufferingEventListener<S, LJ, RJ, G>>(
                 lhs_stage,
                 rhs_stage,
                 lhs_tile,
@@ -126,6 +131,7 @@ pub fn execute_current_and_read_next<
                     stage_to_load,
                     lhs_global_reader,
                     rhs_global_reader,
+                    barrier,
                     config,
                     LoadingSides::Both,
                 ),
