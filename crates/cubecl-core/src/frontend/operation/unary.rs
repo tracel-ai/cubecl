@@ -332,6 +332,18 @@ impl_unary_func!(
     f64
 );
 impl_unary_func!(
+    Rsqrt,
+    rsqrt,
+    __expand_rsqrt,
+    Arithmetic::Rsqrt,
+    f16,
+    bf16,
+    flex32,
+    tf32,
+    f32,
+    f64
+);
+impl_unary_func!(
     Round,
     round,
     __expand_round,

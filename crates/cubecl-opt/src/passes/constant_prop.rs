@@ -443,6 +443,17 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
             }
         }
         Arithmetic::Sqrt(op) => const_eval_float!(op.input; num::Float::sqrt),
+        Arithmetic::Rsqrt(op) => {
+            use ConstantScalarValue::*;
+            if let Some(input) = op.input.as_const() {
+                match input {
+                    Float(input, kind) => Some(ConstantScalarValue::Float(1. / input.sqrt(), kind)),
+                    _ => unreachable!(),
+                }
+            } else {
+                None
+            }
+        }
         Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
         Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),

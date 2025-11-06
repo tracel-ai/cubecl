@@ -824,6 +824,10 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Rsqrt(op) => instructions.push(wgsl::Instruction::Rsqrt {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Round(op) => instructions.push(wgsl::Instruction::Round {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),

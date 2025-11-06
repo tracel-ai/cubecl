@@ -161,6 +161,7 @@ function!(ArcSinh, "asinh", false);
 function!(ArcCosh, "acosh", false);
 function!(ArcTanh, "atanh", false);
 function!(Sqrt, "sqrt");
+function!(Rsqrt, "rsqrt");
 function!(Exp, "exp");
 function!(Ceil, "ceil");
 function!(Floor, "floor");

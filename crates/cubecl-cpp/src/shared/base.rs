@@ -1025,6 +1025,9 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Sqrt(op) => {
                 instructions.push(Instruction::Sqrt(self.compile_unary(op, out)))
             }
+            gpu::Arithmetic::Rsqrt(op) => {
+                instructions.push(Instruction::Rsqrt(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Erf(op) => {
                 let instruction = Instruction::Erf(self.compile_unary(op, out));
                 D::register_instruction_extension(&mut self.extensions, &instruction);

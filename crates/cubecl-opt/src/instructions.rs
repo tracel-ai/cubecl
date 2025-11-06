@@ -106,6 +106,7 @@ impl Optimizer {
             | Arithmetic::Degrees(unary_operator)
             | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
+            | Arithmetic::Rsqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)
             | Arithmetic::Ceil(unary_operator)

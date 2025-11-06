@@ -401,6 +401,27 @@ test_unary_impl!(test_cosh, F, F::cosh, [
     }
 ]);
 
+test_unary_impl!(test_tanh, F, F::tanh, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., -1., 2., -2.],
+        expected: as_type![F: 0., 0.7615941559, -0.7615941559, 0.9640275801, -0.9640275801]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., -1., 2.],
+        expected: as_type![F: 0., 0.7615941559, -0.7615941559, 0.9640275801]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., -1., 2.],
+        expected: as_type![F: 0., 0.7615941559, -0.7615941559, 0.9640275801]
+    }
+]);
+
 test_unary_impl!(test_asinh, F, F::asinh, [
     {
         input_vectorization: 1,
@@ -461,6 +482,48 @@ test_unary_impl!(test_atanh, F, F::atanh, [
         out_vectorization: 4,
         input: as_type![F: 0., 0.5, -0.5, 0.9],
         expected: as_type![F: 0., 0.54930614433, -0.54930614433, 1.47221948958]
+    }
+]);
+
+test_unary_impl!(test_sqrt, F, F::sqrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 0., 1., 4., 9., 16., 25.],
+        expected: as_type![F: 0., 1., 2., 3., 4., 5.]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 0., 1., 4., 9.],
+        expected: as_type![F: 0., 1., 2., 3.]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 0., 1., 4., 9.],
+        expected: as_type![F: 0., 1., 2., 3.]
+    }
+]);
+
+test_unary_impl!(test_rsqrt, F, F::rsqrt, [
+    {
+        input_vectorization: 1,
+        out_vectorization: 1,
+        input: as_type![F: 1., 4., 9., 16., 25.],
+        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25, 0.2]
+    },
+    {
+        input_vectorization: 2,
+        out_vectorization: 2,
+        input: as_type![F: 1., 4., 9., 16.],
+        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25]
+    },
+    {
+        input_vectorization: 4,
+        out_vectorization: 4,
+        input: as_type![F: 1., 4., 9., 16.],
+        expected: as_type![F: 1., 0.5, 0.33333333333, 0.25]
     }
 ]);
 
@@ -770,8 +833,10 @@ macro_rules! testgen_unary {
 
             add_test!(test_sin);
             add_test!(test_cos);
+            add_test!(test_tan);
             add_test!(test_sinh);
             add_test!(test_cosh);
+            add_test!(test_tanh);
             add_test!(test_asin);
             add_test!(test_acos);
             add_test!(test_atan);
@@ -782,6 +847,8 @@ macro_rules! testgen_unary {
             add_test!(test_radians);
             add_test!(test_normalize);
             add_test!(test_magnitude);
+            add_test!(test_sqrt);
+            add_test!(test_rsqrt);
             add_test!(test_abs);
             add_test!(test_is_nan);
             add_test!(test_is_inf);

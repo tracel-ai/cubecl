@@ -456,6 +456,17 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                     }
                 })
             }
+            Arithmetic::Rsqrt(op) => {
+                self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
+                    let sqrt = b.id();
+                    T::sqrt(b, ty, input, sqrt);
+                    let one = out_ty.const_u32(b, 1);
+                    b.f_div(ty, Some(out), one, sqrt).unwrap();
+                    if matches!(out_ty.elem(), Elem::Relaxed) {
+                        b.decorate(out, Decoration::RelaxedPrecision, []);
+                    }
+                })
+            }
             Arithmetic::Round(op) => {
                 self.compile_unary_op_cast(op, out, uniform, |b, out_ty, ty, input, out| {
                     T::round(b, ty, input, out);

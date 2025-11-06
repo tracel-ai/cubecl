@@ -41,6 +41,7 @@ pub trait Float:
     + Powf
     + Powi<i32>
     + Sqrt
+    + Rsqrt
     + Round
     + Floor
     + Ceil

@@ -479,6 +479,15 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, output);
             }
+            Arithmetic::Rsqrt(rsqrt) => {
+                let input = self.get_variable(rsqrt.input);
+                let output = self.append_operation_with_result(math_ods::rsqrt(
+                    self.context,
+                    input,
+                    self.location,
+                ));
+                self.insert_variable(out, output);
+            }
             Arithmetic::Sin(sin) => {
                 let input = self.get_variable(sin.input);
                 let output = self.append_operation_with_result(llvm_ods::intr_sin(

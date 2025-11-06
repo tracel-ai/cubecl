@@ -179,6 +179,10 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Rsqrt {
+        input: Variable,
+        out: Variable,
+    },
     Recip {
         input: Variable,
         out: Variable,
@@ -647,6 +651,10 @@ impl Display for Instruction {
             Instruction::Sqrt { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
+            }
+            Instruction::Rsqrt { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = rsqrt({input});")
             }
             Instruction::Log1p { input, out } => {
                 let out = out.fmt_left();
