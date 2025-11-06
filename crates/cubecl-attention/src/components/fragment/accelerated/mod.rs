@@ -1,7 +1,8 @@
 mod attention;
 mod config;
 mod setup;
-mod array_tile;
+mod local_tile;
+mod hybrid_fragment;
 
 pub use attention::*;
 pub use config::*;

@@ -7,12 +7,11 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 
 use crate::components::fragment::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
-use crate::components::fragment::accelerated::array_tile::ArrayTileLayout;
-use crate::components::fragment::accelerated::array_tile::LocalTile;
-use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
+use crate::components::fragment::accelerated::hybrid_fragment::HybridFragment;
+use crate::components::fragment::accelerated::local_tile::LocalTile;
+use crate::components::fragment::accelerated::local_tile::LocalTileLayout;
 use crate::components::fragment::{FragmentAttention, FragmentAttentionConfig as _};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
-use crate::components::fragment::{SoftmaxFragment, SoftmaxFragmentExpand};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
 /// because the fragment layout is blackbox
@@ -23,60 +22,10 @@ pub struct MaskTODO {}
 
 #[cube]
 impl FragmentMask for MaskTODO {
-    type Layout = ArrayTileLayout;
+    type Layout = LocalTileLayout;
 
     fn should_mask(&self, _local_pos: Coords2d) -> bool {
         false.runtime()
-    }
-}
-
-#[derive(CubeType)]
-/// Navigates between cmma fragment (for matmuls) and shared memory (for row wise ops)
-pub struct HybridFragment<E: Float> {
-    // For matmul
-    fragment: FragWrapper<E>,
-    // A slice because knows only the slot for this plane
-    shared_memory: SliceMut<E>,
-    // Where to perform operations in register
-    local_tile: LocalTile<E>,
-}
-
-#[derive(CubeType)]
-pub struct FragWrapper<E: Float> {
-    fragment: cmma::Matrix<E>,
-}
-
-#[cube]
-impl<E: Float> HybridFragment<E> {
-    fn new() -> Self {
-        HybridFragment::<E> {
-            fragment: todo!(),
-            shared_memory: todo!(),
-            local_tile: todo!(),
-        }
-    }
-}
-
-#[cube]
-impl<E: Float> SoftmaxFragment<E> for HybridFragment<E> {
-    type Layout = ArrayTileLayout;
-    type SoftmaxScore = FragWrapper<E>;
-    type SoftmaxRowFormat = LocalTile<E>;
-    type SoftmaxVal = FragWrapper<E>;
-
-    fn rowwise_mut(&mut self) -> &mut Self::SoftmaxRowFormat {
-        &mut self.local_tile
-    }
-
-    fn update_from_rowwise(&mut self) {
-        todo!() // somethingwith self.local_tile
-    }
-}
-
-#[cube]
-impl<E: Float> FragmentAccumulator<E> for HybridFragment<E> {
-    fn rowwise_scale(&mut self, val: &crate::components::tile::RowWise<E>) {
-        todo!()
     }
 }
 
@@ -91,10 +40,10 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
     type SoftmaxRow = LocalTile<SM<AP>>;
     type Accumulator = HybridFragment<ACC<AP>>;
 
-    type FragmentLayout = ArrayTileLayout;
+    type FragmentLayout = LocalTileLayout;
 
-    fn softmax_layout(#[comptime] config: Self::Config) -> ArrayTileLayout {
-        ArrayTileLayout::new(
+    fn softmax_layout(#[comptime] config: Self::Config) -> LocalTileLayout {
+        LocalTileLayout::new(
             (
                 config.attention_tile_size().seq_q,
                 config.attention_tile_size().seq_kv,
@@ -108,9 +57,9 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
         out: &mut Self::Softmax,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let out = &out.fragment.fragment;
+        let out = &out.fragment;
         cmma::execute::<QT<AP>, KVT<AP>, SM<AP>, SM<AP>>(lhs, rhs, out, out);
     }
 
@@ -118,10 +67,10 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
-        #[comptime] config: Self::Config,
+        #[comptime] _config: Self::Config,
     ) {
-        let lhs = &lhs.fragment.fragment;
-        let out = &out.fragment.fragment;
+        let lhs = &lhs.fragment;
+        let out = &out.fragment;
         cmma::execute::<SM<AP>, KVT<AP>, ACC<AP>, ACC<AP>>(lhs, rhs, out, out);
     }
 
@@ -183,49 +132,17 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        // let size = config.attention_tile_size();
-        // unsafe {
-        //     cmma::Matrix::<MSK<AP>>::uninitialized(
-        //         cmma::MatrixIdent::Accumulator,
-        //         size.seq_q,
-        //         size.seq_kv,
-        //         size.head_dim,
-        //         cmma::MatrixLayout::RowMajor,
-        //     )
-        // }
-
-        todo!()
+        MaskTODO {}
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        let size = config.attention_tile_size();
-
-        todo!()
-
-        // unsafe {
-        //     cmma::Matrix::<SM<AP>>::uninitialized(
-        //         cmma::MatrixIdent::Accumulator,
-        //         size.seq_q,
-        //         size.seq_kv,
-        //         size.head_dim, // k, because we take score matmul acc point of view
-        //         cmma::MatrixLayout::RowMajor,
-        //     )
-        // }
+        let size = config.attention_tile_size().to_score_matmul_tile_size();
+        HybridFragment::new(size, config)
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         let size = config.attention_tile_size().to_value_matmul_tile_size();
-        // unsafe {
-        //     cmma::Matrix::<ACC<AP>>::uninitialized(
-        //         cmma::MatrixIdent::Accumulator,
-        //         size.m(),
-        //         size.n(),
-        //         size.k(),
-        //         cmma::MatrixLayout::Undefined,
-        //     )
-        // }
-
-        HybridFragment::new()
+        HybridFragment::new(size, config)
     }
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
@@ -248,15 +165,15 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         mask: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        todo!()
+        // todo!()
     }
 
     fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
-        cmma::fill(&softmax.fragment.fragment, SM::<AP>::from_int(0));
+        cmma::fill(&softmax.fragment, SM::<AP>::from_int(0));
     }
 
     fn zero_accumulator(acc: &mut Self::Accumulator) {
-        cmma::fill(&acc.fragment.fragment, ACC::<AP>::from_int(0));
+        cmma::fill(&acc.fragment, ACC::<AP>::from_int(0));
     }
 
     fn write_results<E: Float>(
@@ -264,7 +181,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         slice: &mut SliceMut<Line<E>>,
         #[comptime] config: Self::Config,
     ) {
-        let acc = cmma::cast::<ACC<AP>, E>(&out.fragment.fragment);
+        let acc = cmma::cast::<ACC<AP>, E>(&out.fragment);
         cmma::store(
             slice,
             &acc,

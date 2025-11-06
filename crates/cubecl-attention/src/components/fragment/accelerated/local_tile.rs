@@ -3,14 +3,12 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::tile::StridedTile;
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::fragment::accelerated::FragWrapper;
 use crate::components::fragment::{
     FragmentAccumulator, FragmentAccumulatorExpand, FragmentMask, FragmentMaskExpand,
     RowwiseFormat, RowwiseFormatExpand,
 };
 use crate::components::tile::{RowVal, RowWise};
 
-use crate::components::fragment::FragmentAttentionConfig as _;
 use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 
 #[derive(CubeType)]
@@ -18,7 +16,7 @@ use crate::components::fragment::{FragmentLayout, FragmentLayoutExpand};
 /// - unit_size * plane_dim = total_size (not dim wise but in total count)
 pub struct LocalTile<E: Numeric> {
     array: Array<E>,
-    layout: ArrayTileLayout,
+    layout: LocalTileLayout,
 }
 
 #[derive(CubeType, Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -49,7 +47,7 @@ pub enum InnerLayout {
 
 #[cube]
 impl<E: Numeric> LocalTile<E> {
-    pub fn new(layout: ArrayTileLayout) -> LocalTile<E> {
+    pub fn new(layout: LocalTileLayout) -> LocalTile<E> {
         let array = Array::<E>::new(comptime!(layout.unit_size.0 * layout.unit_size.1));
         LocalTile::<E> { array, layout }
     }
@@ -59,10 +57,32 @@ impl<E: Numeric> LocalTile<E> {
             self.array[i] = E::from_int(0);
         }
     }
+
+    pub fn fill_from(&mut self, smem_slice: &Slice<E>) {
+        for r in 0..self.layout.unit_size.0 {
+            for c in 0..self.layout.unit_size.1 {
+                let (row, col) = self.layout.absolute_pos((r, c));
+                let index = row * self.layout.total_size.1 + col;
+
+                self.array[r * self.layout.unit_size.1 + c] = smem_slice[index];
+            }
+        }
+    }
+
+    pub fn store_to(&self, smem_slice: &mut SliceMut<E>) {
+        for r in 0..self.layout.unit_size.0 {
+            for c in 0..self.layout.unit_size.1 {
+                let (row, col) = self.layout.absolute_pos((r, c));
+                let index = row * self.layout.total_size.1 + col;
+
+                smem_slice[index] = self.array[r * self.layout.unit_size.1 + c];
+            }
+        }
+    }
 }
 
 #[derive(CubeType, Copy, Clone)]
-pub struct ArrayTileLayout {
+pub struct LocalTileLayout {
     #[cube(comptime)]
     total_size: Coords2d,
     #[cube(comptime)]
@@ -74,12 +94,12 @@ pub struct ArrayTileLayout {
 }
 
 #[cube]
-impl ArrayTileLayout {
+impl LocalTileLayout {
     pub fn new(
         #[comptime] total_size: Coords2d,
         #[comptime] plane_dim: u32,
         #[comptime] inner_layout: InnerLayout,
-    ) -> ArrayTileLayout {
+    ) -> LocalTileLayout {
         let total_elements = total_size.0 * total_size.1;
         let elements_per_unit = total_elements.div_ceil(plane_dim);
 
@@ -91,7 +111,7 @@ impl ArrayTileLayout {
 
         let num_units_per_row = comptime!(total_size.1 / unit_size.1);
 
-        ArrayTileLayout {
+        LocalTileLayout {
             total_size,
             unit_size,
             num_units_per_row,
@@ -101,7 +121,7 @@ impl ArrayTileLayout {
 }
 
 #[cube]
-impl FragmentLayout for ArrayTileLayout {
+impl FragmentLayout for LocalTileLayout {
     fn absolute_pos(&self, local_pos: Coords2d) -> Coords2d {
         let abs_row_index = {
             let row_0 = UNIT_POS_X / self.num_units_per_row;
@@ -122,7 +142,7 @@ impl FragmentLayout for ArrayTileLayout {
 
 #[cube]
 impl<E: Float> RowwiseFormat<E> for LocalTile<E> {
-    type Layout = ArrayTileLayout;
+    type Layout = LocalTileLayout;
 
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();
@@ -217,7 +237,7 @@ impl<E: Float> FragmentAccumulator<E> for LocalTile<E> {
 
 #[cube]
 impl<E: Numeric> FragmentMask for LocalTile<E> {
-    type Layout = ArrayTileLayout;
+    type Layout = LocalTileLayout;
 
     fn should_mask(&self, local_pos: Coords2d) -> bool {
         bool::cast_from(self.array[local_pos.0 * self.layout.unit_size.1 + local_pos.1])
@@ -254,41 +274,30 @@ fn array_tile_to_tmp_smem<E: Numeric>(
     tmp_smem_slice
 }
 
-#[cube]
-fn tmp_smem_to_array_tile<E: Numeric>(tmp_smem_slice: &SliceMut<E>, array_tile: &mut LocalTile<E>) {
-    for r in 0..array_tile.layout.unit_size.0 {
-        for c in 0..array_tile.layout.unit_size.1 {
-            let (row, col) = array_tile.layout.absolute_pos((r, c));
-            let index = row * array_tile.layout.total_size.1 + col;
-            array_tile.array[r * array_tile.layout.unit_size.1 + c] = tmp_smem_slice[index];
-        }
-    }
-}
+// #[cube]
+// fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
+//     strided_tile: &StridedTile<E>,
+//     array_tile: &mut LocalTile<E2>,
+// ) {
+//     for r in 0..array_tile.layout.unit_size.0 {
+//         for c in 0..array_tile.layout.unit_size.1 {
+//             let (row, col) = array_tile.layout.absolute_pos((r, c));
+//             array_tile.array[r * array_tile.layout.unit_size.1 + c] =
+//                 E2::cast_from(strided_tile.get_line(row, col))
+//         }
+//     }
+// }
 
-#[cube]
-fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
-    strided_tile: &StridedTile<E>,
-    array_tile: &mut LocalTile<E2>,
-) {
-    for r in 0..array_tile.layout.unit_size.0 {
-        for c in 0..array_tile.layout.unit_size.1 {
-            let (row, col) = array_tile.layout.absolute_pos((r, c));
-            array_tile.array[r * array_tile.layout.unit_size.1 + c] =
-                E2::cast_from(strided_tile.get_line(row, col))
-        }
-    }
-}
-
-#[cube]
-fn array_tile_to_slice<E: Numeric, E2: Numeric>(
-    array_tile: &LocalTile<E>,
-    slice: &mut SliceMut<Line<E2>>,
-) {
-    for r in 0..array_tile.layout.unit_size.0 {
-        for c in 0..array_tile.layout.unit_size.1 {
-            let (row, col) = array_tile.layout.absolute_pos((r, c));
-            let index = row * array_tile.layout.total_size.1 + col;
-            slice[index] = Line::cast_from(array_tile.array[r * array_tile.layout.unit_size.1 + c]);
-        }
-    }
-}
+// #[cube]
+// fn array_tile_to_slice<E: Numeric, E2: Numeric>(
+//     array_tile: &LocalTile<E>,
+//     slice: &mut SliceMut<Line<E2>>,
+// ) {
+//     for r in 0..array_tile.layout.unit_size.0 {
+//         for c in 0..array_tile.layout.unit_size.1 {
+//             let (row, col) = array_tile.layout.absolute_pos((r, c));
+//             let index = row * array_tile.layout.total_size.1 + col;
+//             slice[index] = Line::cast_from(array_tile.array[r * array_tile.layout.unit_size.1 + c]);
+//         }
+//     }
+// }

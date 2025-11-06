@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::fragment::FragmentAttentionConfig;
-use crate::components::fragment::accelerated::array_tile::InnerLayout;
+use crate::components::fragment::accelerated::local_tile::InnerLayout;
 use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
