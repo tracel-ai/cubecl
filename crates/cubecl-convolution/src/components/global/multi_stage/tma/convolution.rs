@@ -8,8 +8,8 @@ use cubecl_core::{
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
-        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter, read::arrive_tma,
-        single_stage::tma::SimpleTmaConfig,
+        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
+        read::async_tma::arrive_tma, single_stage::simple::SimpleConfig,
     },
     stage::{StageMatmul, StridedStage},
 };
@@ -65,7 +65,7 @@ where
             OutStage = PartitionedStage<AccS<MP>>,
         >,
 {
-    type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
 
     type LhsGlobalReader = TmaIm2colGlobalReader<MP::Lhs>;
     type RhsGlobalReader = TmaWeightGlobalReader<MP::Rhs>;

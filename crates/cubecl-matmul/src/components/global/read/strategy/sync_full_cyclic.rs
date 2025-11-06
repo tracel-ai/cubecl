@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{SyncFullLoadingStrategy, tiled::TiledLayout};
+use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
@@ -55,8 +55,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullCyclicLoading<TO> {
+impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = SyncFullCyclicJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -116,7 +117,7 @@ pub struct SyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncFullCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -124,6 +125,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;

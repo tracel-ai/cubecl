@@ -1,16 +1,20 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision,
+    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
-        CopyMechanism, GlobalConfig,
+        GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
-        read::AsyncFullLoadingStrategy,
+        multi_stage::LoadMaxRoundPlaneCount,
+        read::{
+            FullLoadingStrategy, LoadingJob,
+            async_barrier::{AsyncBarrier, CubeCoop},
+        },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
-use cubecl_core::prelude::*;
-use cubecl_core::{self as cubecl, prelude::barrier::BarrierLevel};
+use cubecl_core::prelude::{barrier::Barrier, *};
+use cubecl_core::{self as cubecl};
 
-use super::{AsyncLoadingJob, LoadingValidation};
+use super::LoadingValidation;
 
 #[derive(CubeType, Clone, Copy)]
 /// Loads global memory into the stage without layout change,  
@@ -27,13 +31,30 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
     }
 }
 
+impl LoadMaxRoundPlaneCount for AsyncFullCooperativeLoading {
+    fn max_round_plane_count(
+        _tiling_scheme: &TilingScheme,
+        _ident: MatmulIdent,
+        _line_size: u8,
+        _plane_dim: u32,
+    ) -> u32 {
+        // Not sure what's ideal here, the current specialization isn't great anyways so can deal
+        // with it later
+        4
+    }
+}
+
 #[cube]
-impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
+impl FullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
+    type SyncStrategy = AsyncBarrier<CubeCoop>;
     type Job<IP: MatrixPrecision> = AsyncFullCooperativeJob;
+
+    const SHOULD_CLEAR: bool = true;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
+        #[comptime] _line_size: u32,
         #[comptime] config: G,
     ) -> AsyncFullCooperativeJob {
         let matrix_layout = config.matrix_layout(ident);
@@ -44,10 +65,6 @@ impl AsyncFullLoadingStrategy for AsyncFullCooperativeLoading {
         };
 
         AsyncFullCooperativeJob { num_slices, ident }
-    }
-
-    fn barrier_level() -> BarrierLevel {
-        BarrierLevel::cube_coop(0u32)
     }
 }
 
@@ -60,13 +77,15 @@ pub struct AsyncFullCooperativeJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFullCooperativeJob {
-    fn execute_task<CM: CopyMechanism, G: GlobalConfig>(
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeCoop>>
+    for AsyncFullCooperativeJob
+{
+    fn execute_task<G: GlobalConfig>(
         this: &mut Self,
-        task_id: u32,
+        #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
-        mechanism: &CM,
+        barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
         let window = load_window_in_stage(
@@ -81,7 +100,7 @@ impl<IP: MatrixPrecision> AsyncLoadingJob<IP, StridedTilingLayout> for AsyncFull
             comptime!(config.stage_memory_config(this.ident)),
         );
 
-        CM::memcpy_async(mechanism, &window.try_cast_unchecked(), &mut destination);
+        barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

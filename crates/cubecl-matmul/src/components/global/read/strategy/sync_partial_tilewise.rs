@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::SyncPartialLoadingStrategy;
+use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
@@ -92,8 +92,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
+impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = SyncPartialTilewiseJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -112,25 +113,19 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
-        let num_stages = config.num_stages(ident);
         let stage_width = comptime!(match ident {
             MatmulIdent::Lhs => config.tiling_scheme().tiles_in_stage_col(ident),
             MatmulIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(ident),
             MatmulIdent::Out => unreachable!(),
         });
-        let row_col_stride = num_stages * stage_width;
-        let stage_offset = stage_width * stage_index;
 
-        let starting_tile_within_stage = RoleRule::new(config.role_rule_config())
+        let num_tiles_to_skip = RoleRule::new(config.role_rule_config())
             .load_index(ident, config.specialized_loading_sides())
             * num_tiles_per_plane;
-        let row_col_index = starting_tile_within_stage / stage_width;
-        let inner_offset = starting_tile_within_stage % stage_width;
-        let num_tiles_to_skip = row_col_index * row_col_stride + inner_offset + stage_offset;
 
         SyncPartialTilewiseJob {
+            stage_index,
             num_tiles_to_skip,
-            row_col_stride,
             stage_width,
             num_lines_per_tile,
             num_lines_per_unit,
@@ -144,9 +139,8 @@ impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialTilewiseLoading<
 #[derive(CubeType, Clone, Copy)]
 pub struct SyncPartialTilewiseJob {
     num_tiles_to_skip: u32,
+    stage_index: u32,
 
-    #[cube(comptime)]
-    row_col_stride: u32,
     #[cube(comptime)]
     stage_width: u32,
     #[cube(comptime)]
@@ -162,7 +156,7 @@ pub struct SyncPartialTilewiseJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncPartialTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -170,39 +164,30 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
         #[comptime] config: G,
     ) {
+        let mut stage = stage.with_buffer_index(this.stage_index);
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
         let nth_tile_for_this_plane = pos_across_tiles / this.num_lines_per_tile;
         let line_index_within_tile = pos_across_tiles % this.num_lines_per_tile;
 
-        let row_col_index_local = nth_tile_for_this_plane / this.stage_width;
-        let inner_offset = nth_tile_for_this_plane % this.stage_width;
-        let num_tiles_to_skip_local = row_col_index_local * this.row_col_stride + inner_offset;
-        let nth_tile_global = this.num_tiles_to_skip + num_tiles_to_skip_local;
+        let nth_tile_global = this.num_tiles_to_skip + nth_tile_for_this_plane;
 
-        let (total_tile_count_row, total_tile_count_col) = match comptime!(this.ident) {
-            MatmulIdent::Lhs => (
-                comptime!(config.tiling_scheme().tiles_in_stage_m()),
-                comptime!(
-                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(MatmulIdent::Lhs)
-                ),
-            ),
-            MatmulIdent::Rhs => (
-                comptime!(
-                    config.tiling_scheme().tiles_in_stage_k() * config.num_stages(MatmulIdent::Rhs)
-                ),
-                comptime!(config.tiling_scheme().tiles_in_stage_n()),
-            ),
-            MatmulIdent::Out => comptime!(unreachable!()),
-        };
+        let stage_config = comptime![config.stage_memory_config(this.ident)];
 
         let tile = TO::to_row_col(
             nth_tile_global,
-            total_tile_count_row,
-            total_tile_count_col,
-            comptime!(config.stage_memory_config(this.ident)),
+            stage_config.tiles_in_stage_row,
+            stage_config.tiles_in_stage_col,
+            stage_config,
         );
+
+        let tile = match comptime![this.ident] {
+            MatmulIdent::Lhs => (tile.0, tile.1 + this.stage_index * this.stage_width),
+            MatmulIdent::Rhs => (tile.0 + this.stage_index * this.stage_width, tile.1),
+            MatmulIdent::Out => tile,
+        };
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
 
@@ -212,7 +197,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
             line_index_within_tile,
             num_lines_to_skip_global,
             global_iter,
-            stage,
+            &mut stage,
             config,
         );
     }

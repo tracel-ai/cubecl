@@ -1,5 +1,5 @@
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::SyncFullLoadingStrategy;
+use crate::components::global::read::FullLoadingStrategy;
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
@@ -85,8 +85,9 @@ impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
 }
 
 #[cube]
-impl SyncFullLoadingStrategy for SyncFullOrderedLoading {
+impl FullLoadingStrategy for SyncFullOrderedLoading {
     type TilingLayout = ContiguousTilingLayout<OrderedTilingOrder>;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(

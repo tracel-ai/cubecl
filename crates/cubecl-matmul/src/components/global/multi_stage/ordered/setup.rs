@@ -1,6 +1,6 @@
 use crate::components::global::{
     GlobalWriterFamily,
-    read::{SyncFullLoadingStrategy, SyncPartialLoadingStrategy},
+    read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
 };
 use crate::components::global::{
     WriteTiling,
@@ -20,7 +20,7 @@ use super::OrderedDoubleBufferingGlobalConfig;
 /// Ordered double buffering matmul family for any precision
 pub struct OrderedDoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy,
     GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
@@ -36,14 +36,14 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    RL: SyncPartialLoadingStrategy,
+    RL: PartialLoadingStrategy<SyncStrategy = Synchronous>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
         MP,
         SMM::Matmul<
             MP,
-            <LL as SyncFullLoadingStrategy>::TilingLayout,
+            <LL as FullLoadingStrategy>::TilingLayout,
             RL::TilingLayout,
             NoTilingLayout,
             WriteTiling,

@@ -6,7 +6,7 @@ use cubecl_std::{
 };
 
 use cubecl_matmul::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::GlobalConfig,
     stage::{StageMemoryConfig, StridedStage},
 };
@@ -90,5 +90,5 @@ fn init_stage<ES: Numeric>(
         line_size,
     );
 
-    StridedStage::<ES, BiasTilingLayout>::new_with_smem(smem, StageIdent::Acc, config)
+    StridedStage::<ES, BiasTilingLayout>::new_with_smem(smem, config)
 }

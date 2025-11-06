@@ -1,8 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
-use crate::components::global::read::{SyncPartialLoadingStrategy, tiled::TiledLayout};
+use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
@@ -65,8 +65,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncPartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
+impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = SyncPartialCyclicJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -132,7 +133,7 @@ pub struct SyncPartialCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncPartialCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -140,16 +141,24 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
         #[comptime] config: G,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
+        let mut stage = stage.with_buffer_index(this.stage_index);
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, &mut stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+                load_and_store_line::<IP, TO, G>(
+                    this,
+                    unit_position,
+                    global_iter,
+                    &mut stage,
+                    config,
+                );
             }
         }
     }
@@ -182,18 +191,6 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     let tile_index = unit_position / tile_size;
     let pos_within_tile = unit_position % tile_size;
 
-    let (total_tile_count_row, total_tile_count_col) = match comptime!(job.ident) {
-        MatmulIdent::Lhs => (
-            comptime!(tile_count_row),
-            comptime!(tile_count_col * config.num_stages(MatmulIdent::Lhs)),
-        ),
-        MatmulIdent::Rhs => (
-            comptime!(tile_count_row * config.num_stages(MatmulIdent::Rhs)),
-            comptime!(tile_count_col),
-        ),
-        MatmulIdent::Out => comptime!(unreachable!()),
-    };
-
     let (tile_x_within_stage, tile_y_within_stage) = TO::to_row_col(
         tile_index,
         tile_count_row,
@@ -215,14 +212,7 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
 
     let line_read = view.read_checked((tile, pos_within_tile));
 
-    let nth_tile_in_stage = TO::to_nth_tile(
-        tile,
-        total_tile_count_row,
-        total_tile_count_col,
-        comptime!(config.stage_memory_config(job.ident)),
-    );
-
-    let tile_start = nth_tile_in_stage * job.num_lines_per_tile;
+    let tile_start = tile_index * job.num_lines_per_tile;
     let tile_end = tile_start + job.num_lines_per_tile;
     let mut tile_slice = stage
         .as_slice_mut(line_size)
