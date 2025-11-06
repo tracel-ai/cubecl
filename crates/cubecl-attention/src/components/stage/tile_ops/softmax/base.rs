@@ -14,6 +14,12 @@ use crate::components::{AttentionPrecision, attention_types::*};
 use crate::components::tile::FragmentAttention;
 
 #[cube]
+/// Applies softmax to a tile with masking and updates the running state.
+///
+/// Scales by `1 / sqrt(dk)`, applies the mask, computes row-wise max and sum,
+/// exponentiates, and updates the softmax state.
+///
+/// Returns the exponential difference used for normalization.
 pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reducer>(
     rowwise_softmax: &mut <FA as FragmentAttention<AP>>::SoftmaxRow,
     mask: &MaskTile<AP, FA>,

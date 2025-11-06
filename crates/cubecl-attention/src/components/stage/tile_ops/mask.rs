@@ -17,7 +17,9 @@ use cubecl_std::tensor::layout::Coordinates;
 /// Mask tile for Tile Attention
 /// It is an additive mask, which means the result of apply should be added, not multiplied
 pub enum MaskTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+    /// When a mask tensor is supplied. Also contains a logical part
     Materialized(MaterializedTileMask<AP, FA>),
+    /// When no mask tensor is supplied. Used for out of bounds and causal mask
     Logical(LogicalTileMask<FA::FragmentLayout>),
 }
 
@@ -62,6 +64,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaskTile<AP, FA> {
 }
 
 #[derive(CubeType)]
+/// Gives the origin of the logical mask, which is updated when changing partition or tile within partition
 pub struct LogicalIterOrigin {
     row: RuntimeCell<u32>,
     col: RuntimeCell<u32>,
@@ -88,10 +91,14 @@ impl LogicalIterOrigin {
 
 #[derive(CubeType)]
 pub struct LogicalTileMask<F: FragmentLayout> {
+    // Indicates where the logical mask currently starts
     logical_iter_origin: LogicalIterOrigin,
     #[cube(comptime)]
+    // Whether to apply causal mask
     causal: bool,
+    // Coordinates over which softmax is out of bounds, corresponds to seq_q, seq_kv of the problem
     out_of_bounds: CubeOption<Coords2d>,
+    // Allows mapping local position of a unit to its absolute position
     fragment_layout: F,
 }
 

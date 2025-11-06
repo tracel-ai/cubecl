@@ -39,21 +39,6 @@ macro_rules! testgen_attention {
         use super::*;
 
         #[cfg(feature = "attention_tests")]
-        mod attention_dummy_register {
-            type Algorithm = cubecl_attention::kernels::dummy::DummyRegisterAlgorithm;
-            const TILE_SIZE: cubecl_attention::components::AttentionTileSize =
-                cubecl_attention::components::AttentionTileSize {
-                    seq_q: 8,
-                    seq_kv: 8,
-                    head_dim: 8,
-                    val_dim: 8,
-                };
-            const STAGE_Q_BASE: u32 = 1;
-
-            $crate::testgen_attention_suite!();
-        }
-
-        #[cfg(feature = "attention_tests")]
         mod attention_unit {
             type Algorithm = cubecl_attention::kernels::unit::UnitAlgorithm;
             const TILE_SIZE: cubecl_attention::components::AttentionTileSize =

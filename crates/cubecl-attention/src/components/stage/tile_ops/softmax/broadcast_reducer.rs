@@ -7,9 +7,6 @@ use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 
 #[derive(CubeType)]
 /// Applies reduction on rows, masking planes that do not participate in the row
-///
-/// TODO: uses shared memory to plane_broadcast, should be replaced with
-/// a plane primitive
 pub struct BroadcastReducer {}
 
 #[cube]
