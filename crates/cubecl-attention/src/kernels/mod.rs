@@ -1,5 +1,6 @@
-/// Very slow attention implementation. Temporary
-pub mod dummy;
+/// Accelerated but using shared memory for rowwise operations
+pub mod blackbox_accelerated;
+/// Unit attention
 pub mod unit;
 
 mod algorithm;

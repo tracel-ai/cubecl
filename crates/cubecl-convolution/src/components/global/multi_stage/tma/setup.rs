@@ -5,7 +5,7 @@ use cubecl_matmul::components::{
     AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
     global::{
         PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
-        single_stage::tma::SimpleTmaConfig,
+        single_stage::simple::SimpleConfig,
     },
     stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
@@ -40,7 +40,7 @@ where
         MP,
         SMM::Matmul<MP, TmaIm2colTiling, TmaWeightTiling, BiasTilingLayout, WriteTiling>,
     >;
-    type Config = ConvolutionConfig<SimpleTmaConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
@@ -82,7 +82,7 @@ where
         );
 
         ConvolutionConfig::new(
-            SimpleTmaConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
                 client,
                 stage_config,
                 stage_config.num_main_flow_planes(),

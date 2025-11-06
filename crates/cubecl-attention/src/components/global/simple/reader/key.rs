@@ -1,8 +1,8 @@
 use crate::components::attention_types::*;
 use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
+use crate::components::stage::AttentionTilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::StageIdent;
 use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
     read::tiled::TiledLayout,
@@ -12,7 +12,6 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, AttentionPrecision};
 
 #[derive(CubeType)]
@@ -42,7 +41,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<KS<AP>, G
     type Stage = StridedStage<KS<AP>, AttentionTilingLayout>;
 
     fn init_stage(&mut self, #[comptime] config: G) -> Self::Stage {
-        StridedStage::new(StageIdent::Rhs, config.score_stage_memory_config())
+        StridedStage::new(config.score_stage_memory_config())
     }
 
     fn read_global(&mut self, stage: &mut Self::Stage, #[comptime] config: G) {

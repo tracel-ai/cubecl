@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::SyncFullLoadingStrategy;
+use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
@@ -76,8 +76,9 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
 }
 
 #[cube]
-impl<TO: TilingOrder> SyncFullLoadingStrategy for SyncFullTilewiseLoading<TO> {
+impl<TO: TilingOrder> FullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
+    type SyncStrategy = Synchronous;
     type Job<IP: MatrixPrecision> = SyncFullTilewiseJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -130,7 +131,7 @@ pub struct SyncFullTilewiseJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>>
+impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncFullTilewiseJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -138,6 +139,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
         stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        _barrier: &mut (),
         #[comptime] config: G,
     ) {
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;

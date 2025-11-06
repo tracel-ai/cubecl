@@ -1,7 +1,10 @@
+pub mod accelerated;
+pub mod unit_register;
+
 mod base;
-mod row;
-mod tiles;
+mod fragments;
+mod rowwise;
 
 pub use base::*;
-pub use row::*;
-pub use tiles::*;
+pub use fragments::*;
+pub use rowwise::*;

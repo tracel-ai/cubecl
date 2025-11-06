@@ -162,10 +162,37 @@ impl RoleRule {
                 }
             }
             RoleRule::LoadOnlyLast(main_flow) => {
-                if comptime!(!specialized_loading_sides.main_flow.includes(ident)) {
+                if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
                     UNIT_POS_Y - main_flow.threshold
                 } else {
                     UNIT_POS_Y
+                }
+            }
+        }
+    }
+
+    /// Whether this unit should execute a TMA load. Will always be the lowest unit in the
+    /// correct group. The TMA accelerator is unique so there's no point calling it on multiple
+    /// planes.
+    pub fn is_tma_load_unit(
+        self,
+        #[comptime] ident: MatmulIdent,
+        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
+    ) -> bool {
+        match self {
+            RoleRule::MainFlowOnly => UNIT_POS == 0,
+            RoleRule::LoadOnlyFirst(load_only) => {
+                if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
+                    UNIT_POS_Y == load_only.threshold && UNIT_POS_X == 0
+                } else {
+                    UNIT_POS == 0
+                }
+            }
+            RoleRule::LoadOnlyLast(main_flow) => {
+                if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
+                    UNIT_POS_Y == main_flow.threshold && UNIT_POS_X == 0
+                } else {
+                    UNIT_POS == 0
                 }
             }
         }

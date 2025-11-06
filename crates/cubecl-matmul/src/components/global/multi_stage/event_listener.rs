@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::read::StageBuffer;
+use crate::components::global::read::{StageBuffer, SyncStrategy};
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{MatmulIdent, TilingScheme};
@@ -21,11 +21,17 @@ pub enum EventLoadingMode {
 /// This comptime struct implements `on_event`, which is called from within the stage matmul.
 /// It responds to that event by launching loads using the provided job executors,
 /// allowing data for the next tile to be loaded while the current tile is being computed.
-pub struct DoubleBufferingEventListener<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig> {
+pub struct DoubleBufferingEventListener<
+    S: SyncStrategy,
+    Lhs: JobExecutor<G, S>,
+    Rhs: JobExecutor<G, S>,
+    G: GlobalConfig,
+> {
     #[cube(comptime)]
     stage_buffer: StageBuffer,
     reader_lhs: Lhs,
     reader_rhs: Rhs,
+    barrier: S::Barrier,
     #[cube(comptime)]
     config: G,
     state_lhs: Sequence<Lhs::JobIterator>,
@@ -60,21 +66,23 @@ struct EventAnalysis {
 impl CubeDebug for EventAnalysis {}
 
 #[cube]
-impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
-    DoubleBufferingEventListener<Lhs, Rhs, G>
+impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalConfig>
+    DoubleBufferingEventListener<S, Lhs, Rhs, G>
 {
     /// Create a new DoubleBufferingEventListener
     pub fn new(
         #[comptime] stage_buffer: StageBuffer,
         reader_lhs: &Lhs,
         reader_rhs: &Rhs,
+        barrier: &mut S::Barrier,
         #[comptime] config: G,
         #[comptime] event_loading_side: LoadingSides,
-    ) -> DoubleBufferingEventListener<Lhs, Rhs, G> {
-        DoubleBufferingEventListener::<Lhs, Rhs, G> {
+    ) -> DoubleBufferingEventListener<S, Lhs, Rhs, G> {
+        DoubleBufferingEventListener::<S, Lhs, Rhs, G> {
             stage_buffer,
             reader_lhs: comptime![reader_lhs.clone()],
             reader_rhs: comptime![reader_rhs.clone()],
+            barrier: comptime![barrier.clone()],
             config,
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
@@ -84,8 +92,8 @@ impl<Lhs: JobExecutor<G>, Rhs: JobExecutor<G>, G: GlobalConfig>
 }
 
 #[cube]
-impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G::StageConfig>
-    for DoubleBufferingEventListener<L, R, G>
+impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
+    StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
 {
     /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
     ///
@@ -118,7 +126,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                     sync_plane();
                 }
 
-                L::execute_task(&mut this.reader_lhs, lhs_job, this.config);
+                L::execute_task(
+                    &mut this.reader_lhs,
+                    lhs_job,
+                    &mut this.barrier,
+                    this.config,
+                );
             }
 
             if comptime![analysis.rhs.should_execute(current)] {
@@ -128,7 +141,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                     sync_plane();
                 }
 
-                R::execute_task(&mut this.reader_rhs, rhs_job, this.config);
+                R::execute_task(
+                    &mut this.reader_rhs,
+                    rhs_job,
+                    &mut this.barrier,
+                    this.config,
+                );
             }
         }
 
@@ -170,7 +188,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                 let lhs_job = this.state_lhs.index_mut(0);
                 #[unroll]
                 for _ in lhs_num_task_executed..lhs_num_tasks {
-                    L::execute_task(&mut this.reader_lhs, lhs_job, this.config);
+                    L::execute_task(
+                        &mut this.reader_lhs,
+                        lhs_job,
+                        &mut this.barrier,
+                        this.config,
+                    );
                 }
             }
 
@@ -178,7 +201,12 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
                 let rhs_job = this.state_rhs.index_mut(0);
                 #[unroll]
                 for _ in rhs_num_task_executed..rhs_num_tasks {
-                    R::execute_task(&mut this.reader_rhs, rhs_job, this.config);
+                    R::execute_task(
+                        &mut this.reader_rhs,
+                        rhs_job,
+                        &mut this.barrier,
+                        this.config,
+                    );
                 }
             }
         }
@@ -186,7 +214,9 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> StageEventListener<G
 }
 
 #[cube]
-impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEventListener<L, R, G> {
+impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
+    DoubleBufferingEventListener<S, L, R, G>
+{
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs.push(L::create_job_iterator(
@@ -269,7 +299,7 @@ impl<L: JobExecutor<G>, R: JobExecutor<G>, G: GlobalConfig> DoubleBufferingEvent
 
 #[cube]
 /// Something that can execute a job, i.e. a reader
-pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
+pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
     /// The job to execute
     type JobIterator: JobIterator;
 
@@ -281,18 +311,25 @@ pub trait JobExecutor<G: GlobalConfig>: CubeType + Clone {
     ) -> Self::JobIterator;
 
     /// Execute the next task
-    fn execute_task(this: &mut Self, job: &mut Self::JobIterator, #[comptime] config: G);
+    fn execute_task(
+        this: &mut Self,
+        job: &mut Self::JobIterator,
+        barrier: &mut S::Barrier,
+        #[comptime] config: G,
+    );
 
     /// Execute all tasks that remain at once
     fn execute_all_remaining_tasks(
         this: &mut Self,
         job: &mut Self::JobIterator,
+        barrier: &mut S::Barrier,
         #[comptime] config: G,
     );
 
     /// Create a job and execute all its tasks at once
     fn execute_whole_job(
         this: &mut Self,
+        barrier: &mut S::Barrier,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: G,
     );

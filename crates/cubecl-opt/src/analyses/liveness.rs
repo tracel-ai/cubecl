@@ -245,7 +245,7 @@ pub mod shared {
                 let slice_0 = &live_slices[i];
                 let slice_1 = &live_slices[i + 1];
                 let end_0 = (slice_0.offset + slice_0.smem.size()).next_multiple_of(align);
-                let gap = slice_1.offset - end_0;
+                let gap = slice_1.offset.saturating_sub(end_0);
                 if gap >= size {
                     return end_0;
                 }

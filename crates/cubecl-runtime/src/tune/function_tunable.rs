@@ -24,6 +24,10 @@ impl<F: AsFunctionTunableResult<Marker>, Marker: 'static> TuneFn for FunctionTun
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
         self.func.execute(inputs)
     }
+
+    fn name(&self) -> &str {
+        self.func.name()
+    }
 }
 
 /// Dummy marker for function tunables
@@ -68,6 +72,10 @@ impl<F: AsFunctionTunable<Marker>, Marker: 'static> TuneFn for FunctionTunableRe
 
     fn execute(&self, inputs: Self::Inputs) -> Result<Self::Output, AutotuneError> {
         Ok(self.func.execute(inputs))
+    }
+
+    fn name(&self) -> &str {
+        self.func.name()
     }
 }
 

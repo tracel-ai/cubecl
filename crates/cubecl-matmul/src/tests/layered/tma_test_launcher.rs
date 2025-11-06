@@ -144,7 +144,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 1234);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 
@@ -181,7 +181,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let handle = P::EG::sample::<R>(client, &shape, 5678);
 
-            let data = client.read_one(handle.handle);
+            let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
             let original_data = data.to_owned();
 

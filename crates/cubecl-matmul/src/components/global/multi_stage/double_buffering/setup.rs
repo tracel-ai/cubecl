@@ -2,7 +2,7 @@ use crate::components::global::{
     GlobalWriterFamily,
     multi_stage::double_buffering::{DoubleBufferingGlobalConfig, DoubleBufferingMatmul},
 };
-use crate::components::global::{WriteTiling, read::SyncPartialLoadingStrategy};
+use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::StageConfig;
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
@@ -15,8 +15,8 @@ use std::marker::PhantomData;
 /// Double buffering matmul family for any precision
 pub struct DoubleBufferingMatmulFamily<
     SMM: stage::StageMatmulFamily,
-    LL: SyncPartialLoadingStrategy,
-    RL: SyncPartialLoadingStrategy,
+    LL: PartialLoadingStrategy,
+    RL: PartialLoadingStrategy,
     GW: GlobalWriterFamily,
 > {
     _stage_matmul: PhantomData<SMM>,
@@ -33,8 +33,8 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    LL: SyncPartialLoadingStrategy,
-    RL: SyncPartialLoadingStrategy,
+    LL: PartialLoadingStrategy,
+    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
