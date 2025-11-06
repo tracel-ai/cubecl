@@ -1,9 +1,11 @@
+use std::marker::PhantomData;
+
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
+use crate::components::stage::{ReduceOp, Reducer};
 use crate::components::tile::{FragmentAttentionConfig, RowVal, RowWise};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
-use crate::components::stage::{ReduceOp, Reducer};
 
 #[derive(CubeType)]
 /// Applies reduction on rows, masking planes that do not participate in the row
@@ -25,7 +27,7 @@ impl Reducer for BroadcastReducer {
         let unit_pos = UNIT_POS_X;
         let unit_pos_in_row = unit_pos % num_units_per_row;
 
-        let mut fpb = FakePlaneBroadcast::<E>::new(config.plane_dim(), config.num_planes());
+        let mut fpb = PlaneBroadcast::<E>::new(config.plane_dim(), config.num_planes());
 
         RO::reduce_local_accumulate::<F>(data, vals);
 
@@ -43,6 +45,58 @@ impl Reducer for BroadcastReducer {
         // Broadcast back to subgroup
         let result = &fpb.plane_broadcast(vals, unit_pos - unit_pos_in_row);
         vals.copy_from(result);
+    }
+}
+
+#[derive(CubeType)]
+enum PlaneBroadcast<E: Float> {
+    Genuine(GenuinePlaneBroadcast<E>),
+    Fake(FakePlaneBroadcast<E>),
+}
+
+#[cube]
+impl<E: Float> PlaneBroadcast<E> {
+    pub fn new(#[comptime] plane_dim: u32, #[comptime] num_planes: u32) -> Self {
+        // PlaneBroadcast::new_Fake(FakePlaneBroadcast::new(plane_dim, num_planes))
+        PlaneBroadcast::new_Genuine(GenuinePlaneBroadcast::new())
+    }
+
+    pub fn plane_broadcast(&mut self, val: &RowWise<E>, source_unit: u32) -> RowWise<E> {
+        match self {
+            PlaneBroadcast::Genuine(pb) => pb.plane_broadcast(val, source_unit),
+            PlaneBroadcast::Fake(pb) => pb.plane_broadcast(val, source_unit),
+        }
+    }
+}
+
+#[derive(CubeType)]
+struct GenuinePlaneBroadcast<E: Float> {
+    #[cube(comptime)]
+    _phantom: PhantomData<E>,
+}
+
+#[cube]
+impl<E: Float> GenuinePlaneBroadcast<E> {
+    pub fn new() -> Self {
+        GenuinePlaneBroadcast::<E> {
+            _phantom: PhantomData,
+        }
+    }
+
+    pub fn plane_broadcast(&mut self, val: &RowWise<E>, source_unit: u32) -> RowWise<E> {
+        let mut result = Sequence::new();
+
+        #[unroll]
+        for row in 0..val.num_rows {
+            result.push(RowVal::<E> {
+                val: E::cast_from(9u32), // val: plane_broadcast(val.index(row), source_unit),
+            });
+        }
+
+        RowWise::<E> {
+            num_rows: val.num_rows,
+            vals: result,
+        }
     }
 }
 
