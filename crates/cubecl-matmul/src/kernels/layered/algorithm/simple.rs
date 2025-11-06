@@ -77,17 +77,17 @@ where
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
-        elems: MatmulElems,
         args: &Self::SelectionArgs,
+        dtypes: &MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         if args.multi_rows {
-            selection_multi_rows::<R, TMM>(client, problem, plane_dim, elems)
+            selection_multi_rows::<R, TMM>(client, problem, plane_dim, dtypes)
         } else {
             plane_matmul_selection::<TMM, R>(
                 client,
                 problem,
                 plane_dim,
-                elems,
+                dtypes,
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     tiny_selection_enabled: true,
@@ -102,15 +102,15 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    elems: MatmulElems,
+    dtypes: &MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
     let supported = |m: u32, n: u32, k: u32| {
         TMM::is_supported::<R>(
             client,
             MmaConfig {
-                a_type: elems.lhs_register,
-                b_type: elems.rhs_register,
-                cd_type: elems.acc_register,
+                a_type: dtypes.lhs_register,
+                b_type: dtypes.rhs_register,
+                cd_type: dtypes.acc_register,
                 m,
                 n,
                 k,
@@ -172,7 +172,7 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
             client,
             problem,
             plane_dim,
-            elems,
+            dtypes,
             PlaneMatmulSelectionOptions {
                 partition_buffering: Some(PartitionBuffering::Single),
                 multi_row_strategy: MultiRowStrategy::Always(2),

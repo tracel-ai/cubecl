@@ -32,7 +32,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    elems: MatmulElems,
+    dtypes: &MatmulElems,
     options: PlaneMatmulSelectionOptions,
 ) -> Result<MatmulSelection, MatmulSetupError> {
     if plane_dim == 1 {
@@ -41,7 +41,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         ));
     }
 
-    let tile_size = find_instruction_size::<R, TMM>(client, &elems, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, &dtypes, problem.m, problem.n);
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
@@ -49,7 +49,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
-        let precision_factor = match elems.lhs_stage.size() >= 4 {
+        let precision_factor = match dtypes.lhs_stage.size() >= 4 {
             true => 2,
             false => 1,
         };

@@ -175,13 +175,13 @@ pub fn launch_ref<R: Runtime>(
     let cube_count = simple_cube_count(lhs_shape, rhs_shape, out_shape, cube_dim_x, cube_dim_y)?;
 
     let lhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&input_dtype),
+        R::io_optimized_line_sizes(&dtypes.lhs_global),
         lhs.data().shape,
         lhs.data().strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&input_dtype),
+        R::io_optimized_line_sizes(&dtypes.rhs_global),
         rhs.data().shape,
         rhs.data().strides,
         rank - 2,
@@ -196,15 +196,6 @@ pub fn launch_ref<R: Runtime>(
         out_batches: out_shape[..rank - 2].to_vec(),
         lhs_layout: MatrixLayout::RowMajor,
         rhs_layout: MatrixLayout::ColMajor,
-    };
-
-    let acc_dtype = match input_dtype.elem_type() {
-        ElemType::Int(IntKind::I8) => i16::as_type_native_unchecked(),
-        ElemType::Int(_) => i32::as_type_native_unchecked(),
-        ElemType::UInt(UIntKind::U8) => u16::as_type_native_unchecked(),
-        ElemType::UInt(_) => u32::as_type_native_unchecked(),
-        ElemType::Float(..) => f32::as_type_native_unchecked(),
-        _ => input_dtype,
     };
 
     fn view<'a, R: Runtime>(

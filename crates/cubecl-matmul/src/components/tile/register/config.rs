@@ -6,7 +6,7 @@ use cubecl_runtime::TypeUsage;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{MatmulElems, MatrixLayout, StageIdent, TileSize};
 
 /// Execution mode for the RegisterMatmul
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -81,7 +81,7 @@ impl RegisterConfig {
     /// May return an error if:
     /// - Line sizes do not evenly divide tile sizes in the lined axis
     /// - Types are unavailable
-    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    pub fn new<R: Runtime>(
         client: &ComputeClient<R::Server>,
         tile_size: TileSize,
         plane_dim: u32,
@@ -92,6 +92,7 @@ impl RegisterConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tile_size,
@@ -105,7 +106,7 @@ impl RegisterConfig {
             rhs_stage_line_size,
         }
         .validate()?
-        .check_availability::<Lhs, Rhs, Acc, R>(client)
+        .check_availability::<R>(client, dtypes)
     }
 
     pub fn product_type(&self) -> ProductType {
@@ -181,13 +182,14 @@ impl RegisterConfig {
         Ok(self)
     }
 
-    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn check_availability<R: Runtime>(
         self,
         client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
-        let lhs = Lhs::as_type_native_unchecked();
-        let rhs = Rhs::as_type_native_unchecked();
-        let acc = Acc::as_type_native_unchecked();
+        let lhs = dtypes.lhs_register;
+        let rhs = dtypes.rhs_register;
+        let acc = dtypes.acc_register;
 
         let lhs = match lhs {
             StorageType::Scalar(ElemType::Float(FloatKind::Flex32)) => {
@@ -209,14 +211,15 @@ impl RegisterConfig {
             _ => acc,
         };
 
-        if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
-            && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
-            && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
-        {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
-            ));
-        }
+        // TODO
+        // if !(Lhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+        //     && Rhs::supported_uses(client).contains(TypeUsage::Arithmetic)
+        //     && Acc::supported_uses(client).contains(TypeUsage::Arithmetic))
+        // {
+        //     return Err(MatmulSetupError::Unavailable(
+        //         MatmulAvailabilityError::TypesUnavailable { lhs, rhs, output },
+        //     ));
+        // }
 
         Ok(self)
     }

@@ -8,7 +8,7 @@ use crate::components::{
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
-use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{LhsG, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
 use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
 use cubecl_std::{
     CubeOption,
@@ -29,11 +29,12 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.

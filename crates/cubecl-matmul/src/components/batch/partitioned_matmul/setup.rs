@@ -1,14 +1,14 @@
 use std::marker::PhantomData;
 
+use crate::components::batch::entry_point::matmul;
+use crate::components::batch::partitioned_matmul::config::PartitionedBatchConfig;
 use crate::components::batch::partitioned_matmul::matmul::PartitionedBatchMatmul;
 use crate::components::batch::partitioned_matmul::partition::GlobalPartitionMatmul;
 use crate::components::batch::{BatchMatmulFamily, CubeCountInputArgs};
 use crate::components::global::GlobalMatmulFamily;
-use crate::components::{AccG, batch::entry_point::matmul};
-use crate::components::{AccS, batch::partitioned_matmul::config::PartitionedBatchConfig};
+use crate::components::global::args::MatmulArgs;
 use crate::components::{
-    Args, InputRuntimeArg, LhsG, LhsS, MatmulPrecision, MatmulProblem, MatmulSelection, MatmulSpec,
-    OutputRuntimeArg, RhsG, RhsS,
+    InputRuntimeArg, MatmulElems, MatmulPrecision, MatmulProblem, MatmulSelection, OutputRuntimeArg,
 };
 use crate::components::{MatmulLineSizes, MatmulSetupError};
 use cubecl_core::prelude::*;
@@ -25,13 +25,14 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     type Matmul<MP: MatmulPrecision> = PartitionedBatchMatmul<MP, GMM::Matmul<MP>, S>;
     type Config = PartitionedBatchConfig<GMM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let global_config = GMM::setup::<MP, R>(client, problem, selection, line_sizes)?;
+        let global_config = GMM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         PartitionedBatchConfig::new(
             global_config,
@@ -42,35 +43,33 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         .validate(problem)
     }
 
-    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
+        input: InputRuntimeArg<'a, MA, R>,
+        output: OutputRuntimeArg<'a, MA, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &MatmulElems,
     ) {
-        unsafe {
-            matmul::launch_unchecked::<
-                Args<MS>,
-                LhsG<MS>,
-                RhsG<MS>,
-                AccG<MS>,
-                LhsS<MS>,
-                RhsS<MS>,
-                AccS<MS>,
-                Self,
-                R,
-            >(
-                client,
-                cube_count,
-                cube_dim,
-                input,
-                output,
-                cube_count_input,
-                config,
-            );
-        }
+        todo!();
+        // unsafe {
+        //     matmul::launch_unchecked::<MA, Self, R>(
+        //         client,
+        //         cube_count,
+        //         cube_dim,
+        //         input,
+        //         output,
+        //         cube_count_input,
+        //         config,
+        //         dtypes.lhs_global,
+        //         dtypes.rhs_global,
+        //         dtypes.acc_global,
+        //         dtypes.lhs_stage,
+        //         dtypes.rhs_stage,
+        //         dtypes.acc_stage,
+        //     );
+        // }
     }
 }

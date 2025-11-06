@@ -2,6 +2,7 @@ use cubecl_common::quant::scheme::{QuantScheme, QuantStore, QuantValue};
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
+    ir::StorageType,
     prelude::{CubePrimitive, Numeric, TensorHandleRef},
 };
 
@@ -158,7 +159,7 @@ impl<R: Runtime> MatmulInputHandle<R> {
     pub fn from_ref(handle: &MatmulInputHandleRef<'_, R>) -> Self {
         match handle {
             MatmulInputHandleRef::Normal(handle, dtype) => {
-                MatmulInputHandle::Normal(TensorHandle::from_ref(handle, dtype))
+                MatmulInputHandle::Normal(TensorHandle::from_ref(handle, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
@@ -168,8 +169,8 @@ impl<R: Runtime> MatmulInputHandle<R> {
                 data_dtype,
                 scale_dtype,
             } => MatmulInputHandle::Quantized {
-                data: TensorHandle::from_ref(data, dtype),
-                scale: TensorHandle::from_ref(scale, scale_dtype),
+                data: TensorHandle::from_ref(data, *data_dtype),
+                scale: TensorHandle::from_ref(scale, *scale_dtype),
                 shape: shape.to_vec(),
                 scheme: **scheme,
             },
@@ -246,7 +247,7 @@ impl<'a, R: Runtime> Clone for MatmulInputHandleRef<'a, R> {
 impl<'a, R: Runtime> Copy for MatmulInputHandleRef<'a, R> {}
 
 impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
-    pub fn new(data: TensorHandleRef<'a, R>, dtype: Storagetype) -> Self {
+    pub fn new(data: TensorHandleRef<'a, R>, dtype: StorageType) -> Self {
         Self::Normal(data, dtype)
     }
 
@@ -255,8 +256,8 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         scale: TensorHandleRef<'a, R>,
         shape: &'a [usize],
         scheme: &'a QuantScheme,
-        data_dtype: Storagetype,
-        scale_dtype: Storagetype,
+        data_dtype: StorageType,
+        scale_dtype: StorageType,
     ) -> Self {
         Self::Quantized {
             data,
@@ -306,7 +307,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
     pub fn into_contiguous(&self, client: &ComputeClient<R::Server>) -> MatmulInputHandle<R> {
         match self {
             MatmulInputHandleRef::Normal(data, dtype) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, dtype))
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
@@ -327,7 +328,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                             u8::as_type_native_unchecked(),
                         );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref(), data_dtype)
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
                     QuantStore::U32 => {
                         let data = into_contiguous_packed::<R>(
@@ -338,13 +339,13 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                             u32::as_type_native_unchecked(),
                         );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref(), data_dtype)
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R>(client, data, data_dtype),
+                    _ => into_contiguous_pitched::<R>(client, data, *data_dtype),
                 };
                 MatmulInputHandle::Quantized {
                     data,
-                    scale: TensorHandle::from_ref(scale, scale_dtype),
+                    scale: TensorHandle::from_ref(scale, *scale_dtype),
                     shape: shape.to_vec(),
                     scheme: **scheme,
                 }
@@ -450,10 +451,9 @@ pub fn launch_ref<R: Runtime>(
                     >,
                 >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
-            ReadingStrategy::Tma =>
-                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection, dtypes
-                ),
+            ReadingStrategy::Tma => layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
+                client, lhs, rhs, out, selection, dtypes
+            ),
         }),
         Strategy::DoubleBuffering {
             read_strategy,

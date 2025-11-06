@@ -1,10 +1,11 @@
 use crate::MatmulInputHandleRef;
 use crate::components::batch::BatchConfig;
+use crate::components::global::args::MatmulArgs;
 use crate::components::{
     InputArg, InputRuntimeArg, MatmulElems, MatmulLineSizes, MatmulSetupError, OutputRuntimeArg,
 };
 use crate::components::{
-    MatmulProblem, MatmulSpec, OutputArg,
+    MatmulProblem, OutputArg,
     global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
 };
 use crate::kernels::layered::base::Selection;
@@ -16,7 +17,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 ///
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_kernel_concrete<MA: MatmulArgs, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
@@ -28,8 +29,8 @@ pub fn launch_kernel_concrete<MS: MatmulSpec, R: Runtime, A: Algorithm>(
     dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError>
 where
-    InputArg<MS>: ConcreteInputsFactory,
-    OutputArg<MS>: ConcreteOutputFactory,
+    InputArg<MA>: ConcreteInputsFactory,
+    OutputArg<MA>: ConcreteOutputFactory,
 {
     let mut view_line_sizes = line_sizes;
 
@@ -43,7 +44,7 @@ where
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, elems, args)?
+            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
     let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
@@ -52,11 +53,11 @@ where
         client.properties().hardware.max_cube_count.clone(),
     );
 
-    launch_with_config::<MS, R, A>(
+    launch_with_config::<MA, R, A>(
         client,
         config.cube_dim(),
         cube_count_plan.resolve(),
-        <InputArg<MS> as ConcreteInputsFactory>::create(
+        <InputArg<MA> as ConcreteInputsFactory>::create(
             client,
             lhs,
             rhs,
@@ -65,7 +66,7 @@ where
             &line_sizes,
             config,
         ),
-        <OutputArg<MS> as ConcreteOutputFactory>::create(
+        <OutputArg<MA> as ConcreteOutputFactory>::create(
             client,
             out,
             &selection,
@@ -75,14 +76,15 @@ where
         ),
         cube_count_plan.as_args(),
         config,
+        dtypes,
     )
 }
 
 /// Select which kernel to launch for the given Algorithm.
-pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
+    input: InputRuntimeArg<'a, MA, R>,
+    output: OutputRuntimeArg<'a, MA, R>,
     problem: MatmulProblem,
     view_line_sizes: MatmulLineSizes,
     plane_dim: u32,
@@ -92,7 +94,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, dtypes, args)?
+            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
     let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
@@ -102,7 +104,7 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         client.properties().hardware.max_cube_count.clone(),
     );
 
-    launch_with_config::<MS, R, A>(
+    launch_with_config::<MA, R, A>(
         client,
         config.cube_dim(),
         cube_count_plan.resolve(),
@@ -110,5 +112,6 @@ pub fn launch_kernel_virtual<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
         output,
         cube_count_plan.as_args(),
         config,
+        dtypes,
     )
 }

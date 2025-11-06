@@ -1,3 +1,4 @@
+use crate::components::MatmulElems;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -64,7 +65,7 @@ impl<
 
     type Config = UnitPartitionedStageConfig<TM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
@@ -72,9 +73,9 @@ impl<
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config =
-            TM::setup::<LhsR<MP>, RhsR<MP>, AccR<MP>, R>(client, problem, selection, line_sizes)?;
+        let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         let compute_resources = if let ComputeResources::Units(units) = TM::computation_resources()?
         {
@@ -100,9 +101,9 @@ impl<
             selection.partition_buffering,
             num_stages,
             plane_role_config,
-            LhsS::<MP>::elem_size(),
-            RhsS::<MP>::elem_size(),
-            AccS::<MP>::elem_size(),
+            dtypes.lhs_stage.size() as u32,
+            dtypes.rhs_stage.size() as u32,
+            dtypes.acc_stage.size() as u32,
             client.properties().hardware.max_shared_memory_size as u32,
             ordered,
         )

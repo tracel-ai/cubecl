@@ -59,8 +59,8 @@ where
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
-        _elems: MatmulElems,
         args: &Self::SelectionArgs,
+        _dtypes: &MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(unit_matmul_selection::<R>(
             client,

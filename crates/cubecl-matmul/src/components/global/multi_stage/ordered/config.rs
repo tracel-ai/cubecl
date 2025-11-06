@@ -122,7 +122,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     /// - CubeDim is too big
     /// - There is more than one stage partition in n
     /// - Lhs is not loaded exclusively by main flow planes
-    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,

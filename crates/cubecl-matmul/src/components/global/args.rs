@@ -59,8 +59,10 @@ pub trait ConcreteOutputFactory: LaunchArg {
 pub trait MatmulArgs: Send + Sync + 'static + Clone {
     /// Type used for the input.
     type Input<Lhs: Numeric, Rhs: Numeric, EO: Numeric>: LaunchArg + CubeType;
+
     /// Type used for the output.
-    type Output<EO: Numeric>: LaunchArg + CubeType;
+    type Output<EO: Numeric>: LaunchArg + LaunchArg + CubeType;
+
     /// Inner state that is used to create [tensor inputs](TensorInput) and
     /// [tensor outputs](TensorOutput) .
     type State<Lhs: Numeric, Rhs: Numeric, EO: Numeric>: CubeType;
