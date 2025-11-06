@@ -16,7 +16,7 @@ use crate::components::{
 };
 use crate::components::{
     stage::RunningState,
-    tile::{SoftmaxFragment, SoftmaxFragmentExpand},
+    tile::{FragmentSoftmax, FragmentSoftmaxExpand},
 };
 use crate::components::{stage::StageAttentionConfig, tile::RowWise};
 use crate::components::{
@@ -78,18 +78,16 @@ impl<
     ) {
         let p = config.tiling_scheme().partition_size;
 
+        // Small working memory in registers
         let mut max_placeholder = RowWise::new_min_value(config.num_rows_per_unit());
         let mut sum_placeholder = RowWise::new_zero(config.num_rows_per_unit());
 
         #[unroll]
         for kv in 0..p.seq_kv {
-            let mut scales = Sequence::<RowWise<SM<AP>>>::new();
-
             #[unroll]
             for q in 0..p.seq_q {
                 let softmax_tile = softmax_partition.get_at_mut(q);
-
-                FA::zero_softmax(softmax_tile, config.tile_config());
+                softmax_tile.zero();
 
                 read_mask::<AP, FA, P, S>((q, kv), mask_reader, mask_partition, config);
 
@@ -113,7 +111,7 @@ impl<
 
                 let softmax_rowwise = softmax_tile.rowwise_mut();
 
-                scales.push(tile_softmax::<AP, FA, P::Reducer>(
+                let scale = tile_softmax::<AP, FA, P::Reducer>(
                     softmax_rowwise,
                     mask_partition.get_mut(),
                     state_q,
@@ -121,7 +119,7 @@ impl<
                     &mut sum_placeholder,
                     config.tiling_scheme().elements_in_partition_head_dim(),
                     config.tile_config(),
-                ));
+                );
 
                 softmax_tile.update_from_rowwise();
 
@@ -137,9 +135,7 @@ impl<
                     );
 
                     let accumulator = accumulator_partition.get_at_mut(q, vd, config);
-                    let scale = scales.index(q);
-
-                    accumulator.scale_mul(scale);
+                    accumulator.scale_mul(&scale);
 
                     FA::value_matmul(
                         softmax_tile,
