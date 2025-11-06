@@ -11,7 +11,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 rust-version = "1.88"
-version = "0.8.0"
+version = "0.8.1"
 
 [workspace.dependencies]
 bitflags = { version = "2.9.1", features = ["serde"] }
