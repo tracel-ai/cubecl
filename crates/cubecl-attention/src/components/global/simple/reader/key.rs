@@ -1,5 +1,6 @@
 use crate::components::attention_types::*;
 use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
+use crate::components::stage::AttentionTilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
@@ -11,7 +12,6 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::tile::AttentionTilingLayout;
 use crate::components::{AttentionIdent, AttentionPrecision};
 
 #[derive(CubeType)]

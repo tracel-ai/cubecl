@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords1d;
 
 use crate::components::global::simple::AttentionWriter;
-use crate::components::tile::Reducer;
+use crate::components::stage::Reducer;
 
 #[cube]
 /// Defines how the stage is partitioned among compute primitives (e.g., units or planes).

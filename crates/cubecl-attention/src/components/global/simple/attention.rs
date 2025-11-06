@@ -14,8 +14,7 @@ use crate::components::global::{
     AttentionGlobalLayout,
     simple::{DummyKeyReader, DummyValueReader},
 };
-use crate::components::stage::{AttentionPartitioner, StageAttention};
-use crate::components::tile::AttentionTilingLayout;
+use crate::components::stage::{AttentionPartitioner, AttentionTilingLayout, StageAttention};
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,
@@ -77,8 +76,6 @@ impl<
             key_reader.read_global(&mut key_stage, config);
             value_reader.read_global(&mut value_stage, config);
 
-            SA::read_mask(&mask_reader, &mut mask_registers, config.stage_config());
-
             sync_cube();
 
             SA::execute(
@@ -86,7 +83,8 @@ impl<
                 &key_stage,
                 &value_stage,
                 &mut key_value_registers,
-                &mask_registers,
+                &mask_reader,
+                &mut mask_registers,
                 &mut softmax_registers,
                 &mut accumulator_registers,
                 &mut stage_state,

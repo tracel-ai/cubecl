@@ -9,7 +9,7 @@ use crate::{
         AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
         batch::HypercubeSelection,
     },
-    kernels::{Algorithm, dummy::DummyRegisterAlgorithm},
+    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm},
 };
 
 use crate::components::batch::BatchAttentionConfig;
@@ -69,7 +69,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         size_of::<MSK<AP>>(),
         out.elem_size,
     );
-    let line_sizes = DummyRegisterAlgorithm::filter_line_sizes(line_sizes)
+    let line_sizes = BlackboxAcceleratedAlgorithm::filter_line_sizes(line_sizes)
         .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
         .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
         .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
@@ -112,14 +112,14 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         two_rows_in_array_tile: false,
     };
 
-    let config = DummyRegisterAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config = BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config
         .hypercube_config()
         .cube_count_plan(&problem, &selection);
 
     unsafe {
-        <DummyRegisterAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
+        <BlackboxAcceleratedAlgorithm as Algorithm>::BatchAttention::launch_unchecked::<AP, R>(
             client,
             config.cube_dim(),
             cube_count_plan.resolve(),
