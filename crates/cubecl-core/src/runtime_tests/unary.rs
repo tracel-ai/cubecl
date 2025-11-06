@@ -873,7 +873,6 @@ macro_rules! testgen_unary {
             add_test!(test_degrees);
             add_test!(test_radians);
             add_test!(test_normalize);
-            add_test!(test_inverse_sqrt);
             add_test!(test_magnitude);
             add_test!(test_sqrt);
             add_test!(test_inverse_sqrt);
