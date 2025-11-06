@@ -78,21 +78,21 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
         FA::fill_key_value(tile, registers.value_mut(), config);
     }
 
-    pub fn zero_softmax(score: &mut FA::SoftmaxScore, #[comptime] config: FA::Config) {
+    pub fn zero_softmax(score: &mut FA::Softmax, #[comptime] config: FA::Config) {
         FA::zero_softmax(score, config);
     }
 
     pub fn accumulate_score(
         query: &QueryTile<AP, FA>,
         key_value: &KeyValueTile<AP, FA>,
-        softmax: &mut FA::SoftmaxScore,
+        softmax: &mut FA::Softmax,
         #[comptime] config: FA::Config,
     ) {
         FA::score_matmul(&query.fragment, key_value.key(), softmax, config);
     }
 
     pub fn softmax<R: Reducer>(
-        rowwise_softmax: &mut <FA as FragmentAttention<AP>>::SoftmaxRowFormat,
+        rowwise_softmax: &mut <FA as FragmentAttention<AP>>::SoftmaxRow,
         mask: &MaskTile<AP, FA>,
         state: &mut RunningState<SM<AP>>,
         max_placeholder: &mut RowWise<SM<AP>>,
@@ -106,14 +106,14 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
             mask,
         );
 
-        row_max::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRowFormat, R, FA::Config>(
+        row_max::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
             max_placeholder,
             state.m(),
             rowwise_softmax,
             config,
         );
 
-        to_prob::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRowFormat, R, FA::Config>(
+        to_prob::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
             rowwise_softmax,
             state,
             max_placeholder,
@@ -123,7 +123,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> TileAttention<AP, FA> {
     }
 
     pub fn accumulate_value(
-        softmax: &<FA as FragmentAttention<AP>>::SoftmaxVal,
+        softmax: &<FA as FragmentAttention<AP>>::Softmax,
         key_value: &KeyValueTile<AP, FA>,
         accumulator: &mut AccumulatorTile<AP, FA>,
         scale: &RowWise<SM<AP>>,

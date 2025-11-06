@@ -14,7 +14,7 @@ pub struct SoftmaxPartition<
     FA: FragmentAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
-    sequence: Sequence<FA::SoftmaxScore>,
+    sequence: Sequence<FA::Softmax>,
     #[cube(comptime)]
     _phantom: PhantomData<S>,
 }
@@ -41,11 +41,11 @@ impl<
         }
     }
 
-    pub fn get_at(&self, #[comptime] q: u32) -> &FA::SoftmaxScore {
+    pub fn get_at(&self, #[comptime] q: u32) -> &FA::Softmax {
         self.sequence.index(q)
     }
 
-    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut FA::SoftmaxScore {
+    pub fn get_at_mut(&mut self, #[comptime] q: u32) -> &mut FA::Softmax {
         self.sequence.index_mut(q)
     }
 }

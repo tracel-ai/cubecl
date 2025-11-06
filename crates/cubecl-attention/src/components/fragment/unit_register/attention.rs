@@ -9,12 +9,10 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::unit_register::UnitRegisterFragmentAttentionConfig;
-use crate::components::fragment::{
-    AccScoreFormat, AccScoreFormatExpand, LhsValFormat, LhsValFormatExpand, RowwiseFormat,
-    RowwiseFormatExpand,
-};
 use crate::components::fragment::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::fragment::{SoftmaxFragment, SoftmaxFragmentExpand};
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 
@@ -78,32 +76,8 @@ impl FragmentLayout for UnitTileLayout {
 }
 
 #[cube]
-impl<E: Float> AccScoreFormat<E> for UnitTile<E> {
-    type RowWiseFormat = UnitTile<E>;
-
-    fn to_rowwise_format(self) -> Self::RowWiseFormat {
-        self
-    }
-}
-
-#[cube]
-impl<E: Float> LhsValFormat<E> for UnitTile<E> {
-    type AccScoreFormat = UnitTile<E>;
-
-    fn reset_to_acc_score_format(self) -> Self::AccScoreFormat {
-        // TODO may need zeroing
-        self
-    }
-}
-
-#[cube]
 impl<E: Float> RowwiseFormat<E> for UnitTile<E> {
     type Layout = UnitTileLayout;
-    type LhsValFormat = UnitTile<E>;
-
-    fn to_lhs_val_format(self) -> Self::LhsValFormat {
-        self
-    }
 
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();
@@ -197,6 +171,22 @@ impl<E: Float> FragmentAccumulator<E> for UnitTile<E> {
 }
 
 #[cube]
+impl<E: Float> SoftmaxFragment<E> for UnitTile<E> {
+    type Layout = UnitTileLayout;
+    type SoftmaxScore = UnitTile<E>;
+    type SoftmaxRowFormat = UnitTile<E>;
+    type SoftmaxVal = UnitTile<E>;
+
+    fn rowwise_mut(&mut self) -> &mut UnitTile<E> {
+        self
+    }
+
+    fn update_from_rowwise(&mut self) {
+        // Nothing to do, because rowwise = self
+    }
+}
+
+#[cube]
 impl<E: Numeric> FragmentMask for UnitTile<E> {
     type Layout = UnitTileLayout;
 
@@ -212,9 +202,8 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     type Query = UnitTile<QT<AP>>;
     type KeyValue = UnitTile<KVT<AP>>;
     type Mask = UnitTile<MSK<AP>>;
-    type SoftmaxScore = UnitTile<SM<AP>>;
-    type SoftmaxRowFormat = UnitTile<SM<AP>>;
-    type SoftmaxVal = UnitTile<SM<AP>>;
+    type Softmax = UnitTile<SM<AP>>;
+    type SoftmaxRow = UnitTile<SM<AP>>;
     type Accumulator = UnitTile<ACC<AP>>;
     type FragmentLayout = UnitTileLayout;
 
@@ -228,7 +217,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::SoftmaxScore,
+        out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
         let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
@@ -236,7 +225,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     }
 
     fn value_matmul(
-        lhs: &Self::SoftmaxVal,
+        lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -276,7 +265,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
         UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
-    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxScore {
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
         UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
@@ -314,7 +303,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
         strided_tile_to_array_tile(tile, fragment);
     }
 
-    fn zero_softmax(softmax: &mut Self::SoftmaxScore, #[comptime] _config: Self::Config) {
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
         softmax.zero();
     }
 

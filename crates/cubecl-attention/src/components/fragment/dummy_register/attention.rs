@@ -7,11 +7,9 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::{
-    AccScoreFormat, AccScoreFormatExpand, LhsValFormat, LhsValFormatExpand, RowwiseFormat,
-    RowwiseFormatExpand,
-};
 use crate::components::fragment::{FragmentMask, FragmentMaskExpand};
+use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
+use crate::components::fragment::{SoftmaxFragment, SoftmaxFragmentExpand};
 use crate::components::tile::{RowVal, RowWise};
 
 use crate::components::fragment::dummy_register::DummyRegisterAttentionMatmulConfig;
@@ -130,32 +128,8 @@ impl FragmentLayout for ArrayTileLayout {
 }
 
 #[cube]
-impl<E: Float> AccScoreFormat<E> for ArrayTile<E> {
-    type RowWiseFormat = ArrayTile<E>;
-
-    fn to_rowwise_format(self) -> Self::RowWiseFormat {
-        self
-    }
-}
-
-#[cube]
-impl<E: Float> LhsValFormat<E> for ArrayTile<E> {
-    type AccScoreFormat = ArrayTile<E>;
-
-    fn reset_to_acc_score_format(self) -> Self::AccScoreFormat {
-        // TODO zero
-        self
-    }
-}
-
-#[cube]
 impl<E: Float> RowwiseFormat<E> for ArrayTile<E> {
     type Layout = ArrayTileLayout;
-    type LhsValFormat = ArrayTile<E>;
-
-    fn to_lhs_val_format(self) -> Self::LhsValFormat {
-        self
-    }
 
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();
@@ -249,6 +223,22 @@ impl<E: Float> FragmentAccumulator<E> for ArrayTile<E> {
 }
 
 #[cube]
+impl<E: Float> SoftmaxFragment<E> for ArrayTile<E> {
+    type Layout = ArrayTileLayout;
+    type SoftmaxScore = ArrayTile<E>;
+    type SoftmaxRowFormat = ArrayTile<E>;
+    type SoftmaxVal = ArrayTile<E>;
+
+    fn rowwise_mut(&mut self) -> &mut ArrayTile<E> {
+        self
+    }
+
+    fn update_from_rowwise(&mut self) {
+        // Nothing to do, because rowwise = self
+    }
+}
+
+#[cube]
 impl<E: Numeric> FragmentMask for ArrayTile<E> {
     type Layout = ArrayTileLayout;
 
@@ -333,9 +323,8 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAtte
     type Query = ArrayTile<QT<AP>>;
     type KeyValue = ArrayTile<KVT<AP>>;
     type Mask = ArrayTile<MSK<AP>>;
-    type SoftmaxScore = ArrayTile<SM<AP>>;
-    type SoftmaxRowFormat = ArrayTile<SM<AP>>;
-    type SoftmaxVal = ArrayTile<SM<AP>>;
+    type Softmax = ArrayTile<SM<AP>>;
+    type SoftmaxRow = ArrayTile<SM<AP>>;
     type Accumulator = ArrayTile<ACC<AP>>;
     type FragmentLayout = ArrayTileLayout;
 
@@ -353,7 +342,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAtte
     fn score_matmul(
         lhs: &Self::Query,
         rhs: &Self::KeyValue,
-        out: &mut Self::SoftmaxScore,
+        out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
         let tmp_lhs_smem_slice = array_tile_to_tmp_smem::<QT<AP>>(lhs, config.num_planes());
@@ -383,7 +372,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAtte
     }
 
     fn value_matmul(
-        lhs: &Self::SoftmaxVal,
+        lhs: &Self::Softmax,
         rhs: &Self::KeyValue,
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
@@ -458,7 +447,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAtte
         ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
-    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::SoftmaxScore {
+    fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
         ArrayTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
     }
 
@@ -510,7 +499,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for DummyRegisterFragmentAtte
         sync_cube();
     }
 
-    fn zero_softmax(softmax: &mut Self::SoftmaxScore, #[comptime] _config: Self::Config) {
+    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
         softmax.zero();
         sync_cube();
     }

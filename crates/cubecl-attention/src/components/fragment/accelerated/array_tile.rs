@@ -123,11 +123,6 @@ impl FragmentLayout for ArrayTileLayout {
 #[cube]
 impl<E: Float> RowwiseFormat<E> for LocalTile<E> {
     type Layout = ArrayTileLayout;
-    type LhsValFormat = FragWrapper<E>;
-
-    fn to_lhs_val_format(self) -> Self::LhsValFormat {
-        todo!()
-    }
 
     fn rowwise_max(&self) -> RowWise<E> {
         let mut vals = Sequence::new();

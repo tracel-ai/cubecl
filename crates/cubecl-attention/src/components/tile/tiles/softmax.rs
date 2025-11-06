@@ -3,7 +3,6 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::fragment::AccScoreFormat;
 use crate::components::fragment::FragmentAttention;
 use crate::components::fragment::FragmentAttentionConfig;
 use crate::components::fragment::{RowwiseFormat, RowwiseFormatExpand};
@@ -12,9 +11,6 @@ use crate::components::tile::Reducer;
 use crate::components::tile::RowWise;
 use crate::components::tile::RunningState;
 use crate::components::tile::row_sum;
-
-type RowwiseSoftmax<FA, AP> =
-    <<FA as FragmentAttention<AP>>::SoftmaxScore as AccScoreFormat<SM<AP>>>::RowWiseFormat;
 
 // #[derive(CubeType)]
 // /// Softmax tile for the Tile Attention
@@ -38,11 +34,11 @@ type RowwiseSoftmax<FA, AP> =
 /// Scale the tile by a constant factor and apply the mask
 #[cube]
 pub fn scale_and_mask<AP: AttentionPrecision, FA: FragmentAttention<AP>>(
-    rowwise_flash: &mut RowwiseSoftmax<FA, AP>,
+    rowwise_flash: &mut FA::SoftmaxRow,
     scale: SM<AP>,
     mask: &MaskTile<AP, FA>,
 ) {
-    RowwiseSoftmax::<FA, AP>::scale_and_mask::<MaskTile<AP, FA>>(rowwise_flash, scale, mask);
+    FA::SoftmaxRow::scale_and_mask::<MaskTile<AP, FA>>(rowwise_flash, scale, mask);
 }
 
 // /// Compute the max of each row, starting with base
