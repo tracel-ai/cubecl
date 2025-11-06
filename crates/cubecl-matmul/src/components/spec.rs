@@ -133,7 +133,8 @@ pub type AccS<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage;
 pub type AccR<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Register;
 
 /// Input argument
-pub type InputArg<MA> = <MA as MatmulArgs>::Input<NumericExpand<0>, NumericExpand<1>, NumericExpand<2>>;
+pub type InputArg<MA> =
+    <MA as MatmulArgs>::Input<NumericExpand<0>, NumericExpand<1>, NumericExpand<2>>;
 
 /// Output argument
 pub type OutputArg<MA> = <MA as MatmulArgs>::Output<NumericExpand<2>>;
@@ -147,7 +148,6 @@ pub type OutputRuntimeArg<'a, MA, R> = <OutputArg<MA> as LaunchArg>::RuntimeArg<
 pub struct MatmulElems {
     pub lhs_global: StorageType,
     pub rhs_global: StorageType,
-    pub out_global: StorageType,
     pub acc_global: StorageType,
     pub lhs_stage: StorageType,
     pub rhs_stage: StorageType,
@@ -158,11 +158,10 @@ pub struct MatmulElems {
 }
 
 impl MatmulElems {
-    pub fn new<MP: MatmulPrecision>(out: StorageType) -> Self {
+    pub fn new<MP: MatmulPrecision>() -> Self {
         Self {
             lhs_global: <MP::Lhs as MatrixPrecision>::Global::as_type_native_unchecked(),
             rhs_global: <MP::Rhs as MatrixPrecision>::Global::as_type_native_unchecked(),
-            out_global: out,
             acc_global: <MP::Acc as MatrixPrecision>::Global::as_type_native_unchecked(),
             lhs_stage: <MP::Lhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
             rhs_stage: <MP::Rhs as MatrixPrecision>::Stage::as_type_native_unchecked(),

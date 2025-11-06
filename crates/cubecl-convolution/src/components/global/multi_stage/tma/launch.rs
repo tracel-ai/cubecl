@@ -1,7 +1,7 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
-    AccG, AccS, InputRuntimeArg, LhsG, LhsS, MatmulSpec, OutputRuntimeArg, RhsG, RhsS,
-    global::{GlobalConfig as _, PartitionedStageFamily},
+    InputRuntimeArg, MatmulElems, OutputRuntimeArg,
+    global::{GlobalConfig as _, PartitionedStageFamily, args::MatmulArgs},
     stage::{StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::FastDivmodArgs;
@@ -27,14 +27,15 @@ impl<
         >,
 > ConvolutionLaunch<GlobalConfig<Self>> for MultiStageTmaConvolutionFamily<SMM>
 {
-    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
+        input: InputRuntimeArg<'a, MA, R>,
+        output: OutputRuntimeArg<'a, MA, R>,
         problem: &ConvolutionProblem,
         config: GlobalConfig<Self>,
+        dtypes: &MatmulElems,
     ) {
         let padded_channels =
             (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
@@ -51,17 +52,7 @@ impl<
         );
 
         unsafe {
-            implicit_conv::launch_unchecked::<
-                MS::Args,
-                LhsG<MS>,
-                RhsG<MS>,
-                AccG<MS>,
-                LhsS<MS>,
-                RhsS<MS>,
-                AccS<MS>,
-                Self,
-                R,
-            >(
+            implicit_conv::launch_unchecked::<MA, Self, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -69,6 +60,12 @@ impl<
                 output,
                 runtime_args,
                 config,
+                dtypes.lhs_global,
+                dtypes.rhs_global,
+                dtypes.acc_global,
+                dtypes.lhs_stage,
+                dtypes.rhs_stage,
+                dtypes.acc_stage,
             );
         }
     }

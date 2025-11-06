@@ -1,14 +1,14 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
+use crate::components::AvailableLineSizes;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
 use crate::components::MatrixLayout;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
+use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
-use crate::components::global::args::{TensorMapArgs};
-use crate::components::{AvailableLineSizes};
 use crate::components::{MatmulElems, MatmulIdent};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
@@ -76,7 +76,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let dtypes = MatmulElems {
         lhs_global: P::EG::as_type_native_unchecked(),
         rhs_global: P::EG::as_type_native_unchecked(),
-        out_global: P::EG::as_type_native_unchecked(),
         acc_global: P::EA::as_type_native_unchecked(),
         lhs_stage: P::ES::as_type_native_unchecked(),
         rhs_stage: P::ES::as_type_native_unchecked(),
@@ -122,7 +121,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         client.properties().hardware.max_cube_count.clone(),
     );
 
-    let dtypes = MatmulElems::new::<P::MP>(P::EG::as_type_native_unchecked());
+    let dtypes = MatmulElems::new::<P::MP>();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<TensorMapArgs, R>(

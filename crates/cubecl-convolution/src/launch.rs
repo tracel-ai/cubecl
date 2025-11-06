@@ -1,7 +1,10 @@
 use std::any::TypeId;
 
 use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
-use cubecl_matmul::{MatmulInputHandleRef, components::AccG};
+use cubecl_matmul::{
+    MatmulInputHandleRef,
+    components::{AccG, InputArg, OutputArg},
+};
 use cubecl_runtime::TypeUsage;
 use half::f16;
 
@@ -16,20 +19,10 @@ use crate::{
     },
     kernels::layered::algorithm::Algorithm,
 };
-use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::{
     self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
-    MatrixPrecision, RhsG,
+    RhsG,
 };
-
-type Input<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Input<
-    <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Global,
-    <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Global,
-    <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Global,
->;
-type Output<Alg, MP> = <<Alg as Algorithm>::Args as MatmulArgs>::Output<
-    <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Global,
->;
 
 #[derive(Clone)]
 pub struct ConvolutionArgs<const N_SPATIAL: usize> {
@@ -56,8 +49,8 @@ pub fn launch_conv<R: Runtime, MP: MatmulPrecision, Alg: Algorithm, const N_SPAT
     args: ConvolutionArgs<N_SPATIAL>,
 ) -> Result<(), ConvSetupError>
 where
-    Input<Alg, MP>: ConcreteInputsFactory,
-    Output<Alg, MP>: ConcreteOutputFactory,
+    InputArg<Alg::Args>: ConcreteInputsFactory,
+    OutputArg<Alg::Args>: ConcreteOutputFactory,
 {
     let ConvolutionArgs {
         stride,
@@ -93,8 +86,8 @@ fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     dimensionality: Dimensionality,
 ) -> Result<(), ConvSetupError>
 where
-    Input<Alg, MP>: ConcreteInputsFactory,
-    Output<Alg, MP>: ConcreteOutputFactory,
+    InputArg<Alg::Args>: ConcreteInputsFactory,
+    OutputArg<Alg::Args>: ConcreteOutputFactory,
 {
     let rank = input.data().shape.len();
     let dim_c = rank - 1;
@@ -108,9 +101,18 @@ where
     let kernel_shape = &weight.data().shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input_data = Alg::into_tensor_handle::<R, LhsG<MP>>(client, input.data(), MatmulIdent::Lhs);
-    let weight_data =
-        Alg::into_tensor_handle::<R, RhsG<MP>>(client, weight.data(), MatmulIdent::Rhs);
+    let input_data = Alg::into_tensor_handle::<R>(
+        client,
+        input.data(),
+        MatmulIdent::Lhs,
+        LhsG::<MP>::as_type_native_unchecked(),
+    );
+    let weight_data = Alg::into_tensor_handle::<R>(
+        client,
+        weight.data(),
+        MatmulIdent::Rhs,
+        RhsG::<MP>::as_type_native_unchecked(),
+    );
 
     let mut input = *input;
     let mut weight = *weight;
@@ -178,9 +180,10 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     selection: MatmulSelection,
 ) -> Result<(), ConvSetupError>
 where
-    Input<Alg, MP>: ConcreteInputsFactory,
-    Output<Alg, MP>: ConcreteOutputFactory,
+    InputArg<Alg::Args>: ConcreteInputsFactory,
+    OutputArg<Alg::Args>: ConcreteOutputFactory,
 {
+    let dtypes = MatmulElems::new::<MP>();
     let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
         input.data().elem_size,
         weight.data().elem_size,
@@ -196,11 +199,11 @@ where
 
     let line_sizes = Alg::filter_line_sizes(line_sizes).pick_max()?;
 
-    let config = Alg::setup::<R, MP>(client, &problem, &selection, &line_sizes)?;
+    let config = Alg::setup::<R>(client, &problem, &selection, &line_sizes, &dtypes)?;
 
     let line_sizes = config.line_sizes();
 
-    launch_kernel_concrete::<(MP, Alg::Args), R, Alg>(
-        client, input, weight, bias, out, problem, line_sizes, selection,
+    launch_kernel_concrete::<R, Alg>(
+        client, input, weight, bias, out, problem, line_sizes, selection, &dtypes,
     )
 }

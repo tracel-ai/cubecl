@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulSetupError,
     global::{
         PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
         single_stage::simple::SimpleConfig,
@@ -44,13 +45,14 @@ where
         available_line_sizes
     }
 
-    fn setup<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
@@ -58,11 +60,12 @@ where
             (1, 1).into(),
             None,
             false,
+            dtypes,
         )?;
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         ConvolutionConfig::new(
-            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, R>(
                 client,
                 stage_config,
                 stage_config.num_main_flow_planes(),

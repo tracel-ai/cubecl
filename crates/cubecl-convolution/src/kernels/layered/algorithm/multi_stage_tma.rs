@@ -1,10 +1,6 @@
 use std::marker::PhantomData;
 
-use cubecl_core::{
-    Runtime,
-    client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
-};
+use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
 
 use cubecl_matmul::components::{
     MatmulElems, MatmulIdent, MatmulSelection, MatmulSetupError,
@@ -49,12 +45,13 @@ impl<
 
     type Args = TensorMapArgs;
 
-    fn into_tensor_handle<R: Runtime, E: Numeric>(
+    fn into_tensor_handle<R: Runtime>(
         client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
-    ) -> TensorHandle<R, E> {
-        into_tensor_handle_tma(client, handle, ident)
+        dtype: StorageType,
+    ) -> TensorHandle<R> {
+        into_tensor_handle_tma(client, handle, ident, dtype)
     }
 
     // TODO this is not the same as tma stages, it's stages in the sense of double buffering in matmul

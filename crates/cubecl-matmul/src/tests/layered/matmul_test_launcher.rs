@@ -69,7 +69,7 @@ pub fn test_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let dtypes = MatmulElems::new::<P::MP>(P::EG::as_type_native_unchecked());
+    let dtypes = MatmulElems::new::<P::MP>();
 
     let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
@@ -113,7 +113,7 @@ pub fn test_matmul_algorithm<A, P, R>(
     let out_handle = unsafe {
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
-    let dtypes = MatmulElems::new::<P::MP>(P::EG::as_type_native_unchecked());
+    let dtypes = MatmulElems::new::<P::MP>();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<TensorArgs, R>(
