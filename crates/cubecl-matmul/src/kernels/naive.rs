@@ -55,6 +55,9 @@ fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
     lhs: &View<Line<I>, Coords3d>,
     rhs: &View<Line<I>, Coords3d>,
     out: &mut Tensor<O>,
+    #[define(I)] _input_dtype: StorageType,
+    #[define(M)] _acc_dtype: StorageType,
+    #[define(O)] _output_dtype: StorageType,
 ) {
     let rank = out.rank();
 
@@ -103,21 +106,32 @@ fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
 
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, EI: Numeric, EO: Numeric>(
+pub fn launch<R: Runtime>(
     client: &ComputeClient<R::Server>,
-    lhs: MatmulInputHandle<R, EI>,
-    rhs: MatmulInputHandle<R, EI>,
+    lhs: MatmulInputHandle<R>,
+    rhs: MatmulInputHandle<R>,
     out: &TensorHandleRef<'_, R>,
+    input_dtype: StorageType,
+    output_dtype: StorageType,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R, EI, EO>(client, &lhs.as_ref(), &rhs.as_ref(), out)
+    launch_ref::<R>(
+        client,
+        &lhs.as_ref(),
+        &rhs.as_ref(),
+        out,
+        input_dtype,
+        output_dtype,
+    )
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
+pub fn launch_ref<R: Runtime>(
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
+    input_dtype: StorageType,
+    output_dtype: StorageType,
 ) -> Result<(), MatmulSetupError> {
     let (cube_dim_x, cube_dim_y) = (32, 8);
     let rank = lhs.shape().len();
@@ -128,7 +142,7 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     let rhs_layout = matrix_batch_layout(rhs.data().strides);
 
     let lhs = if !matches!(lhs_layout, MatrixBatchLayout::Contiguous) {
-        lhs.into_contiguous::<EI>(client)
+        lhs.into_contiguous(client)
     } else {
         MatmulInputHandle::from_ref(lhs)
     };
@@ -138,10 +152,10 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     // we swap the dimensions to achieve memory-coalescing:
     // consecutive elements of a column in the original rhs tensor will now be stored
     // consecutively in memory, which allows to fetch them with fewer memory instructions
-    let correct_rhs_layout = |mut rhs: MatmulInputHandle<R, EI>| {
+    let correct_rhs_layout = |mut rhs: MatmulInputHandle<R>| {
         rhs.swap_dims(dim1, dim2);
 
-        let mut rhs = rhs.as_ref().into_contiguous::<EI>(client);
+        let mut rhs = rhs.as_ref().into_contiguous(client);
 
         rhs.swap_dims(dim1, dim2);
         rhs
@@ -169,15 +183,14 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
 
     let cube_count = simple_cube_count(lhs_shape, rhs_shape, out_shape, cube_dim_x, cube_dim_y)?;
 
-    let elem = EI::as_type_native_unchecked();
     let lhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&elem),
+        R::io_optimized_line_sizes(&input_dtype),
         lhs.data().shape,
         lhs.data().strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&elem),
+        R::io_optimized_line_sizes(&input_dtype),
         rhs.data().shape,
         rhs.data().strides,
         rank - 2,
@@ -194,13 +207,13 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
         rhs_layout: MatrixLayout::ColMajor,
     };
 
-    let launch = match EI::as_type_native_unchecked().elem_type() {
-        ElemType::Int(IntKind::I8) => matmul_kernel::launch_unchecked::<EI, i16, EO, R>,
-        ElemType::Int(IntKind::I16) | ElemType::UInt(UIntKind::U16) => {
-            matmul_kernel::launch_unchecked::<EI, i32, EO, R>
-        }
-        ElemType::UInt(UIntKind::U8) => matmul_kernel::launch_unchecked::<EI, u16, EO, R>,
-        _ => matmul_kernel::launch_unchecked::<EI, EI, EO, R>,
+    let acc_dtype = match input_dtype {
+        ElemType::Int(IntKind::I8) => i16::as_type_native_unchecked(),
+        ElemType::Int(_) => i32::as_type_native_unchecked(),
+        ElemType::UInt(IntKind::U8) => u16::as_type_native_unchecked(),
+        ElemType::UInt(_) => u32::as_type_native_unchecked(),
+        ElemType::Float(..) => f32::as_type_native_unchecked(),
+        _ => input_dtype,
     };
 
     fn view<'a, R: Runtime>(
@@ -216,7 +229,7 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
             ..Default::default()
         };
         match handle {
-            MatmulInputHandleRef::Normal(handle) => {
+            MatmulInputHandleRef::Normal(handle, dtype) => {
                 let layout = GlobalLayoutLaunch::from_handle_batched(
                     client, handle, problem, line_size, config,
                 );
@@ -227,6 +240,8 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => {
                 let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
                     client, data, scale, shape, problem, **scheme, line_size, config,
@@ -256,13 +271,16 @@ pub fn launch_ref<R: Runtime, EI: Numeric, EO: Numeric>(
     );
 
     unsafe {
-        launch(
+        matmul_kernel::launch_unchecked::<R>(
             client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),
             lhs_view,
             rhs_view,
             out.as_tensor_arg(1),
+            input_dtype,
+            acc_dtype,
+            output_dtype,
         );
     };
 

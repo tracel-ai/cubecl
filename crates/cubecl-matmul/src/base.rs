@@ -133,20 +133,22 @@ macro_rules! with_tile_kind {
     };
 }
 
-pub enum MatmulInputHandle<R: Runtime, E: CubePrimitive, S: CubePrimitive = f32> {
-    Normal(TensorHandle<R, E>),
+pub enum MatmulInputHandle<R: Runtime> {
+    Normal(TensorHandle<R>),
     Quantized {
-        data: TensorHandle<R, E>,
-        scale: TensorHandle<R, S>,
+        data: TensorHandle<R>,
+        scale: TensorHandle<R>,
         shape: Vec<usize>,
         scheme: QuantScheme,
     },
 }
 
-impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
+impl<R: Runtime> MatmulInputHandle<R> {
     pub fn as_ref(&self) -> MatmulInputHandleRef<'_, R> {
         match self {
-            MatmulInputHandle::Normal(handle) => MatmulInputHandleRef::Normal(handle.as_ref()),
+            MatmulInputHandle::Normal(handle) => {
+                MatmulInputHandleRef::Normal(handle.as_ref(), handle.dtype)
+            }
             MatmulInputHandle::Quantized {
                 data,
                 scale,
@@ -155,6 +157,8 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
             } => MatmulInputHandleRef::Quantized {
                 data: data.as_ref(),
                 scale: scale.as_ref(),
+                data_dtype: data.dtype,
+                scale_dtype: scale.dtype,
                 shape,
                 scheme,
             },
@@ -163,17 +167,19 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
 
     pub fn from_ref(handle: &MatmulInputHandleRef<'_, R>) -> Self {
         match handle {
-            MatmulInputHandleRef::Normal(handle) => {
-                MatmulInputHandle::Normal(TensorHandle::from_ref(handle))
+            MatmulInputHandleRef::Normal(handle, dtype) => {
+                MatmulInputHandle::Normal(TensorHandle::from_ref(handle, dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => MatmulInputHandle::Quantized {
-                data: TensorHandle::from_ref(data),
-                scale: TensorHandle::from_ref(scale),
+                data: TensorHandle::from_ref(data, dtype),
+                scale: TensorHandle::from_ref(scale, scale_dtype),
                 shape: shape.to_vec(),
                 scheme: **scheme,
             },
@@ -229,10 +235,12 @@ impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
 
 #[derive(Debug)]
 pub enum MatmulInputHandleRef<'a, R: Runtime> {
-    Normal(TensorHandleRef<'a, R>),
+    Normal(TensorHandleRef<'a, R>, StorageType),
     Quantized {
         data: TensorHandleRef<'a, R>,
+        data_dtype: StorageType,
         scale: TensorHandleRef<'a, R>,
+        scale_dtype: StorageType,
         /// Unpacked shape, excluding padding
         shape: &'a [usize],
         scheme: &'a QuantScheme,
@@ -248,8 +256,8 @@ impl<'a, R: Runtime> Clone for MatmulInputHandleRef<'a, R> {
 impl<'a, R: Runtime> Copy for MatmulInputHandleRef<'a, R> {}
 
 impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
-    pub fn new(data: TensorHandleRef<'a, R>) -> Self {
-        Self::Normal(data)
+    pub fn new(data: TensorHandleRef<'a, R>, dtype: Storagetype) -> Self {
+        Self::Normal(data, dtype)
     }
 
     pub fn quantized(
@@ -257,86 +265,96 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         scale: TensorHandleRef<'a, R>,
         shape: &'a [usize],
         scheme: &'a QuantScheme,
+        data_dtype: Storagetype,
+        scale_dtype: Storagetype,
     ) -> Self {
         Self::Quantized {
             data,
             scale,
             shape,
             scheme,
+            data_dtype,
+            scale_dtype,
         }
     }
 
     pub fn data(&self) -> &TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn data_mut(&mut self) -> &mut TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn scale(&self) -> Option<&TensorHandleRef<'a, R>> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scale, .. } => Some(scale),
         }
     }
 
     pub fn scheme(&self) -> Option<&QuantScheme> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scheme, .. } => Some(scheme),
         }
     }
 
     pub fn shape(&self) -> &[usize] {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle.shape,
+            MatmulInputHandleRef::Normal(handle, ..) => handle.shape,
             MatmulInputHandleRef::Quantized { shape, .. } => shape,
         }
     }
 
-    pub fn into_contiguous<E: Numeric>(
-        &self,
-        client: &ComputeClient<R::Server>,
-    ) -> MatmulInputHandle<R, E> {
+    pub fn into_contiguous(&self, client: &ComputeClient<R::Server>) -> MatmulInputHandle<R> {
         match self {
-            MatmulInputHandleRef::Normal(data) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R, E>(client, data))
+            MatmulInputHandleRef::Normal(data, dtype) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => {
                 let data = match scheme.store {
                     // e2m1 has native packing (e2m1x2) so also needs to be re-packed
                     QuantStore::Native if scheme.value == QuantValue::E2M1 => {
-                        let data = into_contiguous_packed::<R, u8>(client, data, shape, 2);
+                        let data = into_contiguous_packed::<R>(
+                            client,
+                            data,
+                            shape,
+                            2,
+                            u8::as_type_native_unchecked(),
+                        );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), data_dtype)
                     }
                     QuantStore::U32 => {
-                        let data = into_contiguous_packed::<R, u32>(
+                        let data = into_contiguous_packed::<R>(
                             client,
                             data,
                             shape,
                             scheme.num_quants() as u32,
+                            u32::as_type_native_unchecked(),
                         );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R, E>(client, data),
+                    _ => into_contiguous_pitched::<R, E>(client, data, data_dtype),
                 };
                 MatmulInputHandle::Quantized {
                     data,
-                    scale: TensorHandle::from_ref(scale),
+                    scale: TensorHandle::from_ref(scale, scale_dtype),
                     shape: shape.to_vec(),
                     scheme: **scheme,
                 }
