@@ -9,14 +9,16 @@ use crate::{
         AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
         batch::HypercubeSelection,
     },
-    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm},
+    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
 
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 
+#[derive(Debug, Clone)]
 pub enum Strategy {
     BlackboxAccelerated,
+    Unit,
 }
 
 #[allow(clippy::result_large_err)]
@@ -54,6 +56,9 @@ pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
         Strategy::BlackboxAccelerated => launch_attention::<R, AP, BlackboxAcceleratedAlgorithm>(
             client, query, key, value, mask, out,
         ),
+        Strategy::Unit => {
+            launch_attention::<R, AP, UnitAlgorithm>(client, query, key, value, mask, out)
+        }
     }
 }
 

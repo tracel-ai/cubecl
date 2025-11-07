@@ -13,12 +13,8 @@ use cubecl_attention::{
     self as attention,
     components::{AttentionIdent, AttentionPrecision, AttentionProblem},
 };
-use cubecl_convolution::ConvolutionArgs;
-use cubecl_convolution::{
-    self as convolution, kernels::layered::algorithm::simple::SimpleConvAlgorithm,
-};
 use cubecl_random::random_uniform;
-use cubecl_std::{CubeOption, tensor::TensorHandle};
+use cubecl_std::tensor::TensorHandle;
 
 pub struct AttentionInputs<AP: AttentionPrecision, R: Runtime> {
     query: TensorHandle<R, QG<AP>>,
@@ -92,12 +88,13 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
     fn name(&self) -> String {
         let client = R::client(&self.device);
         format!(
-            "{}-attention-{}-{}-{}-{}",
+            "{}-attention-{}-{}-{}-{}--{:?}",
             R::name(&client),
             QG::<AP>::as_type_native_unchecked(),
             KG::<AP>::as_type_native_unchecked(),
             VG::<AP>::as_type_native_unchecked(),
             OG::<AP>::as_type_native_unchecked(),
+            self.strategy
         )
         .to_lowercase()
     }
@@ -116,6 +113,7 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
 #[allow(dead_code)]
 pub struct AttentionBench<R: Runtime, AP> {
     problem: AttentionProblem,
+    strategy: Strategy,
     device: R::Device,
     client: ComputeClient<R::Server>,
     _phantom: PhantomData<AP>,
@@ -124,7 +122,6 @@ pub struct AttentionBench<R: Runtime, AP> {
 #[allow(dead_code)]
 fn run<R: Runtime, AP: AttentionPrecision>(device: R::Device) {
     let client = R::client(&device);
-    let batch_size = 16;
 
     let bert = AttentionProblem {
         batch: 8,
@@ -178,16 +175,19 @@ fn run<R: Runtime, AP: AttentionPrecision>(device: R::Device) {
     };
 
     for problem in [bert, gpt2, llama, long_context, encoder_decoder] {
-        let bench = AttentionBench::<R, AP> {
-            problem,
-            client: client.clone(),
-            device: device.clone(),
-            _phantom: PhantomData,
-        };
+        for strategy in [Strategy::BlackboxAccelerated, Strategy::Unit] {
+            let bench = AttentionBench::<R, AP> {
+                problem: problem.clone(),
+                strategy,
+                client: client.clone(),
+                device: device.clone(),
+                _phantom: PhantomData,
+            };
 
-        println!("problem: {:?}", bench.problem);
-        println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System).unwrap());
+            println!("problem: {:?}", bench.problem);
+            println!("{}", bench.name());
+            println!("{}", bench.run(TimingMethod::System).unwrap());
+        }
     }
 }
 
