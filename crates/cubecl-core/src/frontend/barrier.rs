@@ -1,11 +1,11 @@
 //! This module exposes barrier for asynchronous data transfer
 
-use cubecl_ir::{ExpandElement, Instruction, VariableKind};
+use cubecl_ir::{ExpandElement, Instruction, Variable, VariableKind};
 use paste::paste;
 
 use crate::{
     ir::{BarrierOps, Scope},
-    prelude::ExpandElementIntoMut,
+    prelude::{CUBE_DIM, ExpandElementIntoMut},
     unexpanded,
 };
 
@@ -54,7 +54,7 @@ pub struct BarrierExpand {
     elem: ExpandElement,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub struct BarrierLevel(InnerBarrierLevel);
 
 impl CubeType for BarrierLevel {
@@ -71,7 +71,7 @@ impl CubeDebug for BarrierLevel {
     fn set_debug_name(&self, _scope: &mut Scope, _name: &'static str) {}
 }
 
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Clone)]
 /// Defines how many units must reach the barrier before execution can continue.
 /// This also determines how `memcpy_async` operations should be handled.
 enum InnerBarrierLevel {
@@ -84,20 +84,22 @@ enum InnerBarrierLevel {
     ///
     /// TMA loads are issued from only a single unit, and this leader is the one that should arrive
     /// on the barrier. Unlike `Unit`, this barrier is *shared*, so all threads can wait on it.
-    CubeUnit(u32),
+    CubeUnit(ExpandElement),
 
     /// All units in the Cube must reach the barrier before continuing.
     /// The argument is the ID of the unit elected for initialization.
-    ///
-    /// `memcpy_async` is **cooperative**, so all units in the Cube must call `memcpy_async` with the same arguments.
-    /// The called is not elected by default, so it must be done manually if wanted
-    CubeCoop(u32),
+    CubeFull(ExpandElement),
 
-    /// All units in the Cube must reach the barrier before continuing.
-    /// The argument is the ID of the unit elected for initialization.
+    /// `arrival_count` units are required before the barrier can continue.
+    /// The arguments are the ID of the unit elected for initialization, and the number of units
+    /// that should call `arrive`.
     ///
-    /// `memcpy_async` is **not cooperative**, so each unit must manually handle its own data slice.
-    CubeManual(u32),
+    /// TMA loads are issued from only a single unit, and this leader is the one that should arrive
+    /// on the barrier. Unlike `Unit`, this barrier is *shared*, so all threads can wait on it.
+    CubeCustom {
+        is_elected: ExpandElement,
+        arrival_count: ExpandElement,
+    },
 }
 
 impl BarrierLevel {
@@ -108,40 +110,64 @@ impl BarrierLevel {
 
     /// Creates a CubeUnit barrier level
     ///
-    /// Same as `cube_coop` but with an expected arrival count of `1`. Only the leader thread will
+    /// Same as `cube_full` but with an expected arrival count of `1`. Only the leader thread will
     /// arrive on the barrier. Useful for TMA
-    pub fn cube_unit(elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeUnit(elected_unit))
+    pub fn cube_unit(_is_elected: bool) -> Self {
+        unexpanded!()
     }
 
     /// Creates a CubeCoop barrier level
     ///
     /// Will sync all units
-    pub fn cube_coop(elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeCoop(elected_unit))
+    pub fn cube_full(_is_elected: bool) -> Self {
+        unexpanded!()
     }
 
     /// Creates a CubeManual barrier level
     ///
     /// Will sync all units
-    pub fn cube_manual(elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeManual(elected_unit))
+    pub fn cube_custom(_is_elected: bool, _arrival_count: u32) -> Self {
+        unexpanded!()
+    }
+
+    fn arrival_count(&self, scope: &mut Scope) -> Variable {
+        match &self.0 {
+            InnerBarrierLevel::Unit | InnerBarrierLevel::CubeUnit(_) => 1.into(),
+            InnerBarrierLevel::CubeFull(_) => *CUBE_DIM::expand(scope).expand,
+            InnerBarrierLevel::CubeCustom { arrival_count, .. } => **arrival_count,
+        }
+    }
+
+    fn is_elected(&self) -> Variable {
+        match &self.0 {
+            InnerBarrierLevel::Unit => true.into(),
+            InnerBarrierLevel::CubeUnit(is_elected)
+            | InnerBarrierLevel::CubeFull(is_elected)
+            | InnerBarrierLevel::CubeCustom { is_elected, .. } => **is_elected,
+        }
     }
 
     pub fn __expand_unit(_scope: &mut Scope) -> BarrierLevel {
         BarrierLevel(InnerBarrierLevel::Unit)
     }
 
-    pub fn __expand_cube_unit(_scope: &mut Scope, elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeUnit(elected_unit))
+    pub fn __expand_cube_unit(_scope: &mut Scope, is_elected: ExpandElementTyped<bool>) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeUnit(is_elected.expand))
     }
 
-    pub fn __expand_cube_coop(_scope: &mut Scope, elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeCoop(elected_unit))
+    pub fn __expand_cube_full(_scope: &mut Scope, is_elected: ExpandElementTyped<bool>) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeFull(is_elected.expand))
     }
 
-    pub fn __expand_cube_manual(_scope: &mut Scope, elected_unit: u32) -> Self {
-        BarrierLevel(InnerBarrierLevel::CubeManual(elected_unit))
+    pub fn __expand_cube_custom(
+        _scope: &mut Scope,
+        is_elected: ExpandElementTyped<bool>,
+        arrival_count: ExpandElementTyped<u32>,
+    ) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeCustom {
+            is_elected: is_elected.expand,
+            arrival_count: arrival_count.expand,
+        })
     }
 }
 
@@ -149,15 +175,9 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
     fn from(val: InnerBarrierLevel) -> Self {
         match val {
             InnerBarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
-            InnerBarrierLevel::CubeUnit(elected_unit) => {
-                cubecl_ir::BarrierLevel::CubeUnit(elected_unit)
-            }
-            InnerBarrierLevel::CubeCoop(elected_unit) => {
-                cubecl_ir::BarrierLevel::CubeCoop(elected_unit)
-            }
-            InnerBarrierLevel::CubeManual(elected_unit) => {
-                cubecl_ir::BarrierLevel::CubeManual(elected_unit)
-            }
+            InnerBarrierLevel::CubeUnit(_)
+            | InnerBarrierLevel::CubeFull(_)
+            | InnerBarrierLevel::CubeCustom { .. } => cubecl_ir::BarrierLevel::Cube,
         }
     }
 }
@@ -312,6 +332,20 @@ impl Barrier {
         unexpanded!()
     }
 
+    /// Copy the source slice to destination
+    ///
+    /// # Safety
+    ///
+    /// This will try to copy the whole source slice, so
+    /// make sure source length <= destination length
+    pub fn memcpy_async_cooperative<C: CubePrimitive>(
+        &self,
+        _source: &Slice<Line<C>>,
+        _destination: &mut SliceMut<Line<C>>,
+    ) {
+        unexpanded!()
+    }
+
     /// Copy the source slice to destination. Uses transaction count like TMA, so use with
     /// `expect_tx` or `arrive_and_expect_tx`.
     ///
@@ -363,10 +397,14 @@ impl Barrier {
     }
 
     pub fn __expand_new(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand {
+        let is_elected = level.is_elected();
+        let arrival_count = level.arrival_count(scope);
         let variable = scope.create_barrier(level.0.into());
         scope.register(BarrierOps::Init {
             barrier: *variable,
-            with_cta_fence: false,
+            is_elected,
+            arrival_count,
+            with_async_proxy_fence: false,
         });
         BarrierExpand { elem: variable }
     }
@@ -375,15 +413,28 @@ impl Barrier {
         scope: &mut Scope,
         level: BarrierLevel,
     ) -> BarrierExpand {
+        let is_elected = level.is_elected();
+        let arrival_count = level.arrival_count(scope);
         let variable = scope.create_barrier(level.0.into());
         scope.register(BarrierOps::Init {
             barrier: *variable,
-            with_cta_fence: true,
+            is_elected,
+            arrival_count,
+            with_async_proxy_fence: true,
         });
         BarrierExpand { elem: variable }
     }
 
     pub fn __expand_memcpy_async<C: CubePrimitive>(
+        scope: &mut Scope,
+        expand: BarrierExpand,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
+    ) {
+        expand.__expand_memcpy_async_method(scope, source, destination);
+    }
+
+    pub fn __expand_memcpy_async_cooperative<C: CubePrimitive>(
         scope: &mut Scope,
         expand: BarrierExpand,
         source: SliceExpand<Line<C>, ReadOnly>,
@@ -459,6 +510,28 @@ impl BarrierExpand {
         let (destination, destination_offset) = destination.__to_raw_parts();
 
         let mem_copy = BarrierOps::MemCopyAsync {
+            barrier,
+            source,
+            source_length,
+            offset_source: source_offset,
+            offset_out: destination_offset,
+        };
+
+        scope.register(Instruction::new(mem_copy, destination));
+    }
+
+    pub fn __expand_memcpy_async_cooperative_method<C: CubePrimitive>(
+        &self,
+        scope: &mut Scope,
+        source: SliceExpand<Line<C>, ReadOnly>,
+        destination: SliceExpand<Line<C>, ReadWrite>,
+    ) {
+        let barrier = *self.elem;
+        let source_length = *source.length.expand;
+        let (source, source_offset) = source.__to_raw_parts();
+        let (destination, destination_offset) = destination.__to_raw_parts();
+
+        let mem_copy = BarrierOps::MemCopyAsyncCooperative {
             barrier,
             source,
             source_length,

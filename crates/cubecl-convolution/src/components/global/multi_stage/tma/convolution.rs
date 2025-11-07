@@ -114,7 +114,8 @@ where
         // Create barriers and prefetch each stage
         #[unroll]
         for stage in 0..num_stages {
-            let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
+            let barrier =
+                Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0u32));
 
             lhs_reader.fill_stage(&barrier, stage);
             rhs_reader.fill_stage(&barrier, stage);

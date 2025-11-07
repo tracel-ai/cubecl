@@ -391,6 +391,19 @@ impl Optimizer {
                 visit_read(self, offset_source);
                 visit_read(self, offset_out);
             }
+            BarrierOps::MemCopyAsyncCooperative {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
             BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,

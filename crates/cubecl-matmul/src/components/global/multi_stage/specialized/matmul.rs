@@ -99,18 +99,24 @@ where
         let rhs_stage_a = rhs_reader.stage(StageBuffer::A);
         let rhs_stage_b = rhs_reader.stage(StageBuffer::B);
 
+        let compute_units = config.plane_role_config().plane_roles.main_flow * config.plane_dim();
+
         let role_rule = RoleRule::new(config.role_rule_config());
 
-        let barrier_done = Barrier::new(BarrierLevel::cube_unit(0u32));
+        let elect_bar = role_rule.elect_load_leader();
+
+        // Barrier for writing out
+        let barrier_done = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
 
         // Barriers for releasing smem after compute
-        let barrier_empty_a = Barrier::new(BarrierLevel::cube_unit(0u32));
-        let barrier_empty_b = Barrier::new(BarrierLevel::cube_unit(0u32));
+        let barrier_empty_a = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
+        let barrier_empty_b = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
 
         // Barriers for marking smem as loaded
-        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_unit(0u32));
+        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_unit(elect_bar));
         // We only need to sync the async proxy once
-        let mut barrier_full_b = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_unit(0u32));
+        let mut barrier_full_b =
+            Barrier::new_with_async_proxy_fence(BarrierLevel::cube_unit(elect_bar));
 
         let mut phase = 0;
 
@@ -142,9 +148,7 @@ where
                     config.stage_config(),
                     &partition_scheduler,
                 );
-                if role_rule.elect_compute_leader() {
-                    barrier_empty_a.arrive();
-                }
+                barrier_empty_a.arrive();
 
                 barrier_full_b.wait_parity(phase);
                 SMM::execute(
@@ -156,24 +160,21 @@ where
                     config.stage_config(),
                     &partition_scheduler,
                 );
-                if role_rule.elect_compute_leader() {
-                    barrier_empty_b.arrive();
-                }
+                barrier_empty_b.arrive();
 
                 phase ^= 1;
             }
-            if role_rule.elect_compute_leader() {
-                barrier_done.arrive();
-            }
+            barrier_done.arrive();
         }
 
-        barrier_done.wait_parity(0u32);
         lhs_reader.free_stage();
         rhs_reader.free_stage();
 
-        let mut out_stage = Self::GlobalWriter::stage(&out_writer);
-
         if role_rule.is_compute_plane() {
+            barrier_done.wait_parity(0u32);
+
+            let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
             SMM::write_results::<Self::GlobalWriter, Self::Config>(
                 acc,
                 &mut out_stage,

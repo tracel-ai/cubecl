@@ -8,8 +8,10 @@ use super::{Component, Dialect, Variable};
 pub enum BarrierOps<D: Dialect> {
     Init {
         barrier: Variable<D>,
+        is_elected: Variable<D>,
+        arrival_count: Variable<D>,
         level: BarrierLevel,
-        with_cta_fence: bool,
+        with_async_proxy_fence: bool,
     },
     MemCopyAsync {
         barrier: Variable<D>,
@@ -18,7 +20,7 @@ pub enum BarrierOps<D: Dialect> {
         source_length: Variable<D>,
         offset_source: Variable<D>,
         offset_out: Variable<D>,
-        level: BarrierLevel,
+        cooperative: bool,
     },
     MemCopyAsyncTx {
         barrier: Variable<D>,
@@ -27,7 +29,6 @@ pub enum BarrierOps<D: Dialect> {
         source_length: Variable<D>,
         offset_source: Variable<D>,
         offset_out: Variable<D>,
-        level: BarrierLevel,
     },
     MemCopyAsyncTensorGlobalToShared {
         barrier: Variable<D>,
@@ -95,8 +96,10 @@ impl<D: Dialect> Display for BarrierOps<D> {
         match self {
             BarrierOps::Init {
                 barrier,
+                is_elected,
+                arrival_count,
                 level,
-                with_cta_fence: with_proxy_fence,
+                with_async_proxy_fence: with_proxy_fence,
             } => {
                 let proxy_fence = match with_proxy_fence {
                     true => "cuda::device::experimental::fence_proxy_async_shared_cta();",
@@ -109,43 +112,18 @@ impl<D: Dialect> Display for BarrierOps<D> {
                         f,
                         "
 cuda::barrier<cuda::thread_scope_thread> {barrier};
-init(&{barrier}, 1);
+init(&{barrier}, {arrival_count});
 {proxy_fence}
                 "
                     ),
-                    BarrierLevel::CubeUnit(elected_unit) => write!(
+                    BarrierLevel::Cube => write!(
                         f,
                         "
 cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
 __shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
 cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
-if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, 1);
-   {proxy_fence}
-}}
-__syncthreads();
-"
-                    ),
-                    BarrierLevel::CubeCoop(elected_unit) => write!(
-                        f,
-                        "
-cooperative_groups::thread_block block_{barrier} = cooperative_groups::this_thread_block();
-__shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
-cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
-if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);
-   {proxy_fence}
-}}
-__syncthreads();
-"
-                    ),
-                    BarrierLevel::CubeManual(elected_unit) => write!(
-                        f,
-                        "
-__shared__ cuda::barrier<cuda::thread_scope_block> {barrier};
-cuda::barrier<cuda::thread_scope_block>::arrival_token {barrier}_token;
-if (threadIdxGlobal == {elected_unit}) {{
-   init(&{barrier}, blockDimGlobal);
+if ({is_elected}) {{
+   init(&{barrier}, {arrival_count});
    {proxy_fence}
 }}
 __syncthreads();
@@ -160,18 +138,18 @@ __syncthreads();
                 source_length,
                 offset_source,
                 offset_out,
-                level,
+                cooperative,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
-                match level {
-                    BarrierLevel::Unit | BarrierLevel::CubeManual(_) => write!(
+                match cooperative {
+                    false => write!(
                         f,
                         "
 cuda::memcpy_async({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                     "
                     ),
-                    BarrierLevel::CubeUnit(_) | BarrierLevel::CubeCoop(_) => write!(
+                    true => write!(
                         f,
                         "
 cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
@@ -186,19 +164,15 @@ cuda::memcpy_async(block_{barrier}, {destination} + {offset_out}, {source} + {of
                 source_length,
                 offset_source,
                 offset_out,
-                level,
             } => {
                 let item = source.item();
                 let size = format!("sizeof({item})");
-                match level {
-                    BarrierLevel::Unit => panic!("Can't use `memcpy_async_tx` with unit barrier"),
-                    BarrierLevel::CubeUnit(_) | BarrierLevel::CubeCoop(_) | BarrierLevel::CubeManual(_) => write!(
+                write!(
                         f,
                         "
 cuda::device::memcpy_async_tx({destination} + {offset_out}, {source} + {offset_source}, {source_length} * {size}, {barrier});
                         "
-                    ),
-                }
+                    )
             }
             BarrierOps::MemCopyAsyncTensorGlobalToShared {
                 barrier,

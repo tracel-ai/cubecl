@@ -14,7 +14,7 @@ use cubecl_runtime::{
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
     let expected = select(UNIT_POS == 0, 32 * 16 * F::elem_size(), 0);
@@ -59,7 +59,7 @@ fn tensormap_im2col_load<F: Float>(
     let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
-    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
     let expected = select(UNIT_POS == 0, tile_width * tile_k * F::elem_size(), 0);

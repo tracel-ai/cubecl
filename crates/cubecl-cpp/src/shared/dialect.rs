@@ -676,6 +676,16 @@ pub trait DialectInstructions<D: Dialect> {
         input: &Variable<D>,
         out_elem: &Elem<D>,
     ) -> std::fmt::Result;
+    fn compile_warp_elect(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
+        write!(
+            f,
+            "
+unsigned int mask = __activemask();
+unsigned int leader = __ffs(mask) - 1;
+{out} = threadIdx.x % warpSize == leader;
+            "
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, new)]

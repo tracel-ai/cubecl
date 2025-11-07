@@ -31,18 +31,22 @@ pub(super) static COUNTER_TMP_VAR: std::sync::atomic::AtomicU32 =
 #[derive(Clone, Debug)]
 pub struct CompilationOptions {
     pub warp_size: u32,
+    pub supports_features: CppSupportedFeatures,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CppSupportedFeatures {
     pub grid_constants: bool,
-    pub supports_clusters: bool,
-    pub supports_fast_math: bool,
+    pub clusters: bool,
+    pub fast_math: bool,
+    pub elect_sync: bool,
 }
 
 impl Default for CompilationOptions {
     fn default() -> Self {
         Self {
             warp_size: 32,
-            grid_constants: false,
-            supports_clusters: false,
-            supports_fast_math: false,
+            supports_features: Default::default(),
         }
     }
 }
@@ -83,6 +87,7 @@ pub struct Flags {
     pub inst_tma: bool,
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
+    pub inst_ptx_wrappers: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
     pub has_dynamic_meta: bool,
@@ -121,7 +126,7 @@ impl<D: Dialect> Compiler for CppCompiler<D> {
         self.compilation_options = compilation_options.clone();
         self.strategy = strategy;
 
-        if !self.compilation_options.supports_clusters {
+        if !self.compilation_options.supports_features.clusters {
             kernel.options.cluster_dim = None;
         }
         self.cluster_dim = kernel.options.cluster_dim.unwrap_or(CubeDim::new_single());
@@ -175,7 +180,8 @@ impl<D: Dialect> CppCompiler<D> {
             elem_tf32: self.flags.elem_tf32,
             inst_tma: self.flags.inst_tma,
             inst_tma_im2col: self.flags.inst_tma_im2col,
-            use_grid_constants: self.compilation_options.grid_constants,
+            inst_ptx_wrappers: self.flags.inst_ptx_wrappers,
+            use_grid_constants: self.compilation_options.supports_features.grid_constants,
             // TODO: At some point we should only pass dynamic meta if tensors are present,
             // not if only arrays are present. For now, leave like this
             has_dynamic_meta: self.metadata.static_len() > 0,
@@ -208,7 +214,7 @@ impl<D: Dialect> CppCompiler<D> {
         };
 
         let mut cluster_dim = value.options.cluster_dim;
-        if !self.compilation_options.supports_clusters {
+        if !self.compilation_options.supports_features.clusters {
             cluster_dim = None;
         }
 
@@ -392,7 +398,13 @@ impl<D: Dialect> CppCompiler<D> {
                         instructions.push(Instruction::Warp(instruction))
                     }
                     gpu::Plane::Elect => {
-                        instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
+                        if self.compilation_options.supports_features.elect_sync {
+                            self.flags.inst_ptx_wrappers = true;
+                            instructions.push(Instruction::Warp(WarpInstruction::Elect { out }))
+                        } else {
+                            instructions
+                                .push(Instruction::Warp(WarpInstruction::ElectFallback { out }))
+                        }
                     }
                     gpu::Plane::All(op) => {
                         instructions.push(Instruction::Warp(WarpInstruction::All {
@@ -470,16 +482,21 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
                 gpu::BarrierOps::Init {
                     barrier,
-                    with_cta_fence,
+                    is_elected,
+                    arrival_count,
+                    with_async_proxy_fence,
                 } => {
                     let VariableKind::Barrier { level, .. } = barrier.kind else {
                         unreachable!()
                     };
                     let barrier = self.compile_variable(barrier);
+                    let arrival_count = self.compile_variable(arrival_count);
                     instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Init {
                         barrier,
+                        is_elected: self.compile_variable(is_elected),
+                        arrival_count,
                         level,
-                        with_cta_fence,
+                        with_async_proxy_fence,
                     }));
                 }
                 gpu::BarrierOps::MemCopyAsync {
@@ -489,9 +506,6 @@ impl<D: Dialect> CppCompiler<D> {
                     offset_source,
                     offset_out,
                 } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsync {
                             barrier: self.compile_variable(barrier),
@@ -500,7 +514,26 @@ impl<D: Dialect> CppCompiler<D> {
                             source_length: self.compile_variable(source_length),
                             offset_source: self.compile_variable(offset_source),
                             offset_out: self.compile_variable(offset_out),
-                            level,
+                            cooperative: false,
+                        },
+                    ));
+                }
+                gpu::BarrierOps::MemCopyAsyncCooperative {
+                    barrier,
+                    source,
+                    source_length,
+                    offset_source,
+                    offset_out,
+                } => {
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::MemCopyAsync {
+                            barrier: self.compile_variable(barrier),
+                            source: self.compile_variable(source),
+                            destination: self.compile_variable(out.unwrap()),
+                            source_length: self.compile_variable(source_length),
+                            offset_source: self.compile_variable(offset_source),
+                            offset_out: self.compile_variable(offset_out),
+                            cooperative: true,
                         },
                     ));
                 }
@@ -511,9 +544,6 @@ impl<D: Dialect> CppCompiler<D> {
                     offset_source,
                     offset_out,
                 } => {
-                    let VariableKind::Barrier { level, .. } = barrier.kind else {
-                        unreachable!()
-                    };
                     instructions.push(Instruction::Barrier(
                         super::barrier::BarrierOps::MemCopyAsyncTx {
                             barrier: self.compile_variable(barrier),
@@ -522,7 +552,6 @@ impl<D: Dialect> CppCompiler<D> {
                             source_length: self.compile_variable(source_length),
                             offset_source: self.compile_variable(offset_source),
                             offset_out: self.compile_variable(offset_out),
-                            level,
                         },
                     ));
                 }
@@ -800,7 +829,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
@@ -811,7 +840,7 @@ impl<D: Dialect> CppCompiler<D> {
                 Instruction::ExtendedMetadata {
                     info_offset: self.compile_variable(offset.into()),
                     dim: self.compile_variable(dim),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     static_offset: self.metadata.static_len(),
                     out: self.compile_variable(out),
                 }
@@ -822,7 +851,7 @@ impl<D: Dialect> CppCompiler<D> {
                 let offset = self.metadata.rank_index(pos);
                 super::Instruction::Metadata {
                     info_offset: self.compile_variable(offset.into()),
-                    split_meta: self.compilation_options.grid_constants,
+                    split_meta: self.compilation_options.supports_features.grid_constants,
                     out,
                 }
             }
@@ -840,7 +869,7 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.grid_constants,
+                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -857,7 +886,7 @@ impl<D: Dialect> CppCompiler<D> {
                         let offset = self.metadata.buffer_len_index(id);
                         Instruction::Metadata {
                             info_offset: self.compile_variable(offset.into()),
-                            split_meta: self.compilation_options.grid_constants,
+                            split_meta: self.compilation_options.supports_features.grid_constants,
                             out,
                         }
                     }
@@ -1194,7 +1223,7 @@ impl<D: Dialect> CppCompiler<D> {
         default: Instruction<D>,
         fast: Instruction<D>,
     ) -> Instruction<D> {
-        if !self.compilation_options.supports_fast_math
+        if !self.compilation_options.supports_features.fast_math
             || !matches!(ty.elem_type(), ElemType::Float(FloatKind::F32))
         {
             return default;
@@ -1435,7 +1464,7 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::VariableKind::GlobalScalar(id) => Variable::GlobalScalar {
                 id,
                 elem: self.compile_storage_type(item.storage_type()),
-                in_struct: self.compilation_options.grid_constants,
+                in_struct: self.compilation_options.supports_features.grid_constants,
             },
             gpu::VariableKind::TensorMapInput(id) => {
                 self.flags.inst_tma = true;
@@ -1480,19 +1509,27 @@ impl<D: Dialect> CppCompiler<D> {
                     self.flags.indexes.absolute_pos = true;
                     Variable::AbsolutePos
                 }
-                gpu::Builtin::CubePosCluster if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosCluster
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterRank
                 }
-                gpu::Builtin::CubePosClusterX if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterX
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexX
                 }
-                gpu::Builtin::CubePosClusterY if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterY
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexY
                 }
-                gpu::Builtin::CubePosClusterZ if self.compilation_options.supports_clusters => {
+                gpu::Builtin::CubePosClusterZ
+                    if self.compilation_options.supports_features.clusters =>
+                {
                     self.flags.indexes.cluster_pos = true;
                     Variable::ClusterIndexZ
                 }
@@ -1623,24 +1660,10 @@ impl<D: Dialect> CppCompiler<D> {
             }
             gpu::VariableKind::Barrier { id, level } => {
                 self.flags.op_barrier = true;
-                match level {
-                    gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
-                        self.flags.indexes.cube_dim = true;
-                        self.flags.indexes.unit_pos = true;
-                    }
-                    _ => {}
-                }
                 Variable::Barrier { id, level }
             }
             gpu::VariableKind::BarrierToken { id, level } => {
                 self.flags.op_barrier = true;
-                match level {
-                    gpu::BarrierLevel::CubeCoop(_) | gpu::BarrierLevel::CubeManual(_) => {
-                        self.flags.indexes.cube_dim = true;
-                        self.flags.indexes.unit_pos = true;
-                    }
-                    _ => {}
-                }
                 Variable::BarrierToken { id, level }
             }
         }

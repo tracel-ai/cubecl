@@ -17,7 +17,7 @@ impl SyncStrategy for AsyncTma {
     type Barrier = Barrier;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32))
+        Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0))
     }
 
     fn sync<MP: MatmulPrecision, G: GlobalConfig>(

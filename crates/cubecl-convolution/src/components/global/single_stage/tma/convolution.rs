@@ -90,7 +90,8 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
 
-        let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_coop(0u32));
+        let barrier =
+            Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0u32));
 
         for _ in 0..num_loops {
             sync_cube();

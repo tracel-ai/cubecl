@@ -10,9 +10,7 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
 pub enum BarrierLevel {
     Unit,
-    CubeUnit(u32),
-    CubeCoop(u32),
-    CubeManual(u32),
+    Cube,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -23,10 +21,20 @@ pub enum BarrierOps {
     /// Initialize the barrier, optionally with a cta proxy fence
     Init {
         barrier: Variable,
-        with_cta_fence: bool,
+        is_elected: Variable,
+        arrival_count: Variable,
+        with_async_proxy_fence: bool,
     },
     /// Copy source to destination
     MemCopyAsync {
+        barrier: Variable,
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+    },
+    /// Copy source to destination, with cooperative behaviour
+    MemCopyAsyncCooperative {
         barrier: Variable,
         source: Variable,
         source_length: Variable,
@@ -86,10 +94,12 @@ impl Display for BarrierOps {
         match self {
             BarrierOps::Init {
                 barrier,
-                with_cta_fence,
-            } => match with_cta_fence {
-                true => write!(f, "init_barrier_tma({barrier})"),
-                false => write!(f, "init_barrier({barrier})"),
+                arrival_count,
+                with_async_proxy_fence,
+                ..
+            } => match with_async_proxy_fence {
+                true => write!(f, "init_barrier_tma({barrier}, {arrival_count})"),
+                false => write!(f, "init_barrier({barrier}, {arrival_count})"),
             },
             BarrierOps::MemCopyAsync {
                 barrier,
@@ -101,6 +111,18 @@ impl Display for BarrierOps {
                 write!(
                     f,
                     "out[{offset_out}] = mem_copy_async({barrier}, source: {source}[{offset_source}])",
+                )
+            }
+            BarrierOps::MemCopyAsyncCooperative {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+                ..
+            } => {
+                write!(
+                    f,
+                    "out[{offset_out}] = mem_copy_async_cooperative({barrier}, source: {source}[{offset_source}])",
                 )
             }
             BarrierOps::MemCopyAsyncTx {
