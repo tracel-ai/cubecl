@@ -16,8 +16,7 @@ use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 
 pub enum Strategy {
-    /// Temporary implementation
-    Tmp,
+    BlackboxAccelerated,
 }
 
 #[allow(clippy::result_large_err)]
@@ -52,11 +51,13 @@ pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
-        Strategy::Tmp => launch_tmp::<R, AP>(client, query, key, value, mask, out),
+        Strategy::BlackboxAccelerated => launch_attention::<R, AP, BlackboxAcceleratedAlgorithm>(
+            client, query, key, value, mask, out,
+        ),
     }
 }
 
-pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
+pub fn launch_attention<R: Runtime, AP: AttentionPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
@@ -69,7 +70,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         size_of::<MSK<AP>>(),
         out.elem_size,
     );
-    let line_sizes = BlackboxAcceleratedAlgorithm::filter_line_sizes(line_sizes)
+    let line_sizes = A::filter_line_sizes(line_sizes)
         .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
         .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
         .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)
@@ -79,10 +80,10 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     let problem = AttentionProblem {
         batch: query.shape[0],
-        seq_q: query.shape[1],
-        seq_kv: key.shape[1],
-        num_heads: query.shape[2],
+        num_heads: query.shape[1],
+        seq_q: query.shape[2],
         head_dim: query.shape[3],
+        seq_kv: key.shape[2],
         val_dim: value.shape[3],
         masked: mask.is_some(),
         causal: false,
@@ -112,7 +113,8 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         two_rows_in_array_tile: false,
     };
 
-    let config = BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config =
+        BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config
         .hypercube_config()

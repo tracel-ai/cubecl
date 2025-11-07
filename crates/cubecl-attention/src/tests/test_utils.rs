@@ -391,12 +391,12 @@ where
                         let mut dot = P::EA::from_int(0);
                         for d in 0..head_dim {
                             let q_idx = b * query_strides[0]
-                                + i * query_strides[1]
-                                + h * query_strides[2]
+                                + h * query_strides[1]
+                                + i * query_strides[2]
                                 + d * query_strides[3];
                             let k_idx = b * key_strides[0]
-                                + j * key_strides[1]
-                                + h * key_strides[2]
+                                + h * key_strides[1]
+                                + j * key_strides[2]
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
@@ -410,8 +410,8 @@ where
                             P::EA::new(f32::NEG_INFINITY)
                         } else if masked {
                             let m_idx = b * mask_strides[0]
-                                + i * mask_strides[1]
-                                + h * mask_strides[2]
+                                + h * mask_strides[1]
+                                + i * mask_strides[2]
                                 + j * mask_strides[3];
                             let m_val = mask.unwrap()[m_idx].cast_into();
 
@@ -467,8 +467,8 @@ where
                         let p_val = p_tilde[bj];
                         for d in 0..val_dim {
                             let v_idx = b * value_strides[0]
-                                + j * value_strides[1]
-                                + h * value_strides[2]
+                                + h * value_strides[1]
+                                + j * value_strides[2]
                                 + d * value_strides[3];
                             // cast v to EA so multiplication is in EA
                             let v_val: P::EA = value[v_idx].cast_into().cast_into();
@@ -486,7 +486,7 @@ where
 
                 // Step final: normalize accumulator: O_final = acc_row / l
                 // write into output
-                let out_base = b * out_strides[0] + i * out_strides[1] + h * out_strides[2];
+                let out_base = b * out_strides[0] + h * out_strides[1] + i * out_strides[2];
 
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);

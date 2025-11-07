@@ -7,7 +7,12 @@ use cubecl::{
     client::ComputeClient,
     future,
 };
-use cubecl_attention::components::{AttentionPrecision, AttentionProblem};
+use cubecl_attention::Strategy;
+use cubecl_attention::components::attention_types::{KG, MSK, OG, QG, VG};
+use cubecl_attention::{
+    self as attention,
+    components::{AttentionIdent, AttentionPrecision, AttentionProblem},
+};
 use cubecl_convolution::ConvolutionArgs;
 use cubecl_convolution::{
     self as convolution, kernels::layered::algorithm::simple::SimpleConvAlgorithm,
@@ -15,61 +20,87 @@ use cubecl_convolution::{
 use cubecl_random::random_uniform;
 use cubecl_std::{CubeOption, tensor::TensorHandle};
 
-struct AttentionInputs<R: Runtime> {
+pub struct AttentionInputs<AP: AttentionPrecision, R: Runtime> {
     query: TensorHandle<R, QG<AP>>,
     key: TensorHandle<R, KG<AP>>,
     value: TensorHandle<R, VG<AP>>,
-    mask: TensorHandle<R, MSK<AP>>,
-    out: TensorHandle<R, OG<AP>>,
+    mask: Option<TensorHandle<R, MSK<AP>>>,
+}
+
+impl<AP: AttentionPrecision, R: Runtime> Clone for AttentionInputs<AP, R> {
+    fn clone(&self) -> Self {
+        Self {
+            query: self.query.clone(),
+            key: self.key.clone(),
+            value: self.value.clone(),
+            mask: self.mask.clone(),
+        }
+    }
 }
 
 impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
-    type Input = AttentionInputs<R>;
+    type Input = AttentionInputs<AP, R>;
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let input = TensorHandle::<R, QG<AP>>::empty(&client, self.input_shape.to_vec());
+        let query = TensorHandle::<R, QG<AP>>::empty(
+            &client,
+            self.problem.shape(AttentionIdent::Query).to_vec(),
+        );
         random_uniform::<R, QG<AP>>(
             &client,
             QG::<AP>::from_int(0),
             QG::<AP>::from_int(1),
-            input.as_ref(),
+            query.as_ref(),
         );
-        let weight = TensorHandle::<R, KG<AP>>::empty(&client, self.weight_shape.to_vec());
+
+        let key = TensorHandle::<R, KG<AP>>::empty(
+            &client,
+            self.problem.shape(AttentionIdent::Key).to_vec(),
+        );
         random_uniform::<R, KG<AP>>(
             &client,
             KG::<AP>::from_int(0),
             KG::<AP>::from_int(1),
-            weight.as_ref(),
+            key.as_ref(),
         );
-        let bias = TensorHandle::<R, VG<AP>>::empty(&client, vec![self.bias_shape]);
+
+        let value = TensorHandle::<R, VG<AP>>::empty(
+            &client,
+            self.problem.shape(AttentionIdent::Value).to_vec(),
+        );
         random_uniform::<R, VG<AP>>(
             &client,
             VG::<AP>::from_int(0),
             VG::<AP>::from_int(1),
-            bias.as_ref(),
+            value.as_ref(),
         );
 
-        (input, weight, bias)
+        AttentionInputs {
+            query,
+            key,
+            value,
+            mask: None,
+        }
     }
 
-    fn execute(&self, (input, weight, bias): Self::Input) -> Result<(), String> {
+    fn execute(&self, input: Self::Input) -> Result<(), String> {
         let client = R::client(&self.device);
         let out: TensorHandle<R, OG<AP>> =
-            TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
+            TensorHandle::empty(&client, self.problem.shape(AttentionIdent::Out).to_vec());
 
-        attention::launch_conv::<R, AP, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
+        attention::launch_ref::<R, AP>(
+            &Strategy::BlackboxAccelerated,
             &self.client,
-            &MatmulInputHandleRef::Normal(input.as_ref()),
-            &MatmulInputHandleRef::Normal(weight.as_ref()),
-            &Some(bias.as_ref()),
+            &input.query.as_ref(),
+            &input.key.as_ref(),
+            &input.value.as_ref(),
+            &None,
             &out.as_ref(),
-            self.args.clone(),
         )
-        .map_err(|it| format!("{it:?}"))?;
-        Ok(())
+        .map_err(|it| format!("{it:?}"))
     }
 
     fn name(&self) -> String {
@@ -161,7 +192,7 @@ fn run<R: Runtime, AP: AttentionPrecision>(device: R::Device) {
     };
 
     for problem in [bert, gpt2, llama, long_context, encoder_decoder] {
-        let bench = AttentionBench::<R, MP> {
+        let bench = AttentionBench::<R, AP> {
             problem,
             client: client.clone(),
             device: device.clone(),

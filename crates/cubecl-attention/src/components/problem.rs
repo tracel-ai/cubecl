@@ -25,13 +25,13 @@ pub struct AttentionProblem {
 }
 
 impl AttentionProblem {
-    fn shape(&self, ident: AttentionIdent) -> [usize; 4] {
+    pub fn shape(&self, ident: AttentionIdent) -> [usize; 4] {
         match ident {
-            AttentionIdent::Query => [self.batch, self.seq_q, self.num_heads, self.head_dim],
-            AttentionIdent::Key => [self.batch, self.seq_kv, self.num_heads, self.head_dim],
-            AttentionIdent::Value => [self.batch, self.seq_kv, self.num_heads, self.val_dim],
-            AttentionIdent::Mask => [self.batch, self.seq_q, self.num_heads, self.seq_kv],
-            AttentionIdent::Out => [self.batch, self.seq_q, self.num_heads, self.val_dim],
+            AttentionIdent::Query => [self.batch, self.num_heads, self.seq_q, self.head_dim],
+            AttentionIdent::Key => [self.batch, self.num_heads, self.seq_kv, self.head_dim],
+            AttentionIdent::Value => [self.batch, self.num_heads, self.seq_kv, self.val_dim],
+            AttentionIdent::Mask => [self.batch, self.num_heads, self.seq_q, self.seq_kv],
+            AttentionIdent::Out => [self.batch, self.num_heads, self.seq_q, self.val_dim],
             AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),
         }
     }

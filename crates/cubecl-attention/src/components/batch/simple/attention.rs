@@ -31,24 +31,22 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         _cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        let q_index = CUBE_POS;
-
-        let q_offset = q_index
-            * config
-                .global_config()
-                .tiling_scheme()
-                .elements_in_stage_seq_q();
-
-        let seq_q = query.shape(1);
-        let seq_kv = key.shape(1);
-
         let global_config = config.global_config();
+        let q_index = CUBE_POS_X;
+        let batch_index = CUBE_POS_Y;
+
+        let stage_q_offset = q_index * global_config.tiling_scheme().elements_in_stage_seq_q();
+
+        // Assume [batch, num_heads, seq_*, head_dim] layout
+        let seq_q = query.shape(2);
+        let seq_kv = key.shape(2);
+
         GA::execute(
-            GA::init_query_reader(q_offset, query, global_config),
-            GA::init_key_reader(key, global_config),
-            GA::init_value_reader(value, global_config),
-            GA::init_mask_reader(q_offset, mask, seq_kv, global_config),
-            GA::init_writer(q_offset, out, global_config),
+            GA::init_query_reader(batch_index, stage_q_offset, query, global_config),
+            GA::init_key_reader(batch_index, key, global_config),
+            GA::init_value_reader(batch_index, value, global_config),
+            GA::init_mask_reader(batch_index, stage_q_offset, mask, seq_kv, global_config),
+            GA::init_writer(batch_index, stage_q_offset, out, global_config),
             seq_q,
             seq_kv,
             config.global_config(),

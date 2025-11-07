@@ -242,6 +242,10 @@ impl<E: Float> FragmentAccumulator<E> for LocalTile<E> {
             }
         }
     }
+
+    fn zero(&mut self) {
+        self.zero()
+    }
 }
 
 #[cube]
