@@ -203,32 +203,32 @@ pub(crate) fn shape(problem: &AttentionProblem, ident: AttentionIdent) -> [usize
     match ident {
         AttentionIdent::Query => [
             problem.batch,
-            problem.seq_q,
             problem.num_heads,
+            problem.seq_q,
             problem.head_dim,
         ],
         AttentionIdent::Key => [
             problem.batch,
-            problem.seq_kv,
             problem.num_heads,
+            problem.seq_kv,
             problem.head_dim,
         ],
         AttentionIdent::Value => [
             problem.batch,
-            problem.seq_kv,
             problem.num_heads,
+            problem.seq_kv,
             problem.val_dim,
         ],
         AttentionIdent::Mask => [
             problem.batch,
-            problem.seq_q,
             problem.num_heads,
+            problem.seq_q,
             problem.seq_kv,
         ],
         AttentionIdent::Out => [
             problem.batch,
-            problem.seq_q,
             problem.num_heads,
+            problem.seq_q,
             problem.val_dim,
         ],
         AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),

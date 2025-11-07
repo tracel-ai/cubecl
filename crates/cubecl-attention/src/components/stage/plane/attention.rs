@@ -5,20 +5,20 @@ use cubecl_std::tensor::layout::Coords1d;
 use crate::components::{
     global::simple::PlaneAttentionWriter,
     stage::{
-        BroadcastReducer, kv_reuse_attention::KVReuseStageAttention,
-        partitioner::AttentionPartitioner, plane::PlaneKVReuseStageConfig,
+        BroadcastReducer, partition_attention::PartitionAttention,
+        partitioner::AttentionPartitioner, plane::PlanePartitionStageConfig,
     },
     tile::FragmentAttention,
 };
 
-pub type PlaneKVReuseStageAttention<AP, SK, SV, SO, FA> = KVReuseStageAttention<
+pub type PlanePartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
     AP,
     SK,
     SV,
     SO,
     FA,
     PlanePartitioner,
-    PlaneKVReuseStageConfig<<FA as FragmentAttention<AP>>::Config>,
+    PlanePartitionStageConfig<<FA as FragmentAttention<AP>>::Config>,
 >;
 
 pub struct PlanePartitioner {}

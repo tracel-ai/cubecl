@@ -4,7 +4,7 @@ use crate::components::{
     attention_types::*,
     stage::{
         AttentionStageMemoryConfig, AttentionTilingLayout,
-        unit::{UnitKVReuseStageAttention, config::UnitKVReuseStageConfig},
+        unit::{UnitPartitionAttention, config::UnitPartitionStageConfig},
     },
     tile::FragmentAttentionFamily,
 };
@@ -18,7 +18,7 @@ use crate::components::{
     AttentionSetupError, stage::StageAttentionFamily,
 };
 
-pub struct UnitKVReuseStageAttentionFamily<
+pub struct UnitPartitionStageAttentionFamily<
     FA: FragmentAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
@@ -32,9 +32,9 @@ impl<
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for UnitKVReuseStageAttentionFamily<FA, SK, SV, SO>
+> StageAttentionFamily for UnitPartitionStageAttentionFamily<FA, SK, SV, SO>
 {
-    type Attention<AP: AttentionPrecision> = UnitKVReuseStageAttention<
+    type Attention<AP: AttentionPrecision> = UnitPartitionAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
@@ -46,7 +46,7 @@ impl<
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = UnitKVReuseStageConfig<FA::Config>;
+    type Config = UnitPartitionStageConfig<FA::Config>;
 
     fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -67,7 +67,7 @@ impl<
         let num_planes = compute_resources.num_planes(selection.plane_dim)?;
         let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
 
-        UnitKVReuseStageConfig::new(
+        UnitPartitionStageConfig::new(
             tile_config,
             score_attention_stage_memory_config(selection),
             value_attention_stage_memory_config(selection),
