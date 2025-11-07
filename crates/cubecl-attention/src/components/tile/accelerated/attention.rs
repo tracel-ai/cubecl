@@ -159,14 +159,6 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         mask.fill_from_strided_tile(tile)
     }
 
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
-        cmma::fill(&softmax.fragment, SM::<AP>::from_int(0));
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator) {
-        cmma::fill(&acc.fragment, ACC::<AP>::from_int(0));
-    }
-
     fn write_results<E: Float>(
         out: &Self::Accumulator,
         slice: &mut SliceMut<Line<E>>,

@@ -54,30 +54,37 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
+        // Init staging shared memories
         let mut key_stage = key_reader.init_stage(config);
         let mut value_stage = value_reader.init_stage(config);
 
+        // Load queries which stay alive in registers for all the kernel
         let mut query_registers = SA::init_query(config.stage_config());
+        SA::read_query(&query_reader, &mut query_registers, config.stage_config());
+
+        // Init registers that will change inside global loop
         let mut key_value_registers = SA::init_key_value(config.stage_config());
         let mut mask_registers =
             SA::init_mask(CubeOption::new_Some((seq_q, seq_kv)), config.stage_config());
         let mut softmax_registers = SA::init_softmax(config.stage_config());
         let mut accumulator_registers = SA::init_accumulator(config.stage_config());
 
+        // Init running state
         let mut stage_state = SA::init_state(config.stage_config());
 
-        let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
+        // Define number of global iterations
+        let num_stage_iterations =
+            seq_kv.div_ceil(config.tiling_scheme().elements_in_partition_seq_kv());
 
-        let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
-
-        SA::read_query(&query_reader, &mut query_registers, config.stage_config());
-
+        // Global loop over seq_kv
         for _ in 0..num_stage_iterations {
+            // Put key and value into stage
             key_reader.read_global(&mut key_stage, config);
             value_reader.read_global(&mut value_stage, config);
 
             sync_cube();
 
+            // Core of flash attention
             SA::execute(
                 &query_registers,
                 &key_stage,
@@ -93,19 +100,21 @@ impl<
 
             sync_cube();
 
+            // Advance in seq_kv direction
             key_reader.advance_view();
             value_reader.advance_view();
             mask_reader.advance_view();
         }
 
+        // Accumulators must be rescaled using running state
         SA::rescale(
             &mut accumulator_registers,
             stage_state,
             config.stage_config(),
         );
 
+        // Write accumulators to output
         let mut out_stage = writer.stage();
-
         SA::write::<Self::Writer, Self::Config>(
             &accumulator_registers,
             &mut out_stage,
@@ -115,83 +124,91 @@ impl<
     }
 
     fn init_query_reader(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP> {
         let layout = AttentionGlobalLayout::new(
             &query,
-            0,
+            batch_index,
             config.global_memory_config(AttentionIdent::Query),
         );
 
-        QueryReader::<AP>::new(q_offset, query.view(layout))
+        QueryReader::<AP>::new(stage_q_offset, query.view(layout))
     }
 
     fn init_key_reader(
+        batch_index: u32,
         key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader {
         let step = reduction_step::<Self::Config>(config);
-        let layout =
-            AttentionGlobalLayout::new(&key, 0, config.global_memory_config(AttentionIdent::Key));
+        let layout = AttentionGlobalLayout::new(
+            &key,
+            batch_index,
+            config.global_memory_config(AttentionIdent::Key),
+        );
         DummyKeyReader::new(key.view(layout), step)
     }
 
     fn init_value_reader(
+        batch_index: u32,
         value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader {
         let step = reduction_step::<Self::Config>(config);
         let layout = AttentionGlobalLayout::new(
             &value,
-            0,
+            batch_index,
             config.global_memory_config(AttentionIdent::Value),
         );
         DummyValueReader::new(value.view(layout), step)
     }
 
     fn init_mask_reader(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         mask: CubeOption<VirtualTensor<MSK<AP>>>,
         seq_kv_shape: u32,
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
         let step = reduction_step::<Self::Config>(config);
-        let inner_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index()
+        let partition_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index()
             * config.tiling_scheme().elements_in_partition_seq_q();
 
         match mask {
             CubeOption::Some(mask) => {
                 let layout = AttentionGlobalLayout::new(
                     &mask,
-                    0,
+                    batch_index,
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
                 MaskReader::new_materialized(
-                    q_offset,
-                    inner_q_offset,
+                    stage_q_offset,
+                    partition_q_offset,
                     mask.view(layout),
                     step,
                     seq_kv_shape,
                 )
             }
-            CubeOption::None => MaskReader::new_logical(q_offset + inner_q_offset, step),
+            CubeOption::None => MaskReader::new_logical(stage_q_offset + partition_q_offset, step),
         }
     }
 
     fn init_writer(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let conf = config.global_memory_config(AttentionIdent::Out);
-        let layout = AttentionGlobalLayout::new(&out, 0, conf);
+        let layout = AttentionGlobalLayout::new(&out, batch_index, conf);
         let out = out.view_mut(layout);
 
         Self::Writer::new::<SA::Config>(
-            out.slice_mut_unchecked((q_offset, 0), out.shape()),
+            out.slice_mut_unchecked((stage_q_offset, 0), out.shape()),
             conf,
             config.stage_config(),
         )

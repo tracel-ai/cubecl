@@ -79,10 +79,10 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
 
     let problem = AttentionProblem {
         batch: query.shape[0],
-        seq_q: query.shape[1],
-        seq_kv: key.shape[1],
-        num_heads: query.shape[2],
+        num_heads: query.shape[1],
+        seq_q: query.shape[2],
         head_dim: query.shape[3],
+        seq_kv: key.shape[2],
         val_dim: value.shape[3],
         masked: mask.is_some(),
         causal: false,
@@ -112,7 +112,8 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         two_rows_in_array_tile: false,
     };
 
-    let config = BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
+    let config =
+        BlackboxAcceleratedAlgorithm::setup::<AP, R>(client, &problem, &selection, &line_sizes)?;
 
     let cube_count_plan = config
         .hypercube_config()

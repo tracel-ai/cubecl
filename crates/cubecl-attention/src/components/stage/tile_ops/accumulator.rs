@@ -17,7 +17,7 @@ pub struct AccumulatorTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
 impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> AccumulatorTile<AP, FA> {
         let mut fragment = FA::allocate_accumulator(config);
-        FA::zero_accumulator(&mut fragment);
+        fragment.zero();
 
         AccumulatorTile::<AP, FA> { fragment }
     }

@@ -131,7 +131,7 @@ impl AttentionPartitionSize {
             AttentionIdent::Key => self.seq_kv,
             AttentionIdent::Softmax => self.seq_q,
             AttentionIdent::Value => self.seq_kv,
-            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Mask => self.seq_q,
             AttentionIdent::Out => self.seq_q,
         }
     }
@@ -142,7 +142,7 @@ impl AttentionPartitionSize {
             AttentionIdent::Key => self.head_dim,
             AttentionIdent::Softmax => self.seq_kv,
             AttentionIdent::Value => self.val_dim,
-            AttentionIdent::Mask => todo!(),
+            AttentionIdent::Mask => self.seq_kv,
             AttentionIdent::Out => self.val_dim,
         }
     }
