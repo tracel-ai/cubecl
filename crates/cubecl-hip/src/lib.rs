@@ -22,6 +22,7 @@ mod tests {
 
     cubecl_std::testgen!();
     cubecl_core::testgen_all!(f32: [f16, f32], i32: [i16, i32], u32: [u16, u32]);
+    cubecl_std::testgen_tensor_rms_norm!([f16, f32]);
     cubecl_quant::testgen_quant!();
 
     #[cfg(feature = "matmul_tests_plane")]
