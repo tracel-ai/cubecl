@@ -115,14 +115,14 @@ impl<
     }
 
     fn init_query_reader(
-        batch_offset: u32,
+        batch_index: u32,
         stage_q_offset: u32,
         query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP> {
         let layout = AttentionGlobalLayout::new(
             &query,
-            batch_offset,
+            batch_index,
             config.global_memory_config(AttentionIdent::Query),
         );
 
@@ -130,36 +130,35 @@ impl<
     }
 
     fn init_key_reader(
-        batch_offset: u32,
+        batch_index: u32,
         key: VirtualTensor<KG<AP>>,
-
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader {
         let step = reduction_step::<Self::Config>(config);
         let layout = AttentionGlobalLayout::new(
             &key,
-            batch_offset,
+            batch_index,
             config.global_memory_config(AttentionIdent::Key),
         );
         DummyKeyReader::new(key.view(layout), step)
     }
 
     fn init_value_reader(
-        batch_offset: u32,
+        batch_index: u32,
         value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader {
         let step = reduction_step::<Self::Config>(config);
         let layout = AttentionGlobalLayout::new(
             &value,
-            batch_offset,
+            batch_index,
             config.global_memory_config(AttentionIdent::Value),
         );
         DummyValueReader::new(value.view(layout), step)
     }
 
     fn init_mask_reader(
-        batch_offset: u32,
+        batch_index: u32,
         stage_q_offset: u32,
         mask: CubeOption<VirtualTensor<MSK<AP>>>,
         seq_kv_shape: u32,
@@ -173,7 +172,7 @@ impl<
             CubeOption::Some(mask) => {
                 let layout = AttentionGlobalLayout::new(
                     &mask,
-                    batch_offset,
+                    batch_index,
                     config.global_memory_config(AttentionIdent::Value),
                 );
 
@@ -190,13 +189,13 @@ impl<
     }
 
     fn init_writer(
-        batch_offset: u32,
+        batch_index: u32,
         stage_q_offset: u32,
         out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
         let conf = config.global_memory_config(AttentionIdent::Out);
-        let layout = AttentionGlobalLayout::new(&out, batch_offset, conf);
+        let layout = AttentionGlobalLayout::new(&out, batch_index, conf);
         let out = out.view_mut(layout);
 
         Self::Writer::new::<SA::Config>(
