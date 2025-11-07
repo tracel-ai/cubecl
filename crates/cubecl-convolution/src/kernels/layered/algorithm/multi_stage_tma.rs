@@ -63,7 +63,7 @@ impl<
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        matmul_elems: MatmulElems,
+        matmul_elems: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
             client,

@@ -1,13 +1,3 @@
-use std::any::TypeId;
-
-use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
-use cubecl_matmul::{
-    MatmulInputHandleRef,
-    components::{AccG, InputArg, OutputArg},
-};
-use cubecl_runtime::TypeUsage;
-use half::f16;
-
 use crate::{
     components::{ConvGemmConfig as _, ConvSetupError},
     kernels::layered::selector::launch_kernel_concrete,
@@ -19,9 +9,13 @@ use crate::{
     },
     kernels::layered::algorithm::Algorithm,
 };
+use cubecl_core::{Runtime, client::ComputeClient, prelude::*};
 use cubecl_matmul::components::{
-    self, AvailableLineSizes, LhsG, MatmulElems, MatmulIdent, MatmulPrecision, MatmulSelection,
-    RhsG,
+    self, AvailableLineSizes, MatmulElems, MatmulIdent, MatmulSelection,
+};
+use cubecl_matmul::{
+    MatmulInputHandleRef,
+    components::{InputArg, OutputArg},
 };
 
 #[derive(Clone)]
@@ -40,13 +34,14 @@ pub struct ConvolutionArgs<const N_SPATIAL: usize> {
 /// * `bias` - The bias added to each out channel
 /// * `options` - The options to use for the convolution
 #[allow(clippy::result_large_err)]
-pub fn launch_conv<R: Runtime, MP: MatmulPrecision, Alg: Algorithm, const N_SPATIAL: usize>(
+pub fn launch_conv<R: Runtime, Alg: Algorithm, const N_SPATIAL: usize>(
     client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
     out: &TensorHandleRef<'_, R>,
     args: ConvolutionArgs<N_SPATIAL>,
+    dtypes: MatmulElems,
 ) -> Result<(), ConvSetupError>
 where
     InputArg<Alg::Args>: ConcreteInputsFactory,
@@ -65,7 +60,7 @@ where
         other => unimplemented!("Unsupported dimensionality {other}"),
     };
 
-    launch::<R, MP, Alg>(
+    launch::<R, Alg>(
         client,
         input,
         weight,
@@ -73,10 +68,11 @@ where
         out,
         (&stride, &padding, &dilation),
         dimensionality,
+        dtypes,
     )
 }
 
-fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
+fn launch<R: Runtime, Alg: Algorithm>(
     client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
@@ -84,6 +80,7 @@ fn launch<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     (stride, padding, dilation): (&[usize], &[usize], &[usize]),
     dimensionality: Dimensionality,
+    mut dtypes: MatmulElems,
 ) -> Result<(), ConvSetupError>
 where
     InputArg<Alg::Args>: ConcreteInputsFactory,
@@ -101,18 +98,10 @@ where
     let kernel_shape = &weight.data().shape[1..dim_c];
     let out_shape = &out.shape[1..dim_c];
 
-    let input_data = Alg::into_tensor_handle::<R>(
-        client,
-        input.data(),
-        MatmulIdent::Lhs,
-        LhsG::<MP>::as_type_native_unchecked(),
-    );
-    let weight_data = Alg::into_tensor_handle::<R>(
-        client,
-        weight.data(),
-        MatmulIdent::Rhs,
-        RhsG::<MP>::as_type_native_unchecked(),
-    );
+    let input_data =
+        Alg::into_tensor_handle::<R>(client, input.data(), MatmulIdent::Lhs, dtypes.lhs_global);
+    let weight_data =
+        Alg::into_tensor_handle::<R>(client, weight.data(), MatmulIdent::Rhs, dtypes.rhs_global);
 
     let mut input = *input;
     let mut weight = *weight;
@@ -141,36 +130,15 @@ where
         dimensionality,
     };
 
-    let selection = Alg::selection::<R>(client, &problem, plane_dim, MatmulElems::new::<MP>())?;
+    let selection = Alg::selection::<R>(client, &problem, plane_dim, &mut dtypes)?;
 
-    let lhs_is_f32 = TypeId::of::<LhsG<MP>>() == TypeId::of::<f32>();
-    let rhs_is_f32 = TypeId::of::<RhsG<MP>>() == TypeId::of::<f32>();
-
-    let launch = if lhs_is_f32 || rhs_is_f32 {
-        if tf32::supported_uses(client).contains(TypeUsage::Conversion) {
-            if lhs_is_f32 && rhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, tf32, tf32, f32), Alg>
-            } else if lhs_is_f32 {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, tf32, f32, f32), Alg>
-            } else {
-                launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f32, tf32, f32), Alg>
-            }
-        } else if lhs_is_f32 && rhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f16, f16, f32), Alg>
-        } else if lhs_is_f32 {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f16, f32, f32), Alg>
-        } else {
-            launch_kernel::<R, (LhsG<MP>, RhsG<MP>, AccG<MP>, f32, f16, f32), Alg>
-        }
-    } else {
-        launch_kernel::<R, MP, Alg>
-    };
-
-    launch(client, &input, &weight, bias, out, problem, selection)
+    launch_kernel::<R, Alg>(
+        client, &input, &weight, bias, out, problem, selection, dtypes,
+    )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
+pub fn launch_kernel<R: Runtime, Alg: Algorithm>(
     client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
@@ -178,12 +146,12 @@ pub fn launch_kernel<R: Runtime, MP: MatmulPrecision, Alg: Algorithm>(
     out: &TensorHandleRef<'_, R>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
+    dtypes: MatmulElems,
 ) -> Result<(), ConvSetupError>
 where
     InputArg<Alg::Args>: ConcreteInputsFactory,
     OutputArg<Alg::Args>: ConcreteOutputFactory,
 {
-    let dtypes = MatmulElems::new::<MP>();
     let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
         input.data().elem_size,
         weight.data().elem_size,
