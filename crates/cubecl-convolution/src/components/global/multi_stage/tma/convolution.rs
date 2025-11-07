@@ -145,7 +145,7 @@ where
                     let barrier = barriers.index(stage);
 
                     // Wait for load and execute matmul on this stage
-                    barrier.wait_parity(phase ^ 1);
+                    barrier.wait_parity(phase);
                     SMM::execute(
                         &lhs_reader.stage(stage),
                         &rhs_reader.stage(stage),
@@ -159,7 +159,7 @@ where
 
                     // Check if there's any stages left to load in the k dimension
                     if next_k < k_range.1 {
-                        barrier.wait_parity(phase ^ 1);
+                        barrier.wait_parity(phase);
 
                         // Refill stage and advance view
                         lhs_reader.fill_stage(barrier, stage);
