@@ -9,7 +9,7 @@ use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
     global::{
         GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
-        read::async_tma::arrive_tma, single_stage::simple::SimpleConfig,
+        single_stage::simple::SimpleConfig,
     },
     stage::{StageMatmul, StridedStage},
 };
@@ -107,32 +107,36 @@ where
 
         SMM::load_accumulators(&acc_reader.stage(), acc, stage_config);
 
-        let mut barriers = Sequence::<Barrier>::new();
+        let mut barriers_full = Sequence::<Barrier>::new();
+        let mut barriers_empty = Sequence::<Barrier>::new();
         let (mut tile_lhs, mut tile_rhs) = SMM::init_tile_inputs(stage_config);
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         // Create barriers and prefetch each stage
         #[unroll]
         for stage in 0..num_stages {
-            let barrier =
-                Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0u32));
+            let barrier_full =
+                Barrier::new_with_async_proxy_fence(BarrierLevel::cube_unit(UNIT_POS == 0u32));
+            let barrier_empty = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32));
 
-            lhs_reader.fill_stage(&barrier, stage);
-            rhs_reader.fill_stage(&barrier, stage);
+            lhs_reader.fill_stage(&barrier_full, stage);
+            rhs_reader.fill_stage(&barrier_full, stage);
 
-            arrive_tma(&barrier, stages_bytes);
+            if UNIT_POS == 0 {
+                barrier_full.arrive_and_expect_tx(1, stages_bytes);
+            }
 
             lhs_reader.advance_view(k_step);
             rhs_reader.advance_view();
 
-            barriers.push(barrier);
+            barriers_full.push(barrier_full);
+            barriers_empty.push(barrier_empty);
         }
 
         let mut phase = 0;
 
         for k in 0..num_loops {
             let k = k * num_stages;
-            phase ^= 1;
 
             // Loop through all stages
             #[unroll]
@@ -142,10 +146,11 @@ where
 
                 // Bounds check for k stage, for when `k_stages % num_stages != 0`
                 if k < k_range.1 {
-                    let barrier = barriers.index(stage);
+                    let barrier_full = barriers_full.index(stage);
+                    let barrier_empty = barriers_empty.index(stage);
 
                     // Wait for load and execute matmul on this stage
-                    barrier.wait_parity(phase);
+                    barrier_full.wait_parity(phase);
                     SMM::execute(
                         &lhs_reader.stage(stage),
                         &rhs_reader.stage(stage),
@@ -155,23 +160,25 @@ where
                         config.stage_config(),
                         &partition_scheduler,
                     );
-                    barrier.arrive();
+                    barrier_empty.arrive_and_wait();
 
                     // Check if there's any stages left to load in the k dimension
                     if next_k < k_range.1 {
-                        barrier.wait_parity(phase);
-
                         // Refill stage and advance view
-                        lhs_reader.fill_stage(barrier, stage);
-                        rhs_reader.fill_stage(barrier, stage);
+                        lhs_reader.fill_stage(barrier_full, stage);
+                        rhs_reader.fill_stage(barrier_full, stage);
 
-                        arrive_tma(barrier, stages_bytes);
+                        if UNIT_POS == 0 {
+                            barrier_full.arrive_and_expect_tx(1, stages_bytes);
+                        }
 
                         lhs_reader.advance_view(k_step);
                         rhs_reader.advance_view();
                     }
                 }
             }
+
+            phase ^= 1;
         }
 
         sync_cube();
