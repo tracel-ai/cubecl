@@ -27,8 +27,8 @@ impl AttentionGlobalLayout {
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self {
         AttentionGlobalLayout {
-            rows: tensor.shape(1),
-            stride_row: tensor.stride(1),
+            rows: tensor.shape(2),
+            stride_row: tensor.stride(2),
             columns: tensor.shape(3),
             stride_col: tensor.stride(3),
             batch_offset,
