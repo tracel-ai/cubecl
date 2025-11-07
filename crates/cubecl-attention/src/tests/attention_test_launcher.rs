@@ -199,42 +199,6 @@ pub(crate) fn tensor_size(problem: &AttentionProblem, ident: AttentionIdent) -> 
     shape(problem, ident).iter().product()
 }
 
-pub(crate) fn shape(problem: &AttentionProblem, ident: AttentionIdent) -> [usize; 4] {
-    match ident {
-        AttentionIdent::Query => [
-            problem.batch,
-            problem.seq_q,
-            problem.num_heads,
-            problem.head_dim,
-        ],
-        AttentionIdent::Key => [
-            problem.batch,
-            problem.seq_kv,
-            problem.num_heads,
-            problem.head_dim,
-        ],
-        AttentionIdent::Value => [
-            problem.batch,
-            problem.seq_kv,
-            problem.num_heads,
-            problem.val_dim,
-        ],
-        AttentionIdent::Mask => [
-            problem.batch,
-            problem.seq_q,
-            problem.num_heads,
-            problem.seq_kv,
-        ],
-        AttentionIdent::Out => [
-            problem.batch,
-            problem.seq_q,
-            problem.num_heads,
-            problem.val_dim,
-        ],
-        AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),
-    }
-}
-
 pub(crate) fn strides(problem: &AttentionProblem, ident: AttentionIdent) -> Vec<usize> {
     let shape = shape(problem, ident);
 

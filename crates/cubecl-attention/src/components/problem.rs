@@ -1,3 +1,5 @@
+use crate::components::AttentionIdent;
+
 #[derive(Clone, Debug)]
 /// Description of an attention problem to solve, regardless of actual data
 pub struct AttentionProblem {
@@ -20,4 +22,17 @@ pub struct AttentionProblem {
     pub masked: bool,
     /// Whether there is a causal mask
     pub causal: bool,
+}
+
+impl AttentionProblem {
+    fn shape(&self, ident: AttentionIdent) -> [usize; 4] {
+        match ident {
+            AttentionIdent::Query => [self.batch, self.seq_q, self.num_heads, self.head_dim],
+            AttentionIdent::Key => [self.batch, self.seq_kv, self.num_heads, self.head_dim],
+            AttentionIdent::Value => [self.batch, self.seq_kv, self.num_heads, self.val_dim],
+            AttentionIdent::Mask => [self.batch, self.seq_q, self.num_heads, self.seq_kv],
+            AttentionIdent::Out => [self.batch, self.seq_q, self.num_heads, self.val_dim],
+            AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),
+        }
+    }
 }
