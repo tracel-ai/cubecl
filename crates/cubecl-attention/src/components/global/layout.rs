@@ -20,18 +20,19 @@ pub struct AttentionGlobalLayout {
 
 #[cube]
 impl AttentionGlobalLayout {
-    /// Creates a new 2D layout starting at `batch_offset`.
+    /// Creates a new 2D layout starting at `batch_index`.
     pub fn new<T: Numeric, IO: Clone>(
         tensor: &VirtualTensor<T, IO>,
-        batch_offset: u32,
+        batch_index: u32,
         #[comptime] config: GlobalMemoryConfig,
     ) -> Self {
+        let stride_batch = tensor.stride(1);
         AttentionGlobalLayout {
-            rows: tensor.shape(1),
-            stride_row: tensor.stride(1),
+            rows: tensor.shape(2),
+            stride_row: tensor.stride(2),
             columns: tensor.shape(3),
             stride_col: tensor.stride(3),
-            batch_offset,
+            batch_offset: batch_index * stride_batch,
             config,
         }
     }
