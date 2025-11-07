@@ -187,10 +187,11 @@ impl<
 
         #[unroll]
         for q in 0..p.seq_q {
+            let scale = state.index(q).l();
+
             #[unroll]
             for vd in 0..p.val_dim {
-                AccumulatorPartition::<AP, FA, S>::get_at_mut(acc, q, vd, config)
-                    .scale_div(state.index(q).l());
+                AccumulatorPartition::<AP, FA, S>::get_at_mut(acc, q, vd, config).scale_div(scale);
             }
         }
     }

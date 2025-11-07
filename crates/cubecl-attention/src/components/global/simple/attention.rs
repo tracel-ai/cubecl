@@ -54,30 +54,37 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
+        // Init staging shared memories
         let mut key_stage = key_reader.init_stage(config);
         let mut value_stage = value_reader.init_stage(config);
 
+        // Load queries which stay alive in registers for all the kernel
         let mut query_registers = SA::init_query(config.stage_config());
+        SA::read_query(&query_reader, &mut query_registers, config.stage_config());
+
+        // Init registers that will change inside global loop
         let mut key_value_registers = SA::init_key_value(config.stage_config());
         let mut mask_registers =
             SA::init_mask(CubeOption::new_Some((seq_q, seq_kv)), config.stage_config());
         let mut softmax_registers = SA::init_softmax(config.stage_config());
         let mut accumulator_registers = SA::init_accumulator(config.stage_config());
 
+        // Init running state
         let mut stage_state = SA::init_state(config.stage_config());
 
-        let seq_kv_stage = config.tiling_scheme().elements_in_partition_seq_kv();
+        // Define number of global iterations
+        let num_stage_iterations =
+            seq_kv.div_ceil(config.tiling_scheme().elements_in_partition_seq_kv());
 
-        let num_stage_iterations = seq_kv.div_ceil(seq_kv_stage);
-
-        SA::read_query(&query_reader, &mut query_registers, config.stage_config());
-
+        // Global loop over seq_kv
         for _ in 0..num_stage_iterations {
+            // Put key and value into stage
             key_reader.read_global(&mut key_stage, config);
             value_reader.read_global(&mut value_stage, config);
 
             sync_cube();
 
+            // Core of flash attention
             SA::execute(
                 &query_registers,
                 &key_stage,
@@ -93,19 +100,21 @@ impl<
 
             sync_cube();
 
+            // Advance in seq_kv direction
             key_reader.advance_view();
             value_reader.advance_view();
             mask_reader.advance_view();
         }
 
+        // Accumulators must be rescaled using running state
         SA::rescale(
             &mut accumulator_registers,
             stage_state,
             config.stage_config(),
         );
 
+        // Write accumulators to output
         let mut out_stage = writer.stage();
-
         SA::write::<Self::Writer, Self::Config>(
             &accumulator_registers,
             &mut out_stage,
