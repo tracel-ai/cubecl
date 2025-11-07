@@ -45,44 +45,30 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let query = TensorHandle::<R, QG<AP>>::empty(
-            &client,
-            self.problem.shape(AttentionIdent::Query).to_vec(),
-        );
-        random_uniform::<R, QG<AP>>(
-            &client,
-            QG::<AP>::from_int(0),
-            QG::<AP>::from_int(1),
-            query.as_ref(),
-        );
+        fn make_random<R: Runtime, T: Numeric>(
+            client: &ComputeClient<R::Server>,
+            shape: Vec<usize>,
+        ) -> TensorHandle<R, T> {
+            let tensor = TensorHandle::<R, T>::empty(client, shape);
+            random_uniform::<R, T>(client, T::from_int(0), T::from_int(1), tensor.as_ref());
+            tensor
+        }
 
-        let key = TensorHandle::<R, KG<AP>>::empty(
-            &client,
-            self.problem.shape(AttentionIdent::Key).to_vec(),
-        );
-        random_uniform::<R, KG<AP>>(
-            &client,
-            KG::<AP>::from_int(0),
-            KG::<AP>::from_int(1),
-            key.as_ref(),
-        );
-
-        let value = TensorHandle::<R, VG<AP>>::empty(
-            &client,
-            self.problem.shape(AttentionIdent::Value).to_vec(),
-        );
-        random_uniform::<R, VG<AP>>(
-            &client,
-            VG::<AP>::from_int(0),
-            VG::<AP>::from_int(1),
-            value.as_ref(),
-        );
+        let query =
+            make_random::<R, QG<AP>>(&client, self.problem.shape(AttentionIdent::Query).to_vec());
+        let key =
+            make_random::<R, KG<AP>>(&client, self.problem.shape(AttentionIdent::Key).to_vec());
+        let value =
+            make_random::<R, VG<AP>>(&client, self.problem.shape(AttentionIdent::Value).to_vec());
+        let mask = self.problem.masked.then(|| {
+            make_random::<R, MSK<AP>>(&client, self.problem.shape(AttentionIdent::Mask).to_vec())
+        });
 
         AttentionInputs {
             query,
             key,
             value,
-            mask: None,
+            mask,
         }
     }
 
