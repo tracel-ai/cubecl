@@ -81,7 +81,7 @@ where
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        dtypes: &MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -132,7 +132,7 @@ where
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        dtypes: &MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -182,7 +182,7 @@ where
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        dtypes: &MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,
@@ -232,7 +232,7 @@ where
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        dtypes: &MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,

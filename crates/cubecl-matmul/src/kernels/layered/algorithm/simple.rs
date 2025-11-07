@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use crate::{
     components::{
         MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, MatmulSetupError,
-        MultiRowStrategy, TilingScheme,
+        MultiRowStrategy, TilingScheme, adjust_dtypes,
         batch::{
             CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection,
             PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul, SmAllocation,
@@ -78,7 +78,7 @@ where
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        dtypes: &MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         if args.multi_rows {
             selection_multi_rows::<R, TMM>(client, problem, plane_dim, dtypes)
@@ -102,8 +102,10 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<MatmulSelection, MatmulSetupError> {
+    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+
     let supported = |m: u32, n: u32, k: u32| {
         TMM::is_supported::<R>(
             client,

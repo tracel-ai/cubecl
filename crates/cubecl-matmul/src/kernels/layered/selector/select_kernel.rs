@@ -26,7 +26,7 @@ pub fn launch_kernel_concrete<MA: MatmulArgs, R: Runtime, A: Algorithm>(
     line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MA>: ConcreteInputsFactory,
@@ -89,7 +89,7 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     view_line_sizes: MatmulLineSizes,
     plane_dim: u32,
     selection: &Selection<A::SelectionArgs>,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),

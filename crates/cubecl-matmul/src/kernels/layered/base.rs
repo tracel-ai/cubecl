@@ -55,7 +55,7 @@ pub fn launch<R: Runtime, A: Algorithm>(
     rhs: MatmulInputHandle<R>,
     out: TensorHandle<R>,
     selection: &Selection<A::SelectionArgs>,
-    dtypes: MatmulElems,
+    mut dtypes: MatmulElems,
 ) -> Result<TensorHandle<R>, MatmulSetupError> {
     let result = launch_ref::<R, A>(
         client,
@@ -63,7 +63,7 @@ pub fn launch<R: Runtime, A: Algorithm>(
         &rhs.as_ref(),
         &out.as_ref(),
         selection,
-        &dtypes,
+        &mut dtypes,
     );
 
     match result {
@@ -83,7 +83,7 @@ pub fn launch_ref<R: Runtime, A: Algorithm>(
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     selection: &Selection<A::SelectionArgs>,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -142,7 +142,7 @@ pub fn launch_ref_tma<R: Runtime, A: Algorithm>(
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     selection: &Selection<A::SelectionArgs>,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -194,7 +194,7 @@ fn launch_inner_ref<R: Runtime, MA: MatmulArgs, A: Algorithm>(
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
     line_sizes: AvailableLineSizes,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError>
 where
     InputArg<MA>: ConcreteInputsFactory,

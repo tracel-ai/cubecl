@@ -8,7 +8,7 @@ use crate::components::global::{LoadSpecializationConfig, SpecializationTensorCo
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
     MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
-    PartitionSize, StageSize, TileSize, TilingScheme,
+    PartitionSize, StageSize, TileSize, TilingScheme, adjust_dtypes,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::is_tiny;
@@ -32,9 +32,11 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    dtypes: &MatmulElems,
+    dtypes: &mut MatmulElems,
     options: PlaneMatmulSelectionOptions,
 ) -> Result<MatmulSelection, MatmulSetupError> {
+    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+
     if plane_dim == 1 {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::PlaneDimUnsupported { plane_dim: 1 },
