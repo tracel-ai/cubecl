@@ -69,7 +69,6 @@ where
         mut rhs_reader: Self::RhsGlobalReader,
         acc_reader: Self::AccGlobalReader,
         mut out_writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -77,11 +76,13 @@ where
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = range.div_ceil(stage_step);
 
+        let mut acc = SMM::init_accumulators(config.stage_config());
+
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = (num_stage_matmuls - 2) / 2;
 
-        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config());
 
         let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
@@ -127,7 +128,7 @@ where
                 &rhs_stage_a,
                 &mut lhs_tile,
                 &mut rhs_tile,
-                acc,
+                &mut acc,
                 &mut lhs_reader,
                 &mut rhs_reader,
                 &mut barrier_b,
@@ -154,7 +155,7 @@ where
                 &rhs_stage_b,
                 &mut lhs_tile,
                 &mut rhs_tile,
-                acc,
+                &mut acc,
                 &mut lhs_reader,
                 &mut rhs_reader,
                 &mut barrier_a,
@@ -179,7 +180,7 @@ where
             &rhs_stage_a,
             &mut lhs_tile,
             &mut rhs_tile,
-            acc,
+            &mut acc,
             &mut lhs_reader,
             &mut rhs_reader,
             &mut barrier_b,
@@ -196,7 +197,7 @@ where
             &rhs_stage_b,
             &mut lhs_tile,
             &mut rhs_tile,
-            acc,
+            &mut acc,
             &mut out_writer,
             &specializer,
             &partition_scheduler,

@@ -328,9 +328,9 @@ impl<D: Dialect> CppCompiler<D> {
                 gpu::Synchronization::SyncCube => instructions.push(Instruction::SyncThreads),
                 gpu::Synchronization::SyncPlane => instructions.push(Instruction::SyncWarp),
                 gpu::Synchronization::SyncStorage => instructions.push(Instruction::SyncThreads),
-                gpu::Synchronization::SyncProxyShared => {
+                gpu::Synchronization::SyncAsyncProxyShared => {
                     self.flags.inst_tma = true;
-                    instructions.push(Instruction::ProxySharedFence)
+                    instructions.push(Instruction::ProxyAsyncToSharedFence)
                 }
             },
             gpu::Operation::Plane(op) => {
@@ -480,6 +480,16 @@ impl<D: Dialect> CppCompiler<D> {
                 _ => {}
             },
             gpu::Operation::Barrier(barrier_ops) => match barrier_ops {
+                gpu::BarrierOps::Declare { barrier } => {
+                    let VariableKind::Barrier { level, .. } = barrier.kind else {
+                        unreachable!()
+                    };
+                    let barrier = self.compile_variable(barrier);
+                    instructions.push(Instruction::Barrier(super::barrier::BarrierOps::Declare {
+                        barrier,
+                        level,
+                    }));
+                }
                 gpu::BarrierOps::Init {
                     barrier,
                     is_elected,
@@ -498,6 +508,19 @@ impl<D: Dialect> CppCompiler<D> {
                         level,
                         with_async_proxy_fence,
                     }));
+                }
+                gpu::BarrierOps::InitManual {
+                    barrier,
+                    arrival_count,
+                } => {
+                    let barrier = self.compile_variable(barrier);
+                    let arrival_count = self.compile_variable(arrival_count);
+                    instructions.push(Instruction::Barrier(
+                        super::barrier::BarrierOps::InitManual {
+                            barrier,
+                            arrival_count,
+                        },
+                    ));
                 }
                 gpu::BarrierOps::MemCopyAsync {
                     barrier,

@@ -69,7 +69,6 @@ where
         mut rhs_reader: Self::RhsGlobalReader,
         acc_reader: Self::AccGlobalReader,
         mut out_writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
@@ -89,9 +88,6 @@ where
             lhs_bytes + rhs_bytes
         };
 
-        SMM::load_accumulators(&acc_reader.stage(), acc, config.stage_config());
-
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let lhs_stage_a = lhs_reader.stage(StageBuffer::A);
@@ -103,20 +99,28 @@ where
 
         let role_rule = RoleRule::new(config.role_rule_config());
 
-        let elect_bar = role_rule.elect_load_leader();
-
         // Barrier for writing out
-        let barrier_done = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
+        let barrier_done = Barrier::new(BarrierLevel::cube_manual());
 
         // Barriers for releasing smem after compute
-        let barrier_empty_a = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
-        let barrier_empty_b = Barrier::new(BarrierLevel::cube_custom(elect_bar, compute_units));
+        let barrier_empty_a = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_empty_b = Barrier::new(BarrierLevel::cube_manual());
 
         // Barriers for marking smem as loaded
-        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_unit(elect_bar));
-        // We only need to sync the async proxy once
-        let mut barrier_full_b =
-            Barrier::new_with_async_proxy_fence(BarrierLevel::cube_unit(elect_bar));
+        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_manual());
+        let mut barrier_full_b = Barrier::new(BarrierLevel::cube_manual());
+
+        if role_rule.elect_load_leader() {
+            barrier_done.init_manual(compute_units);
+
+            barrier_empty_a.init_manual(compute_units);
+            barrier_empty_b.init_manual(compute_units);
+
+            barrier_full_a.init_manual(1);
+            barrier_full_b.init_manual(1);
+            sync_async_proxy_shared();
+        }
+        sync_cube();
 
         let mut phase = 0;
 
@@ -137,6 +141,11 @@ where
                 phase ^= 1;
             }
         } else if role_rule.is_compute_plane() {
+            let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+            let mut acc = SMM::init_accumulators(config.stage_config());
+
+            SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config());
+
             for _ in 0..num_loops {
                 barrier_full_a.wait_parity(phase);
                 SMM::execute(
@@ -144,7 +153,7 @@ where
                     &rhs_stage_a,
                     &mut lhs_tile,
                     &mut rhs_tile,
-                    acc,
+                    &mut acc,
                     config.stage_config(),
                     &partition_scheduler,
                 );
@@ -156,7 +165,7 @@ where
                     &rhs_stage_b,
                     &mut lhs_tile,
                     &mut rhs_tile,
-                    acc,
+                    &mut acc,
                     config.stage_config(),
                     &partition_scheduler,
                 );
@@ -164,19 +173,15 @@ where
 
                 phase ^= 1;
             }
-            barrier_done.arrive();
-        }
+            barrier_done.arrive_and_wait();
 
-        lhs_reader.free_stage();
-        rhs_reader.free_stage();
-
-        if role_rule.is_compute_plane() {
-            barrier_done.wait_parity(0u32);
+            lhs_reader.free_stage();
+            rhs_reader.free_stage();
 
             let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
             SMM::write_results::<Self::GlobalWriter, Self::Config>(
-                acc,
+                &acc,
                 &mut out_stage,
                 &mut out_writer,
                 &partition_scheduler,

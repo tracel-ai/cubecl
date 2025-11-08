@@ -18,12 +18,21 @@ pub enum BarrierLevel {
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
 pub enum BarrierOps {
+    /// Declare the barrier, without doing any initialization
+    Declare {
+        barrier: Variable,
+    },
     /// Initialize the barrier, optionally with a cta proxy fence
     Init {
         barrier: Variable,
         is_elected: Variable,
         arrival_count: Variable,
         with_async_proxy_fence: bool,
+    },
+    /// Manually initialize the barrier with an arrival count, without any sync or election handling
+    InitManual {
+        barrier: Variable,
+        arrival_count: Variable,
     },
     /// Copy source to destination
     MemCopyAsync {
@@ -92,6 +101,7 @@ pub enum BarrierOps {
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
                 arrival_count,
@@ -101,6 +111,12 @@ impl Display for BarrierOps {
                 true => write!(f, "init_barrier_tma({barrier}, {arrival_count})"),
                 false => write!(f, "init_barrier({barrier}, {arrival_count})"),
             },
+            BarrierOps::InitManual {
+                barrier,
+                arrival_count,
+            } => {
+                write!(f, "init_barrier({barrier}, {arrival_count})")
+            }
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,

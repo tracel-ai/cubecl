@@ -100,6 +100,9 @@ enum InnerBarrierLevel {
         is_elected: ExpandElement,
         arrival_count: ExpandElement,
     },
+
+    /// Fully manual Cube barrier, no automatic initialization
+    CubeManual,
 }
 
 impl BarrierLevel {
@@ -123,10 +126,16 @@ impl BarrierLevel {
         unexpanded!()
     }
 
-    /// Creates a CubeManual barrier level
+    /// Creates a CubeCustom barrier level
     ///
-    /// Will sync all units
-    pub fn cube_custom(_is_elected: bool, _arrival_count: u32) -> Self {
+    /// Will sync `arrival_count` units
+    pub fn cube_custom(_arrival_count: u32) -> Self {
+        unexpanded!()
+    }
+
+    /// Creates a CubeManual barrier level
+    /// Not initialized automatically
+    pub fn cube_manual() -> Self {
         unexpanded!()
     }
 
@@ -135,6 +144,7 @@ impl BarrierLevel {
             InnerBarrierLevel::Unit | InnerBarrierLevel::CubeUnit(_) => 1.into(),
             InnerBarrierLevel::CubeFull(_) => *CUBE_DIM::expand(scope).expand,
             InnerBarrierLevel::CubeCustom { arrival_count, .. } => **arrival_count,
+            InnerBarrierLevel::CubeManual => panic!("Can't get arrival count of manual barrier"),
         }
     }
 
@@ -144,6 +154,7 @@ impl BarrierLevel {
             InnerBarrierLevel::CubeUnit(is_elected)
             | InnerBarrierLevel::CubeFull(is_elected)
             | InnerBarrierLevel::CubeCustom { is_elected, .. } => **is_elected,
+            InnerBarrierLevel::CubeManual => panic!("Can't get `is_elected` of manual barrier"),
         }
     }
 
@@ -169,6 +180,10 @@ impl BarrierLevel {
             arrival_count: arrival_count.expand,
         })
     }
+
+    pub fn __expand_cube_manual(_scope: &mut Scope) -> Self {
+        BarrierLevel(InnerBarrierLevel::CubeManual)
+    }
 }
 
 impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
@@ -177,7 +192,8 @@ impl From<InnerBarrierLevel> for cubecl_ir::BarrierLevel {
             InnerBarrierLevel::Unit => cubecl_ir::BarrierLevel::Unit,
             InnerBarrierLevel::CubeUnit(_)
             | InnerBarrierLevel::CubeFull(_)
-            | InnerBarrierLevel::CubeCustom { .. } => cubecl_ir::BarrierLevel::Cube,
+            | InnerBarrierLevel::CubeCustom { .. }
+            | InnerBarrierLevel::CubeManual => cubecl_ir::BarrierLevel::Cube,
         }
     }
 }
@@ -318,6 +334,11 @@ impl Barrier {
         Self
     }
 
+    /// Manually initialize the barrier, without handling synchronization, etc.
+    pub fn init_manual(&self, _arrival_count: u32) -> BarrierToken {
+        unexpanded!()
+    }
+
     /// Copy the source slice to destination
     ///
     /// # Safety
@@ -397,15 +418,23 @@ impl Barrier {
     }
 
     pub fn __expand_new(scope: &mut Scope, level: BarrierLevel) -> BarrierExpand {
-        let is_elected = level.is_elected();
-        let arrival_count = level.arrival_count(scope);
-        let variable = scope.create_barrier(level.0.into());
-        scope.register(BarrierOps::Init {
-            barrier: *variable,
-            is_elected,
-            arrival_count,
-            with_async_proxy_fence: false,
-        });
+        let variable = scope.create_barrier(level.0.clone().into());
+        match &level.0 {
+            InnerBarrierLevel::CubeManual => {
+                scope.register(BarrierOps::Declare { barrier: *variable });
+            }
+            _ => {
+                let is_elected = level.is_elected();
+                let arrival_count = level.arrival_count(scope);
+                scope.register(BarrierOps::Init {
+                    barrier: *variable,
+                    is_elected,
+                    arrival_count,
+                    with_async_proxy_fence: false,
+                });
+            }
+        }
+
         BarrierExpand { elem: variable }
     }
 
@@ -415,7 +444,7 @@ impl Barrier {
     ) -> BarrierExpand {
         let is_elected = level.is_elected();
         let arrival_count = level.arrival_count(scope);
-        let variable = scope.create_barrier(level.0.into());
+        let variable = scope.create_barrier(level.0.clone().into());
         scope.register(BarrierOps::Init {
             barrier: *variable,
             is_elected,
@@ -423,6 +452,14 @@ impl Barrier {
             with_async_proxy_fence: true,
         });
         BarrierExpand { elem: variable }
+    }
+
+    pub fn __expand_init_manual(
+        scope: &mut Scope,
+        expand: BarrierExpand,
+        arrival_count: ExpandElementTyped<u32>,
+    ) {
+        expand.__expand_init_manual_method(scope, arrival_count);
     }
 
     pub fn __expand_memcpy_async<C: CubePrimitive>(
@@ -498,6 +535,19 @@ impl Barrier {
 }
 
 impl BarrierExpand {
+    pub fn __expand_init_manual_method(
+        &self,
+        scope: &mut Scope,
+        arrival_count: ExpandElementTyped<u32>,
+    ) {
+        let barrier = *self.elem;
+
+        scope.register(BarrierOps::InitManual {
+            barrier,
+            arrival_count: *arrival_count.expand,
+        });
+    }
+
     pub fn __expand_memcpy_async_method<C: CubePrimitive>(
         &self,
         scope: &mut Scope,

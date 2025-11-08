@@ -20,7 +20,7 @@ impl<'a> Visitor<'a> {
             Synchronization::SyncStorage => {
                 panic!("SyncStorage is not supported")
             }
-            Synchronization::SyncProxyShared => {
+            Synchronization::SyncAsyncProxyShared => {
                 panic!("SyncProxyShared is not supported")
             }
         }

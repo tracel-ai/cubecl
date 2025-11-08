@@ -35,7 +35,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos] = input[in_pos];
 
-    sync_proxy_shared();
+    sync_async_proxy_shared();
     sync_cube();
 
     if UNIT_POS == 0 {

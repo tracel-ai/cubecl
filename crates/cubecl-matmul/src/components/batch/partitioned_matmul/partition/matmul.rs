@@ -31,7 +31,6 @@ pub trait GlobalPartitionMatmul: 'static + Send + Sync {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         partition_ranges: PartitionRanges,
-        acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     );
@@ -79,7 +78,6 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -101,7 +99,7 @@ impl GlobalPartitionMatmul for RowMajorGlobalPartitionMatmul {
                     let col_offset = ranges.col.start + col * ranges.col.step;
 
                     execute_global_matmul::<Args, MP, GMM>(
-                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                        state, batch_iter, row_offset, col_offset, k_range, config,
                     );
                 }
             }
@@ -114,7 +112,6 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
     fn execute<Args: MatmulArgs, MP: MatmulPrecision, GMM: global::GlobalMatmul<MP>>(
         state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         ranges: PartitionRanges,
-        mut acc: GMM::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: GMM::Config,
     ) {
@@ -136,7 +133,7 @@ impl GlobalPartitionMatmul for ColMajorGlobalPartitionMatmul {
                     let row_offset = ranges.row.start + row * ranges.row.step;
 
                     execute_global_matmul::<Args, MP, GMM>(
-                        state, batch_iter, row_offset, col_offset, &mut acc, k_range, config,
+                        state, batch_iter, row_offset, col_offset, k_range, config,
                     );
                 }
             }
@@ -156,7 +153,6 @@ pub(crate) fn execute_global_matmul<
     nth_batch: u32,
     m_offset: u32,
     n_offset: u32,
-    acc: &mut GMM::Accumulators,
     k_range: (u32, u32),
     #[comptime] config: GMM::Config,
 ) {
@@ -199,7 +195,6 @@ pub(crate) fn execute_global_matmul<
             out.slice_mut_unchecked((m_offset, n_offset), (stage_m, stage_n)),
             config,
         ),
-        acc,
         k_range,
         config,
     );

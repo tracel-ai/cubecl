@@ -86,7 +86,7 @@ impl Uniformity {
                     Synchronization::SyncCube | Synchronization::SyncStorage => {
                         block_uniform = true;
                     }
-                    Synchronization::SyncProxyShared => {}
+                    Synchronization::SyncAsyncProxyShared => {}
                     Synchronization::SyncPlane => {
                         // TODO: not sure
                     }
