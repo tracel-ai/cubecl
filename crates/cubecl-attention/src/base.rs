@@ -9,15 +9,16 @@ use crate::{
         AttentionTilingScheme, AvailableLineSizes, args::TensorInputsLaunch, attention_types::*,
         batch::HypercubeSelection,
     },
-    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm},
+    kernels::{Algorithm, blackbox_accelerated::BlackboxAcceleratedAlgorithm, unit::UnitAlgorithm},
 };
 
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
 
+#[derive(Debug, Clone)]
 pub enum Strategy {
-    /// Temporary implementation
-    Tmp,
+    BlackboxAccelerated,
+    Unit,
 }
 
 #[allow(clippy::result_large_err)]
@@ -52,11 +53,16 @@ pub fn launch_ref<R: Runtime, AP: AttentionPrecision>(
     out: &TensorHandleRef<R>,
 ) -> Result<(), AttentionSetupError> {
     match strategy {
-        Strategy::Tmp => launch_tmp::<R, AP>(client, query, key, value, mask, out),
+        Strategy::BlackboxAccelerated => launch_attention::<R, AP, BlackboxAcceleratedAlgorithm>(
+            client, query, key, value, mask, out,
+        ),
+        Strategy::Unit => {
+            launch_attention::<R, AP, UnitAlgorithm>(client, query, key, value, mask, out)
+        }
     }
 }
 
-pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
+pub fn launch_attention<R: Runtime, AP: AttentionPrecision, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
@@ -69,7 +75,7 @@ pub fn launch_tmp<R: Runtime, AP: AttentionPrecision>(
         size_of::<MSK<AP>>(),
         out.elem_size,
     );
-    let line_sizes = BlackboxAcceleratedAlgorithm::filter_line_sizes(line_sizes)
+    let line_sizes = A::filter_line_sizes(line_sizes)
         .filter_with_tensor(AttentionIdent::Query, query.strides, query.shape)
         .filter_with_tensor(AttentionIdent::Key, key.strides, key.shape)
         .filter_with_tensor(AttentionIdent::Value, value.strides, value.shape)

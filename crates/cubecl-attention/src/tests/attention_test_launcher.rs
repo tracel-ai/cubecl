@@ -156,7 +156,7 @@ fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
 where
     T: Numeric + CubeElement + Sampleable,
 {
-    let tensor_shape = shape(problem, ident);
+    let tensor_shape = problem.shape(ident);
     let handle = T::sample::<R>(client, &tensor_shape, sample_seed);
     let data = client.read_one(handle.handle);
     let data = T::from_bytes(&data);
@@ -180,7 +180,7 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
 ) -> TensorRawParts<P::EG> {
     let zero = P::EG::from_int(0);
     let data = vec![zero; tensor_size(problem, AttentionIdent::Out)];
-    let tensor_shape = shape(problem, AttentionIdent::Out);
+    let tensor_shape = problem.shape(AttentionIdent::Out);
     let data_bytes = P::EG::as_bytes(&data);
     let shape = tensor_shape.as_slice();
     let elem_size = std::mem::size_of::<P::EG>();
@@ -196,47 +196,11 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
 
 /// Returns the total number of elements for the identified tensor, inferred by the problem definition
 pub(crate) fn tensor_size(problem: &AttentionProblem, ident: AttentionIdent) -> usize {
-    shape(problem, ident).iter().product()
-}
-
-pub(crate) fn shape(problem: &AttentionProblem, ident: AttentionIdent) -> [usize; 4] {
-    match ident {
-        AttentionIdent::Query => [
-            problem.batch,
-            problem.num_heads,
-            problem.seq_q,
-            problem.head_dim,
-        ],
-        AttentionIdent::Key => [
-            problem.batch,
-            problem.num_heads,
-            problem.seq_kv,
-            problem.head_dim,
-        ],
-        AttentionIdent::Value => [
-            problem.batch,
-            problem.num_heads,
-            problem.seq_kv,
-            problem.val_dim,
-        ],
-        AttentionIdent::Mask => [
-            problem.batch,
-            problem.num_heads,
-            problem.seq_q,
-            problem.seq_kv,
-        ],
-        AttentionIdent::Out => [
-            problem.batch,
-            problem.num_heads,
-            problem.seq_q,
-            problem.val_dim,
-        ],
-        AttentionIdent::Softmax => unreachable!("Not a materialized tensor"),
-    }
+    problem.shape(ident).iter().product()
 }
 
 pub(crate) fn strides(problem: &AttentionProblem, ident: AttentionIdent) -> Vec<usize> {
-    let shape = shape(problem, ident);
+    let shape = problem.shape(ident);
 
     let mut strides = vec![0; shape.len()];
     let mut acc = 1;
