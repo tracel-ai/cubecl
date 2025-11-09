@@ -2,7 +2,7 @@ use crate::components::{
     MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig},
+    stage::{NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig, SwizzleMode},
     tile::TileConfig,
 };
 
@@ -35,6 +35,10 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
 
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
         self.tile_config.matrix_layout(ident)
+    }
+
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        self.tile_config.swizzle_mode(ident)
     }
 
     fn plane_dim(&self) -> u32 {

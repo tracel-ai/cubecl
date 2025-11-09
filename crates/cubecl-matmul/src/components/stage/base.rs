@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
-use crate::components::{AccS, global::MaxGlobalReaderPlanes};
+use crate::components::{AccS, global::MaxGlobalReaderPlanes, stage::SwizzleMode};
 use crate::components::{
     AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
 };
@@ -178,6 +178,7 @@ pub trait StageConfig:
             tiles_in_stage_col: tiling.tiles_in_stage_col(ident),
             stage_line_size: self.stage_line_size(ident),
             matrix_layout: self.matrix_layout(ident),
+            swizzle: self.swizzle_mode(ident),
             num_stages: self.num_stages(ident),
         }
     }
@@ -190,6 +191,9 @@ pub trait StageConfig:
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
+
+    /// Returns the [SwizzleMode] for the given ident
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
 
     /// Returns how many units are in a plane
     fn plane_dim(&self) -> u32;

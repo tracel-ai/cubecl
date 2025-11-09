@@ -1,7 +1,6 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
@@ -10,6 +9,7 @@ use crate::components::{
 };
 use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
 use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
+use crate::components::{global::memory::GlobalMemoryConfig, stage::SwizzleMode};
 use cubecl_std::{
     CubeOption,
     tensor::{View, layout::Coords2d},
@@ -145,6 +145,7 @@ pub trait GlobalConfig:
             check_row_bounds: self.check_row_bounds(ident),
             check_col_bounds: self.check_col_bounds(ident),
             matrix_layout: self.matrix_layout(ident),
+            swizzle_mode: self.swizzle_mode(ident),
         }
     }
 
@@ -158,6 +159,9 @@ pub trait GlobalConfig:
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
+
+    /// Returns the [SwizzleMode] for the given ident
+    fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode;
 
     /// Returns the number of planes participating in loading `ident`
     fn num_loading_planes(&self, ident: MatmulIdent) -> u32;

@@ -1,6 +1,6 @@
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::MatrixLayout;
+use crate::components::{MatrixLayout, stage::SwizzleMode};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq, Default)]
 pub struct GlobalMemoryConfig {
@@ -12,4 +12,5 @@ pub struct GlobalMemoryConfig {
     pub check_row_bounds: bool,
     pub check_col_bounds: bool,
     pub matrix_layout: MatrixLayout,
+    pub swizzle_mode: SwizzleMode,
 }

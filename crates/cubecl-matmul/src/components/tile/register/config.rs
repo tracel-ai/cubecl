@@ -4,9 +4,12 @@ use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::StorageType};
 use cubecl_runtime::TypeUsage;
 
-use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
 use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    stage::SwizzleMode,
+};
 
 /// Execution mode for the RegisterMatmul
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -49,6 +52,12 @@ impl TileConfig for RegisterConfig {
             StageIdent::Acc => MatrixLayout::RowMajor,
             StageIdent::Out => MatrixLayout::RowMajor,
         }
+    }
+
+    fn swizzle_mode(&self, _ident: StageIdent) -> SwizzleMode {
+        // Not that important for register matmul, and won't work properly on platforms with no
+        // concrete addresses/alignment anyways
+        SwizzleMode::None
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {

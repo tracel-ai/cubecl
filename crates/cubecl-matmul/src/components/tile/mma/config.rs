@@ -3,9 +3,12 @@ use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::MatrixIdent};
 use cubecl_runtime::MmaConfig;
 
-use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
-use crate::components::tile::TileConfig;
 use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{SwizzleConfig, tile::TileConfig};
+use crate::components::{
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    stage::SwizzleMode,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
@@ -22,6 +25,7 @@ pub struct MmaMatmulConfig {
     lhs_load_method: LoadMethod,
     rhs_load_method: LoadMethod,
     acc_load_method: LoadMethod,
+    swizzle: SwizzleConfig,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -41,6 +45,15 @@ impl TileConfig for MmaMatmulConfig {
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
             StageIdent::Out => MatrixLayout::RowMajor,
+        }
+    }
+
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        match ident {
+            StageIdent::Lhs => self.swizzle.lhs,
+            StageIdent::Rhs => self.swizzle.rhs,
+            StageIdent::Acc => self.swizzle.acc,
+            StageIdent::Out => self.swizzle.out,
         }
     }
 
@@ -85,6 +98,7 @@ impl MmaMatmulConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        swizzle: SwizzleConfig,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tile_size,
@@ -99,6 +113,7 @@ impl MmaMatmulConfig {
             lhs_load_method: load_method::<R, Lhs>(client),
             rhs_load_method: load_method::<R, Rhs>(client),
             acc_load_method: load_method::<R, Acc>(client),
+            swizzle,
         }
         .check_availability::<Lhs, Rhs, Acc, R>(client)
     }

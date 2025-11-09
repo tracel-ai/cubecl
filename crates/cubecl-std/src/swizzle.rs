@@ -35,7 +35,11 @@ impl Swizzle {
         let invert_shift = shift < 0;
         let mask = (1u32 << bits) - 1;
         let yyy_mask = comptime![mask << (base + Ord::max(shift, 0) as u32)];
-        let repeats_after = comptime![1u32 << (base + bits + Ord::max(shift, 0) as u32)];
+        let repeats_after = comptime![if bits > 0 {
+            1u32 << (base + bits + Ord::max(shift, 0) as u32)
+        } else {
+            1u32 << base
+        }];
         Swizzle {
             yyy_mask,
             shift: comptime![shift.unsigned_abs()],
@@ -51,11 +55,18 @@ impl Swizzle {
     /// retrieving the actual address of an offset.
     /// If you're using absolute/unlined indices, pass `E::type_size()` instead of the full line size.
     pub fn apply(&self, offset: u32, #[comptime] type_size: u32) -> u32 {
-        let offset_bytes = offset * type_size;
-        let offset_masked = offset_bytes & self.yyy_mask;
-        let offset_shifted = shift_right(offset_masked, self.shift, comptime![self.invert_shift]);
-        let offset_bytes = offset_bytes ^ offset_shifted;
-        offset_bytes / type_size
+        // Special case here so we don't need to special case in kernels that can have no swizzle.
+        // If `yyy_mask == 0`, the whole thing is a noop.
+        if comptime![self.yyy_mask == 0] {
+            offset
+        } else {
+            let offset_bytes = offset * type_size;
+            let offset_masked = offset_bytes & self.yyy_mask;
+            let offset_shifted =
+                shift_right(offset_masked, self.shift, comptime![self.invert_shift]);
+            let offset_bytes = offset_bytes ^ offset_shifted;
+            offset_bytes / type_size
+        }
     }
 
     /// After how many elements this pattern repeats. Can be used to align the buffer (i.e. smem)

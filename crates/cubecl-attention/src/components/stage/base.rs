@@ -3,7 +3,9 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     MatrixLayout, StageIdent, TilingScheme,
     global::{WriteEventListener, WriteTiling},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
+    stage::{
+        ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig, SwizzleMode,
+    },
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -149,6 +151,7 @@ impl AttentionStageMemoryConfig {
             tiles_in_stage_col: self.matmul_tiling_scheme.tiles_in_stage_col(ident),
             stage_line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
             num_stages: 1,
         }
     }
