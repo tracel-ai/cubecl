@@ -13,8 +13,8 @@ use crate::components::tile::RowWise;
 use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentMask, FragmentMaskExpand};
+use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
-use crate::components::tile::{SoftmaxFragment, SoftmaxFragmentExpand};
 
 use crate::components::tile::FragmentAttention;
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
@@ -168,10 +168,14 @@ impl<E: Float> FragmentAccumulator<E> for UnitTile<E> {
             }
         }
     }
+
+    fn zero(&mut self) {
+        self.zero()
+    }
 }
 
 #[cube]
-impl<E: Float> SoftmaxFragment<E> for UnitTile<E> {
+impl<E: Float> FragmentSoftmax<E> for UnitTile<E> {
     type Layout = UnitTileLayout;
     type SoftmaxScore = UnitTile<E>;
     type SoftmaxRowFormat = UnitTile<E>;
@@ -183,6 +187,10 @@ impl<E: Float> SoftmaxFragment<E> for UnitTile<E> {
 
     fn update_from_rowwise(&mut self) {
         // Nothing to do, because rowwise = self
+    }
+
+    fn zero(&mut self) {
+        self.zero()
     }
 }
 
@@ -301,14 +309,6 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
         #[comptime] _config: Self::Config,
     ) {
         strided_tile_to_array_tile(tile, fragment);
-    }
-
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] _config: Self::Config) {
-        softmax.zero();
-    }
-
-    fn zero_accumulator(acc: &mut Self::Accumulator) {
-        acc.zero();
     }
 
     fn write_results<E: Float>(

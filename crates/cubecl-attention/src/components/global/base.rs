@@ -65,30 +65,35 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     );
 
     fn init_query_reader(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP>;
 
     fn init_key_reader(
+        batch_index: u32,
         key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader;
 
     fn init_value_reader(
+        batch_index: u32,
         value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader;
 
     fn init_mask_reader(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         mask: CubeOption<VirtualTensor<MSK<AP>>>,
         seq_kv_shape: u32,
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader;
 
     fn init_writer(
-        q_offset: u32,
+        batch_index: u32,
+        stage_q_offset: u32,
         out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer;
