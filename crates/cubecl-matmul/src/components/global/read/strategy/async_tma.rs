@@ -24,8 +24,8 @@ impl SyncStrategy for AsyncTma {
         barrier: &mut Self::Barrier,
         #[comptime] config: G,
     ) {
-        let lhs_elem_size = LhsS::<MP>::elem_size();
-        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
         let num_bytes = comptime! {
             let lhs_bytes = config.stage_memory_config(MatmulIdent::Lhs).elements_in_stage() * lhs_elem_size;
             let rhs_bytes = config.stage_memory_config(MatmulIdent::Rhs).elements_in_stage() * rhs_elem_size;

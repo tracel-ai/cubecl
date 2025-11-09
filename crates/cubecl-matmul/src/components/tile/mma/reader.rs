@@ -160,7 +160,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
         MatrixLayout::ColMajor => (1, stride),
     };
 
-    let elem_size = E::elem_size();
+    let elem_size = E::type_size();
     let num_regs = def.lines_per_lane(ident);
     let width = comptime![16 / elem_size];
     // Height is always 8, and lanes are divided into blocks of 8.

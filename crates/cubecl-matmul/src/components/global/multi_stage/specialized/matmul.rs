@@ -80,8 +80,8 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = num_stage_matmuls / 2;
 
-        let lhs_elem_size = LhsS::<MP>::elem_size();
-        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes = comptime! {
             let lhs_bytes = config.stage_memory_config(MatmulIdent::Lhs).elements_in_stage() * lhs_elem_size;
             let rhs_bytes = config.stage_memory_config(MatmulIdent::Rhs).elements_in_stage() * rhs_elem_size;

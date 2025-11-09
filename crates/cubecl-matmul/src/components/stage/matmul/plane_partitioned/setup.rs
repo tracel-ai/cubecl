@@ -103,9 +103,9 @@ impl<
             selection.partition_buffering,
             num_stages,
             plane_role_config,
-            LhsS::<MP>::elem_size(),
-            RhsS::<MP>::elem_size(),
-            AccS::<MP>::elem_size(),
+            LhsS::<MP>::type_size(),
+            RhsS::<MP>::type_size(),
+            AccS::<MP>::type_size(),
             client.properties().hardware.max_shared_memory_size as u32,
             ordered,
         )

@@ -83,7 +83,7 @@ pub fn random_bernoulli<R: Runtime, E: Numeric>(
 ) {
     assert_eq!(
         out.elem_size as u32,
-        E::elem_size(),
+        E::type_size(),
         "Tensor element type must be the same as type E"
     );
 

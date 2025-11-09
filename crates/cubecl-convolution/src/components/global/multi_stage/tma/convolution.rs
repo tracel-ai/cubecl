@@ -93,8 +93,8 @@ where
         // so the stage index is comptime. This is needed to make `Sequence` work.
         let num_loops = num_loops.div_ceil(num_stages);
 
-        let lhs_elem_size = LhsS::<MP>::elem_size();
-        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes_lhs =
             comptime![config.tiling_scheme().elements_in_stage_mk() * lhs_elem_size];
         let stage_bytes_rhs =
