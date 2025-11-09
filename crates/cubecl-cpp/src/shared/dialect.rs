@@ -633,10 +633,6 @@ pub trait DialectInstructions<D: Dialect> {
         }
     }
 
-    fn compile_instruction_atan2(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "atan2")
-    }
-
     fn compile_instruction_half_function_name_prefix() -> &'static str {
         "h"
     }

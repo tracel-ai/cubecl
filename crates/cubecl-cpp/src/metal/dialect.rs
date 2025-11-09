@@ -843,10 +843,6 @@ impl DialectInstructions<Self> for MslDialect {
         write!(f, "safe_tanh_scalar({input})")
     }
 
-    fn compile_instruction_atan2(f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "atan2")
-    }
-
     // unary
     fn compile_instruction_find_first_set<T: Component<Self>>(
         f: &mut std::fmt::Formatter<'_>,

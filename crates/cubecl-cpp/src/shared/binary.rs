@@ -338,13 +338,10 @@ impl<D: Dialect> Binary<D> for ArcTan2 {
         let elem = item.elem;
         match elem {
             Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
-                write!(f, "{elem}(")?;
-                D::compile_instruction_atan2(f)?;
-                write!(f, "(float({lhs}), float({rhs})))")
+                write!(f, "{elem}(atan2(float({lhs}), float({rhs})))")
             }
             _ => {
-                D::compile_instruction_atan2(f)?;
-                write!(f, "({lhs}, {rhs})")
+                write!(f, "atan2({lhs}, {rhs})")
             }
         }
     }
