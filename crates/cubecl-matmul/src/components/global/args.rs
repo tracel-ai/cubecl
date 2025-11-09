@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl, server::TensorMapMeta, unexpanded};
 use cubecl_std::{
@@ -14,7 +12,7 @@ use cubecl_std::{
 use crate::{
     MatmulInputHandleRef,
     components::{
-        self, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSelection,
+        self, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSelection,
         batch::BatchConfig,
         global::{
             GlobalConfig,
@@ -38,6 +36,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         config: impl BatchConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -51,6 +50,7 @@ pub trait ConcreteOutputFactory: LaunchArg {
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         config: impl BatchConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -158,6 +158,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         config: impl BatchConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
         let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
@@ -228,6 +229,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         config: impl BatchConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
         let layout = GlobalLayoutLaunch::from_handle(
@@ -342,6 +344,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
         _config: impl BatchConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let lhs = lhs_handle.data();
         let rhs = rhs_handle.data();
@@ -367,8 +370,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             }
         };
 
-        let lhs_elem_size = size_of::<Lhs>();
-        let rhs_elem_size = size_of::<Rhs>();
+        let lhs_elem_size = dtypes.lhs_global.size();
+        let rhs_elem_size = dtypes.rhs_global.size();
 
         let lhs_rank = lhs.shape.len();
         let mut lhs_shape = vec![
@@ -437,15 +440,15 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
+        let lhs_elem = if dtypes.lhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            Lhs::as_type_native_unchecked()
+            dtypes.lhs_stage
         };
-        let rhs_elem = if TypeId::of::<Rhs>() == TypeId::of::<f32>() {
+        let rhs_elem = if dtypes.rhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            Rhs::as_type_native_unchecked()
+            dtypes.rhs_stage
         };
 
         let meta_lhs = TensorMapMeta {

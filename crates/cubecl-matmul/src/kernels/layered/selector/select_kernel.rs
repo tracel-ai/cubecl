@@ -65,6 +65,7 @@ where
             &problem,
             &line_sizes,
             config,
+            dtypes,
         ),
         <OutputArg<MA> as ConcreteOutputFactory>::create(
             client,
@@ -73,6 +74,7 @@ where
             &problem,
             &line_sizes,
             config,
+            dtypes,
         ),
         cube_count_plan.as_args(),
         config,

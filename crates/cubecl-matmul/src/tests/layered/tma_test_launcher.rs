@@ -107,6 +107,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
     let output = TensorOutput::create(
         &client,
@@ -115,6 +116,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,

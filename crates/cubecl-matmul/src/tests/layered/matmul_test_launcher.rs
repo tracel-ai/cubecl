@@ -128,6 +128,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &problem,
                 &line_sizes,
                 config,
+                &dtypes,
             ),
             TensorOutput::create(
                 &client,
@@ -136,6 +137,7 @@ pub fn test_matmul_algorithm<A, P, R>(
                 &problem,
                 &line_sizes,
                 config,
+                &dtypes,
             ),
             cube_count_plan.as_args(),
             config,
