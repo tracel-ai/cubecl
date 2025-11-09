@@ -497,10 +497,9 @@ pub fn launch_ref<R: Runtime>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
             R,
-            MP,
             TmaSpecializedAlgorithm<Accelerated>,
         >(
-            client, lhs, rhs, out, selection,
+            client, lhs, rhs, out, selection, dtypes
         )),
         Strategy::OrderedDoubleBuffering {
             selection,
