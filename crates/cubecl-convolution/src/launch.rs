@@ -72,6 +72,7 @@ where
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn launch<R: Runtime, Alg: Algorithm>(
     client: &ComputeClient<R::Server>,
     input: &MatmulInputHandleRef<'_, R>,

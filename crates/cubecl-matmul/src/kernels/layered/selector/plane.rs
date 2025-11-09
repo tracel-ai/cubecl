@@ -43,7 +43,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         ));
     }
 
-    let tile_size = find_instruction_size::<R, TMM>(client, &dtypes, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n);
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));

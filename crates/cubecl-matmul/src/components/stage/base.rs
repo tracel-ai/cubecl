@@ -50,6 +50,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     /// number of stages, maximum of tasks per plane, and whether the algorithm is an ordered variant
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
+    #[allow(clippy::too_many_arguments)]
     fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,

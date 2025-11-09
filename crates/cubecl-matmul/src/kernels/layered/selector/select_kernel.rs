@@ -81,6 +81,7 @@ where
 }
 
 /// Select which kernel to launch for the given Algorithm.
+#[allow(clippy::too_many_arguments)]
 pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     input: InputRuntimeArg<'a, MA, R>,

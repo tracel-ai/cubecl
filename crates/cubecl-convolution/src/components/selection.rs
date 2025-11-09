@@ -86,7 +86,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     // to be the rough cutoff for the k=4 size.
     let stage_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let tile_size = find_instruction_size::<R, TMM>(client, &dtypes, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n);
 
     let hardware = &client.properties().hardware;
     let num_sm = hardware

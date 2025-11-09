@@ -33,6 +33,7 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     /// # Safety
     ///
     /// Out-of-bounds can happen
+    #[allow(clippy::too_many_arguments)]
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,

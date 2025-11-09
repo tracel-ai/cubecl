@@ -20,6 +20,7 @@ pub struct ReduceDtypes {
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
     client: &ComputeClient<Run::Server>,
     input: TensorHandleRef<Run>,

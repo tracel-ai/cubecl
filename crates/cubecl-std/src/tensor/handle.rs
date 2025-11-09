@@ -41,7 +41,7 @@ where
             handle: self.handle.clone(),
             shape: self.shape.clone(),
             strides: self.strides.clone(),
-            dtype: self.dtype.clone(),
+            dtype: self.dtype,
             runtime: PhantomData,
         }
     }
