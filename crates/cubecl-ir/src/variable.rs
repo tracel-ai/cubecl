@@ -94,6 +94,10 @@ pub enum VariableKind {
         id: Id,
         level: BarrierLevel,
     },
+    BarrierToken {
+        id: Id,
+        level: BarrierLevel,
+    },
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -153,6 +157,7 @@ impl Variable {
             VariableKind::Builtin(_) => true,
             VariableKind::Pipeline { .. } => false,
             VariableKind::Barrier { .. } => false,
+            VariableKind::BarrierToken { .. } => false,
         }
     }
 
@@ -526,6 +531,7 @@ impl Display for Variable {
             VariableKind::Builtin(builtin) => write!(f, "{builtin:?}"),
             VariableKind::Pipeline { id, .. } => write!(f, "pipeline({id})"),
             VariableKind::Barrier { id, .. } => write!(f, "barrier({id})"),
+            VariableKind::BarrierToken { id, .. } => write!(f, "barrier_token({id})"),
         }
     }
 }

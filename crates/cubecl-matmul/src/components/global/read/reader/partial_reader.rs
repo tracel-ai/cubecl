@@ -96,6 +96,11 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: PartialLoadingStrategy>
         self.stage_memory.with_buffer_index(stage_buffer.to_index())
     }
 
+    /// Frees the stage memory for reuse
+    pub fn free_stage(self) {
+        unsafe { self.stage_memory.free() };
+    }
+
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.
     pub fn advance_view(&mut self) {
         self.global_iter.advance();

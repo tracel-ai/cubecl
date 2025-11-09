@@ -50,14 +50,13 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
         #[comptime] config: G,
     ) -> Self::Job<IP> {
         let role_rule_config = config.role_rule_config();
-        let loading_sides = config.specialized_loading_sides();
         let config = config.stage_memory_config(ident);
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
         };
 
-        let is_elected = RoleRule::new(role_rule_config).is_tma_load_unit(ident, loading_sides);
+        let is_elected = RoleRule::new(role_rule_config).elect_load_leader();
 
         AsyncPartialTmaJob {
             is_elected,

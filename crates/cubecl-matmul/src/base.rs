@@ -21,6 +21,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
+        specialized::TmaSpecializedAlgorithm,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
@@ -62,6 +63,10 @@ pub enum Strategy {
     DoubleBuffering {
         read_strategy: PartialReadingStrategy,
         selection: Selection<DoubleBufferingArgs>,
+        tile_kind: AcceleratedTileKind,
+    },
+    Specialized {
+        selection: Selection<()>,
         tile_kind: AcceleratedTileKind,
     },
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
@@ -487,6 +492,16 @@ pub fn launch_ref<R: Runtime>(
                 )
             }
         }),
+        Strategy::Specialized {
+            selection,
+            tile_kind,
+        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
+            R,
+            MP,
+            TmaSpecializedAlgorithm<Accelerated>,
+        >(
+            client, lhs, rhs, out, selection,
+        )),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,

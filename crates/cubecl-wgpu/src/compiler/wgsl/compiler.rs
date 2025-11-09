@@ -380,7 +380,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } => {
+            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
@@ -618,7 +618,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
-            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
+            cube::Synchronization::SyncAsyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 

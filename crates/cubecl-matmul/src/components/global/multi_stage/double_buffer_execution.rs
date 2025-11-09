@@ -37,7 +37,7 @@ pub fn read_first<
             role_rule_config,
         } => {
             let rule = RoleRule::new(role_rule_config);
-            if !rule.is_load_only() {
+            if !rule.is_load_plane() {
                 if main_flow_loading_side.includes_lhs() {
                     LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
                 }
@@ -92,7 +92,7 @@ pub fn execute_current_and_read_next<
             role_rule_config,
         } => {
             let rule = RoleRule::new(role_rule_config);
-            if !rule.is_load_only() {
+            if !rule.is_load_plane() {
                 SMM::execute_with_listener::<DoubleBufferingEventListener<S, LJ, RJ, G>>(
                     lhs_stage,
                     rhs_stage,
@@ -170,7 +170,7 @@ pub fn execute_last_and_write_results<
             role_rule_config,
         } => {
             let rule = RoleRule::new(role_rule_config);
-            if !rule.is_load_only() {
+            if !rule.is_load_plane() {
                 SMM::execute(
                     lhs_stage,
                     rhs_stage,

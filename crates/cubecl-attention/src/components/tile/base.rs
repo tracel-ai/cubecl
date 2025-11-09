@@ -5,7 +5,7 @@ use cubecl_matmul::components::tile::StridedTile;
 
 use crate::components::attention_types::*;
 use crate::components::tile::{
-    FragmentAccumulator, FragmentLayout, FragmentMask, RowwiseFormat, SoftmaxFragment,
+    FragmentAccumulator, FragmentLayout, FragmentMask, FragmentSoftmax, RowwiseFormat,
 };
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -21,7 +21,7 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     type KeyValue: CubeType;
     type Mask: FragmentMask<Layout = Self::FragmentLayout>;
 
-    type Softmax: SoftmaxFragment<SM<AP>, Layout = Self::FragmentLayout, SoftmaxRowFormat = Self::SoftmaxRow>;
+    type Softmax: FragmentSoftmax<SM<AP>, Layout = Self::FragmentLayout, SoftmaxRowFormat = Self::SoftmaxRow>;
     type SoftmaxRow: RowwiseFormat<SM<AP>, Layout = Self::FragmentLayout>;
 
     type Accumulator: FragmentAccumulator<ACC<AP>>;
@@ -64,9 +64,6 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
         fragment: &mut Self::Mask,
         #[comptime] config: Self::Config,
     );
-
-    fn zero_softmax(softmax: &mut Self::Softmax, #[comptime] config: Self::Config);
-    fn zero_accumulator(acc: &mut Self::Accumulator);
 
     fn write_results<E: Float>(
         out: &Self::Accumulator,

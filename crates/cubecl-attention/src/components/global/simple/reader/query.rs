@@ -15,8 +15,8 @@ pub struct QueryReader<AP: AttentionPrecision> {
 
 #[cube]
 impl<AP: AttentionPrecision> QueryReader<AP> {
-    pub fn new(q_offset: u32, query: View<Line<QG<AP>>, Coords2d>) -> Self {
-        let query = query.slice((q_offset, 0), query.shape());
+    pub fn new(stage_q_offset: u32, query: View<Line<QG<AP>>, Coords2d>) -> Self {
+        let query = query.slice((stage_q_offset, 0), query.shape());
 
         QueryReader::<AP> { query }
     }

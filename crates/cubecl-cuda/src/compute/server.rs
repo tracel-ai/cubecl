@@ -151,7 +151,11 @@ impl ComputeServer for CudaServer {
         let mut kernel_id = kernel.id();
         let logger = self.streams.logger.clone();
         kernel_id.mode(mode);
-        let grid_constants = self.ctx.compilation_options.grid_constants;
+        let grid_constants = self
+            .ctx
+            .compilation_options
+            .supports_features
+            .grid_constants;
         let mut command = self.command(stream_id, bindings.buffers.iter());
 
         let count = match count {

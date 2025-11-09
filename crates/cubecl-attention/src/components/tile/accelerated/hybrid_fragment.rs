@@ -6,7 +6,7 @@ use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConf
 use crate::components::tile::accelerated::local_tile::{LocalTile, LocalTileLayout};
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentAttentionConfig as _, RowWise};
-use crate::components::tile::{SoftmaxFragment, SoftmaxFragmentExpand};
+use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 
 #[derive(CubeType)]
 /// Navigates between cmma fragment (for matmuls) and shared memory (for row wise ops)
@@ -61,7 +61,7 @@ impl<E: Float> HybridFragment<E> {
 }
 
 #[cube]
-impl<E: Float> SoftmaxFragment<E> for HybridFragment<E> {
+impl<E: Float> FragmentSoftmax<E> for HybridFragment<E> {
     type Layout = LocalTileLayout;
     type SoftmaxScore = cmma::Matrix<E>;
     type SoftmaxRowFormat = LocalTile<E>;
@@ -96,6 +96,11 @@ impl<E: Float> SoftmaxFragment<E> for HybridFragment<E> {
             cmma::MatrixLayout::RowMajor,
         )
     }
+
+    fn zero(&mut self) {
+        // Other parts don't need zeroing because they are always overriden
+        cmma::fill(&self.fragment, E::from_int(0));
+    }
 }
 
 #[cube]
@@ -104,5 +109,10 @@ impl<E: Float> FragmentAccumulator<E> for HybridFragment<E> {
         let local_tile = self.rowwise_mut();
         local_tile.rowwise_scale(val);
         self.update_from_rowwise();
+    }
+
+    fn zero(&mut self) {
+        // Other parts don't need zeroing because they are always overriden
+        cmma::fill(&self.fragment, E::from_int(0));
     }
 }

@@ -90,7 +90,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs_reader: Self::RhsGlobalReader,
         acc_reader: Self::AccGlobalReader,
         writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );

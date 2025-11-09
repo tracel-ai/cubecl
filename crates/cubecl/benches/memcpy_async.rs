@@ -196,7 +196,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_coop(0u32))
+        Barrier::new(BarrierLevel::cube_full(0u32))
     }
 
     fn memcpy<E: Float>(

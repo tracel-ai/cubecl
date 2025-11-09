@@ -4,10 +4,7 @@ use crate::components::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{
-            FullLoadingStrategy, LoadingJob,
-            async_barrier::{AsyncBarrier, CubeManual},
-        },
+        read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
@@ -71,7 +68,7 @@ impl LoadMaxRoundPlaneCount for AsyncFullMaximizeUnitCountLoading {
 #[cube]
 impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
-    type SyncStrategy = AsyncBarrier<CubeManual>;
+    type SyncStrategy = AsyncBarrier;
     type Job<IP: MatrixPrecision> = AsyncFullMaximizeUnitCountJob;
 
     const SHOULD_CLEAR: bool = true;
@@ -122,7 +119,7 @@ pub struct AsyncFullMaximizeUnitCountJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeManual>>
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeUnitCountJob
 {
     fn execute_task<G: GlobalConfig>(
