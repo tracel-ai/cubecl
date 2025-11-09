@@ -164,7 +164,8 @@ fn index_packed<N: Int>(
     #[comptime] packing: u32,
     #[comptime] rank: u32,
 ) -> N {
-    let bits_per_elem = comptime![N::elem_size_bits() / packing];
+    let elem_size_bits = N::elem_size_bits();
+    let bits_per_elem = comptime![elem_size_bits / packing];
     let mask = comptime![(1u32 << bits_per_elem) - 1];
     let mask = N::cast_from(mask);
 
