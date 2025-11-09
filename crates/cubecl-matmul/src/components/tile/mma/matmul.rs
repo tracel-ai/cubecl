@@ -24,9 +24,9 @@ where
     MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
     type Config = MmaMatmulConfig;
-    type LhsFragment = Sequence<Line<L>>;
-    type RhsFragment = Sequence<Line<R>>;
-    type AccFragment = Sequence<Line<A>>;
+    type LhsFragment = Array<Line<L>>;
+    type RhsFragment = Array<Line<R>>;
+    type AccFragment = Array<Line<A>>;
 
     type LhsTile = Strided;
     type RhsTile = Strided;
@@ -45,50 +45,29 @@ where
 
         #[unroll]
         for i in 0..num_lines {
-            *out.index_mut(i) = out_arr[i];
+            out[i] = out_arr[i];
         }
     }
 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::A);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::A) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
-        }
-        frag
+        let line_count = def.lines_per_lane(MatrixIdent::A);
+        Array::vectorized(line_count, line_size)
     }
 
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::B);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::B) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
-        }
-        frag
+        let line_count = def.lines_per_lane(MatrixIdent::B);
+        Array::vectorized(line_count, line_size)
     }
 
     fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::Accumulator);
-        let mut frag = Sequence::new();
-        #[unroll]
-        for _ in 0..def.lines_per_lane(MatrixIdent::Accumulator) {
-            // Needs to be mut because sequence is dodgy
-            #[allow(unused_mut)]
-            let mut reg = Line::empty(line_size);
-            frag.push(reg);
-        }
-        frag
+        let line_count = def.lines_per_lane(MatrixIdent::Accumulator);
+        Array::vectorized(line_count, line_size)
     }
 
     fn load_lhs<E: Numeric>(
@@ -102,6 +81,7 @@ where
             mma_definition::<L, R, A>(config),
             MatrixIdent::A,
             config.matrix_layout(StageIdent::Lhs),
+            config,
         );
     }
 
@@ -116,6 +96,7 @@ where
             mma_definition::<L, R, A>(config),
             MatrixIdent::B,
             config.matrix_layout(StageIdent::Rhs),
+            config,
         );
     }
 
@@ -130,6 +111,7 @@ where
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
             config.matrix_layout(StageIdent::Acc),
+            config,
         );
     }
 

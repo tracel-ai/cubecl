@@ -93,19 +93,35 @@ pub enum CoopMma {
         i: Variable,
         matrix: Matrix,
     },
+    /// Execute a CUDA `ldmatrix` instruction
+    LoadMatrix {
+        buffer: Variable,
+        offset: Variable,
+        line_size: Option<u32>,
+        factor: u32,
+        transpose: bool,
+    },
+    /// Execute a CUDA `stmatrix` instruction
+    StoreMatrix {
+        offset: Variable,
+        line_size: Option<u32>,
+        registers: Variable,
+        factor: u32,
+        transpose: bool,
+    },
     /// Manual execute.
     ExecuteManual {
         matrix: Matrix,
-        registers_a: Vec<Variable>,
-        registers_b: Vec<Variable>,
-        registers_c: Vec<Variable>,
+        registers_a: Variable,
+        registers_b: Variable,
+        registers_c: Variable,
     },
     /// Scaled manual execute.
     ExecuteScaled {
         matrix: Matrix,
-        registers_a: Vec<Variable>,
-        registers_b: Vec<Variable>,
-        registers_c: Vec<Variable>,
+        registers_a: Variable,
+        registers_b: Variable,
+        registers_c: Variable,
         scales_a: Variable,
         scales_b: Variable,
         scales_factor: u32,
@@ -128,7 +144,9 @@ impl OperationReflect for CoopMma {
             | CoopMma::ExecuteScaled { .. }
             | CoopMma::Store { .. }
             | CoopMma::RowIndex { .. }
-            | CoopMma::ColIndex { .. } => None,
+            | CoopMma::ColIndex { .. }
+            | CoopMma::LoadMatrix { .. }
+            | CoopMma::StoreMatrix { .. } => None,
             CoopMma::Cast { input } => Some(vec![*input]),
         }
     }
@@ -142,7 +160,9 @@ impl OperationReflect for CoopMma {
             | CmmaOpCode::ExecuteScaled
             | CmmaOpCode::Store
             | CmmaOpCode::RowIndex
-            | CmmaOpCode::ColIndex => None,
+            | CmmaOpCode::ColIndex
+            | CmmaOpCode::LoadMatrix
+            | CmmaOpCode::StoreMatrix => None,
             CmmaOpCode::Cast => Some(CoopMma::Cast { input: args[0] }),
         }
     }
@@ -177,16 +197,13 @@ impl Display for CoopMma {
                 registers_b,
                 registers_c,
             } => {
-                let frag_a = comma_separated(registers_a.iter().map(|it| format!("{it}")));
-                let frag_b = comma_separated(registers_b.iter().map(|it| format!("{it}")));
-                let frag_c = comma_separated(registers_c.iter().map(|it| format!("{it}")));
                 write!(
                     f,
                     "execute_manual_mma(
                     matrix: {matrix:?},
-                    frag_a: [{frag_a}],
-                    frag_b: [{frag_b}],
-                    frag_c: [{frag_c}],
+                    frag_a: {registers_a},
+                    frag_b: {registers_b},
+                    frag_c: {registers_c},
                 )"
                 )
             }
@@ -199,16 +216,13 @@ impl Display for CoopMma {
                 scales_b,
                 scales_factor,
             } => {
-                let frag_a = comma_separated(registers_a.iter().map(|it| format!("{it}")));
-                let frag_b = comma_separated(registers_b.iter().map(|it| format!("{it}")));
-                let frag_c = comma_separated(registers_c.iter().map(|it| format!("{it}")));
                 write!(
                     f,
                     "execute_scaled_mma_{scales_factor}x(
                     matrix: {matrix:?},
-                    frag_a: [{frag_a}],
-                    frag_b: [{frag_b}],
-                    frag_c: [{frag_c}],
+                    frag_a: {registers_a},
+                    frag_b: {registers_b},
+                    frag_c: {registers_c},
                     scales_a: {scales_a},
                     scales_b: {scales_b}
                 )"
@@ -232,10 +246,30 @@ impl Display for CoopMma {
             CoopMma::ColIndex { lane_id, i, matrix } => {
                 write!(f, "col_idx(lane_id: {lane_id}, i: {i}, matrix: {matrix:?})",)
             }
+            CoopMma::LoadMatrix {
+                buffer,
+                offset,
+                factor,
+                transpose,
+                ..
+            } => {
+                write!(
+                    f,
+                    "ldmatrix_{factor}x(&{buffer}[{offset}], transpose: {transpose})"
+                )
+            }
+            CoopMma::StoreMatrix {
+                offset,
+                registers,
+                factor,
+                transpose,
+                ..
+            } => {
+                write!(
+                    f,
+                    "stmatrix_{factor}x({registers}, offset: {offset}, transpose: {transpose})"
+                )
+            }
         }
     }
-}
-
-fn comma_separated(it: impl IntoIterator<Item = String>) -> String {
-    it.into_iter().collect::<Vec<_>>().join(", ")
 }

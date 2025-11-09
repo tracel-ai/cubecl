@@ -765,18 +765,9 @@ impl<D: Dialect> CppCompiler<D> {
                 registers_c,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
             },
             gpu::CoopMma::ExecuteScaled {
@@ -789,18 +780,9 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_factor,
             } => WmmaInstruction::ExecuteScaled {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
 
                 scales_a: self.compile_variable(scales_a),
@@ -824,6 +806,23 @@ impl<D: Dialect> CppCompiler<D> {
                         .compile_matrix_layout(layout)
                         .expect("Layout required for store instruction"),
                 }
+            }
+            gpu::CoopMma::LoadMatrix {
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => WmmaInstruction::LdMatrix {
+                output: out,
+                buffer: self.compile_variable(buffer),
+                offset: self.compile_variable(offset),
+                line_size,
+                factor,
+                transpose,
+            },
+            gpu::CoopMma::StoreMatrix { .. } => {
+                todo!()
             }
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),

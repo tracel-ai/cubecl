@@ -1,6 +1,6 @@
-use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_core::prelude::Numeric;
+use cubecl_core::{Runtime, ir::MatrixIdent};
 use cubecl_runtime::MmaConfig;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
@@ -19,6 +19,15 @@ pub struct MmaMatmulConfig {
     out_global_line_size: u32,
     lhs_stage_line_size: u32,
     rhs_stage_line_size: u32,
+    lhs_load_method: LoadMethod,
+    rhs_load_method: LoadMethod,
+    acc_load_method: LoadMethod,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum LoadMethod {
+    Manual,
+    LoadMatrix,
 }
 
 impl TileConfig for MmaMatmulConfig {
@@ -87,6 +96,9 @@ impl MmaMatmulConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
+            lhs_load_method: load_method::<R, Lhs>(client),
+            rhs_load_method: load_method::<R, Rhs>(client),
+            acc_load_method: load_method::<R, Acc>(client),
         }
         .check_availability::<Lhs, Rhs, Acc, R>(client)
     }
@@ -119,5 +131,22 @@ impl MmaMatmulConfig {
         }
 
         Ok(self)
+    }
+
+    pub fn load_method(&self, ident: MatrixIdent) -> LoadMethod {
+        match ident {
+            MatrixIdent::A => self.lhs_load_method,
+            MatrixIdent::B => self.rhs_load_method,
+            MatrixIdent::Accumulator => self.acc_load_method,
+        }
+    }
+}
+
+fn load_method<R: Runtime, E: Numeric>(client: &ComputeClient<R::Server>) -> LoadMethod {
+    let ty = E::as_type_native_unchecked();
+    if client.properties().features.ldmatrix.contains(&ty) {
+        LoadMethod::LoadMatrix
+    } else {
+        LoadMethod::Manual
     }
 }

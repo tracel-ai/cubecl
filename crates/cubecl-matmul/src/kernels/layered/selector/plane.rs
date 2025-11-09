@@ -49,11 +49,17 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
+        // Compensate for register use
         let precision_factor = match elems.lhs_stage.size() >= 4 {
             true => 2,
             false => 1,
         };
-        max_plane_per_cube / (4 * precision_factor)
+        // 4 for CMMA, 2 for MMA
+        let mut tile_factor = tile_size.n().div_ceil(4);
+        if problem.m as u32 <= tile_size.m() * 4 || problem.n as u32 <= tile_size.n() * 4 {
+            tile_factor = 8;
+        }
+        max_plane_per_cube / (tile_factor * precision_factor)
     });
 
     if row_count == 0 {

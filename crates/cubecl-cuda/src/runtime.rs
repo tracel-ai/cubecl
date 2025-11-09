@@ -182,6 +182,17 @@ impl DeviceState for CudaServer {
             comp_opts.supports_features.grid_constants = true;
         }
 
+        if arch_version >= 75 {
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
+        }
+
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
         // if arch.get_version() >= 80 {
         //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
@@ -203,6 +214,14 @@ impl DeviceState for CudaServer {
             device_props.features.cube_cluster = true;
             comp_opts.supports_features.clusters = true;
             comp_opts.supports_features.elect_sync = true;
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
         }
 
         if arch_version >= 100 {

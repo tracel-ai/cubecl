@@ -30,6 +30,10 @@ pub struct Features {
     /// Scaled MMA allows combining matrix multiplication with unscaling quantized values into a single
     /// instruction. Scales must fit a specific layout and block size.
     pub scaled_mma: BTreeSet<ScaledMmaConfig>,
+    /// Types supported for ldmatrix, if any
+    pub ldmatrix: BTreeSet<StorageType>,
+    /// Types supported by stmatrix, if any
+    pub stmatrix: BTreeSet<StorageType>,
 }
 
 /// Operations allowed for this type. CMMA is defined separately.
