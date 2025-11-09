@@ -103,7 +103,6 @@ impl Allocator {
 
     pub fn create_barrier(&self, level: BarrierLevel) -> ExpandElement {
         let id = self.new_local_index();
-        // Dummy elem for now, awaiting a rework to item to include non-native conceptual types
         let variable = Variable::new(
             VariableKind::Barrier { id, level },
             SemanticType::Barrier.into(),

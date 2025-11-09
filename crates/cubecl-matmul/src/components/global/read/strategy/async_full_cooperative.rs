@@ -4,10 +4,7 @@ use crate::components::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{
-            FullLoadingStrategy, LoadingJob,
-            async_barrier::{AsyncBarrier, CubeCoop},
-        },
+        read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
@@ -47,7 +44,7 @@ impl LoadMaxRoundPlaneCount for AsyncFullCooperativeLoading {
 #[cube]
 impl FullLoadingStrategy for AsyncFullCooperativeLoading {
     type TilingLayout = StridedTilingLayout;
-    type SyncStrategy = AsyncBarrier<CubeCoop>;
+    type SyncStrategy = AsyncBarrier;
     type Job<IP: MatrixPrecision> = AsyncFullCooperativeJob;
 
     const SHOULD_CLEAR: bool = true;
@@ -77,7 +74,7 @@ pub struct AsyncFullCooperativeJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeCoop>>
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
     for AsyncFullCooperativeJob
 {
     fn execute_task<G: GlobalConfig>(
@@ -100,7 +97,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeC
             comptime!(config.stage_memory_config(this.ident)),
         );
 
-        barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
+        barrier.memcpy_async_cooperative(&window.try_cast_unchecked(), &mut destination);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

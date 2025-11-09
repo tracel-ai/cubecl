@@ -4,10 +4,7 @@ use crate::components::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{
-            LoadingJob, PartialLoadingStrategy,
-            async_barrier::{AsyncBarrier, CubeManual},
-        },
+        read::{LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier},
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
@@ -45,7 +42,7 @@ impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
 #[cube]
 impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
-    type SyncStrategy = AsyncBarrier<CubeManual>;
+    type SyncStrategy = AsyncBarrier;
     type Job<IP: MatrixPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -124,7 +121,7 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier<CubeManual>>
+impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
     for AsyncPartialMaximizeSliceLengthJob
 {
     fn execute_task<G: GlobalConfig>(

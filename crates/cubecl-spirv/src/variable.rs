@@ -427,7 +427,9 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 }
             }
             ir::VariableKind::Pipeline { .. } => panic!("Pipeline not supported."),
-            ir::VariableKind::Barrier { .. } => panic!("Barrier not supported."),
+            ir::VariableKind::Barrier { .. } | ir::VariableKind::BarrierToken { .. } => {
+                panic!("Barrier not supported.")
+            }
             ir::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
             ir::VariableKind::TensorMapOutput(_) => panic!("Tensor map not supported."),
         }

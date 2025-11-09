@@ -64,6 +64,7 @@ pub enum ElemType {
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SemanticType {
     Barrier,
+    BarrierToken,
     Pipeline,
     TensorMap,
 }
@@ -525,6 +526,7 @@ impl Display for SemanticType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             SemanticType::Barrier => f.write_str("barrier"),
+            SemanticType::BarrierToken => f.write_str("barrier_token"),
             SemanticType::Pipeline => f.write_str("pipeline"),
             SemanticType::TensorMap => f.write_str("tensor_map"),
         }

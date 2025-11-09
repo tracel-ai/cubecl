@@ -15,7 +15,7 @@ pub enum Synchronization {
     SyncStorage,
     /// Sync CTA proxy.
     /// Experimental, CUDA only, SM 9.0+ only
-    SyncProxyShared,
+    SyncAsyncProxyShared,
 }
 
 impl Display for Synchronization {
@@ -23,7 +23,7 @@ impl Display for Synchronization {
         match self {
             Synchronization::SyncCube => write!(f, "sync_cube()"),
             Synchronization::SyncStorage => write!(f, "sync_storage()"),
-            Synchronization::SyncProxyShared => write!(f, "sync_proxy_shared()"),
+            Synchronization::SyncAsyncProxyShared => write!(f, "sync_proxy_shared()"),
             Synchronization::SyncPlane => write!(f, "sync_plane()"),
         }
     }

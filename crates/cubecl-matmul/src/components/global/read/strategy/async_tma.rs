@@ -1,7 +1,7 @@
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
-    prelude::barrier::{Barrier, BarrierLevel},
+    prelude::barrier::{Barrier, BarrierLevel, BarrierToken},
 };
 
 use crate::components::{
@@ -17,7 +17,7 @@ impl SyncStrategy for AsyncTma {
     type Barrier = Barrier;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32))
+        Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0))
     }
 
     fn sync<MP: MatmulPrecision, G: GlobalConfig>(
@@ -31,17 +31,14 @@ impl SyncStrategy for AsyncTma {
             let rhs_bytes = config.stage_memory_config(MatmulIdent::Rhs).elements_in_stage() * rhs_elem_size;
             lhs_bytes + rhs_bytes
         };
-        arrive_tma(barrier, num_bytes);
-        barrier.wait();
+        let token = arrive_tma(barrier, num_bytes);
+        barrier.wait(token);
     }
 }
 
 #[cube]
 /// Barrier for TMA
-pub fn arrive_tma(barrier: &Barrier, #[comptime] num_bytes: u32) {
-    if UNIT_POS == 0 {
-        barrier.arrive_tx(1, num_bytes);
-    } else {
-        barrier.arrive();
-    }
+pub fn arrive_tma(barrier: &Barrier, #[comptime] num_bytes: u32) -> BarrierToken {
+    let expected = select(UNIT_POS == 0, num_bytes, 0);
+    barrier.arrive_and_expect_tx(1, expected)
 }

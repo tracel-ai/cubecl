@@ -16,8 +16,8 @@ use cubecl_cpp::{
     hip::{HipDialect, arch::AMDArchitecture},
     register_supported_types,
     shared::{
-        Architecture, CompilationOptions, CppCompiler, DialectWmmaCompiler, register_mma_features,
-        register_scaled_mma_features, register_wmma_features,
+        Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, DialectWmmaCompiler,
+        register_mma_features, register_scaled_mma_features, register_wmma_features,
     },
 };
 use cubecl_hip_sys::HIP_SUCCESS;
@@ -157,9 +157,10 @@ impl DeviceState for HipServer {
 
         let comp_opts = CompilationOptions {
             warp_size: arch.warp_size(),
-            grid_constants: false,
-            supports_clusters: false,
-            supports_fast_math: true,
+            supports_features: CppSupportedFeatures {
+                fast_math: true,
+                ..Default::default()
+            },
         };
         let hip_ctx = HipContext::new(comp_opts);
         let logger = Arc::new(ServerLogger::default());

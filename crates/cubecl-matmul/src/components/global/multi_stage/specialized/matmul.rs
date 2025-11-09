@@ -1,8 +1,6 @@
-use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_read_next, execute_last_and_write_results, read_first,
-};
+use crate::components::global::RoleRule;
+use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
-use crate::components::global::{Specializer, read::SyncStrategy};
 use crate::components::{
     AccG,
     global::read::{
@@ -15,8 +13,8 @@ use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
     stage::{FilledStage, StridedStage},
 };
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
+use cubecl_core::prelude::{barrier::BarrierLevel, *};
+use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
     tensor::{View, layout::Coords2d},
@@ -26,7 +24,9 @@ use std::marker::PhantomData;
 /// Performs matrix multiplication at the global level, with planes pipelining their work using two buffers:
 /// While they trigger a load event from global memory to shared memory on stage A,
 /// they trigger a computation event from tensor cores on stage B. Then stages are switched.
-pub struct DoubleBufferingMatmul<
+/// Specializes planes to either read or compute planes.
+/// Hardcoded for TMA right now
+pub struct SpecializedMatmul<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     LL: PartialLoadingStrategy,
@@ -42,7 +42,7 @@ pub struct DoubleBufferingMatmul<
 
 #[cube]
 impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
-    for DoubleBufferingMatmul<MP, SMM, LL, RL, GW>
+    for SpecializedMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: stage::StageMatmul<
             MP,
@@ -51,7 +51,7 @@ where
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy,
+    LL: PartialLoadingStrategy<SyncStrategy: SyncStrategy<Barrier = Barrier>>,
     RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
@@ -76,15 +76,18 @@ where
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = range.div_ceil(stage_step);
 
-        let mut acc = SMM::init_accumulators(config.stage_config());
-
         // Algorithm assumes an even number of stages
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
-        let num_loops = (num_stage_matmuls - 2) / 2;
+        let num_loops = num_stage_matmuls / 2;
 
-        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config());
+        let lhs_elem_size = LhsS::<MP>::elem_size();
+        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let stage_bytes = comptime! {
+            let lhs_bytes = config.stage_memory_config(MatmulIdent::Lhs).elements_in_stage() * lhs_elem_size;
+            let rhs_bytes = config.stage_memory_config(MatmulIdent::Rhs).elements_in_stage() * rhs_elem_size;
+            lhs_bytes + rhs_bytes
+        };
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
         let partition_scheduler = SMM::init_scheduler(config.stage_config());
 
         let lhs_stage_a = lhs_reader.stage(StageBuffer::A);
@@ -92,117 +95,100 @@ where
         let rhs_stage_a = rhs_reader.stage(StageBuffer::A);
         let rhs_stage_b = rhs_reader.stage(StageBuffer::B);
 
-        let mut barrier_a = LL::SyncStrategy::create_barrier();
-        let mut barrier_b = LL::SyncStrategy::create_barrier();
+        let compute_units = config.plane_role_config().plane_roles.main_flow * config.plane_dim();
 
-        let specializer = Specializer::new::<Self::Config>(config);
+        let role_rule = RoleRule::new(config.role_rule_config());
 
-        read_first::<
-            MP,
-            SMM,
-            LL::SyncStrategy,
-            Self::LhsGlobalReader,
-            Self::RhsGlobalReader,
-            Self::Config,
-        >(
-            &mut lhs_reader,
-            &mut rhs_reader,
-            &mut barrier_a,
-            &specializer,
-            StageBuffer::A,
-            config,
-        );
+        // Barrier for writing out
+        let barrier_done = Barrier::new(BarrierLevel::cube_manual());
 
-        LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_a, config);
+        // Barriers for releasing smem after compute
+        let barrier_empty_a = Barrier::new(BarrierLevel::cube_manual());
+        let barrier_empty_b = Barrier::new(BarrierLevel::cube_manual());
 
-        for _ in 0..num_loops {
-            execute_current_and_read_next::<
-                MP,
-                SMM,
-                LL::SyncStrategy,
-                Self::LhsGlobalReader,
-                Self::RhsGlobalReader,
-                Self::Config,
-            >(
-                &lhs_stage_a,
-                &rhs_stage_a,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                &mut acc,
-                &mut lhs_reader,
-                &mut rhs_reader,
-                &mut barrier_b,
-                &specializer,
-                &partition_scheduler,
-                StageBuffer::B,
-                config,
-            );
+        // Barriers for marking smem as loaded
+        let mut barrier_full_a = Barrier::new(BarrierLevel::cube_manual());
+        let mut barrier_full_b = Barrier::new(BarrierLevel::cube_manual());
 
-            lhs_reader.advance_view();
-            rhs_reader.advance_view();
+        if role_rule.elect_load_leader() {
+            barrier_done.init_manual(compute_units);
 
-            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_b, config);
+            barrier_empty_a.init_manual(compute_units);
+            barrier_empty_b.init_manual(compute_units);
 
-            execute_current_and_read_next::<
-                MP,
-                SMM,
-                LL::SyncStrategy,
-                Self::LhsGlobalReader,
-                Self::RhsGlobalReader,
-                Self::Config,
-            >(
-                &lhs_stage_b,
-                &rhs_stage_b,
-                &mut lhs_tile,
-                &mut rhs_tile,
-                &mut acc,
-                &mut lhs_reader,
-                &mut rhs_reader,
-                &mut barrier_a,
-                &specializer,
-                &partition_scheduler,
-                StageBuffer::A,
-                config,
-            );
-
-            LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_a, config);
+            barrier_full_a.init_manual(1);
+            barrier_full_b.init_manual(1);
+            sync_async_proxy_shared();
         }
+        sync_cube();
 
-        execute_current_and_read_next::<
-            MP,
-            SMM,
-            LL::SyncStrategy,
-            Self::LhsGlobalReader,
-            Self::RhsGlobalReader,
-            Self::Config,
-        >(
-            &lhs_stage_a,
-            &rhs_stage_a,
-            &mut lhs_tile,
-            &mut rhs_tile,
-            &mut acc,
-            &mut lhs_reader,
-            &mut rhs_reader,
-            &mut barrier_b,
-            &specializer,
-            &partition_scheduler,
-            StageBuffer::B,
-            config,
-        );
+        let mut phase = 0;
 
-        LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier_b, config);
+        if role_rule.elect_load_leader() {
+            for _ in 0..num_loops {
+                barrier_empty_a.wait_parity(phase ^ 1);
+                lhs_reader.load_stage(&mut barrier_full_a, StageBuffer::A, config);
+                rhs_reader.load_stage(&mut barrier_full_a, StageBuffer::A, config);
+                barrier_full_a.arrive_and_expect_tx(1, stage_bytes);
 
-        execute_last_and_write_results::<MP, GW, SMM, Self::Config>(
-            &lhs_stage_b,
-            &rhs_stage_b,
-            &mut lhs_tile,
-            &mut rhs_tile,
-            &mut acc,
-            &mut out_writer,
-            &specializer,
-            &partition_scheduler,
-            config,
-        );
+                barrier_empty_b.wait_parity(phase ^ 1);
+                lhs_reader.load_stage(&mut barrier_full_b, StageBuffer::B, config);
+                rhs_reader.load_stage(&mut barrier_full_b, StageBuffer::B, config);
+                barrier_full_b.arrive_and_expect_tx(1, stage_bytes);
+
+                lhs_reader.advance_view();
+                rhs_reader.advance_view();
+                phase ^= 1;
+            }
+        } else if role_rule.is_compute_plane() {
+            let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
+            let mut acc = SMM::init_accumulators(config.stage_config());
+
+            SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config());
+
+            for _ in 0..num_loops {
+                barrier_full_a.wait_parity(phase);
+                SMM::execute(
+                    &lhs_stage_a,
+                    &rhs_stage_a,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
+                    &mut acc,
+                    config.stage_config(),
+                    &partition_scheduler,
+                );
+                barrier_empty_a.arrive();
+
+                barrier_full_b.wait_parity(phase);
+                SMM::execute(
+                    &lhs_stage_b,
+                    &rhs_stage_b,
+                    &mut lhs_tile,
+                    &mut rhs_tile,
+                    &mut acc,
+                    config.stage_config(),
+                    &partition_scheduler,
+                );
+                barrier_empty_b.arrive();
+
+                phase ^= 1;
+            }
+            barrier_done.arrive_and_wait();
+
+            lhs_reader.free_stage();
+            rhs_reader.free_stage();
+
+            let mut out_stage = Self::GlobalWriter::stage(&out_writer);
+
+            SMM::write_results::<Self::GlobalWriter, Self::Config>(
+                &acc,
+                &mut out_stage,
+                &mut out_writer,
+                &partition_scheduler,
+                config.stage_config(),
+                config,
+            );
+        }
     }
 
     fn init_lhs_global_reader(

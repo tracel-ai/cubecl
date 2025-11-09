@@ -4,8 +4,8 @@ use enumset::EnumSet;
 use hashbrown::{HashMap, HashSet};
 
 use crate::{
-    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SourceLoc, StorageType,
-    TargetProperties, TypeHash,
+    BarrierLevel, CubeFnSource, ExpandElement, FastMath, Matrix, Processor, SemanticType,
+    SourceLoc, StorageType, TargetProperties, TypeHash,
 };
 
 use super::{
@@ -146,6 +146,15 @@ impl Scope {
         let barrier = self.allocator.create_barrier(level);
         self.add_barrier(*barrier);
         barrier
+    }
+
+    /// Create a new barrier element.
+    pub fn create_barrier_token(&mut self, id: Id, level: BarrierLevel) -> ExpandElement {
+        let token = Variable::new(
+            VariableKind::BarrierToken { id, level },
+            Type::semantic(SemanticType::BarrierToken),
+        );
+        ExpandElement::Plain(token)
     }
 
     pub fn add_pipeline(&mut self, variable: Variable) {

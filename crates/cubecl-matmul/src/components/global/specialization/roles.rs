@@ -126,15 +126,6 @@ impl RoleRule {
         }
     }
 
-    /// Whether the current plane is a load-only plane
-    pub fn is_load_only(self) -> bool {
-        match self {
-            RoleRule::MainFlowOnly => false,
-            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only.threshold,
-            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow.threshold,
-        }
-    }
-
     /// The index of the current plane among planes that perform compute,
     /// ignoring load-only planes
     pub fn compute_index(self) -> u32 {
@@ -171,30 +162,42 @@ impl RoleRule {
         }
     }
 
-    /// Whether this unit should execute a TMA load. Will always be the lowest unit in the
-    /// correct group. The TMA accelerator is unique so there's no point calling it on multiple
-    /// planes.
-    pub fn is_tma_load_unit(
-        self,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
-    ) -> bool {
+    /// Whether this unit is the leader of the loading units. Will always be the lowest unit in the
+    /// correct group.
+    ///
+    /// Only used with TMA, so has some CUDA optimizations. `plane_broadcast` and `plane_elect`
+    /// ensure the compiler recognizes the values as warp uniform.
+    pub fn elect_load_leader(self) -> bool {
+        let plane_id = plane_broadcast(UNIT_POS_Y, 0);
+
+        let is_elected_plane = match self {
+            RoleRule::MainFlowOnly | RoleRule::LoadOnlyFirst(_) => plane_id == 0,
+            RoleRule::LoadOnlyLast(main_flow) => plane_id == main_flow.threshold,
+        };
+
+        is_elected_plane && plane_elect()
+    }
+
+    /// Whether the current plane is a load-only plane
+    pub fn is_load_plane(self) -> bool {
         match self {
-            RoleRule::MainFlowOnly => UNIT_POS == 0,
-            RoleRule::LoadOnlyFirst(load_only) => {
-                if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
-                    UNIT_POS_Y == load_only.threshold && UNIT_POS_X == 0
-                } else {
-                    UNIT_POS == 0
-                }
-            }
-            RoleRule::LoadOnlyLast(main_flow) => {
-                if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
-                    UNIT_POS_Y == main_flow.threshold && UNIT_POS_X == 0
-                } else {
-                    UNIT_POS == 0
-                }
-            }
+            RoleRule::MainFlowOnly => false,
+            RoleRule::LoadOnlyFirst(load_only) => UNIT_POS_Y < load_only.threshold,
+            RoleRule::LoadOnlyLast(main_flow) => UNIT_POS_Y >= main_flow.threshold,
+        }
+    }
+
+    /// Whether this plane is part of the compute planes
+    ///
+    /// Only used in specialized, so has some CUDA optimizations. `plane_broadcast` ensure the
+    /// compiler recognizes the values as warp uniform.
+    pub fn is_compute_plane(self) -> bool {
+        let plane_id = plane_broadcast(UNIT_POS_Y, 0);
+
+        match self {
+            RoleRule::MainFlowOnly => true,
+            RoleRule::LoadOnlyFirst(load_only) => plane_id >= load_only.threshold,
+            RoleRule::LoadOnlyLast(main_flow) => plane_id < main_flow.threshold,
         }
     }
 }
