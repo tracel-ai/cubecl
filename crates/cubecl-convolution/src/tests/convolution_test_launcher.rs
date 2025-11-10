@@ -118,6 +118,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         &problem,
         &config.line_sizes(),
         config,
+        &dtypes,
     );
     let output = <OutputArg<A::Args> as ConcreteOutputFactory>::create(
         &client,
@@ -126,6 +127,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         &problem,
         &config.line_sizes(),
         config,
+        &dtypes,
     );
 
     let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA)>();
