@@ -224,7 +224,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_rhs,
             },
             rhs.data().as_tensor_arg(1),
-            Rhs::as_type_native_unchecked(),
+            dtypes.rhs_global,
         )
         .with_prefetch(prefetch_rhs);
 

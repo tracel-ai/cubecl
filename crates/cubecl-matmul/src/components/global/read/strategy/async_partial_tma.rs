@@ -1,3 +1,4 @@
+use crate::components::global::read::validate_async_barrier;
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
@@ -19,8 +20,13 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncPartialTmaLoading {}
 
 impl LoadingValidation for AsyncPartialTmaLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.global_memory_config(ident))?;
+        validate_async_barrier::<R>(client)?;
 
         Ok(())
     }

@@ -2,6 +2,7 @@ use crate::components::global::GlobalConfig;
 use crate::components::stage::{StridedStage, TilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -44,13 +45,37 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError>;
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError>;
+}
+
+pub(crate) fn validate_async_barrier<R: Runtime>(
+    client: &ComputeClient<R::Server>,
+) -> Result<(), InvalidConfigError> {
+    if !client
+        .properties()
+        .features
+        .supports_type(SemanticType::Barrier)
+    {
+        return Err(Box::new(
+            "Async barrier instructions are not available on the current device",
+        ));
+    }
+
+    Ok(())
 }
 
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        _config: &C,
+        _ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }
