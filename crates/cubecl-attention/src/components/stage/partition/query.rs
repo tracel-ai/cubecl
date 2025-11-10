@@ -12,7 +12,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 pub struct QueryPartition<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<QueryTile<AP, FA>>,
     #[cube(comptime)]
@@ -23,7 +23,7 @@ pub struct QueryPartition<
 impl<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > QueryPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> QueryPartition<AP, FA, S> {

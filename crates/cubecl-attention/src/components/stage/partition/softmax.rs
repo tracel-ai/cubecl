@@ -12,7 +12,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 pub struct SoftmaxPartition<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<FA::Softmax>,
     #[cube(comptime)]
@@ -23,7 +23,7 @@ pub struct SoftmaxPartition<
 impl<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > SoftmaxPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, FA, S> {

@@ -12,7 +12,7 @@ pub struct UnitPartitionStageConfig<FC: TileAttentionConfig> {
 }
 
 impl<FC: TileAttentionConfig> StageAttentionConfig for UnitPartitionStageConfig<FC> {
-    type FragmentAttentionConfig = FC;
+    type TileAttentionConfig = FC;
 
     fn plane_dim(&self) -> u32 {
         self.tile_config.plane_dim()
@@ -22,7 +22,7 @@ impl<FC: TileAttentionConfig> StageAttentionConfig for UnitPartitionStageConfig<
         self.num_planes
     }
 
-    fn tile_config(&self) -> Self::FragmentAttentionConfig {
+    fn tile_config(&self) -> Self::TileAttentionConfig {
         self.tile_config
     }
 
@@ -39,15 +39,15 @@ impl<FC: TileAttentionConfig> StageAttentionConfig for UnitPartitionStageConfig<
     }
 }
 
-impl<FC: TileAttentionConfig> UnitPartitionStageConfig<FC> {
+impl<TC: TileAttentionConfig> UnitPartitionStageConfig<TC> {
     pub fn new(
-        fragment_config: FC,
+        tile_config: TC,
         tiling_scheme: AttentionTilingScheme,
         reuse_key_value: bool,
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
-            tile_config: fragment_config,
+            tile_config,
             tiling_scheme,
             reuse_key_value,
             num_planes,

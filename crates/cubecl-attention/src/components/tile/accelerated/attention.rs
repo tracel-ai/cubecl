@@ -13,10 +13,10 @@ use crate::components::tile::{TileAttention, TileAttentionConfig as _};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
 /// because the fragment layout is blackbox
-pub struct BlackboxAcceleratedFragmentAttention;
+pub struct BlackboxAcceleratedTileAttention;
 
 #[cube]
-impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedFragmentAttention {
+impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttention {
     type Config = BlackboxAcceleratedAttentionMatmulConfig;
 
     type Query = cmma::Matrix<QT<AP>>;

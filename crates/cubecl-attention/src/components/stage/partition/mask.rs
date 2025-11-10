@@ -14,7 +14,7 @@ use cubecl_std::tensor::layout::Coords2d;
 pub struct MaskPartition<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<MaskTile<AP, FA>>,
     #[cube(comptime)]
@@ -25,7 +25,7 @@ pub struct MaskPartition<
 impl<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > MaskPartition<AP, FA, S>
 {
     pub fn new(

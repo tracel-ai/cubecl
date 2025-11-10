@@ -118,12 +118,12 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FragmentAttentionConfig: TileAttentionConfig;
+    type TileAttentionConfig: TileAttentionConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
-    fn tile_config(&self) -> Self::FragmentAttentionConfig;
+    fn tile_config(&self) -> Self::TileAttentionConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;

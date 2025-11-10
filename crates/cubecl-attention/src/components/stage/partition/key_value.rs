@@ -19,7 +19,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 pub enum KeyValuePartition<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     Reuse(KeyValueSequence<AP, FA, S>),
     Separate(KeyValueSequence<AP, FA, S>, KeyValueSequence<AP, FA, S>),
@@ -29,7 +29,7 @@ pub enum KeyValuePartition<
 pub struct KeyValueSequence<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<KeyValueTile<AP, FA>>,
     #[cube(comptime)]
@@ -40,7 +40,7 @@ pub struct KeyValueSequence<
 impl<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > KeyValuePartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> KeyValuePartition<AP, FA, S> {

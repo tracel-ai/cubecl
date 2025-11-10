@@ -8,7 +8,7 @@ use crate::components::{
 };
 
 pub trait Algorithm {
-    type FragmentAttention: TileAttentionFamily;
+    type TileAttention: TileAttentionFamily;
     type StageAttention: StageAttentionFamily;
     type GlobalAttention: GlobalAttentionFamily;
     type BatchAttention: BatchAttentionFamily;

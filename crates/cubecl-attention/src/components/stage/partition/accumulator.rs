@@ -13,7 +13,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 pub struct AccumulatorPartition<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<AccumulatorTile<AP, FA>>,
     #[cube(comptime)]
@@ -24,7 +24,7 @@ pub struct AccumulatorPartition<
 impl<
     AP: AttentionPrecision,
     FA: TileAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > AccumulatorPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> AccumulatorPartition<AP, FA, S> {

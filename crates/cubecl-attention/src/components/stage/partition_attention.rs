@@ -34,7 +34,7 @@ pub struct PartitionAttention<
     SO,
     FA: TileAttention<AP>,
     P: AttentionPartitioner,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     #[cube(comptime)]
     _phantom: PhantomData<(AP, SK, SV, SO, FA, P, S)>,
@@ -48,7 +48,7 @@ impl<
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
     FA: TileAttention<AP>,
     P: AttentionPartitioner,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > StageAttention<AP> for PartitionAttention<AP, SK, SV, SO, FA, P, S>
 {
     type KeyStage = SK;

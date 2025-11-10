@@ -5,7 +5,7 @@ use crate::components::tile::TileAttentionConfig;
 use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnitRegisterFragmentAttentionConfig {
+pub struct UnitRegisterTileAttentionConfig {
     plane_dim: u32,
     num_planes: u32,
     attention_tile_size: AttentionTileSize,
@@ -15,7 +15,7 @@ pub struct UnitRegisterFragmentAttentionConfig {
     materialized_mask: bool,
 }
 
-impl TileAttentionConfig for UnitRegisterFragmentAttentionConfig {
+impl TileAttentionConfig for UnitRegisterTileAttentionConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -41,7 +41,7 @@ impl TileAttentionConfig for UnitRegisterFragmentAttentionConfig {
     }
 }
 
-impl UnitRegisterFragmentAttentionConfig {
+impl UnitRegisterTileAttentionConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new<AP: AttentionPrecision>(
         plane_dim: u32,

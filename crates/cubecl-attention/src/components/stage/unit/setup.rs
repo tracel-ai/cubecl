@@ -57,7 +57,7 @@ impl<
             ComputeResources::Units(units * selection.tiling_scheme.stage_size.seq_q)
         } else {
             return Err(AttentionSetupError::InvalidConfig(Box::new(
-                "Error: Tried to use a unit stage attention with a plane fragment attention."
+                "Error: Tried to use a unit stage attention with a plane tile attention."
                     .to_string(),
             )));
         };

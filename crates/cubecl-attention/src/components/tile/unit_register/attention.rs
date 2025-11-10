@@ -10,7 +10,7 @@ use crate::components::attention_types::*;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 use crate::components::tile::TileAttentionConfig;
-use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::tile::unit_register::UnitRegisterTileAttentionConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
@@ -19,7 +19,7 @@ use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 use crate::components::tile::TileAttention;
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
 
-pub struct UnitRegisterFragmentAttention;
+pub struct UnitRegisterTileAttention;
 
 #[derive(CubeType)]
 pub struct UnitTile<E: Numeric> {
@@ -204,8 +204,8 @@ impl<E: Numeric> FragmentMask for UnitTile<E> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterFragmentAttention {
-    type Config = UnitRegisterFragmentAttentionConfig;
+impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
+    type Config = UnitRegisterTileAttentionConfig;
 
     type Query = UnitTile<QT<AP>>;
     type KeyValue = UnitTile<KVT<AP>>;
