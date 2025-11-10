@@ -2,9 +2,11 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulSetupError,
     global::{
-        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
+        PartitionedStageFamily, WriteTiling,
+        read::{NoLoadingValidation, validate_async_barrier, validate_tma},
         single_stage::simple::SimpleConfig,
     },
     stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
@@ -48,20 +50,23 @@ where
             .filter_rhs(|ls| *ls == 1)
     }
 
-    fn setup<R: Runtime, MP: MatmulPrecision>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
+        validate_tma::<R>(client)?;
+        validate_async_barrier::<R>(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
         assert!(line_sizes.lhs == 1);
         assert!(line_sizes.rhs == 1);
 
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
@@ -70,19 +75,21 @@ where
             (1, 1).into(),
             None,
             false,
+            dtypes,
         )?;
 
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
-        let num_stages = num_stages::<R, MP>(
+        let num_stages = num_stages::<R>(
             client,
             problem,
             stage_config.num_main_flow_planes(),
             &stage_config.tiling_scheme(),
+            dtypes,
         );
 
         ConvolutionConfig::new(
-            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, MP, R>(
+            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, R>(
                 client,
                 stage_config,
                 stage_config.num_main_flow_planes(),

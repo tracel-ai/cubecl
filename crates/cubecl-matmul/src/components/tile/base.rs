@@ -8,7 +8,7 @@ use crate::components::{
     resource::ComputeResources,
     tile::io::{Tile, TileKind},
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection};
 use crate::components::{StageIdent, tile::io::TileMut};
 use std::{fmt::Debug, hash::Hash};
 
@@ -47,11 +47,12 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.

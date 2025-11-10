@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
     error::MatmulSetupError,
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
@@ -114,8 +114,8 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
     /// - a reader is invalid
     /// - CubeDim is too big
     /// - Barriers are not available
-    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
+        client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -135,14 +135,15 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
             precompute_job,
             reader_mode,
         }
-        .validate::<LL, RL>()
+        .validate::<LL, RL, R>(client)
     }
 
-    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+    fn validate<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         self,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check(&self, MatmulIdent::Lhs)?;
-        RL::check(&self, MatmulIdent::Rhs)?;
+        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs)?;
+        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs)?;
         shared_global_config_validation(self)?;
 
         Ok(self)

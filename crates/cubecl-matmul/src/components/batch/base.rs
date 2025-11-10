@@ -1,6 +1,6 @@
 use crate::components::{
-    AccG, AvailableLineSizes, InputRuntimeArg, LhsG, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSelection, MatmulSpec, OutputRuntimeArg, RhsG, TilingScheme,
+    AccG, AvailableLineSizes, InputRuntimeArg, LhsG, MatmulElems, MatmulLineSizes, MatmulPrecision,
+    MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG, TilingScheme,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
     global::{self, GlobalConfig as _, args::MatmulArgs},
@@ -20,11 +20,12 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Entry point
@@ -32,14 +33,16 @@ pub trait BatchMatmulFamily: 'static + Send + Sync {
     /// # Safety
     ///
     /// Out-of-bounds can happen
-    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
+        input: InputRuntimeArg<'a, MA, R>,
+        output: OutputRuntimeArg<'a, MA, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &MatmulElems,
     );
 
     /// Filters out line sizes that are incompatible with this matmul family.

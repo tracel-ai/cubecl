@@ -1,21 +1,15 @@
+use crate::components::global::args::{ConcreteInputsFactory, ConcreteOutputFactory};
 use crate::components::{
-    AccG, AccS,
+    AvailableLineSizes, InputArg, InputRuntimeArg, MatmulAvailabilityError, MatmulProblem,
+    MatmulSelection, MatmulSetupError, MatrixLayout, OutputArg, OutputRuntimeArg,
+};
+use crate::components::{
+    MatmulElems,
     batch::{BatchMatmulFamily, CubeCountInputArgs},
-    global::args::{TensorArgs, TensorMapArgs},
+    global::args::{MatmulArgs, TensorArgs, TensorMapArgs},
 };
-use crate::components::{
-    AvailableLineSizes, InputRuntimeArg, LhsG, LhsS, MatmulAvailabilityError, MatmulLineSizes,
-    MatmulProblem, MatmulSelection, MatmulSetupError, MatmulSpec, MatrixLayout, OutputRuntimeArg,
-    RhsG, RhsS,
-};
-use crate::components::{
-    InputArg, OutputArg,
-    global::args::{ConcreteInputsFactory, ConcreteOutputFactory},
-};
-use crate::components::{MatmulPrecision, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::launch_kernel_concrete;
 use crate::{MatmulInputHandle, MatmulInputHandleRef};
-use core::any::TypeId;
 use cubecl_core::prelude::*;
 use cubecl_core::{Runtime, client::ComputeClient, frontend::TensorHandleRef};
 use cubecl_runtime::TypeUsage;
@@ -55,19 +49,21 @@ impl<S: Default> Default for Selection<S> {
 /// Cmma will be used if enabled
 /// Will fail if unavailable
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+pub fn launch<R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
-    lhs: MatmulInputHandle<R, LhsG<MP>>,
-    rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, AccG<MP>>,
+    lhs: MatmulInputHandle<R>,
+    rhs: MatmulInputHandle<R>,
+    out: TensorHandle<R>,
     selection: &Selection<A::SelectionArgs>,
-) -> Result<TensorHandle<R, AccG<MP>>, MatmulSetupError> {
-    let result = launch_ref::<R, MP, A>(
+    mut dtypes: MatmulElems,
+) -> Result<TensorHandle<R>, MatmulSetupError> {
+    let result = launch_ref::<R, A>(
         client,
         &lhs.as_ref(),
         &rhs.as_ref(),
         &out.as_ref(),
         selection,
+        &mut dtypes,
     );
 
     match result {
@@ -81,12 +77,13 @@ pub fn launch<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+pub fn launch_ref<R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     selection: &Selection<A::SelectionArgs>,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -103,13 +100,13 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let lhs_owned;
     let rhs_owned;
     let lhs = if lhs_make_contiguous {
-        lhs_owned = lhs.into_contiguous::<LhsG<MP>>(client);
+        lhs_owned = lhs.into_contiguous(client);
         &lhs_owned.as_ref()
     } else {
         lhs
     };
     let rhs = if rhs_make_contiguous {
-        rhs_owned = rhs.into_contiguous::<RhsG<MP>>(client);
+        rhs_owned = rhs.into_contiguous(client);
         &rhs_owned.as_ref()
     } else {
         rhs
@@ -121,7 +118,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         out.elem_size,
     );
 
-    launch_inner_ref::<R, (MP, TensorArgs), A>(
+    launch_inner_ref::<R, TensorArgs, A>(
         client,
         lhs,
         rhs,
@@ -129,6 +126,7 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         (lhs_transposed, rhs_transposed),
         selection,
         line_sizes,
+        dtypes,
     )
 }
 
@@ -138,12 +136,13 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 /// Cmma will be used if available and enabled,
 /// otherwise it will fall back on a non-cmma implementation
 #[allow(clippy::result_large_err)]
-pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
+pub fn launch_ref_tma<R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
     selection: &Selection<A::SelectionArgs>,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     let check_layout = |tensor: &TensorHandleRef<'_, R>| match matrix_batch_layout(tensor.strides) {
         MatrixBatchLayout::Contiguous => (false, false),
@@ -160,13 +159,13 @@ pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
     let lhs_owned;
     let rhs_owned;
     let lhs = if lhs_make_contiguous {
-        lhs_owned = lhs.into_contiguous::<LhsG<MP>>(client);
+        lhs_owned = lhs.into_contiguous(client);
         &lhs_owned.as_ref()
     } else {
         lhs
     };
     let rhs = if rhs_make_contiguous {
-        rhs_owned = rhs.into_contiguous::<RhsG<MP>>(client);
+        rhs_owned = rhs.into_contiguous(client);
         &rhs_owned.as_ref()
     } else {
         rhs
@@ -174,7 +173,7 @@ pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
 
     let line_sizes = AvailableLineSizes::from_type_size_tma::<R>(out.elem_size);
 
-    launch_inner_ref::<R, (MP, TensorMapArgs), A>(
+    launch_inner_ref::<R, TensorMapArgs, A>(
         client,
         lhs,
         rhs,
@@ -182,11 +181,12 @@ pub fn launch_ref_tma<R: Runtime, MP: MatmulPrecision, A: Algorithm>(
         (lhs_transposed, rhs_transposed),
         selection,
         line_sizes,
+        dtypes,
     )
 }
 
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
-fn launch_inner_ref<R: Runtime, MS: MatmulSpec, A: Algorithm>(
+fn launch_inner_ref<R: Runtime, MA: MatmulArgs, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     lhs_handle: &MatmulInputHandleRef<'_, R>,
     rhs_handle: &MatmulInputHandleRef<'_, R>,
@@ -194,22 +194,35 @@ fn launch_inner_ref<R: Runtime, MS: MatmulSpec, A: Algorithm>(
     transposed: (bool, bool),
     selection: &Selection<A::SelectionArgs>,
     line_sizes: AvailableLineSizes,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError>
 where
-    InputArg<MS>: ConcreteInputsFactory,
-    OutputArg<MS>: ConcreteOutputFactory,
+    InputArg<MA>: ConcreteInputsFactory,
+    OutputArg<MA>: ConcreteOutputFactory,
 {
     let lhs_shape = lhs_handle.shape();
     let rhs_shape = rhs_handle.shape();
 
     let rank = lhs_shape.len();
-    let lhs_elem = LhsG::<MS>::as_type_native().expect("To be a native type");
-    let rhs_elem = RhsG::<MS>::as_type_native().expect("To be a native type");
-    let acc_elem = AccG::<MS>::as_type_native().expect("To be a native type");
+    let lhs_elem = dtypes.lhs_global;
+    let rhs_elem = dtypes.rhs_global;
+    let acc_elem = dtypes.acc_global;
 
-    if !LhsG::<MS>::supported_uses(client).contains(TypeUsage::Conversion)
-        || !RhsG::<MS>::supported_uses(client).contains(TypeUsage::Conversion)
-        || !AccG::<MS>::supported_uses(client).contains(TypeUsage::Conversion)
+    if !client
+        .properties()
+        .features
+        .type_usage(lhs_elem)
+        .contains(TypeUsage::Conversion)
+        || !client
+            .properties()
+            .features
+            .type_usage(rhs_elem)
+            .contains(TypeUsage::Conversion)
+        || !client
+            .properties()
+            .features
+            .type_usage(acc_elem)
+            .contains(TypeUsage::Conversion)
     {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::TypesUnavailable {
@@ -275,86 +288,24 @@ where
 
     let plane_dim = fix_plane_dim(A::select_plane_dim::<R>(client));
 
-    launch_inner_ref_fix_dtype::<R, MS, A>(
-        client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection,
+    launch_kernel_concrete::<MA, R, A>(
+        client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection, dtypes,
     )
 }
 
-#[allow(clippy::result_large_err, clippy::too_many_arguments)]
-fn launch_inner_ref_fix_dtype<R: Runtime, MS: MatmulSpec, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
-    lhs: &MatmulInputHandleRef<'_, R>,
-    rhs: &MatmulInputHandleRef<'_, R>,
-    out: &TensorHandleRef<'_, R>,
-    problem: MatmulProblem,
-    line_sizes: MatmulLineSizes,
-    plane_dim: u32,
-    selection: &Selection<A::SelectionArgs>,
-) -> Result<(), MatmulSetupError>
-where
-    InputArg<MS>: ConcreteInputsFactory,
-    OutputArg<MS>: ConcreteOutputFactory,
-{
-    if <A::TileMatmul as TileMatmulFamily>::requires_accelerator()
-        && tf32::supported_uses(client).contains(TypeUsage::Conversion)
-    {
-        match (
-            TypeId::of::<LhsG<MS>>() == TypeId::of::<f32>(),
-            TypeId::of::<RhsG<MS>>() == TypeId::of::<f32>(),
-        ) {
-            (true, true) => launch_kernel_concrete::<
-                (
-                    (LhsG<MS>, RhsG<MS>, AccG<MS>, tf32, tf32, AccS<MS>),
-                    MS::Args,
-                ),
-                R,
-                A,
-            >(
-                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-            ),
-            (true, false) => launch_kernel_concrete::<
-                (
-                    (LhsG<MS>, RhsG<MS>, AccG<MS>, tf32, RhsS<MS>, AccS<MS>),
-                    MS::Args,
-                ),
-                R,
-                A,
-            >(
-                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-            ),
-            (false, true) => launch_kernel_concrete::<
-                (
-                    (LhsG<MS>, RhsG<MS>, AccG<MS>, LhsS<MS>, tf32, AccS<MS>),
-                    MS::Args,
-                ),
-                R,
-                A,
-            >(
-                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-            ),
-            (false, false) => launch_kernel_concrete::<MS, R, A>(
-                client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-            ),
-        }
-    } else {
-        launch_kernel_concrete::<MS, R, A>(
-            client, lhs, rhs, out, problem, line_sizes, plane_dim, selection,
-        )
-    }
-}
-
 #[allow(clippy::too_many_arguments, clippy::result_large_err)]
-pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
+pub fn launch_with_config<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     client: &ComputeClient<R::Server>,
     cube_dim: CubeDim,
     cube_count: CubeCount,
-    input: InputRuntimeArg<'a, MS, R>,
-    output: OutputRuntimeArg<'a, MS, R>,
+    input: InputRuntimeArg<'a, MA, R>,
+    output: OutputRuntimeArg<'a, MA, R>,
     cube_count_input: CubeCountInputArgs<'a, R>,
     config: <A::BatchMatmul as BatchMatmulFamily>::Config,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     unsafe {
-        A::BatchMatmul::launch_unchecked::<MS, R>(
+        A::BatchMatmul::launch_unchecked::<MA, R>(
             client,
             cube_dim,
             cube_count,
@@ -362,6 +313,7 @@ pub fn launch_with_config<'a, MS: MatmulSpec, R: Runtime, A: Algorithm>(
             output,
             cube_count_input,
             config,
+            dtypes,
         );
     };
 

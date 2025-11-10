@@ -1,12 +1,15 @@
 use crate::components::global::{
-    GlobalWriterFamily,
-    read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
-};
-use crate::components::global::{
     WriteTiling,
     multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
 };
 use crate::components::stage::StageConfig;
+use crate::components::{
+    MatmulElems,
+    global::{
+        GlobalWriterFamily,
+        read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
+    },
+};
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
@@ -53,11 +56,12 @@ where
     >;
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         let max_global_readers = selection
             .load_specialization_config
@@ -70,7 +74,7 @@ where
                 )
             });
 
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
@@ -78,6 +82,7 @@ where
             (1, 2).into(),
             max_global_readers,
             true,
+            dtypes,
         )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
@@ -86,7 +91,7 @@ where
 
         let num_planes = stage_config.plane_role_config().plane_roles.total_count();
 
-        OrderedDoubleBufferingGlobalConfig::new::<LL, RL, MP, R>(
+        OrderedDoubleBufferingGlobalConfig::new::<LL, RL, R>(
             client,
             stage_config,
             num_planes,

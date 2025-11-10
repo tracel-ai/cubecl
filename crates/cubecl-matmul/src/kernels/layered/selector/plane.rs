@@ -8,7 +8,7 @@ use crate::components::global::{LoadSpecializationConfig, SpecializationTensorCo
 use crate::components::stage::PartitionBuffering;
 use crate::components::{
     MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
-    PartitionSize, StageSize, TileSize, TilingScheme,
+    PartitionSize, StageSize, TileSize, TilingScheme, adjust_dtypes,
 };
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::kernels::layered::selector::is_tiny;
@@ -32,16 +32,18 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     client: &ComputeClient<R::Server>,
     problem: &MatmulProblem,
     plane_dim: u32,
-    elems: MatmulElems,
+    dtypes: &mut MatmulElems,
     options: PlaneMatmulSelectionOptions,
 ) -> Result<MatmulSelection, MatmulSetupError> {
+    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+
     if plane_dim == 1 {
         return Err(MatmulSetupError::Unavailable(
             MatmulAvailabilityError::PlaneDimUnsupported { plane_dim: 1 },
         ));
     }
 
-    let tile_size = find_instruction_size::<R, TMM>(client, &elems, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n);
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
@@ -49,7 +51,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     let row_count = options.row_count.unwrap_or_else(|| {
         let max_plane_per_cube = client.properties().hardware.max_units_per_cube / plane_dim;
-        let precision_factor = match elems.lhs_stage.size() >= 4 {
+        let precision_factor = match dtypes.lhs_stage.size() >= 4 {
             true => 2,
             false => 1,
         };

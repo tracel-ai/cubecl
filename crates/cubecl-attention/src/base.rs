@@ -25,11 +25,11 @@ pub enum Strategy {
 pub fn launch<R: Runtime, AP: AttentionPrecision>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
-    query: TensorHandle<R, QG<AP>>,
-    key: TensorHandle<R, KG<AP>>,
-    value: TensorHandle<R, VG<AP>>,
-    mask: Option<TensorHandle<R, MSK<AP>>>,
-    out: TensorHandle<R, OG<AP>>,
+    query: TensorHandle<R>,
+    key: TensorHandle<R>,
+    value: TensorHandle<R>,
+    mask: Option<TensorHandle<R>>,
+    out: TensorHandle<R>,
 ) -> Result<(), AttentionSetupError> {
     launch_ref::<R, AP>(
         strategy,
