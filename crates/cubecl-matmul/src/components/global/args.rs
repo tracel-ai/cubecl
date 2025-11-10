@@ -28,6 +28,7 @@ use crate::{
 /// Create the input runtime arguments for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteInputsFactory: LaunchArg {
+    #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
         client: &ComputeClient<R::Server>,
         lhs: &'a MatmulInputHandleRef<'a, R>,
@@ -43,6 +44,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
 /// Create the output runtime argument for a matmul kernel that works on concrete inputs and
 /// output (not fused).
 pub trait ConcreteOutputFactory: LaunchArg {
+    #[allow(clippy::too_many_arguments)]
     fn create<'a, R: Runtime>(
         client: &ComputeClient<R::Server>,
         out: &'a TensorHandleRef<'a, R>,
