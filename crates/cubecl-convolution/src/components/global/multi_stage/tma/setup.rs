@@ -8,7 +8,10 @@ use cubecl_matmul::components::{
         PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
         single_stage::simple::SimpleConfig,
     },
-    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
+    stage::{
+        StageConfig as _, StageMatmulFamily, StridedStageFamily, TilingLayout, TilingLayoutConfig,
+        TilingLayoutEnum,
+    },
 };
 
 use crate::{
@@ -63,11 +66,18 @@ where
         assert!(line_sizes.lhs == 1);
         assert!(line_sizes.rhs == 1);
 
+        let tiling_layout = TilingLayoutConfig {
+            lhs: TmaIm2colTiling::to_enum(),
+            rhs: TmaWeightTiling::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
             line_sizes,
+            tiling_layout,
             // Not the same as num_stages
             (1, 1).into(),
             None,

@@ -8,7 +8,9 @@ use crate::components::{
         multi_stage::LoadMaxRoundPlaneCount,
         read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
     },
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
+    stage::{
+        ContiguousTilingLayout, StridedStage, StridedStageFamily, TilingOrder, TilingValidation,
+    },
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -126,6 +128,8 @@ pub struct AsyncFullCyclicJob {
 impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, AsyncBarrier>
     for AsyncFullCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

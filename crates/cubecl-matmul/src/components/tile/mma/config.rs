@@ -1,9 +1,8 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::prelude::Numeric;
 use cubecl_core::{Runtime, ir::MatrixIdent};
+use cubecl_core::{client::ComputeClient, ir::StorageType};
 use cubecl_runtime::MmaConfig;
 
-use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{MatmulElems, MatrixLayout, StageIdent, TileSize};
 use crate::components::{SwizzleConfig, tile::TileConfig};
 use crate::components::{
     error::{MatmulAvailabilityError, MatmulSetupError},
@@ -49,11 +48,13 @@ impl TileConfig for MmaMatmulConfig {
     }
 
     fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        // Only supported with ldmatrix for now
         match ident {
-            StageIdent::Lhs => self.swizzle.lhs,
-            StageIdent::Rhs => self.swizzle.rhs,
-            StageIdent::Acc => self.swizzle.acc,
+            StageIdent::Lhs if self.lhs_load_method == LoadMethod::LoadMatrix => self.swizzle.lhs,
+            StageIdent::Rhs if self.rhs_load_method == LoadMethod::LoadMatrix => self.swizzle.rhs,
+            StageIdent::Acc if self.acc_load_method == LoadMethod::LoadMatrix => self.swizzle.acc,
             StageIdent::Out => self.swizzle.out,
+            _ => SwizzleMode::None,
         }
     }
 
@@ -111,9 +112,9 @@ impl MmaMatmulConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
-            lhs_load_method: load_method::<R, Lhs>(client),
-            rhs_load_method: load_method::<R, Rhs>(client),
-            acc_load_method: load_method::<R, Acc>(client),
+            lhs_load_method: load_method::<R>(client, dtypes.lhs_register),
+            rhs_load_method: load_method::<R>(client, dtypes.rhs_register),
+            acc_load_method: load_method::<R>(client, dtypes.acc_register),
             swizzle,
         }
         .check_availability::<R>(client, dtypes)
@@ -159,9 +160,8 @@ impl MmaMatmulConfig {
     }
 }
 
-fn load_method<R: Runtime, E: Numeric>(client: &ComputeClient<R::Server>) -> LoadMethod {
-    let ty = E::as_type_native_unchecked();
-    if client.properties().features.ldmatrix.contains(&ty) {
+fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> LoadMethod {
+    if client.properties().features.ldmatrix.contains(&dtype) {
         LoadMethod::LoadMatrix
     } else {
         LoadMethod::Manual

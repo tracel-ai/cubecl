@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -13,6 +12,7 @@ use crate::components::global::read::TaskCounter;
 use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
 use crate::components::{MatmulIdent, global::read::SyncStrategy};
+use crate::components::{MatrixPrecision, stage::StridedStageFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
@@ -33,7 +33,7 @@ pub trait FullLoadingStrategy:
     type SyncStrategy: SyncStrategy;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy>;
+    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy, Stage = StridedStageFamily>;
 
     const SHOULD_CLEAR: bool = false;
 

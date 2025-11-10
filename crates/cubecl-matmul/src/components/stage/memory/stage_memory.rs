@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::stage::{StageMemoryConfig, TilingLayout};
+use crate::components::stage::{LoadStageFamily, StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
@@ -237,5 +237,26 @@ impl<ES: Numeric, T: TilingLayout> Stage<ES, ReadWrite> for StridedStage<ES, T> 
 
     fn tile(this: &Self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
         this.get_tile_mut(tile)
+    }
+}
+
+#[cube]
+impl LoadStageFamily<ReadOnly> for StridedStageFamily {
+    fn create<ES: Numeric, T: TilingLayout>(
+        #[comptime] alignment: u32,
+        #[comptime] config: StageMemoryConfig,
+    ) -> Self::Stage<ES, T> {
+        StridedStage::new_aligned(alignment, config)
+    }
+
+    fn with_buffer_index<ES: Numeric, T: TilingLayout>(
+        stage: &Self::Stage<ES, T>,
+        buffer_index: u32,
+    ) -> Self::Stage<ES, T> {
+        stage.with_buffer_index(buffer_index)
+    }
+
+    fn free<ES: Numeric, T: TilingLayout>(stage: &Self::Stage<ES, T>) {
+        unsafe { stage.free() };
     }
 }

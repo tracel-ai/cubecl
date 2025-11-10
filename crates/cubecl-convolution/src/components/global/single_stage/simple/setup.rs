@@ -10,7 +10,7 @@ use cubecl_matmul::components::{
     },
     stage::{
         ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
-        StridedStageFamily,
+        StridedStageFamily, TilingLayout, TilingLayoutConfig, TilingLayoutEnum,
     },
 };
 
@@ -52,11 +52,18 @@ where
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
+        let tiling_layout = TilingLayoutConfig {
+            lhs: ConvTilingLayout::to_enum(),
+            rhs: ConvTilingLayout::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
             line_sizes,
+            tiling_layout,
             (1, 1).into(),
             None,
             false,

@@ -1,10 +1,13 @@
-use crate::components::global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
 use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TmaTilingLayout};
+use crate::components::{
+    global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma},
+    stage::StridedStageFamily,
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
@@ -77,6 +80,8 @@ pub struct AsyncFullTmaJob {
 
 #[cube]
 impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncFullTmaJob {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

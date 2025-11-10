@@ -1,4 +1,3 @@
-use crate::components::MatmulElems;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -17,6 +16,7 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::io::Strided;
 use crate::components::{AccS, ComputeResources};
 use crate::components::{LhsS, global::PartitionedStageFamily};
+use crate::components::{MatmulElems, stage::TilingLayoutConfig};
 use crate::components::{MatmulLineSizes, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -69,6 +69,7 @@ impl<
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        tiling_layout: TilingLayoutConfig,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
@@ -96,6 +97,7 @@ impl<
         UnitPartitionedStageConfig::new(
             tile_config,
             selection.tiling_scheme,
+            tiling_layout,
             selection.quantized,
             selection.partition_buffering,
             num_stages,

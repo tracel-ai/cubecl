@@ -2,23 +2,27 @@ use std::marker::PhantomData;
 
 use super::StageBuffer;
 use super::TaskCounter;
-use crate::components::MatmulIdent;
-use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::{GlobalConfig, read::SyncBarrier};
-use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
+use crate::components::{MatmulIdent, stage::StageFamily};
 use crate::components::{MatrixPrecision, global::read::SyncStrategy};
+use crate::components::{global::memory::GlobalIterator, stage::LoadStageFamily};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{
     CubeOption, CubeOptionExpand,
     tensor::{View, layout::Coords2d},
 };
+
+pub type LoaderStage<L, IP> = <<L as PartialLoadingStrategy>::Stage as StageFamily>::Stage<
+    IP,
+    <L as PartialLoadingStrategy>::TilingLayout,
+>;
 
 #[cube]
 /// A strategy for loading partial stage memory
@@ -28,9 +32,10 @@ pub trait PartialLoadingStrategy:
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
     type SyncStrategy: SyncStrategy;
+    type Stage: LoadStageFamily<ReadOnly>;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy>;
+    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy, Stage = Self::Stage>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -49,7 +54,7 @@ pub trait PartialLoadingStrategy:
 pub struct PartialStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: PartialLoadingStrategy>
 {
     global_iter: GlobalIterator<Line<IP::Global>>,
-    stage_memory: StridedStage<IP::Stage, L::TilingLayout>,
+    stage_memory: LoaderStage<L, IP::Stage>,
     loading_job: CubeOption<(L::Job<IP>, L::Job<IP>)>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -68,7 +73,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: PartialLoadingStrategy>
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
     ) -> Self {
-        let stage_memory = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
+        let stage_memory = L::Stage::create(128u32, config.stage_memory_config(ident));
         let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
@@ -89,16 +94,13 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: PartialLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(
-        &self,
-        #[comptime] stage_buffer: StageBuffer,
-    ) -> StridedStage<IP::Stage, L::TilingLayout> {
-        self.stage_memory.with_buffer_index(stage_buffer.to_index())
+    pub fn stage(&self, #[comptime] stage_buffer: StageBuffer) -> LoaderStage<L, IP::Stage> {
+        L::Stage::with_buffer_index(&self.stage_memory, stage_buffer.to_index())
     }
 
     /// Frees the stage memory for reuse
     pub fn free_stage(self) {
-        unsafe { self.stage_memory.free() };
+        L::Stage::free(&self.stage_memory);
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

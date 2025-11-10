@@ -7,7 +7,7 @@ use cubecl_matmul::components::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
         read::ReaderMode,
     },
-    stage::{StageConfig, StageMemoryConfig, SwizzleMode},
+    stage::{StageConfig, StageMemoryConfig, SwizzleMode, TilingLayoutEnum},
 };
 
 use super::*;
@@ -65,6 +65,10 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
 
     fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode {
         self.matmul.swizzle_mode(ident)
+    }
+
+    fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum {
+        self.matmul.tiling_layout(ident)
     }
 
     fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {

@@ -1,12 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
+use crate::components::{
+    global::read::{FullLoadingStrategy, tiled::TiledLayout},
+    stage::StridedStageFamily,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -120,6 +123,8 @@ pub struct SyncFullCyclicJob {
 impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncFullCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

@@ -48,6 +48,16 @@ impl Swizzle {
         }
     }
 
+    /// Create a new noop swizzle object
+    pub fn none() -> Self {
+        Swizzle {
+            yyy_mask: 0u32,
+            shift: 0u32,
+            invert_shift: false,
+            repeats_after: 1u32,
+        }
+    }
+
     /// Apply the swizzle to a coordinate with a given item size. This is the size of the full type,
     /// including line size. Use `type_size` helper for lines.
     /// `offset` should be in terms of lines from the start of the buffer, and the buffer should be

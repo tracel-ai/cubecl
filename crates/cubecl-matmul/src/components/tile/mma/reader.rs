@@ -7,8 +7,8 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout, as_cmma_layout, from_cmma_layout,
     tile::{
-        StridedTile, TileConfig,
-        io::{Filled, Strided, TileKind},
+        StridedTile, SwizzledTile, TileConfig,
+        io::{Filled, Strided, Swizzled, TileKind},
         mma::config::{LoadMethod, MmaMatmulConfig},
     },
 };
@@ -62,6 +62,35 @@ impl MmaFragmentReader for MmaStageReader<Strided> {
             }
             LoadMethod::LoadMatrix => {
                 load_ldmatrix(tile, fragment, def, transposed, ident, layout, config);
+            }
+        }
+    }
+}
+
+#[cube]
+impl MmaFragmentReader for MmaStageReader<Swizzled> {
+    type TileKind = Swizzled;
+
+    fn load_fragment<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+        tile: &SwizzledTile<V>,
+        fragment: &mut Array<Line<E>>,
+        def: MmaDefinition<A, B, CD>,
+        #[comptime] ident: MatrixIdent,
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: MmaMatmulConfig,
+    ) {
+        let line_layout = def.line_layout(ident);
+
+        let transposed = comptime![as_cmma_layout(layout) != line_layout];
+
+        match config.load_method(ident) {
+            LoadMethod::Manual => {
+                panic!(
+                    "Not worth implementing yet, swizzle is disabled when `ldmatrix` is unavailable"
+                );
+            }
+            LoadMethod::LoadMatrix => {
+                load_ldmatrix_swizzled(tile, fragment, def, transposed, ident, layout, config);
             }
         }
     }
@@ -132,9 +161,6 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
     }
 }
 
-/// This logic is horrible and hard to reason about, and very hardcoded. But can't figure out a
-/// better way to do it.
-///
 /// This is important to use on CUDA because CUDA's matrices are heavily permuted, being organized
 /// into 8x8 chunks with only 32 contiguous bits per thread. `ldmatrix` loads 8 consecutive elements
 /// in each thread (if executed with x4), then uses warp shuffles to move the elements to the
@@ -151,10 +177,67 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] layout: MatrixLayout,
     #[comptime] config: MmaMatmulConfig,
 ) {
-    let expected_layout = from_cmma_layout(def.line_layout(ident));
     let stage_line_size = tile.slice.line_size();
-    let tiling = config.tile_size();
     let (_, stride) = tile.as_unlined();
+
+    let elem_size = E::type_size();
+    let num_regs = def.lines_per_lane(ident);
+    let width = comptime![16 / elem_size / stage_line_size];
+
+    let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
+
+    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
+    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
+
+    #[unroll]
+    for i in 0..num_regs {
+        fragment[i] = regs[i];
+    }
+}
+
+/// Same as [load_ldmatrix], but with a swizzled stage
+#[cube]
+fn load_ldmatrix_swizzled<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+    tile: &SwizzledTile<V>,
+    fragment: &mut Array<Line<E>>,
+    def: MmaDefinition<A, B, CD>,
+    #[comptime] transposed: bool,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] config: MmaMatmulConfig,
+) {
+    let stage_line_size = tile.slice.line_size();
+    let (_, stride) = tile.as_unlined();
+
+    let elem_size = E::type_size();
+    let num_regs = def.lines_per_lane(ident);
+    let width = comptime![16 / elem_size / stage_line_size];
+
+    let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
+    let start = tile.swizzled_offset(start);
+
+    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
+    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
+
+    #[unroll]
+    for i in 0..num_regs {
+        fragment[i] = regs[i];
+    }
+}
+
+/// This logic is horrible and hard to reason about, and very hardcoded. But can't figure out a
+/// better way to do it.
+#[cube]
+fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+    stride: u32,
+    def: MmaDefinition<A, B, CD>,
+    #[comptime] stage_line_size: u32,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] config: MmaMatmulConfig,
+) -> u32 {
+    let expected_layout = from_cmma_layout(def.line_layout(ident));
+    let tiling = config.tile_size();
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
         MatrixLayout::ColMajor => (1, stride),
@@ -194,15 +277,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     };
 
     let start = row * stride_row + col * stride_col;
-    let start = start / stage_line_size;
-
-    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
-    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
-
-    #[unroll]
-    for i in 0..num_regs {
-        fragment[i] = regs[i];
-    }
+    start / stage_line_size
 }
 
 #[cube]

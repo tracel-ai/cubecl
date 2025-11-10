@@ -1,7 +1,7 @@
-use crate::components::global::GlobalConfig;
-use crate::components::stage::{StridedStage, TilingLayout};
+use crate::components::stage::TilingLayout;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use crate::components::{global::GlobalConfig, stage::StageFamily};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -14,12 +14,14 @@ use cubecl_core::{self as cubecl};
 pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
     CubeType + Copy + Clone
 {
+    type Stage: StageFamily;
+
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, TL>,
+        stage: &mut <Self::Stage as StageFamily>::Stage<IP::Stage, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );

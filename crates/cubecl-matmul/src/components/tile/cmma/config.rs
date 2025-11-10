@@ -2,7 +2,7 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_runtime::MmaConfig;
 
-use crate::components::tile::TileConfig;
+use crate::components::{MatmulElems, tile::TileConfig};
 use crate::components::{MatrixLayout, StageIdent, TileSize};
 use crate::components::{
     error::{MatmulAvailabilityError, MatmulSetupError},

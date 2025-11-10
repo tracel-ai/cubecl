@@ -1,12 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
+use crate::components::{
+    global::read::{PartialLoadingStrategy, sync::Synchronous},
+    stage::StridedStageFamily,
+};
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -95,6 +98,8 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = Synchronous;
+    type Stage = StridedStageFamily;
+
     type Job<IP: MatrixPrecision> = SyncPartialTilewiseJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -159,6 +164,8 @@ pub struct SyncPartialTilewiseJob {
 impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncPartialTilewiseJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

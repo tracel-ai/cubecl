@@ -13,6 +13,7 @@ pub mod async_tma;
 
 pub mod async_partial_maximize_slice_length;
 pub mod async_partial_tma;
+pub mod async_partial_tma_swizzled;
 
 pub mod sync;
 pub mod sync_full_cyclic;

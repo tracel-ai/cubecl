@@ -1,4 +1,3 @@
-use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{
@@ -7,6 +6,10 @@ use crate::components::{
 };
 use crate::components::{global::GlobalConfig, stage::TmaTilingLayout};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
+use crate::components::{
+    global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount},
+    stage::StridedStageFamily,
+};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
@@ -41,6 +44,8 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
 impl PartialLoadingStrategy for AsyncPartialTmaLoading {
     type TilingLayout = TmaTilingLayout;
     type SyncStrategy = AsyncTma;
+    type Stage = StridedStageFamily;
+
     type Job<IP: MatrixPrecision> = AsyncPartialTmaJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -81,6 +86,8 @@ pub struct AsyncPartialTmaJob {
 
 #[cube]
 impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncPartialTmaJob {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

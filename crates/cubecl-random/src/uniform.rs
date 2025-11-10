@@ -90,13 +90,8 @@ pub fn random_uniform<R: Runtime>(
     dtype: StorageType,
 ) {
     assert_eq!(
-<<<<<<< HEAD
-        out.elem_size as u32,
-        E::type_size(),
-=======
         out.elem_size,
         dtype.size(),
->>>>>>> main
         "Tensor element type must be the same as type E"
     );
 

@@ -1,5 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::{Swizzle, type_size};
 
 use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
@@ -111,5 +112,84 @@ impl<ES: Numeric, IO: SliceVisibility> StridedTile<ES, IO> {
     /// Returns a specific line from the tile based on coordinates.
     pub fn get_line(&self, coor_strided: u32, coor_contiguous: u32) -> Line<ES> {
         self.slice[coor_strided * self.stride + coor_contiguous]
+    }
+}
+
+// Swizzled
+
+#[derive(CubeType, Clone, Copy)]
+/// Tile with a linear major dimension, and a strided minor dimension.
+/// Unlike strided, this is the entire stage so swizzled offsets can be properly mapped.
+pub struct SwizzledTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
+    /// Slice containing all data in the entire stage
+    pub slice: Slice<Line<ES>, IO>,
+    /// Start of the tile within the slice
+    start: u32,
+    /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
+    pub stride: u32,
+    /// Swizzle object used to transform the index
+    swizzle: Swizzle,
+    #[cube(comptime)]
+    /// Layout of the tile (row-major or column-major).
+    pub layout: MatrixLayout,
+}
+
+#[cube]
+impl<ES: Numeric> SwizzledTile<ES> {
+    /// Creates a tile from a strided slice of data.
+    pub fn new(
+        slice: Slice<Line<ES>>,
+        start: u32,
+        stride: u32,
+        swizzle: Swizzle,
+        #[comptime] layout: MatrixLayout,
+    ) -> SwizzledTile<ES> {
+        SwizzledTile::<ES> {
+            slice,
+            start,
+            stride,
+            swizzle,
+            layout,
+        }
+    }
+
+    /// Creates a tile from a strided slice of data.
+    pub fn new_mut(
+        slice: Slice<Line<ES>, ReadWrite>,
+        start: u32,
+        stride: u32,
+        swizzle: Swizzle,
+        #[comptime] layout: MatrixLayout,
+    ) -> SwizzledTile<ES, ReadWrite> {
+        SwizzledTile::<ES, ReadWrite> {
+            slice,
+            start,
+            stride,
+            swizzle,
+            layout,
+        }
+    }
+}
+
+#[cube]
+impl<ES: Numeric, IO: SliceVisibility> SwizzledTile<ES, IO> {
+    /// Returns the tile as an unlined (scalar) slice.
+    ///
+    /// Returns:
+    /// - The unlined slice
+    /// - The updated stride to account for line width removal
+    pub fn as_unlined(&self) -> (Slice<ES, IO>, u32) {
+        let stage_line_size = comptime![self.slice.line_size()];
+        (
+            self.slice.try_cast_unchecked(),
+            self.stride * stage_line_size,
+        )
+    }
+
+    /// Returns an absolute offset into the slice with the correct swizzle
+    pub fn swizzled_offset(&self, offset: u32) -> u32 {
+        let type_size = type_size::<ES>(self.slice.line_size());
+        let offset = self.start + offset;
+        self.swizzle.apply(offset, type_size)
     }
 }

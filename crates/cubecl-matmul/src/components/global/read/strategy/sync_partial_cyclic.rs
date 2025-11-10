@@ -1,11 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
+use crate::components::{
+    global::read::{PartialLoadingStrategy, tiled::TiledLayout},
+    stage::StridedStageFamily,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -68,6 +71,8 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = Synchronous;
+    type Stage = StridedStageFamily;
+
     type Job<IP: MatrixPrecision> = SyncPartialCyclicJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -136,6 +141,8 @@ pub struct SyncPartialCyclicJob {
 impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncPartialCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

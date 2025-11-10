@@ -9,7 +9,7 @@ use crate::components::{
         read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage::{StageConfig, StageMemoryConfig, SwizzleMode},
+    stage::{StageConfig, StageMemoryConfig, SwizzleMode, TilingLayoutEnum},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -46,6 +46,10 @@ impl<S: StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
 
     fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode {
         self.stage_config.swizzle_mode(ident.into_stage())
+    }
+
+    fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum {
+        self.stage_config.tiling_layout(ident.into_stage())
     }
 
     fn plane_dim(&self) -> u32 {

@@ -1,6 +1,3 @@
-use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_read_next, execute_last_and_write_results, read_first,
-};
 use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, read::SyncStrategy};
 use crate::components::{
@@ -11,6 +8,12 @@ use crate::components::{
 };
 use crate::components::{AccS, LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
+use crate::components::{
+    global::multi_stage::double_buffer_execution::{
+        execute_current_and_read_next, execute_last_and_write_results, read_first,
+    },
+    stage::StridedStageFamily,
+};
 use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
     stage::{FilledStage, StridedStage},
@@ -51,8 +54,8 @@ where
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    LL: PartialLoadingStrategy<Stage = StridedStageFamily>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;

@@ -1,11 +1,14 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{
     FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
 };
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
+use crate::components::{
+    global::read::{FullLoadingStrategy, sync::Synchronous},
+    stage::StridedStageFamily,
+};
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -134,6 +137,8 @@ pub struct SyncFullTilewiseJob {
 impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
     for SyncFullTilewiseJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,

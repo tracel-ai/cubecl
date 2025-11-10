@@ -3,7 +3,7 @@ use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::{Runtime, ir::StorageType};
 use cubecl_runtime::TypeUsage;
 
-use crate::components::tile::TileConfig;
+use crate::components::{MatmulElems, tile::TileConfig};
 use crate::components::{MatrixLayout, StageIdent, TileSize};
 use crate::components::{
     error::{MatmulAvailabilityError, MatmulSetupError},

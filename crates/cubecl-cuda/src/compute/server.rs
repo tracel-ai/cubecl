@@ -843,6 +843,16 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
             "If interleave is B32, swizzle must be B32"
         );
     }
+    let max_tile_bytes = match map.swizzle {
+        TensorMapSwizzle::None => usize::MAX,
+        TensorMapSwizzle::B32 => 32,
+        TensorMapSwizzle::B64 => 64,
+        TensorMapSwizzle::B128 => 128,
+    };
+    assert!(
+        tile_size_0_bytes <= max_tile_bytes,
+        "Innermost tile dim must be <= swizzle size"
+    );
 }
 
 fn check_tma_im2col(

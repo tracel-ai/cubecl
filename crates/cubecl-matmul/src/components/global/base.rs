@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::{AccG, error::MatmulSetupError};
+use crate::components::{AccG, error::MatmulSetupError, stage::TilingLayoutEnum};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
@@ -163,6 +163,8 @@ pub trait GlobalConfig:
 
     /// Returns the [SwizzleMode] for the given ident
     fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode;
+
+    fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum;
 
     /// Returns the number of planes participating in loading `ident`
     fn num_loading_planes(&self, ident: MatmulIdent) -> u32;

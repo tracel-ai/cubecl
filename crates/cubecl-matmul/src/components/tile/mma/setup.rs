@@ -17,14 +17,17 @@ use crate::components::{resource::ComputeResources, tile::io::TileKind};
 use cubecl_core::{ir::StorageType, prelude::*};
 use cubecl_runtime::MmaConfig;
 
-impl<Tile: TileKind> TileMatmulFamily for MmaMatmul<Tile>
+impl<LhsTile: TileKind, RhsTile: TileKind, AccTile: TileKind> TileMatmulFamily
+    for MmaMatmul<LhsTile, RhsTile, AccTile>
 where
-    MmaStageReader<Tile>: MmaFragmentReader<TileKind = Tile>,
+    MmaStageReader<LhsTile>: MmaFragmentReader<TileKind = LhsTile>,
+    MmaStageReader<RhsTile>: MmaFragmentReader<TileKind = RhsTile>,
+    MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
-    type Matmul<L: Numeric, R: Numeric, A: Numeric> = MmaMatmul<Tile>;
-    type LhsTile = Strided;
-    type RhsTile = Strided;
-    type AccTile = Tile;
+    type Matmul<L: Numeric, R: Numeric, A: Numeric> = MmaMatmul<LhsTile, RhsTile, AccTile>;
+    type LhsTile = LhsTile;
+    type RhsTile = RhsTile;
+    type AccTile = AccTile;
     type OutTile = Strided;
 
     type Config = MmaMatmulConfig;

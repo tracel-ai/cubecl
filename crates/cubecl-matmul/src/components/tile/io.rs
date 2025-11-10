@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 
 use cubecl_std::CubeOption;
 
-use crate::components::tile::StridedTile;
+use crate::components::tile::{StridedTile, SwizzledTile};
 
 /// Kind (family) of the tiles returned by a stage and ingested by a tile matmul reader
 pub trait TileKind<IO: SliceVisibility = ReadOnly>: CubeType + Send + Sync + 'static {
@@ -15,12 +15,21 @@ pub trait TileKind<IO: SliceVisibility = ReadOnly>: CubeType + Send + Sync + 'st
 #[derive(CubeType)]
 pub struct Strided {}
 
+/// Tile is a slice of memory with a stride, a starting offset and a swizzle object.
+/// The starting offset is used to calculate the swizzled position relative to the buffer.
+#[derive(CubeType)]
+pub struct Swizzled {}
+
 /// Tile is a single value that gets filled in everywhere
 #[derive(CubeType)]
 pub struct Filled {}
 
 impl<IO: SliceVisibility> TileKind<IO> for Strided {
     type Tile<E: Numeric> = StridedTile<E, IO>;
+}
+
+impl<IO: SliceVisibility> TileKind<IO> for Swizzled {
+    type Tile<E: Numeric> = SwizzledTile<E, IO>;
 }
 
 impl TileKind<ReadOnly> for Filled {

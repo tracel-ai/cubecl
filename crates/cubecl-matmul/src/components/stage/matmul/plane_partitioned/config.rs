@@ -2,7 +2,10 @@ use crate::components::{
     MatrixLayout, StageIdent, TilingScheme,
     error::MatmulSetupError,
     global::{PlaneRoleConfig, RoleRuleConfig},
-    stage::{NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig, SwizzleMode},
+    stage::{
+        NumStages, PartitionBuffering, PartitionSchedulerScheme, StageConfig, SwizzleMode,
+        TilingLayoutConfig, TilingLayoutEnum,
+    },
     tile::TileConfig,
 };
 
@@ -11,6 +14,7 @@ use crate::components::{
 pub struct PlanePartitionedStageConfig<T: TileConfig> {
     pub tile_config: T,
     pub tiling_scheme: TilingScheme,
+    pub tiling_layout: TilingLayoutConfig,
     pub quantized: bool,
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
@@ -39,6 +43,15 @@ impl<T: TileConfig> StageConfig for PlanePartitionedStageConfig<T> {
 
     fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
         self.tile_config.swizzle_mode(ident)
+    }
+
+    fn tiling_layout(&self, ident: StageIdent) -> TilingLayoutEnum {
+        match ident {
+            StageIdent::Lhs => self.tiling_layout.lhs,
+            StageIdent::Rhs => self.tiling_layout.rhs,
+            StageIdent::Acc => self.tiling_layout.acc,
+            StageIdent::Out => self.tiling_layout.out,
+        }
     }
 
     fn plane_dim(&self) -> u32 {
@@ -108,6 +121,7 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
     pub fn new(
         tile_config: T,
         tiling_scheme: TilingScheme,
+        tiling_layout: TilingLayoutConfig,
         quantized: bool,
         partition_buffering: PartitionBuffering,
         num_stages: NumStages,
@@ -121,6 +135,7 @@ impl<T: TileConfig> PlanePartitionedStageConfig<T> {
         Self {
             tile_config,
             tiling_scheme,
+            tiling_layout,
             quantized,
             partition_buffering,
             num_stages,

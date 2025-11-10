@@ -6,7 +6,7 @@ use crate::components::{
         multi_stage::LoadMaxRoundPlaneCount,
         read::{LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier},
     },
-    stage::{StridedStage, StridedTilingLayout, TilingValidation},
+    stage::{StridedStage, StridedStageFamily, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -43,6 +43,8 @@ impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
 impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = AsyncBarrier;
+    type Stage = StridedStageFamily;
+
     type Job<IP: MatrixPrecision> = AsyncPartialMaximizeSliceLengthJob;
 
     fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
@@ -124,6 +126,8 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
     for AsyncPartialMaximizeSliceLengthJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
