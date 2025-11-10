@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::simple::{AttentionReader, AttentionWriter};
+use crate::components::global::simple::AttentionWriter;
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
@@ -43,10 +43,10 @@ pub trait GlobalAttention<AP: AttentionPrecision>: 'static + Send + Sync {
     /// Writes to Out at the same offset it loaded Query
     type Writer: AttentionWriter<OS<AP>, OG<AP>>;
 
-    /// Loads to SMEM transposed
-    type KeyReader: AttentionReader<KS<AP>, Self::Config>;
+    /// Loads to SMEM as is (transposed later)
+    type KeyReader: CubeType;
     /// Loads to SMEM as is
-    type ValueReader: AttentionReader<VS<AP>, Self::Config>;
+    type ValueReader: CubeType;
     /// Loads to SMEM as is
     type MaskReader: CubeType;
 
@@ -106,7 +106,7 @@ pub trait GlobalAttentionConfig:
     type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn score_stage_memory_config(&self) -> StageMemoryConfig;
+    fn key_stage_memory_config(&self) -> StageMemoryConfig;
     fn value_stage_memory_config(&self) -> StageMemoryConfig;
 
     fn cube_dim(&self) -> CubeDim;

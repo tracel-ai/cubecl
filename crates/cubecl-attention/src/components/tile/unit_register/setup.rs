@@ -1,17 +1,17 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
-use crate::components::tile::unit_register::UnitRegisterFragmentAttention;
-use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::tile::unit_register::UnitRegisterTileAttention;
+use crate::components::tile::unit_register::UnitRegisterTileAttentionConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, tile::FragmentAttentionFamily,
+    AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
 };
 
-impl FragmentAttentionFamily for UnitRegisterFragmentAttention {
-    type FragmentAttention<F: AttentionPrecision> = UnitRegisterFragmentAttention;
+impl TileAttentionFamily for UnitRegisterTileAttention {
+    type TileAttention<F: AttentionPrecision> = UnitRegisterTileAttention;
 
-    type Config = UnitRegisterFragmentAttentionConfig;
+    type Config = UnitRegisterTileAttentionConfig;
 
     fn requires_accelerator() -> bool {
         false
@@ -28,7 +28,7 @@ impl FragmentAttentionFamily for UnitRegisterFragmentAttention {
         line_sizes: &AttentionLineSizes,
         num_planes: u32,
     ) -> Result<Self::Config, AttentionSetupError> {
-        UnitRegisterFragmentAttentionConfig::new::<AP>(
+        UnitRegisterTileAttentionConfig::new::<AP>(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             line_sizes.query as u32,

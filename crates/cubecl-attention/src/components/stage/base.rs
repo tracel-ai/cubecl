@@ -1,9 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent, TilingScheme,
     global::{WriteEventListener, WriteTiling},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -12,7 +11,7 @@ use crate::components::{
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
-use crate::components::{attention_types::*, tile::FragmentAttentionConfig};
+use crate::components::{attention_types::*, tile::TileAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -119,37 +118,15 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FragmentAttentionConfig: FragmentAttentionConfig;
+    type TileAttentionConfig: TileAttentionConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
-    fn tile_config(&self) -> Self::FragmentAttentionConfig;
-    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig;
-    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig;
+    fn tile_config(&self) -> Self::TileAttentionConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
     fn reuse_key_value(&self) -> bool;
 
     fn num_rows_per_unit(&self) -> u32;
-}
-
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct AttentionStageMemoryConfig {
-    pub matmul_tiling_scheme: TilingScheme,
-}
-
-impl AttentionStageMemoryConfig {
-    pub fn into_matmul_config(&self, ident: StageIdent) -> StageMemoryConfig {
-        StageMemoryConfig {
-            num_main_flow_planes: 1,
-            elements_in_tile_row: self.matmul_tiling_scheme.elements_in_tile_row(ident),
-            elements_in_tile_col: self.matmul_tiling_scheme.elements_in_tile_col(ident),
-            tiles_in_stage_row: self.matmul_tiling_scheme.tiles_in_stage_row(ident),
-            tiles_in_stage_col: self.matmul_tiling_scheme.tiles_in_stage_col(ident),
-            stage_line_size: 1,
-            matrix_layout: MatrixLayout::RowMajor,
-            num_stages: 1,
-        }
-    }
 }

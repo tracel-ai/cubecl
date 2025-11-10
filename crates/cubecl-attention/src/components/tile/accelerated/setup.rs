@@ -2,14 +2,14 @@ use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
 use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
-use crate::components::tile::accelerated::BlackboxAcceleratedFragmentAttention;
+use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, tile::FragmentAttentionFamily,
+    AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
 };
 
-impl FragmentAttentionFamily for BlackboxAcceleratedFragmentAttention {
-    type FragmentAttention<F: AttentionPrecision> = BlackboxAcceleratedFragmentAttention;
+impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
+    type TileAttention<F: AttentionPrecision> = BlackboxAcceleratedTileAttention;
 
     type Config = BlackboxAcceleratedAttentionMatmulConfig;
 
@@ -35,6 +35,7 @@ impl FragmentAttentionFamily for BlackboxAcceleratedFragmentAttention {
             line_sizes.query as u32,
             line_sizes.key as u32,
             selection.two_rows_in_array_tile,
+            selection.reuse_key_value,
             problem.causal,
             problem.masked,
         )

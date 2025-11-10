@@ -8,7 +8,7 @@ use crate::components::{
         BroadcastReducer, partition_attention::PartitionAttention,
         partitioner::AttentionPartitioner, plane::PlanePartitionStageConfig,
     },
-    tile::FragmentAttention,
+    tile::TileAttention,
 };
 
 pub type PlanePartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
@@ -18,7 +18,7 @@ pub type PlanePartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
     SO,
     FA,
     PlanePartitioner,
-    PlanePartitionStageConfig<<FA as FragmentAttention<AP>>::Config>,
+    PlanePartitionStageConfig<<FA as TileAttention<AP>>::Config>,
 >;
 
 pub struct PlanePartitioner {}

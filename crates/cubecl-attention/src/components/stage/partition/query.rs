@@ -4,15 +4,15 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::stage::QueryTile;
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]
 /// Contains all seq_q·head_dim materialized tiles at once because they are reused extensively
 pub struct QueryPartition<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    FA: TileAttention<AP>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<QueryTile<AP, FA>>,
     #[cube(comptime)]
@@ -22,8 +22,8 @@ pub struct QueryPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    FA: TileAttention<AP>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > QueryPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> QueryPartition<AP, FA, S> {

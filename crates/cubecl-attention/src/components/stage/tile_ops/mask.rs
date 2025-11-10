@@ -5,10 +5,10 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
-use crate::components::tile::{FragmentAttention, FragmentAttentionConfig};
 use crate::components::tile::{
     FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
 };
+use crate::components::tile::{TileAttention, TileAttentionConfig};
 use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;
@@ -16,7 +16,7 @@ use cubecl_std::tensor::layout::Coordinates;
 #[derive(CubeType)]
 /// Mask tile for Tile Attention
 /// It is an additive mask, which means the result of apply should be added, not multiplied
-pub enum MaskTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub enum MaskTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
     /// When a mask tensor is supplied. Also contains a logical part
     Materialized(MaterializedTileMask<AP, FA>),
     /// When no mask tensor is supplied. Used for out of bounds and causal mask
@@ -24,7 +24,7 @@ pub enum MaskTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaskTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> MaskTile<AP, FA> {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
         #[comptime] config: FA::Config,
@@ -125,7 +125,7 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
 }
 
 #[derive(CubeType)]
-pub struct MaterializedTileMask<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct MaterializedTileMask<AP: AttentionPrecision, FA: TileAttention<AP>> {
     fragment: FA::Mask,
     logical_mask: LogicalTileMask<FA::FragmentLayout>,
     #[cube(comptime)]
@@ -133,7 +133,7 @@ pub struct MaterializedTileMask<AP: AttentionPrecision, FA: FragmentAttention<AP
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaterializedTileMask<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> MaterializedTileMask<AP, FA> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
         let logical_masked = self.logical_mask.should_mask(local_pos);
         let materialized_masked = self.fragment.should_mask(local_pos);
@@ -147,7 +147,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> MaterializedTileMask<AP,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> FragmentMask for MaskTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> FragmentMask for MaskTile<AP, FA> {
     type Layout = <FA::Mask as FragmentMask>::Layout;
 
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {

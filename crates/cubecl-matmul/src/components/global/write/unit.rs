@@ -54,7 +54,7 @@ pub fn unit_write<ES: Numeric, EG: Numeric>(
     tile_pos: Coords2d,
     #[comptime] config: GlobalMemoryConfig,
 ) {
-    let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+    let tile_size = config.elements_in_tile();
     let output_line_size = global.line_size();
     let out_smem_slice = smem_tile.slice.with_line_size(output_line_size);
 

@@ -15,8 +15,8 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 #[cube]
-pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
-    type Config: FragmentAttentionConfig;
+pub trait TileAttention<AP: AttentionPrecision>: Send + Sync + 'static {
+    type Config: TileAttentionConfig;
     type Query: CubeType;
     type KeyValue: CubeType;
     type Mask: FragmentMask<Layout = Self::FragmentLayout>;
@@ -54,7 +54,13 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
-    fn fill_key_value<E: Float>(
+
+    fn fill_key_transposed<E: Float>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
@@ -73,7 +79,7 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
 }
 
 /// Configuration for the Tile Attention level
-pub trait FragmentAttentionConfig:
+pub trait TileAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     fn plane_dim(&self) -> u32;
@@ -84,12 +90,12 @@ pub trait FragmentAttentionConfig:
     fn materialized_mask(&self) -> bool;
 }
 
-pub trait FragmentAttentionFamily: Send + Sync + 'static {
+pub trait TileAttentionFamily: Send + Sync + 'static {
     /// The specific [TileMatmul] implementation associated with this family.
-    type FragmentAttention<AP: AttentionPrecision>: FragmentAttention<AP, Config = Self::Config>;
+    type TileAttention<AP: AttentionPrecision>: TileAttention<AP, Config = Self::Config>;
 
     /// The configuration type associated with this matmul family.
-    type Config: FragmentAttentionConfig;
+    type Config: TileAttentionConfig;
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;

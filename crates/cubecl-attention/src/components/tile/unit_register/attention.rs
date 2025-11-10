@@ -7,19 +7,19 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentAttentionConfig;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
-use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
+use crate::components::tile::TileAttentionConfig;
+use crate::components::tile::unit_register::UnitRegisterTileAttentionConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
 
-pub struct UnitRegisterFragmentAttention;
+pub struct UnitRegisterTileAttention;
 
 #[derive(CubeType)]
 pub struct UnitTile<E: Numeric> {
@@ -204,8 +204,8 @@ impl<E: Numeric> FragmentMask for UnitTile<E> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAttention {
-    type Config = UnitRegisterFragmentAttentionConfig;
+impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
+    type Config = UnitRegisterTileAttentionConfig;
 
     type Query = UnitTile<QT<AP>>;
     type KeyValue = UnitTile<KVT<AP>>;
@@ -270,11 +270,11 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
+        UnitTile::new(<Self as TileAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
+        UnitTile::new(<Self as TileAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
@@ -292,15 +292,23 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     }
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_key_value<E: Float>(
+    fn fill_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
     ) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_transposed_unit_tile(tile, fragment);
+    }
+
+    fn fill_value<E: Float>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::KeyValue,
+        #[comptime] _config: Self::Config,
+    ) {
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
     fn fill_mask<E: Numeric>(
@@ -308,7 +316,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
         fragment: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
     fn write_results<E: Float>(
@@ -321,7 +329,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
 }
 
 #[cube]
-fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
+fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
@@ -329,6 +337,19 @@ fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
         for col in 0..unit_tile.layout.num_cols {
             unit_tile.data[row * unit_tile.layout.num_cols + col] =
                 E2::cast_from(strided_tile.get_line(row, col))
+        }
+    }
+}
+
+#[cube]
+fn strided_tile_to_transposed_unit_tile<E: Numeric, E2: Numeric>(
+    strided_tile: &StridedTile<E>,
+    unit_tile: &mut UnitTile<E2>,
+) {
+    for row in 0..unit_tile.layout.num_rows {
+        for col in 0..unit_tile.layout.num_cols {
+            unit_tile.data[row * unit_tile.layout.num_cols + col] =
+                E2::cast_from(strided_tile.get_line(col, row))
         }
     }
 }

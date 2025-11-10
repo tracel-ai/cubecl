@@ -31,17 +31,16 @@ pub fn test_attention_algorithm<A, P, R>(
     P: TestPrecision,
     R: Runtime,
 {
-    // let env = std::env::var("ATTENTION_TEST_MODE");
+    let env = std::env::var("ATTENTION_TEST_MODE");
 
-    // let panic_on_launch_err = match env {
-    //     Ok(val) => match val.as_str() {
-    //         "panic" => true,
-    //         "skip" => false,
-    //         _ => false,
-    //     },
-    //     Err(_) => false,
-    // };
-    let panic_on_launch_err = true;
+    let panic_on_launch_err = match env {
+        Ok(val) => match val.as_str() {
+            "panic" => true,
+            "skip" => false,
+            _ => false,
+        },
+        Err(_) => false,
+    };
 
     let query = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Query, 12);
     let key = tensor_raw_parts_input::<P, R, P::EG>(&client, &problem, AttentionIdent::Key, 34);

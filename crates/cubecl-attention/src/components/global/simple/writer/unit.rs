@@ -50,8 +50,8 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
         #[comptime] stage_config: S,
     ) -> Self {
         let stage_mem_config = comptime! {
-            let elements_in_tile_row= stage_config.tiling_scheme().elements_in_partition_seq_q();
-            let elements_in_tile_col= stage_config.tiling_scheme().elements_in_partition_val_dim();
+            let elements_in_tile_row = stage_config.tiling_scheme().elements_in_partition_seq_q();
+            let elements_in_tile_col = stage_config.tiling_scheme().elements_in_partition_val_dim();
             let planes = stage_config.num_planes();
 
             StageMemoryConfig {
