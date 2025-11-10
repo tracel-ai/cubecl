@@ -2,7 +2,8 @@ use crate::components::tile::register::config::RegisterConfig;
 use crate::components::tile::register::matmul::RegisterMatmul;
 use crate::components::tile::{TileMatmulFamily, io::Strided};
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection,
+    AvailableLineSizes, InvalidConfigError, MatmulElems, MatmulLineSizes, MatmulProblem,
+    MatmulSelection,
 };
 use crate::components::{error::MatmulSetupError, tile::io::TileKind};
 use crate::components::{
@@ -31,13 +32,14 @@ where
         Ok(ComputeResources::Units(1))
     }
 
-    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        RegisterConfig::new::<Lhs, Rhs, Acc, R>(
+        RegisterConfig::new::<R>(
             client,
             selection.tiling_scheme.tile_size,
             selection.plane_dim,
@@ -48,6 +50,7 @@ where
             matmul_line_sizes.out as u32,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
+            dtypes,
         )
     }
 

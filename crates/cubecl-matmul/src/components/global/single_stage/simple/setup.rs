@@ -1,5 +1,5 @@
 use crate::components::{
-    MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
         GlobalWriterFamily, WriteTiling,
@@ -51,13 +51,14 @@ where
     >;
     type Config = SimpleConfig<SMM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
@@ -65,6 +66,7 @@ where
             (1, 1).into(),
             None,
             false,
+            dtypes,
         )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
@@ -79,7 +81,7 @@ where
             )));
         };
 
-        SimpleConfig::new::<LL, RL, MP, R>(
+        SimpleConfig::new::<LL, RL, R>(
             client,
             stage_config,
             num_planes,

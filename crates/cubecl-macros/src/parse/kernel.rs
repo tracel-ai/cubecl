@@ -83,11 +83,11 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_types(&self, name_mapping: &HashMap<Ident, Ident>) -> TokenStream {
+    pub fn register_types(&self, mut name_mapping: HashMap<Ident, Ident>) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
-            let name = match name_mapping.get(name) {
+            let name = match name_mapping.remove(name) {
                 Some(name) => quote! { self.#name.into() },
                 None => quote! {#name::as_type_native_unchecked()},
             };
@@ -96,6 +96,15 @@ impl GenericAnalysis {
                     .scope
                     .register_type::<#ty>(#name);
             });
+        }
+        if !name_mapping.is_empty() {
+            for key in name_mapping.keys() {
+                let err = syn::Error::new_spanned(
+                    key,
+                    format!("Generic `{key}` isn't defined correctly. Only `Float`, `Int` and `Numeric` generics can be defined with only a single trait bound."),
+                ).into_compile_error();
+                output.extend(err);
+            }
         }
 
         output
@@ -163,16 +172,29 @@ impl GenericAnalysis {
         let mut map = HashMap::new();
 
         for param in generics.params.pairs() {
-            if let syn::GenericParam::Type(type_param) = param.value()
-                && let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
+            let type_param = if let syn::GenericParam::Type(type_param) = param.value() {
+                type_param
+            } else {
+                continue;
+            };
+
+            if type_param.bounds.len() > 1 {
+                continue;
+            }
+
+            if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
                 let index = map.len() as u8;
 
+                // TODO: Check if we can support any CubePrimitive.
                 match name.as_str() {
                     "Float" => {
                         map.insert(type_param.ident.clone(), parse_quote!(FloatExpand<#index>));
+                    }
+                    "Int" => {
+                        map.insert(type_param.ident.clone(), parse_quote!(IntExpand<#index>));
                     }
                     "Numeric" => {
                         map.insert(

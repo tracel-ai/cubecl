@@ -1,11 +1,15 @@
+use crate::components::AccS;
+use crate::components::ComputeResources;
+use crate::components::LhsS;
+use crate::components::MatmulElems;
 use crate::components::MatmulLineSizes;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
-use crate::components::RhsR;
 use crate::components::RhsS;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxGlobalReaderPlanes;
+use crate::components::global::PartitionedStageFamily;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::StageFamily;
@@ -14,9 +18,7 @@ use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageCo
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
 use crate::components::tile::TileConfig;
 use crate::components::tile::TileMatmulFamily;
-use crate::components::{AccR, AccS, ComputeResources};
-use crate::components::{LhsR, global::PartitionedStageFamily};
-use crate::components::{LhsS, tile::io::Strided};
+use crate::components::tile::io::Strided;
 use crate::components::{MatrixPrecision, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;
@@ -65,7 +67,7 @@ impl<
 
     type Config = PlanePartitionedStageConfig<TM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
@@ -73,9 +75,9 @@ impl<
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config =
-            TM::setup::<LhsR<MP>, RhsR<MP>, AccR<MP>, R>(client, problem, selection, line_sizes)?;
+        let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TM::computation_resources()? {
@@ -103,9 +105,9 @@ impl<
             selection.partition_buffering,
             num_stages,
             plane_role_config,
-            LhsS::<MP>::elem_size(),
-            RhsS::<MP>::elem_size(),
-            AccS::<MP>::elem_size(),
+            dtypes.lhs_stage.size() as u32,
+            dtypes.rhs_stage.size() as u32,
+            dtypes.acc_stage.size() as u32,
             client.properties().hardware.max_shared_memory_size as u32,
             ordered,
         )

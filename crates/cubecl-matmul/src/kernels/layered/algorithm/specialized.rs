@@ -55,14 +55,14 @@ where
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
-        elems: MatmulElems,
         _args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
             client,
             problem,
             plane_dim,
-            elems,
+            dtypes,
             PlaneMatmulSelectionOptions {
                 specialized: true,
                 multi_row_strategy: MultiRowStrategy::Adaptive {

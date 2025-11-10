@@ -2,7 +2,8 @@ use cubecl_common::quant::scheme::{QuantScheme, QuantStore, QuantValue};
 use cubecl_core::{
     Runtime,
     client::ComputeClient,
-    prelude::{CubePrimitive, Numeric, TensorHandleRef},
+    ir::StorageType,
+    prelude::{CubePrimitive, TensorHandleRef},
 };
 
 use cubecl_std::tensor::{TensorHandle, into_contiguous_packed, into_contiguous_pitched};
@@ -10,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     components::{
-        AccG, LhsG, MatmulSetupError, RhsG,
+        MatmulElems, MatmulSetupError,
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -27,7 +28,6 @@ use crate::{
 
 use super::{
     components::{
-        MatmulPrecision,
         global::read::{
             async_full_cooperative, async_full_cyclic, async_full_maximize_slice_length,
             async_full_maximize_unit_count, sync_full_strided, sync_full_tilewise,
@@ -128,20 +128,22 @@ macro_rules! with_tile_kind {
     };
 }
 
-pub enum MatmulInputHandle<R: Runtime, E: CubePrimitive, S: CubePrimitive = f32> {
-    Normal(TensorHandle<R, E>),
+pub enum MatmulInputHandle<R: Runtime> {
+    Normal(TensorHandle<R>),
     Quantized {
-        data: TensorHandle<R, E>,
-        scale: TensorHandle<R, S>,
+        data: TensorHandle<R>,
+        scale: TensorHandle<R>,
         shape: Vec<usize>,
         scheme: QuantScheme,
     },
 }
 
-impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
+impl<R: Runtime> MatmulInputHandle<R> {
     pub fn as_ref(&self) -> MatmulInputHandleRef<'_, R> {
         match self {
-            MatmulInputHandle::Normal(handle) => MatmulInputHandleRef::Normal(handle.as_ref()),
+            MatmulInputHandle::Normal(handle) => {
+                MatmulInputHandleRef::Normal(handle.as_ref(), handle.dtype)
+            }
             MatmulInputHandle::Quantized {
                 data,
                 scale,
@@ -150,6 +152,8 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
             } => MatmulInputHandleRef::Quantized {
                 data: data.as_ref(),
                 scale: scale.as_ref(),
+                data_dtype: data.dtype,
+                scale_dtype: scale.dtype,
                 shape,
                 scheme,
             },
@@ -158,24 +162,26 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
 
     pub fn from_ref(handle: &MatmulInputHandleRef<'_, R>) -> Self {
         match handle {
-            MatmulInputHandleRef::Normal(handle) => {
-                MatmulInputHandle::Normal(TensorHandle::from_ref(handle))
+            MatmulInputHandleRef::Normal(handle, dtype) => {
+                MatmulInputHandle::Normal(TensorHandle::from_ref(handle, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => MatmulInputHandle::Quantized {
-                data: TensorHandle::from_ref(data),
-                scale: TensorHandle::from_ref(scale),
+                data: TensorHandle::from_ref(data, *data_dtype),
+                scale: TensorHandle::from_ref(scale, *scale_dtype),
                 shape: shape.to_vec(),
                 scheme: **scheme,
             },
         }
     }
 
-    pub fn data(&self) -> &TensorHandle<R, E> {
+    pub fn data(&self) -> &TensorHandle<R> {
         match self {
             MatmulInputHandle::Normal(handle) => handle,
             MatmulInputHandle::Quantized { data, .. } => data,
@@ -203,7 +209,7 @@ impl<R: Runtime, E: Numeric> MatmulInputHandle<R, E> {
     }
 }
 
-impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
+impl<R: Runtime> Clone for MatmulInputHandle<R> {
     fn clone(&self) -> Self {
         match self {
             Self::Normal(handle) => Self::Normal(handle.clone()),
@@ -224,10 +230,12 @@ impl<R: Runtime, E: CubePrimitive> Clone for MatmulInputHandle<R, E> {
 
 #[derive(Debug)]
 pub enum MatmulInputHandleRef<'a, R: Runtime> {
-    Normal(TensorHandleRef<'a, R>),
+    Normal(TensorHandleRef<'a, R>, StorageType),
     Quantized {
         data: TensorHandleRef<'a, R>,
+        data_dtype: StorageType,
         scale: TensorHandleRef<'a, R>,
+        scale_dtype: StorageType,
         /// Unpacked shape, excluding padding
         shape: &'a [usize],
         scheme: &'a QuantScheme,
@@ -243,8 +251,8 @@ impl<'a, R: Runtime> Clone for MatmulInputHandleRef<'a, R> {
 impl<'a, R: Runtime> Copy for MatmulInputHandleRef<'a, R> {}
 
 impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
-    pub fn new(data: TensorHandleRef<'a, R>) -> Self {
-        Self::Normal(data)
+    pub fn new(data: TensorHandleRef<'a, R>, dtype: StorageType) -> Self {
+        Self::Normal(data, dtype)
     }
 
     pub fn quantized(
@@ -252,86 +260,96 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         scale: TensorHandleRef<'a, R>,
         shape: &'a [usize],
         scheme: &'a QuantScheme,
+        data_dtype: StorageType,
+        scale_dtype: StorageType,
     ) -> Self {
         Self::Quantized {
             data,
             scale,
             shape,
             scheme,
+            data_dtype,
+            scale_dtype,
         }
     }
 
     pub fn data(&self) -> &TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn data_mut(&mut self) -> &mut TensorHandleRef<'a, R> {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle,
+            MatmulInputHandleRef::Normal(handle, ..) => handle,
             MatmulInputHandleRef::Quantized { data, .. } => data,
         }
     }
 
     pub fn scale(&self) -> Option<&TensorHandleRef<'a, R>> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scale, .. } => Some(scale),
         }
     }
 
     pub fn scheme(&self) -> Option<&QuantScheme> {
         match self {
-            MatmulInputHandleRef::Normal(_) => None,
+            MatmulInputHandleRef::Normal(..) => None,
             MatmulInputHandleRef::Quantized { scheme, .. } => Some(scheme),
         }
     }
 
     pub fn shape(&self) -> &[usize] {
         match self {
-            MatmulInputHandleRef::Normal(handle) => handle.shape,
+            MatmulInputHandleRef::Normal(handle, ..) => handle.shape,
             MatmulInputHandleRef::Quantized { shape, .. } => shape,
         }
     }
 
-    pub fn into_contiguous<E: Numeric>(
-        &self,
-        client: &ComputeClient<R::Server>,
-    ) -> MatmulInputHandle<R, E> {
+    pub fn into_contiguous(&self, client: &ComputeClient<R::Server>) -> MatmulInputHandle<R> {
         match self {
-            MatmulInputHandleRef::Normal(data) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R, E>(client, data))
+            MatmulInputHandleRef::Normal(data, dtype) => {
+                MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
                 scale,
                 shape,
                 scheme,
+                data_dtype,
+                scale_dtype,
             } => {
                 let data = match scheme.store {
                     // e2m1 has native packing (e2m1x2) so also needs to be re-packed
                     QuantStore::Native if scheme.value == QuantValue::E2M1 => {
-                        let data = into_contiguous_packed::<R, u8>(client, data, shape, 2);
+                        let data = into_contiguous_packed::<R>(
+                            client,
+                            data,
+                            shape,
+                            2,
+                            u8::as_type_native_unchecked(),
+                        );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
                     QuantStore::U32 => {
-                        let data = into_contiguous_packed::<R, u32>(
+                        let data = into_contiguous_packed::<R>(
                             client,
                             data,
                             shape,
                             scheme.num_quants() as u32,
+                            u32::as_type_native_unchecked(),
                         );
                         // Unsafely cast to E
-                        TensorHandle::from_ref(&data.as_ref())
+                        TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R, E>(client, data),
+                    _ => into_contiguous_pitched::<R>(client, data, *data_dtype),
                 };
                 MatmulInputHandle::Quantized {
                     data,
-                    scale: TensorHandle::from_ref(scale),
+                    scale: TensorHandle::from_ref(scale, *scale_dtype),
                     shape: shape.to_vec(),
                     scheme: **scheme,
                 }
@@ -341,29 +359,39 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch<R: Runtime, MP: MatmulPrecision>(
+pub fn launch<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
-    lhs: MatmulInputHandle<R, LhsG<MP>>,
-    rhs: MatmulInputHandle<R, RhsG<MP>>,
-    out: TensorHandle<R, AccG<MP>>,
+    lhs: MatmulInputHandle<R>,
+    rhs: MatmulInputHandle<R>,
+    out: TensorHandle<R>,
+    mut dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R, MP>(
+    launch_ref::<R>(
         strategy,
         client,
         &lhs.as_ref(),
         &rhs.as_ref(),
         &out.as_ref(),
+        &mut dtypes,
     )
 }
 
 #[allow(clippy::result_large_err)]
-pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
+/// Launches a matrix multiplication kernel..
+///
+/// # Notes
+///
+/// The matmul elements may get changed during selection for improved performance when
+/// the hardware supports it.
+/// Only the inner element types may change such as the stage or register element types.
+pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
     lhs: &MatmulInputHandleRef<R>,
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,
+    dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     match strategy {
         Strategy::Simple {
@@ -372,78 +400,71 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             ReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, SimpleAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, SimpleAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             ReadingStrategy::Strided => layered::launch_ref::<
                 R,
-                MP,
                 SimpleAlgorithm<
                     Accelerated,
                     sync_full_strided::SyncFullStridedLoading,
                     sync_full_strided::SyncFullStridedLoading,
                 >,
-            >(client, lhs, rhs, out, selection),
+            >(client, lhs, rhs, out, selection, dtypes),
             ReadingStrategy::Tilewise => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         sync_full_tilewise::SyncFullTilewiseLoading<ColMajorTilingOrder>,
                         sync_full_tilewise::SyncFullTilewiseLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, selection)
+                >(client, lhs, rhs, out, selection, dtypes)
             }
             ReadingStrategy::AsyncCooperative => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         async_full_cooperative::AsyncFullCooperativeLoading,
                         async_full_cooperative::AsyncFullCooperativeLoading,
                     >,
-                >(client, lhs, rhs, out, selection)
+                >(client, lhs, rhs, out, selection, dtypes)
             }
             ReadingStrategy::AsyncCyclic => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         async_full_cyclic::AsyncFullCyclicLoading<ColMajorTilingOrder>,
                         async_full_cyclic::AsyncFullCyclicLoading<RowMajorTilingOrder>,
                     >,
-                >(client, lhs, rhs, out, selection)
+                >(client, lhs, rhs, out, selection, dtypes)
             }
             ReadingStrategy::AsyncMaximizeSliceLength => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                         async_full_maximize_slice_length::AsyncFullMaximizeSliceLengthLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
             ReadingStrategy::AsyncMaximizeUnitCount => {
                 layered::launch_ref::<
                     R,
-                    MP,
                     SimpleAlgorithm<
                         Accelerated,
                         async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                         async_full_maximize_unit_count::AsyncFullMaximizeUnitCountLoading,
                     >,
-                >(client, lhs, rhs, out, &Default::default())
+                >(client, lhs, rhs, out, &Default::default(), dtypes)
             }
-            ReadingStrategy::Tma =>
-                layered::launch_ref_tma::<R, MP, SimpleTmaAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection
-                ),
+            ReadingStrategy::Tma => layered::launch_ref_tma::<R, SimpleTmaAlgorithm<Accelerated>>(
+                client, lhs, rhs, out, selection, dtypes
+            ),
         }),
         Strategy::DoubleBuffering {
             read_strategy,
@@ -451,23 +472,23 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
             PartialReadingStrategy::Cyclic => {
-                layered::launch_ref::<R, MP, CyclicDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, CyclicDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             PartialReadingStrategy::Tilewise => {
-                layered::launch_ref::<R, MP, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, TilewiseDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             PartialReadingStrategy::Hybrid => {
-                layered::launch_ref::<R, MP, HybridDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref::<R, HybridDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
             PartialReadingStrategy::Tma => {
-                layered::launch_ref_tma::<R, MP, TmaDoubleBufferingAlgorithm<Accelerated>>(
-                    client, lhs, rhs, out, selection,
+                layered::launch_ref_tma::<R, TmaDoubleBufferingAlgorithm<Accelerated>>(
+                    client, lhs, rhs, out, selection, dtypes,
                 )
             }
         }),
@@ -476,47 +497,47 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
             R,
-            MP,
             TmaSpecializedAlgorithm<Accelerated>,
         >(
-            client, lhs, rhs, out, selection,
+            client, lhs, rhs, out, selection, dtypes
         )),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,
         } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref::<
             R,
-            MP,
             OrderedDoubleBufferingAlgorithm<Accelerated>,
         >(
-            client, lhs, rhs, out, selection,
+            client, lhs, rhs, out, selection, dtypes
         )),
         Strategy::SimpleUnit(selection) => {
-            layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, SimpleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::DoubleUnit(selection) => {
-            layered::launch_ref::<R, MP, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection)
+            layered::launch_ref::<R, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R, LhsG<MP>, AccG<MP>>(client, lhs, rhs, out)?;
+            naive::launch_ref::<R>(client, lhs, rhs, out, dtypes)?;
             Ok(())
         }
         Strategy::Auto => {
-            if let Err(err) = layered::launch_ref::<R, MP, SimpleAlgorithm<CmmaMatmul<Filled>>>(
+            if let Err(err) = layered::launch_ref::<R, SimpleAlgorithm<CmmaMatmul<Filled>>>(
                 client,
                 lhs,
                 rhs,
                 out,
                 &Default::default(),
+                dtypes,
             ) {
                 match err {
                     MatmulSetupError::Unavailable(_) => {
-                        layered::launch_ref::<R, MP, SimpleUnitAlgorithm>(
+                        layered::launch_ref::<R, SimpleUnitAlgorithm>(
                             client,
                             lhs,
                             rhs,
                             out,
                             &Default::default(),
+                            dtypes,
                         )
                         .unwrap();
                     }
@@ -526,11 +547,11 @@ pub fn launch_ref<R: Runtime, MP: MatmulPrecision>(
 
             Ok(())
         }
-        Strategy::SimpleVecMat(selection) => {
-            layered::launch_ref::<R, MP, SimpleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
-        Strategy::DoubleVecMat(selection) => {
-            layered::launch_ref::<R, MP, DoubleVecMatAlgorithm>(client, lhs, rhs, out, selection)
-        }
+        Strategy::SimpleVecMat(selection) => layered::launch_ref::<R, SimpleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
+        Strategy::DoubleVecMat(selection) => layered::launch_ref::<R, DoubleVecMatAlgorithm>(
+            client, lhs, rhs, out, selection, dtypes,
+        ),
     }
 }

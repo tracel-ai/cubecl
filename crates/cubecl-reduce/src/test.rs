@@ -8,7 +8,8 @@ use rand::{
 };
 
 use crate::{
-    ReduceError, ReduceStrategy, instructions::*, precision::ReducePrecision, reduce, shared_sum,
+    ReduceError, ReduceStrategy, instructions::*, launch::ReduceDtypes, precision::ReducePrecision,
+    reduce, shared_sum,
 };
 
 // All random values generated for tests will be in the set
@@ -524,13 +525,18 @@ impl TestCase {
             )
         };
 
-        let result = reduce::<R, P, O, K>(
+        let result = reduce::<R, K>(
             &client,
             input,
             output,
             self.axis.unwrap(),
             self.strategy,
             (),
+            ReduceDtypes {
+                input: P::EI::as_type_native_unchecked(),
+                output: O::as_type_native_unchecked(),
+                accumulation: P::EA::as_type_native_unchecked(),
+            },
         );
         if result.is_err_and(|e| {
             e == ReduceError::PlanesUnavailable || e == ReduceError::ImprecisePlaneDim

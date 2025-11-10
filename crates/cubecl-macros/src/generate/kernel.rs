@@ -243,7 +243,7 @@ impl Launch {
                 mapping.insert(define.clone(), param.name.clone());
             }
         }
-        let register_type = self.analysis.register_types(&mapping);
+        let register_type = self.analysis.register_types(mapping);
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);

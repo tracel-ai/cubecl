@@ -3,8 +3,8 @@ use crate::components::global::GlobalMatmulFamily;
 use crate::components::stage::StageMatmulFamily;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulProblem,
-    MatmulSelection, MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+    MatmulSetupError,
 };
 use cubecl_core::prelude::*;
 
@@ -16,13 +16,14 @@ pub trait Algorithm {
     type GlobalMatmul: GlobalMatmulFamily;
     type BatchMatmul: BatchMatmulFamily;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<<Self::BatchMatmul as BatchMatmulFamily>::Config, MatmulSetupError> {
-        Self::BatchMatmul::setup::<MP, R>(client, problem, selection, line_sizes)
+        Self::BatchMatmul::setup::<R>(client, problem, selection, line_sizes, dtypes)
     }
 
     fn selection<R: Runtime>(
@@ -30,8 +31,8 @@ pub trait Algorithm {
         problem: &MatmulProblem,
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
-        elems: MatmulElems,
         args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

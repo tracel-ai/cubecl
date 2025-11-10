@@ -11,9 +11,18 @@ macro_rules! testgen_random_bernoulli {
                 seed(0);
 
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R, E>::empty(&client, shape.to_vec());
+                let output = TensorHandle::<R>::empty(
+                    &client,
+                    shape.to_vec(),
+                    E::as_type_native_unchecked(),
+                );
 
-                random_bernoulli::<R, E>(&client, prob, output.as_ref());
+                random_bernoulli::<R>(
+                    &client,
+                    prob,
+                    output.as_ref(),
+                    E::as_type_native_unchecked(),
+                );
 
                 let output_data = client.read_one_tensor(output.as_copy_descriptor());
                 let output_data = E::from_bytes(&output_data);
