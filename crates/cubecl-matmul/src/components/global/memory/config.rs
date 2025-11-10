@@ -25,7 +25,7 @@ impl GlobalMemoryConfig {
         check_col_bounds: bool,
         matrix_layout: MatrixLayout,
     ) -> Self {
-        let x = GlobalMemoryConfig {
+        GlobalMemoryConfig {
             elements_in_tile_row,
             elements_in_tile_col,
             elements_in_stage_row,
@@ -34,9 +34,7 @@ impl GlobalMemoryConfig {
             check_row_bounds,
             check_col_bounds,
             matrix_layout,
-        };
-        println!("{:?}", x);
-        x
+        }
     }
 
     pub fn matrix_layout(&self) -> MatrixLayout {
