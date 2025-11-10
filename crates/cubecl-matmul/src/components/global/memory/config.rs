@@ -15,6 +15,7 @@ pub struct GlobalMemoryConfig {
 }
 
 impl GlobalMemoryConfig {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         elements_in_tile_row: u32,
         elements_in_tile_col: u32,
