@@ -6,7 +6,7 @@ use cubecl_matmul::components::{
     MatmulSetupError,
     global::{
         PartitionedStageFamily, WriteTiling,
-        read::{NoLoadingValidation, validate_async_barrier},
+        read::{NoLoadingValidation, validate_async_barrier, validate_tma},
         single_stage::simple::SimpleConfig,
     },
     stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
@@ -58,6 +58,7 @@ where
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
+        validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
