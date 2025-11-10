@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::stage::ReduceOp;
 use crate::components::stage::Reducer;
-use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RowwiseFormat;
+use crate::components::tile::TileAttentionConfig;
 
 #[derive(CubeType)]
 /// Trivial reducer for one unit

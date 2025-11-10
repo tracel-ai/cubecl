@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::stage::{ReduceOp, Reducer};
-use crate::components::tile::{TileAttentionConfig, RowWise};
+use crate::components::tile::{RowWise, TileAttentionConfig};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 
 #[derive(CubeType)]

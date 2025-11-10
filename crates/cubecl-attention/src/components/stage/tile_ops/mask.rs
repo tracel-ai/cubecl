@@ -5,10 +5,10 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::MSK;
-use crate::components::tile::{TileAttention, TileAttentionConfig};
 use crate::components::tile::{
     FragmentLayout, FragmentLayoutExpand, FragmentMask, FragmentMaskExpand,
 };
+use crate::components::tile::{TileAttention, TileAttentionConfig};
 use cubecl_matmul::components::tile::StridedTile;
 
 use cubecl_std::tensor::layout::Coordinates;

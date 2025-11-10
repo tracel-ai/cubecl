@@ -3,9 +3,9 @@ use cubecl_core::prelude::*;
 
 use crate::components::stage::RowMax;
 use crate::components::stage::RowSum;
-use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RowwiseFormat;
+use crate::components::tile::TileAttentionConfig;
 
 use crate::components::stage::{MaskTile, RunningState};
 use crate::components::tile::RowwiseFormatExpand;
