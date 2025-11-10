@@ -8,22 +8,22 @@ use super::{PrngArgs, PrngRuntime, random};
 use crate::{RandomFamily, lcg_step, taus_step_0, taus_step_1, taus_step_2, to_unit_interval_open};
 
 #[derive(CubeLaunch, CubeType)]
-pub(crate) struct Normal<E: Numeric> {
-    mean: E,
-    std: E,
+pub(crate) struct Normal {
+    mean: f32,
+    std: f32,
 }
 
 #[derive(Debug)]
 struct NormalFamily;
 
 impl RandomFamily for NormalFamily {
-    type Runtime<E: Numeric> = Normal<E>;
+    type Runtime = Normal;
 }
 
 #[cube]
-impl<E: Numeric> PrngRuntime<E> for Normal<E> {
-    fn inner_loop(
-        args: Normal<E>,
+impl PrngRuntime for Normal {
+    fn inner_loop<E: Numeric>(
+        args: Normal,
         write_index_base: u32,
         n_invocations: u32,
         #[comptime] n_values_per_thread: u32,
@@ -86,26 +86,32 @@ impl<E: Numeric> PrngRuntime<E> for Normal<E> {
     }
 }
 
-impl<E: Numeric> PrngArgs<E> for Normal<E> {
+impl PrngArgs for Normal {
     type Args = Self;
 
-    fn args<'a, R: Runtime>(self) -> NormalLaunch<'a, E, R> {
+    fn args<'a, R: Runtime>(self) -> NormalLaunch<'a, R> {
         NormalLaunch::new(ScalarArg::new(self.mean), ScalarArg::new(self.std))
     }
 }
 
 /// Pseudo-random generator with uniform distribution
-pub fn random_normal<R: Runtime, E: Numeric>(
+pub fn random_normal<R: Runtime>(
     client: &ComputeClient<R::Server>,
-    mean: E,
-    std: E,
+    mean: f32,
+    std: f32,
     out: TensorHandleRef<R>,
+    dtype: StorageType,
 ) {
     assert_eq!(
+<<<<<<< HEAD
         out.elem_size as u32,
         E::type_size(),
+=======
+        out.elem_size,
+        dtype.size(),
+>>>>>>> main
         "Tensor element type must be the same as type E"
     );
 
-    random::<NormalFamily, E, R>(client, Normal { mean, std }, out)
+    random::<NormalFamily, R>(client, Normal { mean, std }, out, dtype)
 }

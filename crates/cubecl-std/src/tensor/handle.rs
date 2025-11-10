@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+use cubecl_core::ir::StorageType;
 use cubecl_core::tensor_line_size_parallel;
 use cubecl_core::{Runtime, server};
 use cubecl_core::{calculate_cube_count_elemwise, server::Allocation};
@@ -6,93 +7,97 @@ use cubecl_core::{prelude::*, server::CopyDescriptor};
 use cubecl_runtime::server::Handle;
 
 /// Tensor representation containing a [server handle](Handle) as well as basic tensor metadata.,
-pub struct TensorHandle<R, E>
+pub struct TensorHandle<R>
 where
     R: Runtime,
-    E: CubePrimitive,
 {
     /// The buffer where the data are stored.
     pub handle: server::Handle,
     pub shape: Vec<usize>,
     pub strides: Vec<usize>,
-    elem: PhantomData<E>,
+    /// The type used as storage.
+    pub dtype: StorageType,
     runtime: PhantomData<R>,
 }
 
-impl<R, E> core::fmt::Debug for TensorHandle<R, E>
+impl<R> core::fmt::Debug for TensorHandle<R>
 where
     R: Runtime,
-    E: CubePrimitive,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
             "Tensor {{ shape: {:?}, strides: {:?}, dtype: {}}}",
-            self.shape,
-            self.strides,
-            core::any::type_name::<E>(),
+            self.shape, self.strides, self.dtype,
         ))
     }
 }
 
-impl<R, E> Clone for TensorHandle<R, E>
+impl<R> Clone for TensorHandle<R>
 where
     R: Runtime,
-    E: CubePrimitive,
 {
     fn clone(&self) -> Self {
         Self {
             handle: self.handle.clone(),
             shape: self.shape.clone(),
             strides: self.strides.clone(),
-            elem: PhantomData,
+            dtype: self.dtype,
             runtime: PhantomData,
         }
     }
 }
 
-impl<R, E> TensorHandle<R, E>
+impl<R> TensorHandle<R>
 where
     R: Runtime,
-    E: CubePrimitive,
 {
     /// Create a new tensor.
-    pub fn new(handle: server::Handle, shape: Vec<usize>, strides: Vec<usize>) -> Self {
+    pub fn new(
+        handle: server::Handle,
+        shape: Vec<usize>,
+        strides: Vec<usize>,
+        storage: StorageType,
+    ) -> Self {
         Self {
             handle,
             shape,
             strides,
-            elem: PhantomData,
+            dtype: storage,
             runtime: PhantomData,
         }
     }
 
-    pub fn empty(client: &ComputeClient<R::Server>, shape: Vec<usize>) -> Self {
-        let elem_size = E::size().expect("To be a native type");
+    pub fn empty(
+        client: &ComputeClient<R::Server>,
+        shape: Vec<usize>,
+        storage: StorageType,
+    ) -> Self {
+        let elem_size = storage.size();
         let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 
-        Self::new(handle, shape, strides)
+        Self::new(handle, shape, strides, storage)
     }
 
     /// Create a new tensor.
-    pub fn from_ref(handle: &TensorHandleRef<'_, R>) -> Self {
+    pub fn from_ref(handle: &TensorHandleRef<'_, R>, storage: StorageType) -> Self {
         Self {
             handle: handle.handle.clone(),
             shape: handle.shape.to_vec(),
             strides: handle.strides.to_vec(),
-            elem: PhantomData,
+            dtype: storage,
             runtime: PhantomData,
         }
     }
 
     /// Create a new tensor with a contiguous memory layout.
-    pub fn new_contiguous(shape: Vec<usize>, handle: Handle) -> Self {
+    pub fn new_contiguous(shape: Vec<usize>, handle: Handle, storage: StorageType) -> Self {
         let strides = Self::contiguous_strides(&shape);
 
         Self {
             handle,
             shape,
             strides,
-            elem: PhantomData,
+            dtype: storage,
             runtime: PhantomData,
         }
     }
@@ -108,7 +113,7 @@ where
                 &self.handle,
                 &self.strides,
                 &self.shape,
-                size_of::<E>(),
+                self.dtype.size(),
             )
         }
     }
@@ -118,11 +123,12 @@ where
         let handle: TensorHandleRef<'a, R> = self.as_ref();
 
         unsafe {
-            TensorArg::from_raw_parts::<E>(
+            TensorArg::from_raw_parts_and_size(
                 handle.handle,
                 handle.strides,
                 handle.shape,
                 vectorisation,
+                handle.elem_size,
             )
         }
     }
@@ -132,7 +138,7 @@ where
             binding: self.handle.clone().binding(),
             shape: &self.shape,
             strides: &self.strides,
-            elem_size: size_of::<E>(),
+            elem_size: self.dtype.size(),
         }
     }
 
@@ -148,15 +154,14 @@ where
         strides
     }
 }
-impl<R, E> TensorHandle<R, E>
+impl<R> TensorHandle<R>
 where
     R: Runtime,
-    E: Numeric,
 {
-    pub fn zeros(client: &ComputeClient<R::Server>, shape: Vec<usize>) -> Self {
+    pub fn zeros(client: &ComputeClient<R::Server>, shape: Vec<usize>, dtype: StorageType) -> Self {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
-        let output = Self::empty(client, shape);
+        let output = Self::empty(client, shape, dtype);
 
         let line_size = tensor_line_size_parallel(
             R::supported_line_sizes().iter().cloned(),
@@ -167,14 +172,20 @@ where
 
         let cube_dim = CubeDim::default();
         let cube_count = calculate_cube_count_elemwise(num_elements / line_size as usize, cube_dim);
-        let array_len = output.handle.size() as usize / size_of::<E>();
+        let array_len = output.handle.size() as usize / dtype.size();
 
         unsafe {
-            init::zeros_array::launch_unchecked::<E, R>(
+            init::zeros_array::launch_unchecked::<R>(
                 client,
                 cube_count,
                 cube_dim,
-                ArrayArg::from_raw_parts::<E>(&output.handle, array_len, line_size),
+                ArrayArg::from_raw_parts_and_size(
+                    &output.handle,
+                    array_len,
+                    line_size,
+                    dtype.size(),
+                ),
+                dtype,
             )
         };
 
@@ -184,10 +195,10 @@ where
 
 pub(crate) mod init {
     use cubecl::prelude::*;
-    use cubecl_core as cubecl;
+    use cubecl_core::{self as cubecl, ir::StorageType};
 
     #[cube(launch_unchecked)]
-    pub fn zeros_array<C: Numeric>(output: &mut Array<Line<C>>) {
+    pub fn zeros_array<C: Numeric>(output: &mut Array<Line<C>>, #[define(C)] _elem: StorageType) {
         if ABSOLUTE_POS < output.len() {
             output[ABSOLUTE_POS] = Line::cast_from(C::from_int(0));
         }

@@ -1,13 +1,11 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_matmul::components::MatmulIdent;
-use cubecl_matmul::components::MatmulSelection;
 use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
-
-use cubecl_matmul::components::global::args::MatmulArgs;
+use cubecl_matmul::components::{InputArg, MatmulSelection, OutputArg};
+use cubecl_matmul::components::{MatmulElems, MatmulIdent};
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
 use cubecl_matmul::tests::test_utils::Sample;
+use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
 use crate::{
     components::{
@@ -22,22 +20,18 @@ use crate::{
 
 use super::test_utils::TestPrecision;
 
-type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
-type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
-
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_convolution_algorithm<A, Args, P, R>(
+pub fn test_convolution_algorithm<A, P, R>(
     client: ComputeClient<R::Server>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
-    Args: MatmulArgs,
     P: TestPrecision,
     R: Runtime,
-    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
-    Args::Output<P::EG>: ConcreteOutputFactory,
+    InputArg<A::Args>: ConcreteInputsFactory,
+    OutputArg<A::Args>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
 
@@ -64,12 +58,8 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .pick_max()
     .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::EG, P::EG, P::ES, P::ES, f32)>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, f32)>();
+    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -101,13 +91,25 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, MatmulIdent::Lhs);
-    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, MatmulIdent::Rhs);
+    let lhs_handle = A::into_tensor_handle::<R>(
+        &client,
+        &lhs_handle,
+        MatmulIdent::Lhs,
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = A::into_tensor_handle::<R>(
+        &client,
+        &rhs_handle,
+        MatmulIdent::Rhs,
+        P::EG::as_type_native_unchecked(),
+    );
 
-    let lhs_handle = MatmulInputHandleRef::new(lhs_handle.as_ref());
-    let rhs_handle = MatmulInputHandleRef::new(rhs_handle.as_ref());
+    let lhs_handle =
+        MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());
+    let rhs_handle =
+        MatmulInputHandleRef::new(rhs_handle.as_ref(), P::EG::as_type_native_unchecked());
 
-    let inputs = <Input<Args, P::EG, P::EG, P::EG> as ConcreteInputsFactory>::create(
+    let inputs = <InputArg<A::Args> as ConcreteInputsFactory>::create(
         &client,
         &lhs_handle,
         &rhs_handle,
@@ -117,7 +119,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         &config.line_sizes(),
         config,
     );
-    let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
+    let output = <OutputArg<A::Args> as ConcreteOutputFactory>::create(
         &client,
         &out_handle,
         &selection,
@@ -126,11 +128,10 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         config,
     );
 
+    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA)>();
+
     unsafe {
-        A::GlobalConvolution::launch_unchecked::<
-            ((P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), Args),
-            R,
-        >(
+        A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             &client,
             config.cube_dim(),
             A::cube_count(&selection, &problem),
@@ -138,6 +139,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             output,
             &problem,
             config,
+            &dtypes,
         );
     }
 

@@ -26,9 +26,19 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
     let scale_alloc =
         client.create_tensor(f32::as_bytes(&data_scale), &[1], f32::type_size() as usize);
 
-    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape.clone(), input_alloc.strides);
-    let scale = TensorHandle::<R, f32>::new(scale_alloc.handle, vec![1], scale_alloc.strides);
-    let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
+    let input = TensorHandle::<R>::new(
+        input_alloc.handle,
+        shape.clone(),
+        input_alloc.strides,
+        f32::as_type_native_unchecked(),
+    );
+    let scale = TensorHandle::<R>::new(
+        scale_alloc.handle,
+        vec![1],
+        scale_alloc.strides,
+        f32::as_type_native_unchecked(),
+    );
+    let output_f = TensorHandle::<R>::zeros(&client, shape, f32::as_type_native_unchecked());
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::Tensor)
@@ -56,11 +66,17 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         ])
         .try_into()
         .unwrap();
-    let output = TensorHandle::<R, u32>::new(output_alloc.handle, shape_out, output_alloc.strides);
-    let output_scale = TensorHandle::<R, f32>::new(
+    let output = TensorHandle::<R>::new(
+        output_alloc.handle,
+        shape_out,
+        output_alloc.strides,
+        u32::as_type_native_unchecked(),
+    );
+    let output_scale = TensorHandle::<R>::new(
         output_scale_alloc.handle,
         vec![1],
         output_scale_alloc.strides,
+        f32::as_type_native_unchecked(),
     );
 
     crate::quantize::launch_ref::<R, f32>(
@@ -151,10 +167,19 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         f32::type_size() as usize,
     );
 
-    let input = TensorHandle::<R, f32>::new(input_alloc.handle, shape.clone(), input_alloc.strides);
-    let scale =
-        TensorHandle::<R, f32>::new(scale_alloc.handle, shape_scale.clone(), scale_alloc.strides);
-    let output_f = TensorHandle::<R, f32>::zeros(&client, shape);
+    let input = TensorHandle::<R>::new(
+        input_alloc.handle,
+        shape.clone(),
+        input_alloc.strides,
+        f32::as_type_native_unchecked(),
+    );
+    let scale = TensorHandle::<R>::new(
+        scale_alloc.handle,
+        shape_scale.clone(),
+        scale_alloc.strides,
+        f32::as_type_native_unchecked(),
+    );
+    let output_f = TensorHandle::<R>::zeros(&client, shape, f32::as_type_native_unchecked());
 
     let scheme = QuantScheme::default()
         .with_level(QuantLevel::block([block_size as u8]))
@@ -182,11 +207,17 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         ])
         .try_into()
         .unwrap();
-    let output = TensorHandle::<R, u32>::new(output_alloc.handle, shape_out, output_alloc.strides);
-    let output_scale = TensorHandle::<R, f32>::new(
+    let output = TensorHandle::<R>::new(
+        output_alloc.handle,
+        shape_out,
+        output_alloc.strides,
+        u32::as_type_native_unchecked(),
+    );
+    let output_scale = TensorHandle::<R>::new(
         output_scale_alloc.handle,
         shape_scale.clone(),
         output_scale_alloc.strides,
+        f32::as_type_native_unchecked(),
     );
 
     crate::quantize::launch_ref::<R, f32>(

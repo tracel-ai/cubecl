@@ -87,7 +87,7 @@ impl MmaMatmulConfig {
     /// May return an error if:
     /// - cmma is unavailable
     /// - cmma is unavailable for given types
-    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    pub fn new<R: Runtime>(
         client: &ComputeClient<R::Server>,
         tile_size: TileSize,
         plane_dim: u32,
@@ -98,6 +98,7 @@ impl MmaMatmulConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        dtypes: &MatmulElems,
         swizzle: SwizzleConfig,
     ) -> Result<Self, MatmulSetupError> {
         Self {
@@ -115,16 +116,17 @@ impl MmaMatmulConfig {
             acc_load_method: load_method::<R, Acc>(client),
             swizzle,
         }
-        .check_availability::<Lhs, Rhs, Acc, R>(client)
+        .check_availability::<R>(client, dtypes)
     }
 
-    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn check_availability<R: Runtime>(
         self,
         client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
-        let lhs = Lhs::as_type_native_unchecked();
-        let rhs = Rhs::as_type_native_unchecked();
-        let acc = Acc::as_type_native_unchecked();
+        let lhs = dtypes.lhs_register;
+        let rhs = dtypes.rhs_register;
+        let acc = dtypes.acc_register;
 
         let size = self.tile_size();
         if !client.properties().features.mma.contains(&MmaConfig {

@@ -1,10 +1,15 @@
-use crate::components::global::{
-    GlobalWriterFamily,
-    multi_stage::{double_buffering::DoubleBufferingGlobalConfig, specialized::SpecializedMatmul},
-    read::SyncStrategy,
-};
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::StageConfig;
+use crate::components::{
+    MatmulElems,
+    global::{
+        GlobalWriterFamily,
+        multi_stage::{
+            double_buffering::DoubleBufferingGlobalConfig, specialized::SpecializedMatmul,
+        },
+        read::SyncStrategy,
+    },
+};
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
@@ -47,11 +52,12 @@ where
     >;
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         let max_global_readers = MaxGlobalReaderPlanes::new::<LL, RL>(
             &selection.tiling_scheme,
@@ -59,7 +65,7 @@ where
             selection.plane_dim,
         );
 
-        let stage_config = SMM::setup::<MP, R>(
+        let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
@@ -67,6 +73,7 @@ where
             (2, 2).into(),
             Some(max_global_readers),
             false,
+            dtypes,
         )?;
 
         let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
@@ -75,7 +82,7 @@ where
 
         let num_planes = stage_config.plane_role_config().plane_roles.total_count();
 
-        DoubleBufferingGlobalConfig::new::<LL, RL, MP, R>(
+        DoubleBufferingGlobalConfig::new::<LL, RL, R>(
             client,
             stage_config,
             num_planes,
