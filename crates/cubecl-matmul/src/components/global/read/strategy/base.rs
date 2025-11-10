@@ -52,7 +52,9 @@ pub trait LoadingValidation {
     ) -> Result<(), InvalidConfigError>;
 }
 
-pub(crate) fn validate_async_barrier<R: Runtime>(
+/// Validates if [async barrier instructions](SemanticType::Barrier) is available on the current
+/// device.
+pub fn validate_async_barrier<R: Runtime>(
     client: &ComputeClient<R::Server>,
 ) -> Result<(), InvalidConfigError> {
     if !client
