@@ -142,7 +142,15 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         cmma::load(fragment, &slice, stride);
     }
 
-    fn fill_key_value<E: Float>(
+    fn fill_key_transposed<E: Float>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] _config: Self::Config,
+    ) {
+        todo!()
+    }
+
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,

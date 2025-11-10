@@ -106,7 +106,7 @@ pub trait GlobalAttentionConfig:
     type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn score_stage_memory_config(&self) -> StageMemoryConfig;
+    fn key_stage_memory_config(&self) -> StageMemoryConfig;
     fn value_stage_memory_config(&self) -> StageMemoryConfig;
 
     fn cube_dim(&self) -> CubeDim;

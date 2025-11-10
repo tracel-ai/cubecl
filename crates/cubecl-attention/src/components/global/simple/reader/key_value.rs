@@ -15,6 +15,8 @@ use crate::components::global::base::GlobalAttentionConfig;
 #[derive(CubeType)]
 pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
     global_iter: GlobalIterator<Line<EG>>,
+    #[cube(comptime)]
+    attention_ident: AttentionIdent,
 
     #[cube(comptime)]
     _phantom: PhantomData<(ES, G)>,
@@ -22,11 +24,16 @@ pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
 
 #[cube]
 impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES, G> {
-    pub fn new(value: View<Line<EG>, Coords2d>, step: u32) -> Self {
+    pub fn new(
+        value: View<Line<EG>, Coords2d>,
+        step: u32,
+        #[comptime] attention_ident: AttentionIdent,
+    ) -> Self {
         let global_iter = GlobalIterator::new(value, step, ViewDirection::Row, false);
 
         DummyKeyValueReader::<EG, ES, G> {
             global_iter,
+            attention_ident,
             _phantom: PhantomData,
         }
     }
@@ -48,13 +55,13 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
     ) {
         if UNIT_POS_Y == 0 {
             // TODO this reader is bad, it's not coalesced
-            let memory_config = config.global_memory_config(AttentionIdent::Value);
+            let memory_config = config.global_memory_config(comptime!(self.attention_ident));
             let mut slice = stage.as_slice_mut(1u32);
 
-            let tile_rows = memory_config.elements_in_tile_row;
-            let tile_cols = memory_config.elements_in_tile_col;
-            let partition_rows = memory_config.elements_in_stage_row / tile_rows;
-            let partition_cols = memory_config.elements_in_stage_col / tile_cols;
+            let tile_rows = memory_config.elements_in_tile_row();
+            let tile_cols = memory_config.elements_in_tile_col();
+            let partition_rows = memory_config.elements_in_stage_row() / tile_rows;
+            let partition_cols = memory_config.elements_in_stage_col() / tile_cols;
 
             let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
             let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
@@ -67,6 +74,7 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
             let tile_row_stride = partition_cols * num_elements_per_tile;
             let tile_col_stride = num_elements_per_tile;
 
+            comptime!(println!("{:?}", memory_config));
             let layout = TiledLayout::new(memory_config);
             let view = self.global_iter.view().view(layout);
 

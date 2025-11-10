@@ -350,11 +350,11 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 
 impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
     fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let tile_width = match config.matrix_layout {
-            MatrixLayout::RowMajor => config.elements_in_tile_col,
-            MatrixLayout::ColMajor => config.elements_in_tile_row,
+        let tile_width = match config.matrix_layout() {
+            MatrixLayout::RowMajor => config.elements_in_tile_col(),
+            MatrixLayout::ColMajor => config.elements_in_tile_row(),
         };
-        if config.global_line_size > tile_width {
+        if config.line_size() > tile_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())
@@ -437,11 +437,11 @@ impl TilingLayout for StridedTilingLayout {
 
 impl TilingValidation for StridedTilingLayout {
     fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = match config.matrix_layout {
-            MatrixLayout::RowMajor => config.elements_in_stage_col,
-            MatrixLayout::ColMajor => config.elements_in_stage_row,
+        let stage_width = match config.matrix_layout() {
+            MatrixLayout::RowMajor => config.elements_in_stage_col(),
+            MatrixLayout::ColMajor => config.elements_in_stage_row(),
         };
-        if config.global_line_size > stage_width {
+        if config.line_size() > stage_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())

@@ -1,4 +1,3 @@
-use std::cmp::max;
 use std::marker::PhantomData;
 
 use cubecl::prelude::*;
@@ -17,7 +16,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 /// - Value: then iterate over one row of `val_dim`, multiplying each (kv, vd) tile with all `seq_q` tiles.
 ///
 /// Only one tile is active at a time; key and value alternate per `kv`.
-pub enum KeyValues<
+pub enum KeyValuePartition<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
@@ -42,19 +41,15 @@ impl<
     AP: AttentionPrecision,
     FA: FragmentAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
-> KeyValues<AP, FA, S>
+> KeyValuePartition<AP, FA, S>
 {
-    pub fn new(#[comptime] config: S) -> KeyValues<AP, FA, S> {
+    pub fn new(#[comptime] config: S) -> KeyValuePartition<AP, FA, S> {
         if config.reuse_key_value() {
-            let p = config.tiling_scheme().partition_size;
             let mut sequence = Sequence::new();
 
-            #[unroll]
-            for _ in 0..comptime!(p.seq_kv * max(p.head_dim, p.val_dim)) {
-                sequence.push(KeyValueTile::new_key_value(config.tile_config()));
-            }
+            sequence.push(KeyValueTile::new_key_value(config.tile_config()));
 
-            KeyValues::<AP, FA, S>::new_Reuse(KeyValueSequence::<AP, FA, S> {
+            KeyValuePartition::<AP, FA, S>::new_Reuse(KeyValueSequence::<AP, FA, S> {
                 sequence,
                 _phantom: PhantomData,
             })
@@ -65,7 +60,7 @@ impl<
             keys.push(KeyValueTile::new_key(config.tile_config()));
             values.push(KeyValueTile::new_value(config.tile_config()));
 
-            KeyValues::<AP, FA, S>::new_Separate(
+            KeyValuePartition::<AP, FA, S>::new_Separate(
                 KeyValueSequence::<AP, FA, S> {
                     sequence: keys,
                     _phantom: PhantomData,
@@ -80,29 +75,29 @@ impl<
 
     pub fn get_key(&self) -> &KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(0u32),
-            KeyValues::Separate(keys, _) => keys.sequence.index(0u32),
+            KeyValuePartition::Reuse(key_values) => key_values.sequence.index(0u32),
+            KeyValuePartition::Separate(keys, _) => keys.sequence.index(0u32),
         }
     }
 
     pub fn get_key_mut(&mut self) -> &mut KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(0u32),
-            KeyValues::Separate(keys, _) => keys.sequence.index_mut(0u32),
+            KeyValuePartition::Reuse(key_values) => key_values.sequence.index_mut(0u32),
+            KeyValuePartition::Separate(keys, _) => keys.sequence.index_mut(0u32),
         }
     }
 
     pub fn get_value(&self) -> &KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index(0u32),
-            KeyValues::Separate(_, values) => values.sequence.index(0u32),
+            KeyValuePartition::Reuse(key_values) => key_values.sequence.index(0u32),
+            KeyValuePartition::Separate(_, values) => values.sequence.index(0u32),
         }
     }
 
     pub fn get_value_mut(&mut self) -> &mut KeyValueTile<AP, FA> {
         match self {
-            KeyValues::Reuse(key_values) => key_values.sequence.index_mut(0u32),
-            KeyValues::Separate(_, values) => values.sequence.index_mut(0u32),
+            KeyValuePartition::Reuse(key_values) => key_values.sequence.index_mut(0u32),
+            KeyValuePartition::Separate(_, values) => values.sequence.index_mut(0u32),
         }
     }
 }

@@ -292,15 +292,23 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     }
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_key_value<E: Float>(
+    fn fill_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
     ) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_transposed_unit_tile(tile, fragment);
+    }
+
+    fn fill_value<E: Float>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::KeyValue,
+        #[comptime] _config: Self::Config,
+    ) {
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
     fn fill_mask<E: Numeric>(
@@ -308,7 +316,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
         fragment: &mut Self::Mask,
         #[comptime] _config: Self::Config,
     ) {
-        strided_tile_to_array_tile(tile, fragment);
+        strided_tile_to_unit_tile(tile, fragment);
     }
 
     fn write_results<E: Float>(
@@ -321,7 +329,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
 }
 
 #[cube]
-fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
+fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
@@ -329,6 +337,19 @@ fn strided_tile_to_array_tile<E: Numeric, E2: Numeric>(
         for col in 0..unit_tile.layout.num_cols {
             unit_tile.data[row * unit_tile.layout.num_cols + col] =
                 E2::cast_from(strided_tile.get_line(row, col))
+        }
+    }
+}
+
+#[cube]
+fn strided_tile_to_transposed_unit_tile<E: Numeric, E2: Numeric>(
+    strided_tile: &StridedTile<E>,
+    unit_tile: &mut UnitTile<E2>,
+) {
+    for row in 0..unit_tile.layout.num_rows {
+        for col in 0..unit_tile.layout.num_cols {
+            unit_tile.data[row * unit_tile.layout.num_cols + col] =
+                E2::cast_from(strided_tile.get_line(col, row))
         }
     }
 }

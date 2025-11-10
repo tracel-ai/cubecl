@@ -1,14 +1,11 @@
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme,
-    stage::{AttentionStageMemoryConfig, StageAttentionConfig},
+    AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
     tile::FragmentAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlanePartitionStageConfig<FC: FragmentAttentionConfig> {
     fragment_config: FC,
-    score_stage_memory_config: AttentionStageMemoryConfig,
-    value_stage_memory_config: AttentionStageMemoryConfig,
     tiling_scheme: AttentionTilingScheme,
     reuse_key_value: bool,
     num_planes: u32,
@@ -29,14 +26,6 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageCo
         self.fragment_config
     }
 
-    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.score_stage_memory_config
-    }
-
-    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.value_stage_memory_config
-    }
-
     fn tiling_scheme(&self) -> AttentionTilingScheme {
         self.tiling_scheme
     }
@@ -53,16 +42,12 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageCo
 impl<FC: FragmentAttentionConfig> PlanePartitionStageConfig<FC> {
     pub fn new(
         fragment_config: FC,
-        score_stage_memory_config: AttentionStageMemoryConfig,
-        value_stage_memory_config: AttentionStageMemoryConfig,
         tiling_scheme: AttentionTilingScheme,
         reuse_key_value: bool,
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
             fragment_config,
-            score_stage_memory_config,
-            value_stage_memory_config,
             tiling_scheme,
             reuse_key_value,
             num_planes,

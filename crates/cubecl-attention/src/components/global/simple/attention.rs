@@ -51,7 +51,7 @@ impl<
         #[comptime] config: Self::Config,
     ) {
         // Init staging shared memories
-        let mut key_stage = key_reader.init_stage(config.score_stage_memory_config());
+        let mut key_stage = key_reader.init_stage(config.key_stage_memory_config());
         let mut value_stage = value_reader.init_stage(config.value_stage_memory_config());
 
         // Load queries which stay alive in registers for all the kernel
@@ -145,7 +145,7 @@ impl<
             batch_index,
             config.global_memory_config(AttentionIdent::Key),
         );
-        DummyKeyValueReader::new(key.view(layout), step)
+        DummyKeyValueReader::new(key.view(layout), step, AttentionIdent::Key)
     }
 
     fn init_value_reader(
@@ -159,7 +159,7 @@ impl<
             batch_index,
             config.global_memory_config(AttentionIdent::Value),
         );
-        DummyKeyValueReader::new(value.view(layout), step)
+        DummyKeyValueReader::new(value.view(layout), step, AttentionIdent::Value)
     }
 
     fn init_mask_reader(
@@ -178,7 +178,7 @@ impl<
                 let layout = AttentionGlobalLayout::new(
                     &mask,
                     batch_index,
-                    config.global_memory_config(AttentionIdent::Value),
+                    config.global_memory_config(AttentionIdent::Mask),
                 );
 
                 MaskReader::new_materialized(

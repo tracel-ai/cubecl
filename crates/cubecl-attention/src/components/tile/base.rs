@@ -54,7 +54,13 @@ pub trait FragmentAttention<AP: AttentionPrecision>: Send + Sync + 'static {
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator;
 
     fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query);
-    fn fill_key_value<E: Float>(
+
+    fn fill_key_transposed<E: Float>(
+        tile: &StridedTile<E>,
+        fragment: &mut Self::KeyValue,
+        #[comptime] config: Self::Config,
+    );
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] config: Self::Config,
