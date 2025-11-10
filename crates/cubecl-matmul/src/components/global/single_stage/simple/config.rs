@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatmulPrecision, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
     error::MatmulSetupError,
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
@@ -114,7 +114,7 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
     /// - a reader is invalid
     /// - CubeDim is too big
     /// - Barriers are not available
-    pub fn new<LL: LoadingValidation, RL: LoadingValidation, MP: MatmulPrecision, R: Runtime>(
+    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,

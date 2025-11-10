@@ -1,11 +1,13 @@
-use cubecl_core::client::ComputeClient;
-use cubecl_core::prelude::Numeric;
-use cubecl_core::{Runtime, ir::MatrixIdent};
+use cubecl_core::{
+    Runtime,
+    client::ComputeClient,
+    ir::{MatrixIdent, StorageType},
+};
 use cubecl_runtime::MmaConfig;
 
 use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
 use crate::components::tile::TileConfig;
-use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{MatmulElems, MatrixLayout, StageIdent, TileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
@@ -74,7 +76,7 @@ impl MmaMatmulConfig {
     /// May return an error if:
     /// - cmma is unavailable
     /// - cmma is unavailable for given types
-    pub fn new<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    pub fn new<R: Runtime>(
         client: &ComputeClient<R::Server>,
         tile_size: TileSize,
         plane_dim: u32,
@@ -85,6 +87,7 @@ impl MmaMatmulConfig {
         out_global_line_size: u32,
         lhs_stage_line_size: u32,
         rhs_stage_line_size: u32,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             tile_size,
@@ -96,20 +99,21 @@ impl MmaMatmulConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
-            lhs_load_method: load_method::<R, Lhs>(client),
-            rhs_load_method: load_method::<R, Rhs>(client),
-            acc_load_method: load_method::<R, Acc>(client),
+            lhs_load_method: load_method::<R>(client, dtypes.lhs_stage),
+            rhs_load_method: load_method::<R>(client, dtypes.rhs_stage),
+            acc_load_method: load_method::<R>(client, dtypes.acc_stage),
         }
-        .check_availability::<Lhs, Rhs, Acc, R>(client)
+        .check_availability::<R>(client, dtypes)
     }
 
-    fn check_availability<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn check_availability<R: Runtime>(
         self,
         client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
-        let lhs = Lhs::as_type_native_unchecked();
-        let rhs = Rhs::as_type_native_unchecked();
-        let acc = Acc::as_type_native_unchecked();
+        let lhs = dtypes.lhs_register;
+        let rhs = dtypes.rhs_register;
+        let acc = dtypes.acc_register;
 
         let size = self.tile_size();
         if !client.properties().features.mma.contains(&MmaConfig {
@@ -142,8 +146,7 @@ impl MmaMatmulConfig {
     }
 }
 
-fn load_method<R: Runtime, E: Numeric>(client: &ComputeClient<R::Server>) -> LoadMethod {
-    let ty = E::as_type_native_unchecked();
+fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, ty: StorageType) -> LoadMethod {
     if client.properties().features.ldmatrix.contains(&ty) {
         LoadMethod::LoadMatrix
     } else {

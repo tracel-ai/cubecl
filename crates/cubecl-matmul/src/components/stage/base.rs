@@ -2,9 +2,9 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
-use crate::components::{AccS, global::MaxGlobalReaderPlanes};
+use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::{
-    AvailableLineSizes, LhsS, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
+    AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS, StageIdent,
 };
 use crate::components::{
     MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
@@ -50,7 +50,8 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
     /// number of stages, maximum of tasks per plane, and whether the algorithm is an ordered variant
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    #[allow(clippy::too_many_arguments)]
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
@@ -58,6 +59,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.

@@ -28,6 +28,12 @@ pub(crate) fn matmul<
     output: &mut Output<Args, AccG>,
     cube_count_args: CubeCountInput,
     #[comptime] config: BMMF::Config,
+    #[define(LhsG)] _lhs_global: StorageType,
+    #[define(RhsG)] _rhs_global: StorageType,
+    #[define(AccG)] _acc_global: StorageType,
+    #[define(LhsS)] _lhs_stage: StorageType,
+    #[define(RhsS)] _rhs_stage: StorageType,
+    #[define(AccS)] _acc_stage: StorageType,
 ) {
     #[allow(clippy::collapsible_if)]
     if comptime!(config.can_yield_extra_cubes()) {

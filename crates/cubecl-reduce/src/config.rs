@@ -41,17 +41,18 @@ pub struct ReduceConfig {
 }
 
 impl ReduceConfig {
-    pub(crate) fn generate<R: Runtime, In: CubePrimitive>(
+    pub(crate) fn generate<R: Runtime>(
         client: &ComputeClient<R::Server>,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
         axis: usize,
         strategy: &ReduceStrategy,
+        dtype: StorageType,
     ) -> ReduceConfig {
         let reduce_count = output.size() as u32;
         ReduceConfig::new()
             .generate_line_mode(input, axis)
-            .generate_line_size::<R, In>(input, output, axis)
+            .generate_line_size::<R>(input, output, axis, dtype)
             .generate_cube_dim(client, strategy.use_planes)
             .generate_cube_count::<R>(reduce_count, strategy)
     }
@@ -79,13 +80,14 @@ impl ReduceConfig {
         self
     }
 
-    fn generate_line_size<R: Runtime, In: CubePrimitive>(
+    fn generate_line_size<R: Runtime>(
         mut self,
         input: &TensorHandleRef<R>,
         output: &TensorHandleRef<R>,
         axis: usize,
+        dtype: StorageType,
     ) -> Self {
-        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(size_of::<In>());
+        let supported_line_sizes = R::io_optimized_line_sizes_unchecked(dtype.size());
         self.line_size_input = match self.line_mode {
             LineMode::Parallel => {
                 tensor_line_size_parallel(supported_line_sizes, input.shape, input.strides, axis)
