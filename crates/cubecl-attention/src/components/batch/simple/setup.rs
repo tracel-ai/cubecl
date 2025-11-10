@@ -3,14 +3,11 @@ use std::marker::PhantomData;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::{
-    Args, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    attention_types::*,
-    batch::{
+    Args, AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, args::AttentionArgs, attention_types::*, batch::{
         BatchAttentionFamily,
         entry_point::attention,
         simple::{SimpleBatchAttention, config::SimpleBatchConfig},
-    },
-    global::GlobalAttentionFamily,
+    }, global::GlobalAttentionFamily
 };
 
 pub struct SimpleBatchAttentionFamily<GA: GlobalAttentionFamily> {
@@ -21,13 +18,14 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
     type Attention<AP: AttentionPrecision> = SimpleBatchAttention<AP, GA::Attention<AP>>;
     type Config = SimpleBatchConfig<GA::Config>;
 
-    fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        let global_config = GA::setup::<AP, R>(client, problem, selection, line_sizes)?;
+        let global_config = GA::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         SimpleBatchConfig::new(
             global_config,
@@ -41,7 +39,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
 
     unsafe fn launch_unchecked<
         'a,
-        AS: crate::components::AttentionSpec,
+        AA: AttentionArgs,
         R: cubecl_core::Runtime,
     >(
         client: &cubecl_core::prelude::ComputeClient<<R as cubecl_core::Runtime>::Server>,
