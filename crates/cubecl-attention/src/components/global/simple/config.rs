@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
 };
 
 use crate::components::{
@@ -19,10 +19,6 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     type StageConfig = S;
 
     fn key_stage_memory_config(&self) -> StageMemoryConfig {
-        println!("key_stage_memory_config");
-        // self.stage_config
-        //     .score_stage_memory_config()
-        //     .into_matmul_config(StageIdent::Rhs)
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         StageMemoryConfig {
@@ -38,10 +34,6 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     }
 
     fn value_stage_memory_config(&self) -> StageMemoryConfig {
-        println!("value_stage_memory_config");
-        // self.stage_config
-        //     .value_stage_memory_config()
-        //     .into_matmul_config(StageIdent::Rhs)
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         StageMemoryConfig {
@@ -69,7 +61,6 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     }
 
     fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig {
-        println!("{:?}", ident);
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         let elements_in_tile_row = tiling_scheme.tile_size.num_rows(ident);

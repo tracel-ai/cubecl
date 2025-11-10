@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 
 use crate::components::stage::AccumulatorTile;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
@@ -12,7 +12,7 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 /// Contains all seq_q·val_dim materialized tiles at once because they're accumulators
 pub struct AccumulatorPartition<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<AccumulatorTile<AP, FA>>,
@@ -23,7 +23,7 @@ pub struct AccumulatorPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > AccumulatorPartition<AP, FA, S>
 {

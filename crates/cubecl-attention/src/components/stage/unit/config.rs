@@ -1,21 +1,21 @@
 use crate::components::{
     AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
-    tile::FragmentAttentionConfig,
+    tile::TileAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct UnitPartitionStageConfig<FC: FragmentAttentionConfig> {
-    fragment_config: FC,
+pub struct UnitPartitionStageConfig<FC: TileAttentionConfig> {
+    tile_config: FC,
     tiling_scheme: AttentionTilingScheme,
     reuse_key_value: bool,
     num_planes: u32,
 }
 
-impl<FC: FragmentAttentionConfig> StageAttentionConfig for UnitPartitionStageConfig<FC> {
+impl<FC: TileAttentionConfig> StageAttentionConfig for UnitPartitionStageConfig<FC> {
     type FragmentAttentionConfig = FC;
 
     fn plane_dim(&self) -> u32 {
-        self.fragment_config.plane_dim()
+        self.tile_config.plane_dim()
     }
 
     fn num_planes(&self) -> u32 {
@@ -23,7 +23,7 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for UnitPartitionStageCon
     }
 
     fn tile_config(&self) -> Self::FragmentAttentionConfig {
-        self.fragment_config
+        self.tile_config
     }
 
     fn tiling_scheme(&self) -> AttentionTilingScheme {
@@ -35,11 +35,11 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for UnitPartitionStageCon
     }
 
     fn num_rows_per_unit(&self) -> u32 {
-        self.fragment_config.num_rows_per_unit()
+        self.tile_config.num_rows_per_unit()
     }
 }
 
-impl<FC: FragmentAttentionConfig> UnitPartitionStageConfig<FC> {
+impl<FC: TileAttentionConfig> UnitPartitionStageConfig<FC> {
     pub fn new(
         fragment_config: FC,
         tiling_scheme: AttentionTilingScheme,
@@ -47,7 +47,7 @@ impl<FC: FragmentAttentionConfig> UnitPartitionStageConfig<FC> {
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
-            fragment_config,
+            tile_config: fragment_config,
             tiling_scheme,
             reuse_key_value,
             num_planes,

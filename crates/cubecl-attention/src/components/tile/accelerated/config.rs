@@ -1,7 +1,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
-use crate::components::tile::FragmentAttentionConfig;
+use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::accelerated::local_tile::InnerLayout;
 use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
 
@@ -17,7 +17,7 @@ pub struct BlackboxAcceleratedAttentionMatmulConfig {
     materialized_mask: bool,
 }
 
-impl FragmentAttentionConfig for BlackboxAcceleratedAttentionMatmulConfig {
+impl TileAttentionConfig for BlackboxAcceleratedAttentionMatmulConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
     }
@@ -55,6 +55,7 @@ impl BlackboxAcceleratedAttentionMatmulConfig {
         query_stage_line_size: u32,
         key_value_stage_line_size: u32,
         two_rows_in_array_tile: bool,
+        reuse_key_value: bool,
         causal_mask: bool,
         materialized_mask: bool,
     ) -> Result<Self, AttentionSetupError> {
@@ -72,10 +73,10 @@ impl BlackboxAcceleratedAttentionMatmulConfig {
             causal_mask,
             materialized_mask,
         }
-        .validate()
+        .validate(reuse_key_value)
     }
 
-    pub fn validate(self) -> Result<Self, AttentionSetupError> {
+    pub fn validate(self, reuse_key_value: bool) -> Result<Self, AttentionSetupError> {
         let softmax_num_rows = self.attention_tile_size.seq_q;
         let softmax_num_cols = self.attention_tile_size.seq_kv;
         let softmax_total = softmax_num_rows * softmax_num_cols;
@@ -104,6 +105,13 @@ impl BlackboxAcceleratedAttentionMatmulConfig {
                 "Can't have tile head_dim < tile val dim (not sure why)",
             )));
         }
+
+        if reuse_key_value {
+            return Err(AttentionSetupError::InvalidConfig(Box::new(
+                "Can't reuse key/value because the fragment is col major for key and row major for value",
+            )));
+        }
+
         Ok(self)
     }
 

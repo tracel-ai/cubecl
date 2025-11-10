@@ -7,7 +7,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentAttentionConfig;
+use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
 use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
@@ -16,7 +16,7 @@ use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use crate::components::tile::{FragmentLayout, FragmentLayoutExpand};
 
 pub struct UnitRegisterFragmentAttention;
@@ -204,7 +204,7 @@ impl<E: Numeric> FragmentMask for UnitTile<E> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAttention {
+impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterFragmentAttention {
     type Config = UnitRegisterFragmentAttentionConfig;
 
     type Query = UnitTile<QT<AP>>;
@@ -270,11 +270,11 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for UnitRegisterFragmentAtten
     }
 
     fn allocate_mask(#[comptime] config: Self::Config) -> Self::Mask {
-        UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
+        UnitTile::new(<Self as TileAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_softmax(#[comptime] config: Self::Config) -> Self::Softmax {
-        UnitTile::new(<Self as FragmentAttention<AP>>::softmax_layout(config))
+        UnitTile::new(<Self as TileAttention<AP>>::softmax_layout(config))
     }
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {

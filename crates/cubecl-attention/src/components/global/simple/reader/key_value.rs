@@ -74,7 +74,6 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
             let tile_row_stride = partition_cols * num_elements_per_tile;
             let tile_col_stride = num_elements_per_tile;
 
-            comptime!(println!("{:?}", memory_config));
             let layout = TiledLayout::new(memory_config);
             let view = self.global_iter.view().view(layout);
 

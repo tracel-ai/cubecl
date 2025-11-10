@@ -21,7 +21,7 @@ use crate::components::{
 use crate::components::{stage::StageAttentionConfig, tile::RowWise};
 use crate::components::{
     stage::{KeyValuePartition, QueryPartition, SoftmaxPartition},
-    tile::FragmentAttention,
+    tile::TileAttention,
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -32,7 +32,7 @@ pub struct PartitionAttention<
     SK,
     SV,
     SO,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     P: AttentionPartitioner,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
@@ -46,7 +46,7 @@ impl<
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     P: AttentionPartitioner,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > StageAttention<AP> for PartitionAttention<AP, SK, SV, SO, FA, P, S>

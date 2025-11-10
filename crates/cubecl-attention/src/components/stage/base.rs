@@ -1,9 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent, TilingScheme,
     global::{WriteEventListener, WriteTiling},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -12,7 +11,7 @@ use crate::components::{
     AttentionSetupError, AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{AttentionTilingScheme, global::simple::QueryReader};
-use crate::components::{attention_types::*, tile::FragmentAttentionConfig};
+use crate::components::{attention_types::*, tile::TileAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -119,7 +118,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
 pub trait StageAttentionConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    type FragmentAttentionConfig: FragmentAttentionConfig;
+    type FragmentAttentionConfig: TileAttentionConfig;
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;

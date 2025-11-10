@@ -4,7 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 use crate::components::stage::MaskTile;
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -13,7 +13,7 @@ use cubecl_std::tensor::layout::Coords2d;
 /// We can keep only one mask tile at a time because it is directly applied to softmax tile
 pub struct MaskPartition<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<MaskTile<AP, FA>>,
@@ -24,7 +24,7 @@ pub struct MaskPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
 > MaskPartition<AP, FA, S>
 {

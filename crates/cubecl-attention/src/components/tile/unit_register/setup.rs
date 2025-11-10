@@ -5,11 +5,11 @@ use crate::components::tile::unit_register::UnitRegisterFragmentAttention;
 use crate::components::tile::unit_register::UnitRegisterFragmentAttentionConfig;
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, InvalidConfigError, tile::FragmentAttentionFamily,
+    AttentionSetupError, InvalidConfigError, tile::TileAttentionFamily,
 };
 
-impl FragmentAttentionFamily for UnitRegisterFragmentAttention {
-    type FragmentAttention<F: AttentionPrecision> = UnitRegisterFragmentAttention;
+impl TileAttentionFamily for UnitRegisterFragmentAttention {
+    type TileAttention<F: AttentionPrecision> = UnitRegisterFragmentAttention;
 
     type Config = UnitRegisterFragmentAttentionConfig;
 

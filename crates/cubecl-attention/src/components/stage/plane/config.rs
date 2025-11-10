@@ -1,17 +1,17 @@
 use crate::components::{
     AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
-    tile::FragmentAttentionConfig,
+    tile::TileAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PlanePartitionStageConfig<FC: FragmentAttentionConfig> {
+pub struct PlanePartitionStageConfig<FC: TileAttentionConfig> {
     fragment_config: FC,
     tiling_scheme: AttentionTilingScheme,
     reuse_key_value: bool,
     num_planes: u32,
 }
 
-impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageConfig<FC> {
+impl<FC: TileAttentionConfig> StageAttentionConfig for PlanePartitionStageConfig<FC> {
     type FragmentAttentionConfig = FC;
 
     fn plane_dim(&self) -> u32 {
@@ -39,7 +39,7 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageCo
     }
 }
 
-impl<FC: FragmentAttentionConfig> PlanePartitionStageConfig<FC> {
+impl<FC: TileAttentionConfig> PlanePartitionStageConfig<FC> {
     pub fn new(
         fragment_config: FC,
         tiling_scheme: AttentionTilingScheme,
