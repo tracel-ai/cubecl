@@ -1,4 +1,4 @@
-use crate::components::stage::StridedStageMemory;
+use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
 use crate::components::{MatrixPrecision, TilingScheme};
@@ -57,12 +57,18 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
         };
+        // Swizzle renders the column format irrelevant, so we load the whole stage at once
+        // The tiling is set on launch for TMA, so no further change is needed here.
+        let num_tasks = comptime![match config.swizzle {
+            SwizzleMode::None => tile_count_col,
+            _ => 1u32,
+        }];
 
         let is_elected = RoleRule::new(role_rule_config).elect_load_leader();
 
         AsyncFullTmaJob {
             is_elected,
-            num_tasks: tile_count_col,
+            num_tasks,
             ident,
         }
     }

@@ -100,6 +100,19 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         }
     }
 
+    /// Return the same stage but with a different tiling layout.
+    /// Allows comptime switching tiling.
+    pub fn with_layout<TNew: TilingLayout>(&self) -> StridedStageMemory<ES, TNew> {
+        StridedStageMemory::<ES, TNew> {
+            smem: self.smem,
+            swizzle: self.swizzle,
+            stage_size: self.stage_size,
+            config: self.config,
+            buffer_index: self.buffer_index,
+            _phantom: PhantomData::<TNew>,
+        }
+    }
+
     /// Get the tile at position (row, col)
     pub fn get_tile(&self, tile: Coords2d) -> StridedTile<ES> {
         T::get_tile::<ES>(self, tile, self.config)

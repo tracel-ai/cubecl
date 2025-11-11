@@ -12,5 +12,5 @@ pub struct GlobalMemoryConfig {
     pub check_row_bounds: bool,
     pub check_col_bounds: bool,
     pub matrix_layout: MatrixLayout,
-    pub swizzle_mode: SwizzleMode,
+    pub stage_swizzle: SwizzleMode,
 }

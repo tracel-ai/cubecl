@@ -78,8 +78,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     //     selection.swizzling = SwizzleConfig {
     //         lhs,
     //         rhs,
-    //         acc: SwizzleMode::None,
-    //         out: SwizzleMode::None,
+    //         ..Default::default()
     //     };
     // }
 

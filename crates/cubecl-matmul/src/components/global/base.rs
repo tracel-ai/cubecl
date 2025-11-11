@@ -146,7 +146,7 @@ pub trait GlobalConfig:
             check_row_bounds: self.check_row_bounds(ident),
             check_col_bounds: self.check_col_bounds(ident),
             matrix_layout: self.matrix_layout(ident),
-            swizzle_mode: self.swizzle_mode(ident),
+            stage_swizzle: self.swizzle_mode(ident),
         }
     }
 

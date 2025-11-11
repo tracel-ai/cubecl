@@ -63,7 +63,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             check_row_bounds: false,
             check_col_bounds: false,
             matrix_layout: MatrixLayout::RowMajor,
-            swizzle_mode: SwizzleMode::None,
+            stage_swizzle: SwizzleMode::None,
         }
     }
 

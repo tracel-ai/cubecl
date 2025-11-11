@@ -4,11 +4,11 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::MatrixLayout;
 use crate::components::tile::StridedTile;
 use crate::components::{
     InvalidConfigError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
 };
+use crate::components::{MatrixLayout, stage::SwizzleMode};
 
 use super::StridedStageMemory;
 
@@ -301,8 +301,9 @@ pub struct ContiguousTilingLayout<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
-/// TMA uses contiguous tiling, but with a special tiling order
-pub type TmaTilingLayout = ContiguousTilingLayout<TmaTilingOrder>;
+/// TMA tiling depends on the swizzle settings
+#[derive(Clone, Copy)]
+pub struct TmaTilingLayout {}
 
 #[derive(Clone, Copy)]
 /// Tiles follow a strided layout that often mirrors global memory layout.
@@ -501,6 +502,38 @@ impl TilingValidation for StridedTilingLayout {
         if config.global_line_size > stage_width {
             return Err(Box::new("Invalid line size"));
         }
+        Ok(())
+    }
+}
+
+#[cube]
+impl TilingLayout for TmaTilingLayout {
+    fn get_tile<ES: Numeric>(
+        stage: &StridedStageMemory<ES, Self>,
+        tile: Coords2d,
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedTile<ES> {
+        match config.swizzle {
+            SwizzleMode::None => ContiguousTilingLayout::<TmaTilingOrder>::get_tile(
+                &stage.with_layout(),
+                tile,
+                config,
+            ),
+            _ => StridedTilingLayout::get_tile(&stage.with_layout(), tile, config),
+        }
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Other]
+    }
+}
+
+impl TilingValidation for TmaTilingLayout {
+    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+        match config.stage_swizzle {
+            SwizzleMode::None => ContiguousTilingLayout::<TmaTilingOrder>::check(config)?,
+            _ => StridedTilingLayout::check(config)?,
+        };
         Ok(())
     }
 }

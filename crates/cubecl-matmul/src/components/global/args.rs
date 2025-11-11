@@ -22,7 +22,7 @@ use crate::{
                 SimpleTmaGlobalLayoutLaunch,
             },
         },
-        stage::{SwizzleMode, TilingLayoutEnum, TilingOrderEnum},
+        stage::SwizzleMode,
     },
 };
 
@@ -359,8 +359,11 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let stage_n = tiling_scheme.elements_in_stage_n();
         let stage_k = tiling_scheme.elements_in_stage_k();
 
-        let stage_size_lhs = match config.tiling_layout(MatmulIdent::Lhs) {
-            TilingLayoutEnum::Contiguous(TilingOrderEnum::Tma) => match problem.lhs_layout {
+        // Loaders use dynamic layout based on swizzle setting. For no swizzle, contiguous tiles are
+        // loaded and TMA loads single tile wide columns.
+        // For swizzled, bank conflicts aren't an issue so the tile size is the full stage.
+        let stage_size_lhs = match config.swizzle_mode(MatmulIdent::Lhs) {
+            SwizzleMode::None => match problem.lhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
                 }
@@ -368,7 +371,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                     vec![1, stage_k, tiling_scheme.elements_in_tile_m()]
                 }
             },
-            TilingLayoutEnum::Strided => match problem.lhs_layout {
+            _ => match problem.lhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_m, stage_k]
                 }
@@ -376,10 +379,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                     vec![1, stage_k, stage_m]
                 }
             },
-            _ => unimplemented!("Tiling must be contiguous TMA or strided"),
         };
-        let stage_size_rhs = match config.tiling_layout(MatmulIdent::Rhs) {
-            TilingLayoutEnum::Contiguous(TilingOrderEnum::Tma) => match problem.rhs_layout {
+        let stage_size_rhs = match config.swizzle_mode(MatmulIdent::Rhs) {
+            SwizzleMode::None => match problem.rhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
                 }
@@ -387,7 +389,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                     vec![1, stage_n, tiling_scheme.elements_in_tile_k()]
                 }
             },
-            TilingLayoutEnum::Strided => match problem.rhs_layout {
+            _ => match problem.rhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_k, stage_n]
                 }
@@ -395,7 +397,6 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                     vec![1, stage_n, stage_k]
                 }
             },
-            _ => unimplemented!("Tiling must be contiguous TMA or strided"),
         };
 
         let lhs_rank = lhs.shape.len();

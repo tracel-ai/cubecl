@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::{
         MatmulElems, MatmulSetupError,
-        global::read::async_partial_tma_swizzled::AsyncPartialTmaSwizzledLoading,
         tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
@@ -67,7 +66,6 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
-        read_strategy: AsyncReadingStrategy,
         selection: Selection<SpecializedArgs>,
         tile_kind: AcceleratedTileKind,
     },
@@ -96,15 +94,6 @@ pub enum ReadingStrategy {
     AsyncMaximizeSliceLength,
     AsyncMaximizeUnitCount,
     Tma,
-}
-
-#[derive(Debug, Clone, Copy)]
-/// Which reader to use in async barrier algorithms
-pub enum AsyncReadingStrategy {
-    Tma,
-    /// TMA currently uses different reading strategies based on swizzling.
-    /// Swizzled kernels use strided tiling, but unswizzled uses contiguous tiling.
-    TmaSwizzled,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -504,20 +493,14 @@ pub fn launch_ref<R: Runtime>(
             }
         }),
         Strategy::Specialized {
-            read_strategy,
             selection,
             tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
-            AsyncReadingStrategy::TmaSwizzled =>
-                layered::launch_ref_tma::<
-                    R,
-                    TmaSpecializedAlgorithm<Accelerated, AsyncPartialTmaSwizzledLoading>,
-                >(client, lhs, rhs, out, selection, dtypes),
-            AsyncReadingStrategy::Tma => layered::launch_ref_tma::<
-                R,
-                TmaSpecializedAlgorithm<Accelerated>,
-            >(client, lhs, rhs, out, selection, dtypes),
-        }),
+        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
+            R,
+            TmaSpecializedAlgorithm<Accelerated>,
+        >(
+            client, lhs, rhs, out, selection, dtypes
+        )),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,
