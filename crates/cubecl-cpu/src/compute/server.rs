@@ -96,6 +96,10 @@ impl ComputeServer for CpuServer {
         self.utilities.logger.clone()
     }
 
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        todo!()
+    }
+
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
     }

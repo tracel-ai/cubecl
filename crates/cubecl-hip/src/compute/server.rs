@@ -50,6 +50,10 @@ impl ComputeServer for HipServer {
         self.utilities.clone()
     }
 
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        todo!()
+    }
+
     fn create(
         &mut self,
         descriptors: Vec<server::AllocationDescriptor<'_>>,

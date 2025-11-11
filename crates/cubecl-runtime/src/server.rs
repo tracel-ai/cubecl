@@ -100,6 +100,9 @@ where
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError>;
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 

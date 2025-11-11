@@ -62,6 +62,10 @@ impl ComputeServer for CudaServer {
         self.streams.logger.clone()
     }
 
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        todo!()
+    }
+
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
     }

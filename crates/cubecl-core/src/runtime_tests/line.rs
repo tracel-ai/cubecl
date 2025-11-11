@@ -151,8 +151,8 @@ macro_rules! impl_line_comparison {
             pub fn [< test_line_ $cmp >] <R: Runtime, F: Float + CubeElement>(
                 client: ComputeClient<R::Server>,
             ) {
-                let lhs = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0]);
-                let rhs = client.create(as_bytes![F: 0.0, 2.0, 1.0, 3.0]);
+                let lhs = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0]);
+                let rhs = client.create_from_slice(as_bytes![F: 0.0, 2.0, 1.0, 3.0]);
                 let output = client.empty(16);
 
                 unsafe {

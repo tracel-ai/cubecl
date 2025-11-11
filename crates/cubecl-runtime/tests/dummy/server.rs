@@ -77,6 +77,10 @@ impl ComputeServer for DummyServer {
         self.utilities.logger.clone()
     }
 
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        todo!()
+    }
+
     fn utilities(&self) -> Arc<cubecl_runtime::server::ServerUtilities<Self>> {
         self.utilities.clone()
     }
