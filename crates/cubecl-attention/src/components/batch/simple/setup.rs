@@ -3,11 +3,16 @@ use std::marker::PhantomData;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::{
-    Args, AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection, args::AttentionArgs, attention_types::*, batch::{
+    Args, AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem,
+    AttentionSelection, InputRuntimeArg, OutputRuntimeArg,
+    args::AttentionArgs,
+    attention_types::*,
+    batch::{
         BatchAttentionFamily,
         entry_point::attention,
         simple::{SimpleBatchAttention, config::SimpleBatchConfig},
-    }, global::GlobalAttentionFamily
+    },
+    global::GlobalAttentionFamily,
 };
 
 pub struct SimpleBatchAttentionFamily<GA: GlobalAttentionFamily> {
@@ -37,34 +42,32 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         .validate(problem)
     }
 
-    unsafe fn launch_unchecked<
-        'a,
-        AA: AttentionArgs,
-        R: cubecl_core::Runtime,
-    >(
+    unsafe fn launch_unchecked<'a, AA: AttentionArgs, R: cubecl_core::Runtime>(
         client: &cubecl_core::prelude::ComputeClient<<R as cubecl_core::Runtime>::Server>,
         cube_dim: cubecl_core::CubeDim,
         cube_count: cubecl_core::CubeCount,
-        input: crate::components::InputRuntimeArg<'a, AS, R>,
-        output: crate::components::OutputRuntimeArg<'a, AS, R>,
+        input: InputRuntimeArg<'a, AA, R>,
+        output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: crate::components::batch::CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &AttentionElems,
     ) {
         unsafe {
             attention::launch_unchecked::<
-                Args<AS>,
-                QG<AS>,
-                QT<AS>,
-                KG<AS>,
-                KS<AS>,
-                VG<AS>,
-                VS<AS>,
-                KVT<AS>,
-                SM<AS>,
-                ACC<AS>,
-                MSK<AS>,
-                OG<AS>,
-                OS<AS>,
+                AA,
+                // Args<AS>,
+                // QG<AS>,
+                // QT<AS>,
+                // KG<AS>,
+                // KS<AS>,
+                // VG<AS>,
+                // VS<AS>,
+                // KVT<AS>,
+                // SM<AS>,
+                // ACC<AS>,
+                // MSK<AS>,
+                // OG<AS>,
+                // OS<AS>,
                 Self,
                 R,
             >(

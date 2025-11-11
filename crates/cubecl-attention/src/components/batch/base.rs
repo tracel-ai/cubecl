@@ -4,7 +4,7 @@ use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
     AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionSpec, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    AttentionSetupError, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
     args::AttentionArgs,
     attention_types::*,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
@@ -33,6 +33,7 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
         output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &AttentionElems,
     );
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
