@@ -1,6 +1,9 @@
-use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{
+    MatmulElems,
+    global::read::{validate_async_barrier, validate_tma},
+};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
@@ -27,9 +30,10 @@ impl LoadingValidation for AsyncPartialTmaLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.global_memory_config(ident))?;
-        validate_tma::<R>(client)?;
+        validate_tma::<R>(client, config.stage_memory_config(ident), ident, dtypes)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())

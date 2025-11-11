@@ -15,6 +15,7 @@ default = ["std", "cubecl-runtime/default", "cubecl-core/default"]
 export_tests = ["pretty_assertions"]
 std = ["cubecl-runtime/std", "cubecl-core/std"]
 
+matmul_tests_mma = []
 matmul_tests_plane = []
 matmul_tests_tma = []
 matmul_tests_unit = []
@@ -72,6 +73,8 @@ matmul_tests_all = [
     "matmul_tests_partition_buffering",
     "matmul_tests_tma",
     "matmul_tests_hypercube",
+    "matmul_tests_mma",
+    "matmul_tests_swizzle",
 ]
 
 [dependencies]

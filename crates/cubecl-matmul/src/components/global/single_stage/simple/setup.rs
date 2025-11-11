@@ -101,6 +101,7 @@ where
             stage_shape_k,
             selection.loading_precompute_strategy,
             selection.reader_mode,
+            dtypes,
         )
     }
 }

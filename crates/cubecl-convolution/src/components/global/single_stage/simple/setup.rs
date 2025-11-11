@@ -82,6 +82,7 @@ where
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.reader_mode,
+                dtypes,
             )?,
             &problem.kernel_size,
             &problem.stride,

@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
-    MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision,
+    MatmulSelection, MatmulSetupError, StageIdent,
     global::{
         PartitionedStageFamily, WriteTiling,
         read::{NoLoadingValidation, validate_async_barrier, validate_tma},
@@ -61,7 +61,6 @@ where
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
-        validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
@@ -88,6 +87,19 @@ where
             dtypes,
         )?;
 
+        validate_tma::<R>(
+            client,
+            stage_config.stage_memory_config(StageIdent::Lhs),
+            MatmulIdent::Lhs,
+            dtypes,
+        )?;
+        validate_tma::<R>(
+            client,
+            stage_config.stage_memory_config(StageIdent::Rhs),
+            MatmulIdent::Rhs,
+            dtypes,
+        )?;
+
         let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
 
         let num_stages = num_stages::<R>(
@@ -103,13 +115,13 @@ where
                 client,
                 stage_config,
                 stage_config.num_main_flow_planes(),
-                // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.reader_mode,
+                dtypes,
             )?,
             &problem.kernel_size,
             &problem.stride,

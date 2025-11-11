@@ -1,11 +1,12 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
             FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
         },
     },
     stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
@@ -25,6 +26,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let line_size = config.global_line_size(ident);
@@ -54,6 +56,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
         StridedTilingLayout::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }

@@ -2,7 +2,10 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::{Swizzle, type_size};
 
-use crate::components::{MatrixLayout, stage::StageMemoryConfig};
+use crate::components::{
+    MatrixLayout,
+    stage::{StageMemoryConfig, as_swizzle_object},
+};
 
 #[derive(CubeType, Clone, Copy)]
 /// Tile with a linear major dimension, and a strided minor dimension.
@@ -47,7 +50,7 @@ impl<ES: Numeric> StridedTile<ES> {
             start,
             end: start + len,
             stride,
-            swizzle: Swizzle::none(),
+            swizzle: as_swizzle_object(config.swizzle),
             layout,
         }
     }
@@ -74,7 +77,7 @@ impl<ES: Numeric> StridedTile<ES> {
             start,
             end: start + len,
             stride,
-            swizzle: Swizzle::none(),
+            swizzle: as_swizzle_object(config.swizzle),
             layout,
         }
     }

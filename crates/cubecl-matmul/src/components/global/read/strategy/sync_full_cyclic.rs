@@ -1,9 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{GlobalConfig, RoleRule};
-use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
+use crate::components::global::{
+    multi_stage::LoadMaxRoundPlaneCount,
+    read::{sync::Synchronous, validate_swizzle},
+};
 use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{
+    MatmulElems,
+    global::{GlobalConfig, RoleRule},
+};
 use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
@@ -28,6 +34,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
@@ -43,6 +50,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
+        validate_swizzle(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
 
         Ok(())
@@ -162,6 +170,7 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
+    let line_size = job.line_size;
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
@@ -173,8 +182,10 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
         comptime!(config.stage_memory_config(job.ident)),
     );
 
+    let mut slice = stage.as_slice_mut(line_size);
+
     let line_read = view.read_checked((tile, pos_within_tile));
     let stage_offs = stage.swizzle.apply(unit_position, IP::Stage::type_size());
 
-    stage.as_slice_mut(job.line_size)[stage_offs / job.line_size] = Line::cast_from(line_read);
+    slice[stage_offs / job.line_size] = Line::cast_from(line_read);
 }

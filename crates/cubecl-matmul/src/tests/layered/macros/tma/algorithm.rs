@@ -23,20 +23,5 @@ macro_rules! testgen_matmul_tma_algorithm {
 
             $crate::testgen_matmul_tma_precision!(TmaSpecializedAlgorithm<TMM>);
         }
-
-        // Not yet properly implemented in the macro, just manually test with the hardcoded swizzling
-        // patch in the test launcher
-
-        // #[cfg(all(feature = "matmul_tests_double"))]
-        // mod specialized_tma_swizzled {
-        //     use super::*;
-        //     use $crate::components::tile::mma::MmaMatmul;
-        //     use $crate::components::global::read::async_partial_tma_swizzled::AsyncPartialTmaSwizzledLoading;
-        //     use $crate::kernels::layered::specialized::TmaSpecializedAlgorithm;
-
-        //     $crate::testgen_matmul_tma_precision!(
-        //         TmaSpecializedAlgorithm<MmaMatmul, AsyncPartialTmaSwizzledLoading>
-        //     );
-        // }
     };
 }

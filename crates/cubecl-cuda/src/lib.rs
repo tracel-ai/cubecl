@@ -78,7 +78,6 @@ mod tests {
     cubecl_std::testgen!();
 
     cubecl_matmul::testgen_matmul_plane_accelerated!();
-    cubecl_matmul::testgen_matmul_plane_mma!();
     cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_matmul::testgen_matmul_tma!();

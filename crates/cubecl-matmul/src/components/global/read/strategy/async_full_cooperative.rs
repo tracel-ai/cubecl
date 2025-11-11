@@ -1,14 +1,15 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
             FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
         },
     },
-    stage::{StridedStageMemory, StridedStageFamily, StridedTilingLayout, TilingValidation},
+    stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -27,9 +28,11 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }

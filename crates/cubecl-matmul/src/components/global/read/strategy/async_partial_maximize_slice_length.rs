@@ -1,11 +1,12 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier, validate_async_barrier,
+            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier,
+            validate_async_barrier, validate_noswizzle,
         },
     },
     stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
@@ -25,9 +26,11 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }

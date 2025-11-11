@@ -102,6 +102,7 @@ where
             selection.loading_precompute_strategy,
             selection.reader_mode,
             selection.load_specialization_config.into(),
+            dtypes,
         )
     }
 }

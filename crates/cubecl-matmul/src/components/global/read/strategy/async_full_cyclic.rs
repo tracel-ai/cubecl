@@ -1,17 +1,19 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
     global::{
         GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
             FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
         },
     },
     stage::{
-        ContiguousTilingLayout, StridedStageMemory, StridedStageFamily, TilingOrder, TilingValidation,
+        ContiguousTilingLayout, StridedStageFamily, StridedStageMemory, TilingOrder,
+        TilingValidation,
     },
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
@@ -32,6 +34,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
@@ -45,6 +48,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 
         ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }

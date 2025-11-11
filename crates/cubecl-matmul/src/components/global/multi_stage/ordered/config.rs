@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatrixLayout,
     error::MatmulSetupError,
     global::{
         GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides,
@@ -140,6 +140,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
         precompute_job: LoadingPrecomputeStrategy,
         reader_mode: ReaderMode,
         specialized_loading_sides: SpecializedLoadingSides,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
@@ -151,15 +152,16 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             reader_mode,
             specialized_loading_sides,
         }
-        .validate::<LL, RL, R>(client)
+        .validate::<LL, RL, R>(client, dtypes)
     }
 
     fn validate<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         self,
         client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs)?;
-        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs)?;
+        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs, dtypes)?;
+        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs, dtypes)?;
         shared_global_config_validation(self)?;
         if self.tiling_scheme().stage_partitions_in_stage_n() > 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(

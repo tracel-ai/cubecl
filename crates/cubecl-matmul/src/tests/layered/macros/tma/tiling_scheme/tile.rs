@@ -17,6 +17,7 @@ macro_rules! testgen_matmul_tma_tile {
             );
         }
 
+        #[cfg(feature = "matmul_tests_mma")]
         mod t16x8x16 {
             use super::*;
 

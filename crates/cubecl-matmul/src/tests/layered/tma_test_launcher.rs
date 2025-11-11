@@ -40,47 +40,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         },
         Err(_) => false,
     };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
-
-    let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(
-        unsafe {
-            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-        },
-        P::EG::as_type_native_unchecked(),
-    );
-    let rhs_handle = MatmulInputHandleRef::Normal(
-        unsafe {
-            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-        },
-        P::EG::as_type_native_unchecked(),
-    );
-    let out_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
-    };
-
-    // keep here for testing swizzling kernels, need to add macro for this eventually
-    // {
-    //     let lhs = select_swizzle(
-    //         selection.tiling_scheme,
-    //         MatmulIdent::Lhs,
-    //         P::EG::as_type_native_unchecked(),
-    //         problem.lhs_layout,
-    //     );
-    //     let rhs = select_swizzle(
-    //         selection.tiling_scheme,
-    //         MatmulIdent::Rhs,
-    //         P::EG::as_type_native_unchecked(),
-    //         problem.rhs_layout,
-    //     );
-    //     selection.swizzling = SwizzleConfig {
-    //         lhs,
-    //         rhs,
-    //         ..Default::default()
-    //     };
-    // }
 
     let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
         size_of::<P::EG>(),
@@ -118,6 +77,27 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     };
 
     let line_sizes = config.line_sizes();
+
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    let elem_size = size_of::<P::EG>();
+    let lhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let out_handle = unsafe {
+        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
+    };
 
     let inputs = TensorMapInputs::create(
         &client,

@@ -1,8 +1,16 @@
 #[macro_export]
 macro_rules! testgen_matmul_swizzle {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection_builder: expr) => {
+        use $crate::components::SwizzleConfig;
+        use $crate::components::stage::SwizzleMode;
+
         #[cfg(not(feature = "matmul_tests_swizzle"))]
-        $crate::testgen_matmul_hypercube!($kind, $algorithm, $precision, $selection_builder);
+        $crate::testgen_matmul_hypercube!(
+            $kind,
+            $algorithm,
+            $precision,
+            $selection_builder.shared_swizzle(SwizzleConfig::default())
+        );
 
         #[cfg(feature = "matmul_tests_swizzle")]
         mod none {
