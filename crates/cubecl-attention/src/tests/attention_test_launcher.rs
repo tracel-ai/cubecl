@@ -56,10 +56,11 @@ pub fn test_attention_algorithm<A, P, R>(
     };
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
+    let attention_elems = AttentionElems::new::<P::AP>();
     let line_sizes = AvailableLineSizes::from_elem_types::<R>(
-        size_of::<P::EG>(),
-        size_of::<P::EM>(),
-        size_of::<P::EG>(),
+        attention_elems.query_global.size(),
+        attention_elems.mask.size(),
+        attention_elems.out_global.size(),
     );
     let line_sizes = A::filter_line_sizes(line_sizes);
     let line_sizes = line_sizes
@@ -69,8 +70,6 @@ pub fn test_attention_algorithm<A, P, R>(
         .filter_with_tensor(AttentionIdent::Out, &out.strides, &out.shape)
         .pick_max()
         .unwrap();
-
-    let attention_elems = AttentionElems::new::<P::AP>();
 
     let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &attention_elems) {
         Ok(config) => config,
@@ -165,7 +164,7 @@ where
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
-    let elem_size = std::mem::size_of::<T>();
+    let elem_size = T::elem_size() as usize;
     let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
 
     TensorRawParts {
@@ -185,7 +184,7 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
     let tensor_shape = problem.shape(AttentionIdent::Out);
     let data_bytes = P::EG::as_bytes(&data);
     let shape = tensor_shape.as_slice();
-    let elem_size = std::mem::size_of::<P::EG>();
+    let elem_size = P::EG::elem_size() as usize;
     let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
 
     TensorRawParts {
