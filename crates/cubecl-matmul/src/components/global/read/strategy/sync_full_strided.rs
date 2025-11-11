@@ -20,7 +20,11 @@ use super::{LoadingJob, LoadingValidation};
 pub struct SyncFullStridedLoading {}
 
 impl LoadingValidation for SyncFullStridedLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;

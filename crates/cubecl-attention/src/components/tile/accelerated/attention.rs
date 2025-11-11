@@ -9,14 +9,14 @@ use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConf
 use crate::components::tile::accelerated::hybrid_fragment::HybridFragment;
 use crate::components::tile::accelerated::local_tile::LocalTile;
 use crate::components::tile::accelerated::local_tile::LocalTileLayout;
-use crate::components::tile::{FragmentAttention, FragmentAttentionConfig as _};
+use crate::components::tile::{TileAttention, TileAttentionConfig as _};
 
 /// Uses accelerated instruction, but relies on shared memory for row-dependent computations
 /// because the fragment layout is blackbox
-pub struct BlackboxAcceleratedFragmentAttention;
+pub struct BlackboxAcceleratedTileAttention;
 
 #[cube]
-impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragmentAttention {
+impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttention {
     type Config = BlackboxAcceleratedAttentionMatmulConfig;
 
     type Query = cmma::Matrix<QT<AP>>;
@@ -74,21 +74,10 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         }
     }
 
-    fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
-        let size = config.attention_tile_size();
-        assert!(size.can_reuse_key_value());
-
-        unsafe {
-            cmma::Matrix::<KVT<AP>>::uninitialized(
-                cmma::MatrixIdent::B,
-                // m not relevant because it's a B
-                size.seq_q,
-                // n and k match key, and we assume value takes the same space
-                size.seq_kv,
-                size.head_dim,
-                cmma::MatrixLayout::RowMajor,
-            )
-        }
+    fn allocate_key_value(#[comptime] _config: Self::Config) -> Self::KeyValue {
+        panic!(
+            "Can't reuse key/value because the fragment is col major for key and row major for value"
+        )
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
@@ -99,7 +88,7 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
                 size.seq_q,
                 size.seq_kv,
                 size.head_dim,
-                cmma::MatrixLayout::RowMajor,
+                cmma::MatrixLayout::ColMajor,
             )
         }
     }
@@ -142,7 +131,16 @@ impl<AP: AttentionPrecision> FragmentAttention<AP> for BlackboxAcceleratedFragme
         cmma::load(fragment, &slice, stride);
     }
 
-    fn fill_key_value<E: Float>(
+    fn fill_key_transposed<E: Float>(
+        tile: &StridedTile<E>,
+        rhs: &mut Self::KeyValue,
+        #[comptime] _config: Self::Config,
+    ) {
+        let (slice, stride) = tile.as_unlined();
+        cmma::load(rhs, &slice, stride);
+    }
+
+    fn fill_value<E: Float>(
         tile: &StridedTile<E>,
         rhs: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,

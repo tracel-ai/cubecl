@@ -67,9 +67,9 @@ pub struct GlobalLayoutConfig {
 impl From<GlobalMemoryConfig> for GlobalLayoutConfig {
     fn from(value: GlobalMemoryConfig) -> Self {
         GlobalLayoutConfig {
-            matrix_layout: value.matrix_layout,
-            check_row_bounds: value.check_row_bounds,
-            check_col_bounds: value.check_col_bounds,
+            matrix_layout: value.matrix_layout(),
+            check_row_bounds: value.check_row_bounds(),
+            check_col_bounds: value.check_col_bounds(),
         }
     }
 }

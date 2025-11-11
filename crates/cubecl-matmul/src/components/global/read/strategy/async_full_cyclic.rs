@@ -6,7 +6,9 @@ use crate::components::{
         GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
+        read::{
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+        },
     },
     stage::{
         ContiguousTilingLayout, StridedStageMemory, StridedStageFamily, TilingOrder, TilingValidation,
@@ -26,7 +28,11 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
             * config.tiling_scheme().tiles_in_stage(ident);
@@ -38,6 +44,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         }
 
         ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+        validate_async_barrier::<R>(client)?;
 
         Ok(())
     }

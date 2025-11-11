@@ -72,8 +72,8 @@ impl Layout for OutLayout {
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, m, n) = pos;
-        let check_m = comptime![self.config.check_row_bounds];
-        let check_n = comptime![self.config.check_col_bounds];
+        let check_m = comptime![self.config.check_row_bounds()];
+        let check_n = comptime![self.config.check_col_bounds()];
         (!check_m || m < self.shape_m) && (!check_n || n < self.shape_n)
     }
 }

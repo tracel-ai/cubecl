@@ -20,8 +20,8 @@ use crate::components::{
 };
 use crate::components::{stage::StageAttentionConfig, tile::RowWise};
 use crate::components::{
-    stage::{KeyValues, QueryPartition, SoftmaxPartition},
-    tile::FragmentAttention,
+    stage::{KeyValuePartition, QueryPartition, SoftmaxPartition},
+    tile::TileAttention,
 };
 use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
@@ -32,9 +32,9 @@ pub struct PartitionAttention<
     SK,
     SV,
     SO,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     P: AttentionPartitioner,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     #[cube(comptime)]
     _phantom: PhantomData<(AP, SK, SV, SO, FA, P, S)>,
@@ -46,9 +46,9 @@ impl<
     SK: Stage<KS<AP>, ReadOnly, TileKind = Strided>,
     SV: Stage<VS<AP>, ReadOnly, TileKind = Strided>,
     SO: Stage<OS<AP>, ReadWrite, TileKind = Strided>,
-    FA: FragmentAttention<AP>,
+    FA: TileAttention<AP>,
     P: AttentionPartitioner,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > StageAttention<AP> for PartitionAttention<AP, SK, SV, SO, FA, P, S>
 {
     type KeyStage = SK;
@@ -59,7 +59,7 @@ impl<
     type Partitioner = P;
 
     type QueryRegisters = QueryPartition<AP, FA, S>;
-    type KeyValueRegisters = KeyValues<AP, FA, S>;
+    type KeyValueRegisters = KeyValuePartition<AP, FA, S>;
     type SoftmaxRegisters = SoftmaxPartition<AP, FA, S>;
     type AccumulatorRegisters = AccumulatorPartition<AP, FA, S>;
     type MaskRegisters = MaskPartition<AP, FA, S>;
@@ -75,7 +75,7 @@ impl<
         query_partition: &QueryPartition<AP, FA, S>,
         key_stage: &SK,
         value_stage: &SV,
-        key_value_partition: &mut KeyValues<AP, FA, S>,
+        key_value_partition: &mut KeyValuePartition<AP, FA, S>,
         mask_reader: &MaskReader<AP>,
         mask_partition: &mut MaskPartition<AP, FA, S>,
         softmax_partition: &mut SoftmaxPartition<AP, FA, S>,
@@ -112,8 +112,8 @@ impl<
 
                     // Get the only key-value tile and fill it with hd,kv-th key data
                     let key_tile = key_value_partition.get_key_mut();
-                    let key_data = SK::tile(key_stage, (hd, kv).runtime());
-                    FA::fill_key_value(&key_data, key_tile.key_mut(), config.tile_config());
+                    let key_data = SK::tile(key_stage, (kv, hd).runtime());
+                    FA::fill_key_transposed(&key_data, key_tile.key_mut(), config.tile_config());
 
                     // Perform score matmul on query and key, and accumulate in softmax tile
                     FA::score_matmul(
@@ -160,7 +160,7 @@ impl<
                     // Get the only key-value tile and fill it with hd,kv-th key data
                     let value_data = SV::tile(value_stage, (kv, vd).runtime());
                     let value_tile = key_value_partition.get_value_mut();
-                    FA::fill_key_value(&value_data, value_tile.value_mut(), config.tile_config());
+                    FA::fill_value(&value_data, value_tile.value_mut(), config.tile_config());
 
                     // Get the q,vd-th accumulator and scale it with previously obtained scale
                     let accumulator = accumulator_partition.get_at_mut(q, vd, config);
@@ -242,8 +242,8 @@ impl<
         QueryPartition::<AP, FA, S>::new(config)
     }
 
-    fn init_key_value(#[comptime] config: S) -> KeyValues<AP, FA, S> {
-        KeyValues::<AP, FA, S>::new(config)
+    fn init_key_value(#[comptime] config: S) -> KeyValuePartition<AP, FA, S> {
+        KeyValuePartition::<AP, FA, S>::new(config)
     }
 
     fn init_softmax(#[comptime] config: S) -> SoftmaxPartition<AP, FA, S> {

@@ -5,8 +5,8 @@ use cubecl_matmul::components::TileSize;
 use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::accelerated::local_tile::{LocalTile, LocalTileLayout};
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
-use crate::components::tile::{FragmentAttentionConfig as _, RowWise};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
+use crate::components::tile::{RowWise, TileAttentionConfig as _};
 
 #[derive(CubeType)]
 /// Navigates between cmma fragment (for matmuls) and shared memory (for row wise ops)

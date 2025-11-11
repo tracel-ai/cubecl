@@ -2,6 +2,7 @@ use crate::components::stage::TilingLayout;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use crate::components::{global::GlobalConfig, stage::StageFamily};
+use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -46,13 +47,57 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError>;
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError>;
+}
+
+/// Validates if [async barrier instructions](SemanticType::Barrier) is available on the current
+/// device.
+pub fn validate_async_barrier<R: Runtime>(
+    client: &ComputeClient<R::Server>,
+) -> Result<(), InvalidConfigError> {
+    if !client
+        .properties()
+        .features
+        .supports_type(SemanticType::Barrier)
+    {
+        return Err(Box::new(
+            "Async barrier instructions are not available on the current device",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
+/// device.
+pub fn validate_tma<R: Runtime>(
+    client: &ComputeClient<R::Server>,
+) -> Result<(), InvalidConfigError> {
+    if !client
+        .properties()
+        .features
+        .supports_type(SemanticType::TensorMap)
+    {
+        return Err(Box::new(
+            "Tensor memory accelerator features are not available on the current device",
+        ));
+    }
+
+    Ok(())
 }
 
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        _config: &C,
+        _ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }

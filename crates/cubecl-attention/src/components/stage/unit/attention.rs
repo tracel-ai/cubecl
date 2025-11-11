@@ -8,7 +8,7 @@ use crate::components::{
         UnitReducer, partition_attention::PartitionAttention, partitioner::AttentionPartitioner,
         unit::UnitPartitionStageConfig,
     },
-    tile::FragmentAttention,
+    tile::TileAttention,
 };
 
 pub type UnitPartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
@@ -18,7 +18,7 @@ pub type UnitPartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
     SO,
     FA,
     UnitPartitioner,
-    UnitPartitionStageConfig<<FA as FragmentAttention<AP>>::Config>,
+    UnitPartitionStageConfig<<FA as TileAttention<AP>>::Config>,
 >;
 
 pub struct UnitPartitioner {}

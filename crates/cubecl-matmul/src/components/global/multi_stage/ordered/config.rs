@@ -131,7 +131,7 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
     /// - There is more than one stage partition in n
     /// - Lhs is not loaded exclusively by main flow planes
     pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R::Server>,
         stage_config: S,
         num_planes: u32,
         check_m_bounds: bool,
@@ -151,14 +151,15 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             reader_mode,
             specialized_loading_sides,
         }
-        .validate::<LL, RL>()
+        .validate::<LL, RL, R>(client)
     }
 
-    fn validate<LL: LoadingValidation, RL: LoadingValidation>(
+    fn validate<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         self,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self>(&self, MatmulIdent::Lhs)?;
-        RL::check::<Self>(&self, MatmulIdent::Rhs)?;
+        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs)?;
+        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs)?;
         shared_global_config_validation(self)?;
         if self.tiling_scheme().stage_partitions_in_stage_n() > 1 {
             return Err(MatmulSetupError::InvalidConfig(Box::new(

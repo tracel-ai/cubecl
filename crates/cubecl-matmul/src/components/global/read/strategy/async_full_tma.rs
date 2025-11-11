@@ -1,3 +1,4 @@
+use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
@@ -20,8 +21,14 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncFullTmaLoading {}
 
 impl LoadingValidation for AsyncFullTmaLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.global_memory_config(ident))?;
+        validate_tma::<R>(client)?;
+        validate_async_barrier::<R>(client)?;
 
         Ok(())
     }

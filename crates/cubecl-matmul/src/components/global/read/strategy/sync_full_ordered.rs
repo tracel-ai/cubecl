@@ -23,7 +23,11 @@ use super::{LoadingValidation, sync_full_tilewise};
 pub struct SyncFullOrderedLoading {}
 
 impl LoadingValidation for SyncFullOrderedLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         if ident != MatmulIdent::Lhs {
             return Err(FormattedConfigError::new(move || {
                 "Ordered loading only available on Lhs".to_string()

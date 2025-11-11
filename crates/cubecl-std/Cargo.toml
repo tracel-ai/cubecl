@@ -19,9 +19,9 @@ export_tests = []
 
 [dependencies]
 
-cubecl-common = { path = "../cubecl-common", version = "0.9.0", default-features = false }
-cubecl-core = { path = "../cubecl-core", version = "0.9.0", default-features = false }
-cubecl-runtime = { path = "../cubecl-runtime", version = "0.9.0", default-features = false }
+cubecl-common = { path = "../cubecl-common", version = "0.9.0-pre.1", default-features = false }
+cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", default-features = false }
+cubecl-runtime = { path = "../cubecl-runtime", version = "0.9.0-pre.1", default-features = false }
 half.workspace = true
 paste = { workspace = true }
 serde = { workspace = true }

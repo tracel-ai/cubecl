@@ -5,7 +5,8 @@ use cubecl_matmul::components::{
     AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     MatmulSetupError,
     global::{
-        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
+        PartitionedStageFamily, WriteTiling,
+        read::{NoLoadingValidation, validate_async_barrier, validate_tma},
         single_stage::simple::SimpleConfig,
     },
     stage::{
@@ -60,6 +61,8 @@ where
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
+        validate_tma::<R>(client)?;
+        validate_async_barrier::<R>(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`

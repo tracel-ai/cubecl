@@ -110,7 +110,7 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
     #[comptime] plane_dim: u32,
     #[comptime] config: GlobalMemoryConfig,
 ) {
-    let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
+    let tile_size = config.elements_in_tile();
     let output_line_size = global.line_size();
 
     let unit_step = comptime![plane_dim * output_line_size];

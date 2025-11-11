@@ -1,7 +1,7 @@
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::components::stage::plane::PlanePartitionStageAttentionFamily;
-use crate::components::tile::accelerated::BlackboxAcceleratedFragmentAttention;
+use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::{
     components::{
         AvailableLineSizes, batch::simple::SimpleBatchAttentionFamily,
@@ -13,9 +13,9 @@ use crate::{
 pub struct BlackboxAcceleratedAlgorithm {}
 
 impl Algorithm for BlackboxAcceleratedAlgorithm {
-    type FragmentAttention = BlackboxAcceleratedFragmentAttention;
+    type TileAttention = BlackboxAcceleratedTileAttention;
     type StageAttention = PlanePartitionStageAttentionFamily<
-        Self::FragmentAttention,
+        Self::TileAttention,
         StridedStageFamily,
         StridedStageFamily,
         PartitionedStageFamily,

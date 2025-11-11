@@ -51,6 +51,7 @@ where
         &problem,
         &line_sizes,
         config,
+        dtypes,
     );
     let output = <OutputArg<A::Args> as ConcreteOutputFactory>::create(
         client,
@@ -59,6 +60,7 @@ where
         &problem,
         &line_sizes,
         config,
+        dtypes,
     );
 
     unsafe {
