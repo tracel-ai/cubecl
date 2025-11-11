@@ -105,22 +105,17 @@ pub struct LogicalTileMask<F: FragmentLayout> {
 #[cube]
 impl<F: FragmentLayout> LogicalTileMask<F> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
-        comment!("a");
         let pos_in_tile = self.fragment_layout.absolute_pos(local_pos);
 
-        comment!("b");
         let pos = Coords2d::add(self.logical_iter_origin.read(), pos_in_tile);
 
-        comment!("c");
         let causal_masked = self.causal && pos.0 < pos.1;
 
-        comment!("d");
         let oob_masked = match self.out_of_bounds {
             CubeOption::Some(bounds) => !Coords2d::is_in_bounds(&pos, &bounds),
             CubeOption::None => false,
         };
 
-        comment!("e");
         causal_masked || oob_masked
     }
 
@@ -156,7 +151,6 @@ impl<AP: AttentionPrecision, FA: TileAttention<AP>> FragmentMask for MaskTile<AP
     type Layout = <FA::Mask as FragmentMask>::Layout;
 
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {
-        comment!("should mask");
         match self {
             MaskTile::Materialized(materialized_tile_mask) => {
                 materialized_tile_mask.should_mask(local_pos)
