@@ -227,7 +227,7 @@ impl ComputeServer for WgpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {

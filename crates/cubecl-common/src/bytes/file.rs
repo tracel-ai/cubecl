@@ -1,3 +1,8 @@
+use super::AllocationProperties;
+use crate::bytes::{
+    AllocationController,
+    default_controller::{MAX_ALIGN, NativeAllocationController},
+};
 use core::{
     cell::UnsafeCell,
     sync::atomic::{AtomicBool, Ordering},
@@ -6,15 +11,6 @@ use std::{
     io::{Read, Seek, SeekFrom},
     sync::{Arc, Mutex},
 };
-
-use futures_lite::io::BufReader;
-
-use crate::bytes::{
-    AllocationController,
-    default_controller::{MAX_ALIGN, NativeAllocationController},
-};
-
-use super::AllocationProperties;
 
 pub(crate) struct FileAllocationController {
     file: Arc<Mutex<std::fs::File>>,

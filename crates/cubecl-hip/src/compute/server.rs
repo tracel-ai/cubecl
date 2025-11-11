@@ -113,13 +113,13 @@ impl ComputeServer for HipServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(server::CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(server::CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
-            command.write_to_gpu(descriptor, data)?;
+            command.write_to_gpu(descriptor, &data)?;
         }
 
         Ok(())
