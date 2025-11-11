@@ -22,7 +22,7 @@ pub enum Strategy {
     Unit,
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
@@ -45,7 +45,7 @@ pub fn launch<R: Runtime>(
     )
 }
 
-#[allow(clippy::result_large_err)]
+#[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
     client: &ComputeClient<R::Server>,
