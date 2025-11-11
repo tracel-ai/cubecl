@@ -209,13 +209,13 @@ impl<
 /// Input argument
 pub type InputArg<AA> = <AA as AttentionArgs>::Input<
     NumericExpand<0>,
-    NumericExpand<1>,
     NumericExpand<2>,
-    NumericExpand<3>,
+    NumericExpand<4>,
+    NumericExpand<9>,
 >;
 
 /// Output argument
-pub type OutputArg<AA> = <AA as AttentionArgs>::Output<NumericExpand<4>>;
+pub type OutputArg<AA> = <AA as AttentionArgs>::Output<NumericExpand<10>>;
 
 /// Input runtime argument
 pub type InputRuntimeArg<'a, AA, R> = <InputArg<AA> as LaunchArg>::RuntimeArg<'a, R>;
@@ -284,5 +284,24 @@ impl AttentionElems {
             out_global: OG::<AP>::as_type_native_unchecked(),
             out_stage: OS::<AP>::as_type_native_unchecked(),
         }
+    }
+}
+
+impl From<&AttentionElems> for [StorageType; 12] {
+    fn from(elems: &AttentionElems) -> Self {
+        [
+            elems.query_global,
+            elems.query_tile,
+            elems.key_global,
+            elems.key_stage,
+            elems.value_global,
+            elems.value_stage,
+            elems.key_value_tile,
+            elems.softmax,
+            elems.accumulator,
+            elems.mask,
+            elems.out_global,
+            elems.out_stage,
+        ]
     }
 }

@@ -131,6 +131,7 @@ pub fn test_attention_algorithm<A, P, R>(
             ),
             cube_count_plan.as_args(),
             config,
+            &attention_elems,
         );
     }
 

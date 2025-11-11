@@ -3,10 +3,9 @@ use std::marker::PhantomData;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::{
-    Args, AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem,
-    AttentionSelection, InputRuntimeArg, OutputRuntimeArg,
+    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    InputRuntimeArg, OutputRuntimeArg,
     args::AttentionArgs,
-    attention_types::*,
     batch::{
         BatchAttentionFamily,
         entry_point::attention,
@@ -53,24 +52,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         dtypes: &AttentionElems,
     ) {
         unsafe {
-            attention::launch_unchecked::<
-                AA,
-                // Args<AS>,
-                // QG<AS>,
-                // QT<AS>,
-                // KG<AS>,
-                // KS<AS>,
-                // VG<AS>,
-                // VS<AS>,
-                // KVT<AS>,
-                // SM<AS>,
-                // ACC<AS>,
-                // MSK<AS>,
-                // OG<AS>,
-                // OS<AS>,
-                Self,
-                R,
-            >(
+            attention::launch_unchecked::<AA, Self, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -78,6 +60,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
                 output,
                 cube_count_input,
                 config,
+                dtypes.into(),
             );
         }
     }

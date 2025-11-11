@@ -166,6 +166,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
             out.as_tensor_arg(line_sizes.out),
             cube_count_plan.as_args(),
             config,
+            attention_elems,
         );
     }
 
