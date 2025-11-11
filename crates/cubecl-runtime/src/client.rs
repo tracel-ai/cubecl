@@ -220,7 +220,7 @@ where
                         &alloc.strides,
                         desc.elem_size,
                     ),
-                    data,
+                    Bytes::from_bytes_vec(data.to_vec()),
                 )
             })
             .collect();
@@ -229,11 +229,56 @@ where
         Ok(allocations)
     }
 
-    /// Given a resource, stores it and returns the resource handle.
+    fn do_create_bytes(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+        data: Vec<Bytes>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let mut state = self.context.lock();
+        let allocations = state.create(descriptors.clone(), self.stream_id())?;
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocations.iter())
+            .zip(data)
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone().binding(),
+                        desc.shape,
+                        &alloc.strides,
+                        desc.elem_size,
+                    ),
+                    Bytes::from_bytes_vec(data.to_vec()),
+                )
+            })
+            .collect();
+        let stream_id = self.stream_id();
+        state.write(descriptors, stream_id)?;
+        Ok(allocations)
+    }
+
+    /// Returns a resource handle containing the given data.
     pub fn create(&self, data: &[u8]) -> Handle {
         let shape = [data.len()];
 
         self.do_create(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                &shape,
+                1,
+            )],
+            vec![data],
+        )
+        .unwrap()
+        .remove(0)
+        .handle
+    }
+
+    /// Returns a resource handle containing the given [Bytes].
+    pub fn create_from_bytes(&self, data: Bytes) -> Handle {
+        let shape = [data.len()];
+
+        self.do_create_bytes(
             vec![AllocationDescriptor::new(
                 AllocationKind::Contiguous,
                 &shape,
@@ -259,8 +304,43 @@ where
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [ComputeClient::read_tensor]).
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensor_from_bytes] for better performance.
     pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Optimized,
+                shape,
+                elem_size,
+            )],
+            vec![data],
+        )
+        .unwrap()
+        .remove(0)
+    }
+
+    /// Given a resource and shape, stores it and returns the tensor handle and strides.
+    /// This may or may not return contiguous strides. The layout is up to the runtime, and care
+    /// should be taken when indexing.
+    ///
+    /// Currently the tensor may either be contiguous (most runtimes), or "pitched", to use the CUDA
+    /// terminology. This means the last (contiguous) dimension is padded to fit a certain alignment,
+    /// and the strides are adjusted accordingly. This can make memory accesses significantly faster
+    /// since all rows are aligned to at least 16 bytes (the maximum load width), meaning the GPU
+    /// can load as much data as possible in a single instruction. It may be aligned even more to
+    /// also take cache lines into account.
+    ///
+    /// However, the stride must be taken into account when indexing and reading the tensor
+    /// (also see [ComputeClient::read_tensor]).
+    pub fn create_tensor_from_bytes(
+        &self,
+        data: Bytes,
+        shape: &[usize],
+        elem_size: usize,
+    ) -> Allocation {
+        self.do_create_bytes(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
                 shape,
@@ -275,6 +355,10 @@ where
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
     /// See [ComputeClient::create_tensor]
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensors_from_bytes] for better performance.
     pub fn create_tensors(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
@@ -282,6 +366,18 @@ where
         let (descriptors, data) = descriptors.into_iter().unzip();
 
         self.do_create(descriptors, data).unwrap()
+    }
+
+    /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
+    /// handle, and returns the handles for them.
+    /// See [ComputeClient::create_tensor]
+    pub fn create_tensors_from_bytes(
+        &self,
+        descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
+    ) -> Vec<Allocation> {
+        let (descriptors, data) = descriptors.into_iter().unzip();
+
+        self.do_create_bytes(descriptors, data).unwrap()
     }
 
     fn do_empty(
@@ -613,7 +709,7 @@ where
             .remove(0);
 
         let read = self.context.lock().read(vec![src_descriptor], stream_id);
-        let data = cubecl_common::future::block_on(read).unwrap();
+        let mut data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
             binding: alloc.handle.clone().binding(),
@@ -625,7 +721,7 @@ where
         dst_server
             .context
             .lock()
-            .write(vec![(desc_descriptor, &data[0])], stream_id)
+            .write(vec![(desc_descriptor, data.remove(0))], stream_id)
             .unwrap();
 
         alloc

@@ -126,6 +126,33 @@ where
                     &alloc.strides,
                     1,
                 ),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        )?;
+        Ok(alloc.handle)
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
+        let alloc = self
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
+            .remove(0);
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
                 data,
             )],
             stream_id,
@@ -143,7 +170,7 @@ where
     /// Writes the specified bytes into the buffers given
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 

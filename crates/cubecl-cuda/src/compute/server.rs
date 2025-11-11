@@ -128,7 +128,7 @@ impl ComputeServer for CudaServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
@@ -619,7 +619,7 @@ impl CudaServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
+        command_dst.write_to_gpu(copy_desc, bytes)?;
 
         // We drop the last command.
         core::mem::drop(command_dst);

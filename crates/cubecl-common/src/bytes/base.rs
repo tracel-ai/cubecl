@@ -23,6 +23,13 @@ pub struct Bytes {
     len: usize,
 }
 
+pub enum AllocationProperties {
+    File,
+    Native,
+    Pinned,
+    Other,
+}
+
 /// Defines how an [Allocation] can be controlled.
 ///
 /// This trait enables type erasure of the allocator after an [Allocation] is created, while still
@@ -31,7 +38,11 @@ pub trait AllocationController {
     /// The alignment this allocation was created with.
     fn alloc_align(&self) -> usize;
 
+    /// Returns memory properties for the current allocation.
+    fn properties(&self) -> AllocationProperties;
+
     /// Returns a mutable view of the memory of the whole allocation
+    ///
     /// # Safety
     ///
     /// Must only write initialized data to the buffer.
@@ -39,6 +50,24 @@ pub trait AllocationController {
 
     /// Returns a view of the memory of the whole allocation
     fn memory(&self) -> &[MaybeUninit<u8>];
+
+    /// Reads the data from the current allocation controller and copy its content into the provided
+    /// buffer.
+    ///
+    /// # Safety
+    ///
+    /// Ensures the length provided reflect initialized values in the current allocation controller.
+    unsafe fn read_into(self: Box<Self>, buf: &mut [u8]) {
+        let len = buf.len();
+        let memory = self.memory();
+        let memory_slice = &memory[0..len];
+
+        // SAFETY: By construction, bytes up to len are initialized.
+        let data = unsafe {
+            core::slice::from_raw_parts(memory_slice.as_ptr().cast(), memory_slice.len())
+        };
+        buf.copy_from_slice(data);
+    }
 
     /// Extends the provided [Allocation] to a new size with specified alignment.
     ///
@@ -88,6 +117,14 @@ pub enum AllocationError {
 }
 
 impl Bytes {
+    pub fn read_into(self, other: &mut Self) {
+        unsafe {
+            self.controller.read_into(other);
+        }
+    }
+    pub fn properties(&self) -> AllocationProperties {
+        self.controller.properties()
+    }
     /// Creates the type from its raw parts.
     ///
     /// # Safety
