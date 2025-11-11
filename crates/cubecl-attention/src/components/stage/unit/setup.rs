@@ -65,7 +65,8 @@ impl<
         };
 
         let num_planes = compute_resources.num_planes(selection.plane_dim)?;
-        let tile_config = FA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+        let tile_config =
+            FA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
         UnitPartitionStageConfig::new(
             tile_config,
