@@ -1,40 +1,29 @@
 use crate::components::{
-    AttentionSetupError, AttentionTilingScheme,
-    stage::{AttentionStageMemoryConfig, StageAttentionConfig},
-    tile::FragmentAttentionConfig,
+    AttentionSetupError, AttentionTilingScheme, stage::StageAttentionConfig,
+    tile::TileAttentionConfig,
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct PlanePartitionStageConfig<FC: FragmentAttentionConfig> {
-    fragment_config: FC,
-    score_stage_memory_config: AttentionStageMemoryConfig,
-    value_stage_memory_config: AttentionStageMemoryConfig,
+pub struct PlanePartitionStageConfig<TC: TileAttentionConfig> {
+    tile_config: TC,
     tiling_scheme: AttentionTilingScheme,
     reuse_key_value: bool,
     num_planes: u32,
 }
 
-impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageConfig<FC> {
-    type FragmentAttentionConfig = FC;
+impl<TC: TileAttentionConfig> StageAttentionConfig for PlanePartitionStageConfig<TC> {
+    type TileAttentionConfig = TC;
 
     fn plane_dim(&self) -> u32 {
-        self.fragment_config.plane_dim()
+        self.tile_config.plane_dim()
     }
 
     fn num_planes(&self) -> u32 {
         self.num_planes
     }
 
-    fn tile_config(&self) -> Self::FragmentAttentionConfig {
-        self.fragment_config
-    }
-
-    fn score_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.score_stage_memory_config
-    }
-
-    fn value_stage_memory_config(&self) -> AttentionStageMemoryConfig {
-        self.value_stage_memory_config
+    fn tile_config(&self) -> Self::TileAttentionConfig {
+        self.tile_config
     }
 
     fn tiling_scheme(&self) -> AttentionTilingScheme {
@@ -46,23 +35,19 @@ impl<FC: FragmentAttentionConfig> StageAttentionConfig for PlanePartitionStageCo
     }
 
     fn num_rows_per_unit(&self) -> u32 {
-        self.fragment_config.num_rows_per_unit()
+        self.tile_config.num_rows_per_unit()
     }
 }
 
-impl<FC: FragmentAttentionConfig> PlanePartitionStageConfig<FC> {
+impl<TC: TileAttentionConfig> PlanePartitionStageConfig<TC> {
     pub fn new(
-        fragment_config: FC,
-        score_stage_memory_config: AttentionStageMemoryConfig,
-        value_stage_memory_config: AttentionStageMemoryConfig,
+        tile_config: TC,
         tiling_scheme: AttentionTilingScheme,
         reuse_key_value: bool,
         num_planes: u32,
     ) -> Result<Self, AttentionSetupError> {
         Self {
-            fragment_config,
-            score_stage_memory_config,
-            value_stage_memory_config,
+            tile_config,
             tiling_scheme,
             reuse_key_value,
             num_planes,

@@ -4,7 +4,7 @@ use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -20,7 +20,11 @@ pub struct SyncPartialCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
             let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
@@ -68,9 +72,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = Synchronous;
-    type Job<IP: MatrixPrecision> = SyncPartialCyclicJob;
+    type Job<EG: Numeric, ES: Numeric> = SyncPartialCyclicJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
@@ -133,14 +137,14 @@ pub struct SyncPartialCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
-    for SyncPartialCyclicJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncPartialCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -149,10 +153,16 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, &mut stage, config);
+            load_and_store_line::<EG, ES, TO, G>(
+                this,
+                unit_position,
+                global_iter,
+                &mut stage,
+                config,
+            );
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(
+                load_and_store_line::<EG, ES, TO, G>(
                     this,
                     unit_position,
                     global_iter,
@@ -169,11 +179,11 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<Line<IP::Global>>,
-    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+    global_iter: &GlobalIterator<Line<EG>>,
+    stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));

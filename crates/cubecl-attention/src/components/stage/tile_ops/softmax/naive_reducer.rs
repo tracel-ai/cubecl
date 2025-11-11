@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::stage::{ReduceOp, Reducer};
-use crate::components::tile::{FragmentAttentionConfig, RowWise};
+use crate::components::tile::{RowWise, TileAttentionConfig};
 use crate::components::tile::{RowwiseFormat, RowwiseFormatExpand};
 
 #[derive(CubeType)]
@@ -11,7 +11,7 @@ pub struct NaiveReducer {}
 
 #[cube]
 impl Reducer for NaiveReducer {
-    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, FC: FragmentAttentionConfig>(
+    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, FC: TileAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] config: FC,

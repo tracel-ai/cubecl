@@ -3,17 +3,17 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use cubecl_matmul::components::tile::StridedTile;
 
 #[derive(CubeType)]
 /// Query input to the Tile Attention
-pub struct QueryTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct QueryTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
     pub fragment: FA::Query,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> QueryTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> QueryTile<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> QueryTile<AP, FA> {
         QueryTile::<AP, FA> {
             fragment: FA::allocate_query(config),

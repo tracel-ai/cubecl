@@ -41,8 +41,8 @@ impl TilingLayout for BiasTilingLayout {
 
 impl TilingValidation for BiasTilingLayout {
     fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = config.elements_in_stage_col;
-        if config.global_line_size > stage_width {
+        let stage_width = config.elements_in_stage_col();
+        if config.line_size() > stage_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())

@@ -1,10 +1,12 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
-        read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
+        read::{
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+        },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
 };
@@ -19,7 +21,11 @@ use super::LoadingValidation;
 pub struct AsyncFullMaximizeUnitCountLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let line_size = config.global_line_size(ident);
 
@@ -47,6 +53,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         }
 
         StridedTilingLayout::check(config.global_memory_config(ident))?;
+        validate_async_barrier::<R>(client)?;
 
         Ok(())
     }
@@ -69,11 +76,11 @@ impl LoadMaxRoundPlaneCount for AsyncFullMaximizeUnitCountLoading {
 impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = AsyncBarrier;
-    type Job<IP: MatrixPrecision> = AsyncFullMaximizeUnitCountJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncFullMaximizeUnitCountJob;
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
@@ -119,18 +126,18 @@ pub struct AsyncFullMaximizeUnitCountJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeUnitCountJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] _task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
-        let mut destination: SliceMut<Line<IP::Stage>> = StridedTilingLayout::nth_slice::<IP::Stage>(
+        let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             stage,
             this.nth_slice,
             comptime!(config.stage_memory_config(this.ident)),

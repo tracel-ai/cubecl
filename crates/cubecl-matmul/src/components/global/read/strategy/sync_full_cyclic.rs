@@ -1,11 +1,11 @@
 use std::marker::PhantomData;
 
+use crate::components::TilingScheme;
 use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -21,7 +21,11 @@ pub struct SyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
 
@@ -58,13 +62,13 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullCyclicLoading<TO> {
 impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = Synchronous;
-    type Job<IP: MatrixPrecision> = SyncFullCyclicJob;
+    type Job<EG: Numeric, ES: Numeric> = SyncFullCyclicJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
 
@@ -117,14 +121,14 @@ pub struct SyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, Synchronous>
-    for SyncFullCyclicJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -132,10 +136,16 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+            load_and_store_line::<EG, ES, TO, G>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<IP, TO, G>(this, unit_position, global_iter, stage, config);
+                load_and_store_line::<EG, ES, TO, G>(
+                    this,
+                    unit_position,
+                    global_iter,
+                    stage,
+                    config,
+                );
             }
         }
     }
@@ -146,11 +156,11 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalConfig>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
-    global_iter: &GlobalIterator<Line<IP::Global>>,
-    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+    global_iter: &GlobalIterator<Line<EG>>,
+    stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let nth_tile = unit_position / job.tile_num_elements;

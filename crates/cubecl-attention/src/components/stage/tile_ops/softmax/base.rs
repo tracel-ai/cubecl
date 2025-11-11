@@ -3,15 +3,15 @@ use cubecl_core::prelude::*;
 
 use crate::components::stage::RowMax;
 use crate::components::stage::RowSum;
-use crate::components::tile::FragmentAttentionConfig;
 use crate::components::tile::RowWise;
 use crate::components::tile::RowwiseFormat;
+use crate::components::tile::TileAttentionConfig;
 
 use crate::components::stage::{MaskTile, RunningState};
 use crate::components::tile::RowwiseFormatExpand;
 use crate::components::{AttentionPrecision, attention_types::*};
 
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 
 #[cube]
 /// Applies softmax to a tile with masking and updates the running state.
@@ -20,8 +20,8 @@ use crate::components::tile::FragmentAttention;
 /// exponentiates, and updates the softmax state.
 ///
 /// Returns the exponential difference used for normalization.
-pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reducer>(
-    rowwise_softmax: &mut <FA as FragmentAttention<AP>>::SoftmaxRow,
+pub fn tile_softmax<AP: AttentionPrecision, FA: TileAttention<AP>, R: Reducer>(
+    rowwise_softmax: &mut <FA as TileAttention<AP>>::SoftmaxRow,
     mask: &MaskTile<AP, FA>,
     state: &mut RunningState<SM<AP>>,
     max_placeholder: &mut RowWise<SM<AP>>,
@@ -35,7 +35,7 @@ pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reduce
         mask,
     );
 
-    row_max::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
+    row_max::<SM<AP>, <FA as TileAttention<AP>>::SoftmaxRow, R, FA::Config>(
         max_placeholder,
         state.m(),
         rowwise_softmax,
@@ -44,7 +44,7 @@ pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reduce
 
     rowwise_softmax.exp_diff(max_placeholder);
 
-    row_sum::<SM<AP>, <FA as FragmentAttention<AP>>::SoftmaxRow, R, FA::Config>(
+    row_sum::<SM<AP>, <FA as TileAttention<AP>>::SoftmaxRow, R, FA::Config>(
         sum_placeholder,
         rowwise_softmax,
         config,
@@ -61,7 +61,7 @@ pub fn tile_softmax<AP: AttentionPrecision, FA: FragmentAttention<AP>, R: Reduce
 
 #[cube]
 /// Computes the sum of rows on a fragment, using the Reducer's strategy
-pub fn row_sum<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionConfig>(
+pub fn row_sum<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: TileAttentionConfig>(
     vals: &mut RowWise<E>,
     data: &F,
     #[comptime] config: TC,
@@ -73,7 +73,7 @@ pub fn row_sum<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionC
 #[cube]
 /// Computes the max of rows on a fragment, using the Reducer's strategy
 /// Starts max at base
-pub fn row_max<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionConfig>(
+pub fn row_max<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: TileAttentionConfig>(
     vals: &mut RowWise<E>,
     base: &RowWise<E>,
     data: &F,
@@ -87,7 +87,7 @@ pub fn row_max<E: Float, F: RowwiseFormat<E>, R: Reducer, TC: FragmentAttentionC
 /// Strategy for reducing across units participating in the same row
 pub trait Reducer: CubeType {
     /// Reduction algorithm, applied inplace in vals
-    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, TC: FragmentAttentionConfig>(
+    fn reduce<E: Float, F: RowwiseFormat<E>, RO: ReduceOp<E>, TC: TileAttentionConfig>(
         vals: &mut RowWise<E>,
         data: &F,
         #[comptime] config: TC,

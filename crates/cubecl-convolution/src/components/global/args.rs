@@ -1,5 +1,3 @@
-use std::any::TypeId;
-
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::{
@@ -31,7 +29,7 @@ use crate::{
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        MatmulIdent, MatmulLineSizes, MatmulSelection,
+        MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection,
         global::{
             args::{
                 TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
@@ -55,6 +53,7 @@ pub trait ConcreteInputsFactory: LaunchArg {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -68,6 +67,7 @@ pub trait ConcreteOutputFactory: LaunchArg {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R>;
 }
 
@@ -81,6 +81,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type LhsLayout = Chain<NhwcLayout, Im2colLayout>;
         type RhsLayout = Chain<NhwcLayout, WeightLayout>;
@@ -135,6 +136,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
@@ -163,6 +165,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         problem: &ConvolutionProblem,
         line_sizes: &MatmulLineSizes,
         config: impl ConvGemmConfig,
+        dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
@@ -187,10 +190,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
-        let lhs_elem = if TypeId::of::<Lhs>() == TypeId::of::<f32>() {
+        let lhs_elem = if dtypes.lhs_stage == f32::as_type_native_unchecked() {
             tf32::as_type_native_unchecked()
         } else {
-            Lhs::as_type_native_unchecked()
+            dtypes.lhs_stage
         };
 
         let mut elem_stride = vec![1; 2 + problem.stride.len()];
@@ -221,7 +224,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 tile_size: stage_size_rhs,
             },
             rhs.data().as_tensor_arg(1),
-            Rhs::as_type_native_unchecked(),
+            dtypes.rhs_global,
         )
         .with_prefetch(prefetch_rhs);
 

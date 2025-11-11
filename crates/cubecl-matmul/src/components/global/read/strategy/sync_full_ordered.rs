@@ -1,9 +1,7 @@
 use crate::components::global::read::FullLoadingStrategy;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::OrderedTilingOrder;
-use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme,
-};
+use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
@@ -23,7 +21,11 @@ use super::{LoadingValidation, sync_full_tilewise};
 pub struct SyncFullOrderedLoading {}
 
 impl LoadingValidation for SyncFullOrderedLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         if ident != MatmulIdent::Lhs {
             return Err(FormattedConfigError::new(move || {
                 "Ordered loading only available on Lhs".to_string()
@@ -88,13 +90,13 @@ impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
 impl FullLoadingStrategy for SyncFullOrderedLoading {
     type TilingLayout = ContiguousTilingLayout<OrderedTilingOrder>;
     type SyncStrategy = Synchronous;
-    type Job<IP: MatrixPrecision> = sync_full_tilewise::SyncFullTilewiseJob;
+    type Job<EG: Numeric, ES: Numeric> = sync_full_tilewise::SyncFullTilewiseJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
         let plane_dim = config.plane_dim();

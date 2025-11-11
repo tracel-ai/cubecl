@@ -2,21 +2,21 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 
 #[derive(CubeType)]
 /// Key and Value inputs to the Tile Attention
 ///
 /// Key and Value share the same trait because they may
 /// be the same reused underlying fragment
-pub enum KeyValueTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub enum KeyValueTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
     Reuse(ReuseKV<AP, FA>),
     Key(Key<AP, FA>),
     Value(Value<AP, FA>),
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> KeyValueTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> KeyValueTile<AP, FA> {
     pub fn new_key_value(#[comptime] config: FA::Config) -> Self {
         Self::new_Reuse(ReuseKV::new(config))
     }
@@ -67,12 +67,12 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> KeyValueTile<AP, FA> {
 }
 
 #[derive(CubeType)]
-pub struct ReuseKV<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct ReuseKV<AP: AttentionPrecision, FA: TileAttention<AP>> {
     pub fragment: FA::KeyValue,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> ReuseKV<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> ReuseKV<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> Self {
         let fragment = FA::allocate_key_value(config);
         ReuseKV::<AP, FA> { fragment }
@@ -80,12 +80,12 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> ReuseKV<AP, FA> {
 }
 
 #[derive(CubeType)]
-pub struct Key<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct Key<AP: AttentionPrecision, FA: TileAttention<AP>> {
     pub fragment: FA::KeyValue,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> Key<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> Key<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> Self {
         Key::<AP, FA> {
             fragment: FA::allocate_key(config),
@@ -94,12 +94,12 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> Key<AP, FA> {
 }
 
 #[derive(CubeType)]
-pub struct Value<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct Value<AP: AttentionPrecision, FA: TileAttention<AP>> {
     pub fragment: FA::KeyValue,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> Value<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> Value<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> Self {
         Value::<AP, FA> {
             fragment: FA::allocate_value(config),
