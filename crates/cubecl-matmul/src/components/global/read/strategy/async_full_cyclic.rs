@@ -7,7 +7,8 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            FullLoadingStrategy, GlobalReaderConfig, LoadingJob, async_barrier::AsyncBarrier,
+            validate_async_barrier,
         },
     },
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
@@ -26,7 +27,7 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -133,7 +134,7 @@ pub struct AsyncFullCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, AsyncBarrier> for AsyncFullCyclicJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,

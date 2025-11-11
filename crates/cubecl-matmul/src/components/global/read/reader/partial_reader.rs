@@ -7,10 +7,11 @@ use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
+use crate::components::global::read::SyncBarrier;
 use crate::components::global::read::SyncStrategy;
-use crate::components::global::{GlobalConfig, read::SyncBarrier};
 use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
@@ -33,7 +34,7 @@ pub trait PartialLoadingStrategy:
     type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy>;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
@@ -50,7 +51,7 @@ pub trait PartialLoadingStrategy:
 pub struct PartialStageGlobalReader<
     EG: Numeric,
     ES: Numeric,
-    G: GlobalConfig,
+    G: GlobalReaderConfig,
     L: PartialLoadingStrategy,
 > {
     global_iter: GlobalIterator<Line<EG>>,
@@ -63,7 +64,7 @@ pub struct PartialStageGlobalReader<
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: PartialLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: PartialLoadingStrategy>
     PartialStageGlobalReader<EG, ES, G, L>
 {
     /// Create a new SyncPartialStageGlobalReader
@@ -150,7 +151,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: PartialLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: PartialLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: PartialLoadingStrategy>
     JobExecutor<G, L::SyncStrategy> for PartialStageGlobalReader<EG, ES, G, L>
 {
     type JobIterator = PartialJobIterator<EG, ES, L>;

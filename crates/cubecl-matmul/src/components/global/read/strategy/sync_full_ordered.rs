@@ -1,4 +1,4 @@
-use crate::components::global::read::FullLoadingStrategy;
+use crate::components::global::read::{FullLoadingStrategy, GlobalReaderConfig};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
@@ -21,7 +21,7 @@ use super::{LoadingValidation, sync_full_tilewise};
 pub struct SyncFullOrderedLoading {}
 
 impl LoadingValidation for SyncFullOrderedLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,

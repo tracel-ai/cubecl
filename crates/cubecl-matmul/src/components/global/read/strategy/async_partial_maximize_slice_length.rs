@@ -5,7 +5,8 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier, validate_async_barrier,
+            GlobalReaderConfig, LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier,
+            validate_async_barrier,
         },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
@@ -21,7 +22,7 @@ use super::LoadingValidation;
 pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -52,7 +53,7 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type SyncStrategy = AsyncBarrier;
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialMaximizeSliceLengthJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
@@ -131,7 +132,7 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncPartialMaximizeSliceLengthJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,

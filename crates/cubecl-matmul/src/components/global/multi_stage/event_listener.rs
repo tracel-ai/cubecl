@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::read::{StageBuffer, SyncStrategy};
+use crate::components::global::read::{GlobalReaderConfig, StageBuffer, SyncStrategy};
 use crate::components::global::{GlobalConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{MatmulIdent, TilingScheme};
@@ -92,7 +92,7 @@ impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalC
 }
 
 #[cube]
-impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
+impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReaderConfig>
     StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
 {
     /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
@@ -299,7 +299,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
 
 #[cube]
 /// Something that can execute a job, i.e. a reader
-pub trait JobExecutor<G: GlobalConfig, S: SyncStrategy>: CubeType + Clone {
+pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone {
     /// The job to execute
     type JobIterator: JobIterator;
 

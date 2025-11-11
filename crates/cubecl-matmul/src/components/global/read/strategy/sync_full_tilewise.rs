@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
@@ -40,7 +41,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
 }
 
 impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -136,7 +137,7 @@ pub struct SyncFullTilewiseJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullTilewiseJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
@@ -173,7 +174,7 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 #[cube]
 impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalReaderConfig>(
         this: &Self,
         tile: Coords2d,
         line_index_within_tile: u32,

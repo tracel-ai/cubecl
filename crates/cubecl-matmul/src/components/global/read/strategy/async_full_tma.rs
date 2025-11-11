@@ -1,5 +1,5 @@
 use crate::components::TilingScheme;
-use crate::components::global::read::{validate_async_barrier, validate_tma};
+use crate::components::global::read::{GlobalReaderConfig, validate_async_barrier, validate_tma};
 use crate::components::global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -18,7 +18,7 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncFullTmaLoading {}
 
 impl LoadingValidation for AsyncFullTmaLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -84,7 +84,7 @@ pub struct AsyncFullTmaJob {
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for AsyncFullTmaJob {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,

@@ -5,7 +5,7 @@ use crate::components::{
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            FullLoadingStrategy, GlobalReaderConfig, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier
         },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
@@ -21,7 +21,7 @@ use super::LoadingValidation;
 pub struct AsyncFullMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -54,7 +54,7 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: G,
@@ -94,7 +94,7 @@ pub struct AsyncFullMaximizeSliceLengthJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeSliceLengthJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,

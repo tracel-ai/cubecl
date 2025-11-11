@@ -1,4 +1,4 @@
-use crate::components::global::read::{validate_async_barrier, validate_tma};
+use crate::components::global::read::{GlobalReaderConfig, validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
@@ -20,7 +20,7 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncPartialTmaLoading {}
 
 impl LoadingValidation for AsyncPartialTmaLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -50,7 +50,7 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
     type SyncStrategy = AsyncTma;
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialTmaJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
@@ -90,7 +90,7 @@ pub struct AsyncPartialTmaJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
     for AsyncPartialTmaJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,

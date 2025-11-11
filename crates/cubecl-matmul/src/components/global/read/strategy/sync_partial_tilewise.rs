@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
@@ -40,7 +41,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> 
 }
 
 impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -99,7 +100,7 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = SyncPartialTilewiseJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
@@ -161,7 +162,7 @@ pub struct SyncPartialTilewiseJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncPartialTilewiseJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
@@ -212,7 +213,7 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 #[cube]
 impl SyncPartialTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalConfig>(
+    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalReaderConfig>(
         this: &Self,
         tile: Coords2d,
         line_index_within_tile: u32,

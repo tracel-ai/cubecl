@@ -5,6 +5,7 @@ use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
 use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
+use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::StageBuffer;
@@ -37,7 +38,7 @@ pub trait FullLoadingStrategy:
     const SHOULD_CLEAR: bool = false;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
@@ -49,8 +50,12 @@ pub trait FullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
-{
+pub struct FullStageGlobalReader<
+    EG: Numeric,
+    ES: Numeric,
+    G: GlobalReaderConfig,
+    L: FullLoadingStrategy,
+> {
     global_iter: GlobalIterator<Line<EG>>,
     stage: StridedStage<ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<EG, ES>>,
@@ -61,7 +66,7 @@ pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: F
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
     FullStageGlobalReader<EG, ES, G, L>
 {
     /// Create a new SyncFullStageGlobalReader
@@ -165,7 +170,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
+impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
     JobExecutor<G, L::SyncStrategy> for FullStageGlobalReader<EG, ES, G, L>
 {
     type JobIterator = FullStageJobIterator<EG, ES, L>;

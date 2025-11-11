@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
@@ -20,7 +21,7 @@ pub struct SyncPartialCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -74,7 +75,7 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = SyncPartialCyclicJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
@@ -140,7 +141,7 @@ pub struct SyncPartialCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncPartialCyclicJob
 {
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
@@ -179,7 +180,7 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalConfig>(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalReaderConfig>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,

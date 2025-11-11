@@ -7,6 +7,9 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 #[cube]
+pub trait GlobalReaderConfig {}
+
+#[cube]
 /// A loading job represents a sequence of loading tasks.
 /// Each task is the smallest unit of loading work:
 /// one unit at one iteration, operating at a specific point within a read view.
@@ -16,7 +19,7 @@ pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy
     CubeType + Copy + Clone
 {
     /// Execute the `task_id`th loading task
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task<G: GlobalReaderConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
@@ -45,7 +48,7 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
@@ -91,7 +94,7 @@ pub fn validate_tma<R: Runtime>(
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<C: GlobalReaderConfig, R: Runtime>(
         _client: &ComputeClient<R::Server>,
         _config: &C,
         _ident: MatmulIdent,
