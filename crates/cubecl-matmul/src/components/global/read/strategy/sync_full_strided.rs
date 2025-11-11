@@ -10,6 +10,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::type_size;
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -112,8 +113,10 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, Synchronous> for S
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked(unit_position * this.line_size);
+        let type_size = type_size::<IP::Stage>(this.line_size);
+        let stage_offs = stage.swizzle.apply(unit_position, type_size);
 
-        stage.as_slice_mut(this.line_size)[unit_position] = Line::cast_from(line_read);
+        stage.as_slice_mut(this.line_size)[stage_offs] = Line::cast_from(line_read);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

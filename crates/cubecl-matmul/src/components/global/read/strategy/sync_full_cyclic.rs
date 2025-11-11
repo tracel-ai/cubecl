@@ -170,6 +170,7 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     );
 
     let line_read = view.read_checked((tile, pos_within_tile));
+    let stage_offs = stage.swizzle.apply(unit_position, IP::Stage::type_size());
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
+    stage.as_slice_mut(job.line_size)[stage_offs / job.line_size] = Line::cast_from(line_read);
 }

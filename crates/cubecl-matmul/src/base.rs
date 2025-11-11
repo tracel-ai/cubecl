@@ -67,8 +67,7 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
-        /// Swizzling is only actually used with MMA
-        swizzled: bool,
+        read_strategy: AsyncReadingStrategy,
         selection: Selection<SpecializedArgs>,
         tile_kind: AcceleratedTileKind,
     },
@@ -97,6 +96,15 @@ pub enum ReadingStrategy {
     AsyncMaximizeSliceLength,
     AsyncMaximizeUnitCount,
     Tma,
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Which reader to use in async barrier algorithms
+pub enum AsyncReadingStrategy {
+    Tma,
+    /// TMA currently uses different reading strategies based on swizzling.
+    /// Swizzled kernels use strided tiling, but unswizzled uses contiguous tiling.
+    TmaSwizzled,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -496,31 +504,19 @@ pub fn launch_ref<R: Runtime>(
             }
         }),
         Strategy::Specialized {
-            swizzled: true,
-            selection,
-            tile_kind: AcceleratedTileKind::Mma,
-        } => layered::launch_ref_tma::<R, TmaSpecializedAlgorithm<MmaMatmul>>(
-            client, lhs, rhs, out, selection, dtypes,
-        ),
-        Strategy::Specialized {
-            swizzled: true,
-            tile_kind: AcceleratedTileKind::Cmma,
-            ..
-        } => Err(MatmulSetupError::InvalidConfig(Box::new(
-            "Can't swizzle CMMA",
-        ))),
-        Strategy::Specialized {
-            swizzled,
+            read_strategy,
             selection,
             tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || match swizzled {
-            true => layered::launch_ref_tma::<
+        } => with_tile_kind!(tile_kind, Accelerated, || match read_strategy {
+            AsyncReadingStrategy::TmaSwizzled =>
+                layered::launch_ref_tma::<
+                    R,
+                    TmaSpecializedAlgorithm<Accelerated, AsyncPartialTmaSwizzledLoading>,
+                >(client, lhs, rhs, out, selection, dtypes),
+            AsyncReadingStrategy::Tma => layered::launch_ref_tma::<
                 R,
-                TmaSpecializedAlgorithm<Accelerated, AsyncPartialTmaSwizzledLoading>,
+                TmaSpecializedAlgorithm<Accelerated>,
             >(client, lhs, rhs, out, selection, dtypes),
-            false => layered::launch_ref_tma::<R, TmaSpecializedAlgorithm<Accelerated>>(
-                client, lhs, rhs, out, selection, dtypes
-            ),
         }),
         Strategy::OrderedDoubleBuffering {
             selection,

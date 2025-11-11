@@ -15,7 +15,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
+use cubecl_std::{tensor::layout::Coords2d, type_size};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -191,6 +191,8 @@ impl SyncFullTilewiseJob {
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
+        let type_size = type_size::<IP::Stage>(this.line_size);
+        let offset = stage.swizzle.apply(offset, type_size);
 
         stage.as_slice_mut(this.line_size)[offset] = Line::cast_from(line_read);
     }

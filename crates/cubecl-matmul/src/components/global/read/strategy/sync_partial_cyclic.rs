@@ -11,6 +11,7 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::type_size;
 
 use super::{LoadingJob, LoadingValidation, ReaderMode};
 
@@ -220,10 +221,10 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     let line_read = view.read_checked((tile, pos_within_tile));
 
     let tile_start = tile_index * job.num_lines_per_tile;
-    let tile_end = tile_start + job.num_lines_per_tile;
-    let mut tile_slice = stage
-        .as_slice_mut(line_size)
-        .slice_mut(tile_start, tile_end);
+    let mut tile_slice = stage.as_slice_mut(line_size);
+    let offset = tile_start + pos_within_tile / line_size;
+    let type_size = type_size::<IP::Stage>(line_size);
+    let offset = stage.swizzle.apply(offset, type_size);
 
-    tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
+    tile_slice[offset] = Line::cast_from(line_read);
 }
