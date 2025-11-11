@@ -119,7 +119,7 @@ impl ComputeServer for HipServer {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
         for (descriptor, data) in descriptors {
-            command.write_to_gpu(descriptor, &data)?;
+            command.write_to_gpu(descriptor, data)?;
         }
 
         Ok(())
@@ -365,7 +365,7 @@ impl HipServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
+        command_dst.write_to_gpu(copy_desc, bytes)?;
 
         // We drop the last command.
         core::mem::drop(command_dst);
