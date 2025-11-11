@@ -4,7 +4,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Ident, parse_quote};
 
 use crate::{
-    parse::kernel::{KernelParam, Launch},
+    parse::kernel::{DefinedGeneric, KernelParam, Launch},
     paths::{core_path, core_type, prelude_type},
 };
 
@@ -156,9 +156,13 @@ impl Launch {
 
         for input in self.func.sig.parameters.iter() {
             for define in input.defines.iter() {
+                let ident = match define {
+                    DefinedGeneric::Single(ident) => ident,
+                    DefinedGeneric::Multiple(ident, _) => ident,
+                };
                 aliases.extend(quote! {
                     /// Type to be used as a generic for launch kernel argument.
-                    pub type #define = NumericExpand<#index>;
+                    pub type #ident = NumericExpand<#index>;
                 });
                 index += 1;
             }
