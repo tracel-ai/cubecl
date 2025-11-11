@@ -1,6 +1,7 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
+use crate::components::AttentionElems;
 use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::accelerated::BlackboxAcceleratedTileAttention;
 use crate::components::{
@@ -21,14 +22,15 @@ impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
         Ok(ComputeResources::Planes(1))
     }
 
-    fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         _client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
         num_planes: u32,
+        _dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        BlackboxAcceleratedAttentionMatmulConfig::new::<AP>(
+        BlackboxAcceleratedAttentionMatmulConfig::new(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             num_planes,

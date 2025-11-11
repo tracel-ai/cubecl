@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::simple::AttentionWriter;
+use crate::components::{AttentionElems, global::simple::AttentionWriter};
 use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
@@ -23,11 +23,12 @@ pub trait GlobalAttentionFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<AP: AttentionPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.

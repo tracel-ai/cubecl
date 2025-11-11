@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::components::tile::TileAttentionConfig;
-use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
+use crate::components::{AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct UnitRegisterTileAttentionConfig {
@@ -43,7 +43,7 @@ impl TileAttentionConfig for UnitRegisterTileAttentionConfig {
 
 impl UnitRegisterTileAttentionConfig {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<AP: AttentionPrecision>(
+    pub fn new(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
         query_stage_line_size: u32,

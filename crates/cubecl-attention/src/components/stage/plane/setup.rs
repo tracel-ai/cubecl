@@ -1,6 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
+    AttentionElems,
     attention_types::*,
     stage::{
         AttentionTilingLayout,
@@ -46,16 +47,18 @@ impl<
 
     type Config = PlanePartitionStageConfig<FA::Config>;
 
-    fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
         let num_planes = selection.tiling_scheme.stage_size.seq_q
             * FA::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config = FA::setup::<AP, R>(client, problem, selection, line_sizes, num_planes)?;
+        let tile_config =
+            FA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
         PlanePartitionStageConfig::new(
             tile_config,

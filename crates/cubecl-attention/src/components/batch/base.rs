@@ -3,8 +3,9 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionSpec, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AvailableLineSizes, InputRuntimeArg, OutputRuntimeArg,
+    args::AttentionArgs,
     attention_types::*,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     global::GlobalAttentionConfig,
@@ -24,24 +25,27 @@ pub trait BatchAttentionFamily: Send + Sync + 'static {
     /// # Safety
     ///
     /// Out-of-bounds can happen
-    unsafe fn launch_unchecked<'a, MS: AttentionSpec, R: Runtime>(
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn launch_unchecked<'a, AA: AttentionArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
+        input: InputRuntimeArg<'a, AA, R>,
+        output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &AttentionElems,
     );
 
     /// Constructs the configuration based on the Attention problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<AP: AttentionPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError>;
 
     /// Filters out line sizes that are incompatible with this Attention family.

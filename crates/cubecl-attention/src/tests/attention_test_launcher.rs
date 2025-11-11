@@ -3,10 +3,10 @@ use cubecl_core::server::Allocation;
 use cubecl_core::{CubeElement, server};
 use cubecl_std::CubeOptionArgs;
 
-use crate::components::args::TensorInputsLaunch;
+use crate::components::args::{TensorArgs, TensorInputsLaunch};
 use crate::components::batch::BatchAttentionConfig;
 use crate::components::batch::BatchAttentionFamily;
-use crate::components::{AttentionIdent, AvailableLineSizes};
+use crate::components::{AttentionElems, AttentionIdent, AvailableLineSizes};
 use crate::components::{AttentionProblem, AttentionSelection};
 use crate::kernels::Algorithm;
 use crate::tests::test_utils::Sampleable;
@@ -70,7 +70,9 @@ pub fn test_attention_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
 
-    let config = match A::setup::<P::AP, R>(&client, &problem, &selection, &line_sizes) {
+    let attention_elems = AttentionElems::new::<P::AP>();
+
+    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &attention_elems) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -88,7 +90,7 @@ pub fn test_attention_algorithm<A, P, R>(
         .cube_count_plan(&problem, &selection);
 
     unsafe {
-        A::BatchAttention::launch_unchecked::<P::AP, R>(
+        A::BatchAttention::launch_unchecked::<TensorArgs, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -129,6 +131,7 @@ pub fn test_attention_algorithm<A, P, R>(
             ),
             cube_count_plan.as_args(),
             config,
+            &attention_elems,
         );
     }
 
