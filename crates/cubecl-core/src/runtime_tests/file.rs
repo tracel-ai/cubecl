@@ -35,7 +35,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     let file = Arc::new(Mutex::new(std::fs::File::open(&file_name).unwrap()));
     let bytes = Bytes::from_file(file, size, offset);
 
-    let handle = client.create_from_bytes(bytes);
+    let handle = client.create(bytes);
     let bytes = client.read_one(handle);
     let bytes_from_client: &[u8] = &bytes;
 

@@ -1,4 +1,4 @@
-use super::AllocationProperties;
+use super::AllocationProperty;
 use crate::bytes::{
     AllocationController,
     default_controller::{MAX_ALIGN, NativeAllocationController},
@@ -58,8 +58,8 @@ impl AllocationController for FileAllocationController {
         MAX_ALIGN
     }
 
-    fn properties(&self) -> AllocationProperties {
-        AllocationProperties::File
+    fn property(&self) -> AllocationProperty {
+        AllocationProperty::File
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [core::mem::MaybeUninit<u8>] {

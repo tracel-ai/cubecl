@@ -1,5 +1,5 @@
 use cubecl_common::{
-    bytes::{AllocationProperties, Bytes},
+    bytes::{AllocationProperty, Bytes},
     stream_id::StreamId,
 };
 use cubecl_core::{
@@ -315,10 +315,10 @@ impl<'a> Command<'a> {
 
         let resource = self.resource(binding)?;
         let size = bytes.len();
-        let data = match bytes.properties() {
-            AllocationProperties::File => {
+        let data = match bytes.property() {
+            AllocationProperty::File => {
                 let mut pinned = self.reserve_pinned(size, None).unwrap();
-                bytes.read_into(&mut pinned);
+                bytes.move_into(&mut pinned);
                 pinned
             }
             _ => bytes,

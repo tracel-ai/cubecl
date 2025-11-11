@@ -28,10 +28,15 @@ pub struct Bytes {
 }
 
 #[derive(Debug)]
-pub enum AllocationProperties {
+/// The kind of allocation bahind the [Bytes] type.
+pub enum AllocationProperty {
+    /// A file is used to store the data.
     File,
+    /// The native allocator of Rust is used.
     Native,
+    /// Pinned memory is used.
     Pinned,
+    /// Another kind of memory is used.
     Other,
 }
 
@@ -43,8 +48,8 @@ pub trait AllocationController {
     /// The alignment this allocation was created with.
     fn alloc_align(&self) -> usize;
 
-    /// Returns memory properties for the current allocation.
-    fn properties(&self) -> AllocationProperties;
+    /// Returns memory property for the current allocation.
+    fn property(&self) -> AllocationProperty;
 
     /// Returns a mutable view of the memory of the whole allocation
     ///
@@ -123,6 +128,7 @@ pub enum AllocationError {
 
 impl Bytes {
     #[cfg(feature = "std")]
+    /// Creates bytes from a file at the given offset of the given size.
     pub fn from_file(file: Arc<Mutex<std::fs::File>>, size: u64, offset: u64) -> Self {
         let controller = FileAllocationController::new(file, size, offset);
 
@@ -132,17 +138,25 @@ impl Bytes {
         }
     }
 
+    /// The size of the allocation.
+    ///
+    /// # Notes
+    ///
+    /// This is used so that calling `bytes.len()` doesn't trigger [Deref], which may be expensive.
     pub fn len(&self) -> usize {
         self.len
     }
 
-    pub fn read_into(self, other: &mut Self) {
+    /// Moves the data from the current allocation to the provided [Bytes].
+    pub fn move_into(self, other: &mut Self) {
         unsafe {
             self.controller.read_into(other);
         }
     }
-    pub fn properties(&self) -> AllocationProperties {
-        self.controller.properties()
+
+    /// Retrieves the allocation property of the given allocation.
+    pub fn property(&self) -> AllocationProperty {
+        self.controller.property()
     }
     /// Creates the type from its raw parts.
     ///

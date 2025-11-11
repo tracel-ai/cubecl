@@ -163,7 +163,8 @@ where
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
     let elem_size = std::mem::size_of::<T>();
-    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
+    let Allocation { handle, strides } =
+        client.create_tensor_from_slice(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,
@@ -183,7 +184,8 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
     let data_bytes = P::EG::as_bytes(&data);
     let shape = tensor_shape.as_slice();
     let elem_size = std::mem::size_of::<P::EG>();
-    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
+    let Allocation { handle, strides } =
+        client.create_tensor_from_slice(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,

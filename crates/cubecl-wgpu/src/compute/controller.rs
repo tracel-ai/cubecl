@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 use core::pin::Pin;
-use cubecl_common::bytes::{AllocationController, AllocationProperties};
+use cubecl_common::bytes::{AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::SliceBinding;
 use wgpu::{BufferSlice, BufferViewMut};
 
@@ -26,8 +26,8 @@ impl AllocationController for WgpuAllocController<'_> {
         wgpu::COPY_BUFFER_ALIGNMENT as usize
     }
 
-    fn properties(&self) -> AllocationProperties {
-        AllocationProperties::Pinned
+    fn property(&self) -> AllocationProperty {
+        AllocationProperty::Pinned
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [MaybeUninit<u8>] {

@@ -835,7 +835,7 @@ fn test_plane_operation<
         return;
     }
 
-    let handle = client.create(F::as_bytes(input));
+    let handle = client.create_from_slice(F::as_bytes(input));
     let (shape, strides) = ([input.len()], [1]);
 
     unsafe {

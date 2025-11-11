@@ -17,7 +17,7 @@ pub fn test_line_index<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         if line_size < 4 {
             continue;
         }
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_index::launch_unchecked::<F, R>(
                 &client,
@@ -52,7 +52,7 @@ pub fn test_line_index_assign<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server>,
 ) {
     for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_index_assign::launch_unchecked::<F, R>(
                 &client,
@@ -86,7 +86,7 @@ pub fn kernel_line_loop_unroll<F: Float>(output: &mut Array<Line<F>>, #[comptime
 
 pub fn test_line_loop_unroll<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     for line_size in R::io_optimized_line_sizes(&F::as_type_native_unchecked()) {
-        let handle = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let handle = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_line_loop_unroll::launch_unchecked::<F, R>(
                 &client,
@@ -117,7 +117,7 @@ pub fn kernel_shared_memory<F: Float>(output: &mut Array<Line<F>>) {
 
 pub fn test_shared_memory<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     for line_size in R::io_optimized_line_sizes(&F::as_type_native().unwrap()) {
-        let output = client.create(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
+        let output = client.create_from_slice(F::as_bytes(&vec![F::new(0.0); line_size as usize]));
         unsafe {
             kernel_shared_memory::launch_unchecked::<F, R>(
                 &client,

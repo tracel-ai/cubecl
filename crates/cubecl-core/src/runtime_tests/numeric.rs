@@ -17,7 +17,7 @@ pub fn kernel_define_many<N: Numeric, N2: Numeric>(
 }
 
 pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
-    let handle = client.create(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
+    let handle = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
 
     let elem = ElemType::Float(FloatKind::F32);
 
@@ -37,8 +37,8 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R::Server>) {
 }
 
 pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R::Server>) {
-    let first = client.create(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
-    let second = client.create(u32::as_bytes(&[u32::new(5), u32::new(6)]));
+    let first = client.create_from_slice(f32::as_bytes(&[f32::new(0.0), f32::new(1.0)]));
+    let second = client.create_from_slice(u32::as_bytes(&[u32::new(5), u32::new(6)]));
 
     let elem_first = ElemType::Float(FloatKind::F32);
     let elem_second = ElemType::UInt(UIntKind::U32);

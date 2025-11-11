@@ -47,7 +47,7 @@ pub fn slice_mut_len(output: &mut Array<u32>) {
 }
 
 pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
@@ -67,7 +67,7 @@ pub fn test_slice_select<R: Runtime, F: Float + CubeElement>(client: ComputeClie
 }
 
 pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<u32>());
 
     unsafe {
@@ -87,8 +87,8 @@ pub fn test_slice_len<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
 }
 
 pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
-    let output = client.create(as_bytes![F: 0.0]);
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let output = client.create_from_slice(as_bytes![F: 0.0]);
 
     unsafe {
         slice_for::launch::<F, R>(
@@ -107,8 +107,8 @@ pub fn test_slice_for<R: Runtime, F: Float + CubeElement>(client: ComputeClient<
 }
 
 pub fn test_slice_mut_assign<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
-    let input = client.create(as_bytes![F: 15.0]);
-    let output = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create_from_slice(as_bytes![F: 15.0]);
+    let output = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
 
     unsafe {
         slice_mut_assign::launch::<F, R>(

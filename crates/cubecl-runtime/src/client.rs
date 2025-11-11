@@ -201,17 +201,17 @@ where
         self.context.lock().get_resource(binding, stream_id)
     }
 
-    fn do_create(
+    fn do_create_from_slices(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
-        data: Vec<&[u8]>,
+        slices: Vec<&[u8]>,
     ) -> Result<Vec<Allocation>, IoError> {
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
             .into_iter()
             .zip(allocations.iter())
-            .zip(data)
+            .zip(slices)
             .map(|((desc, alloc), data)| {
                 (
                     CopyDescriptor::new(
@@ -229,7 +229,7 @@ where
         Ok(allocations)
     }
 
-    fn do_create_bytes(
+    fn do_create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
         data: Vec<Bytes>,
@@ -258,16 +258,20 @@ where
     }
 
     /// Returns a resource handle containing the given data.
-    pub fn create(&self, data: &[u8]) -> Handle {
-        let shape = [data.len()];
+    ///
+    /// # Notes
+    ///
+    /// Prefer using the more efficient [Self::create] function.
+    pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
+        let shape = [slice.len()];
 
-        self.do_create(
+        self.do_create_from_slices(
             vec![AllocationDescriptor::new(
                 AllocationKind::Contiguous,
                 &shape,
                 1,
             )],
-            vec![data],
+            vec![slice],
         )
         .unwrap()
         .remove(0)
@@ -275,10 +279,10 @@ where
     }
 
     /// Returns a resource handle containing the given [Bytes].
-    pub fn create_from_bytes(&self, data: Bytes) -> Handle {
+    pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()];
 
-        self.do_create_bytes(
+        self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Contiguous,
                 &shape,
@@ -307,15 +311,20 @@ where
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensor_from_bytes] for better performance.
-    pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
-        self.do_create(
+    /// Prefer using [Self::create_tensor] for better performance.
+    pub fn create_tensor_from_slice(
+        &self,
+        slice: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> Allocation {
+        self.do_create_from_slices(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
                 shape,
                 elem_size,
             )],
-            vec![data],
+            vec![slice],
         )
         .unwrap()
         .remove(0)
@@ -334,19 +343,14 @@ where
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [ComputeClient::read_tensor]).
-    pub fn create_tensor_from_bytes(
-        &self,
-        data: Bytes,
-        shape: &[usize],
-        elem_size: usize,
-    ) -> Allocation {
-        self.do_create_bytes(
+    pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
+        self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
                 shape,
                 elem_size,
             )],
-            vec![data],
+            vec![bytes],
         )
         .unwrap()
         .remove(0)
@@ -358,26 +362,26 @@ where
     ///
     /// # Notes
     ///
-    /// Prefer using [Self::create_tensors_from_bytes] for better performance.
-    pub fn create_tensors(
+    /// Prefer using [Self::create_tensors] for better performance.
+    pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
-        self.do_create(descriptors, data).unwrap()
+        self.do_create_from_slices(descriptors, data).unwrap()
     }
 
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
     /// See [ComputeClient::create_tensor]
-    pub fn create_tensors_from_bytes(
+    pub fn create_tensors(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
-        self.do_create_bytes(descriptors, data).unwrap()
+        self.do_create(descriptors, data).unwrap()
     }
 
     fn do_empty(

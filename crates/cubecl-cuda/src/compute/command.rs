@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use cubecl_common::{
-    bytes::{AllocationProperties, Bytes},
+    bytes::{AllocationProperty, Bytes},
     stream_id::StreamId,
 };
 use cubecl_core::{
@@ -313,10 +313,10 @@ impl<'a> Command<'a> {
         let resource = self.resource(binding)?;
 
         let size = data.len();
-        let data = match data.properties() {
-            AllocationProperties::File => {
+        let data = match data.property() {
+            AllocationProperty::File => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
-                data.read_into(&mut buffer);
+                data.move_into(&mut buffer);
                 buffer
             }
             _ => data,
