@@ -463,8 +463,10 @@ impl ScopeProcessing {
 }
 
 fn sanitize_constant_scalar_ref_var(var: &mut Variable, reference: &Variable) {
-    let elem = reference.ty.elem_type();
-    sanitize_constant_scalar_ref_elem(var, elem);
+    if !reference.ty.is_semantic() {
+        let elem = reference.ty.elem_type();
+        sanitize_constant_scalar_ref_elem(var, elem);
+    }
 }
 
 fn sanitize_constant_scalar_ref_elem(var: &mut Variable, elem: ElemType) {

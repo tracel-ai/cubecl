@@ -33,7 +33,7 @@ pub use strategy::*;
 use launch::*;
 
 pub use args::init_tensors;
-pub use launch::{ReduceParams, reduce_kernel, reduce_kernel_virtual};
+pub use launch::{ReduceDtypes, ReduceParams, reduce_kernel, reduce_kernel_virtual};
 
 #[cfg(feature = "export_tests")]
 pub mod test;
@@ -96,20 +96,22 @@ use cubecl_core::prelude::*;
 ///        println!("Output = {:?}", output_values); // Should print [1, 5].
 /// }
 /// ```
-pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
+pub fn reduce<R: Runtime, Inst: ReduceFamily>(
     client: &ComputeClient<R::Server>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,
     strategy: Option<ReduceStrategy>,
     inst_config: Inst::Config,
+    dtypes: ReduceDtypes,
 ) -> Result<(), ReduceError> {
     validate_axis(input.shape.len(), axis)?;
     valid_output_shape(input.shape, output.shape, axis)?;
     let strategy = strategy
         .map(|s| s.validate::<R>(client))
         .unwrap_or(Ok(ReduceStrategy::new::<R>(client, true)))?;
-    let config = ReduceConfig::generate::<R, P::EI>(client, &input, &output, axis, &strategy);
+    let config =
+        ReduceConfig::generate::<R>(client, &input, &output, axis, &strategy, dtypes.input);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {
         let (max_x, max_y, max_z) = R::max_cube_count();
@@ -118,13 +120,14 @@ pub fn reduce<R: Runtime, P: ReducePrecision, Out: Numeric, Inst: ReduceFamily>(
         }
     }
 
-    launch_reduce::<R, P, Out, Inst>(
+    launch_reduce::<R, Inst>(
         client,
         input,
         output,
         axis as u32,
         config,
         strategy,
+        dtypes,
         inst_config,
     );
     Ok(())

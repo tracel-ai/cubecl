@@ -83,12 +83,21 @@ impl GenericAnalysis {
         }
     }
 
-    pub fn register_types(&self, name_mapping: &HashMap<Ident, Ident>) -> TokenStream {
+    pub fn register_types(
+        &self,
+        mut name_mapping: HashMap<Ident, (Ident, Option<usize>)>,
+    ) -> TokenStream {
         let mut output = quote![];
 
         for (name, ty) in self.map.iter() {
-            let name = match name_mapping.get(name) {
-                Some(name) => quote! { self.#name.into() },
+            let name = match name_mapping.remove(name) {
+                Some((name, index)) => match index {
+                    Some(index) => {
+                        // The defined type should be an array or vector that support indexing.
+                        quote! { self.#name[#index].into() }
+                    }
+                    None => quote! { self.#name.into() },
+                },
                 None => quote! {#name::as_type_native_unchecked()},
             };
             output.extend(quote! {
@@ -96,6 +105,15 @@ impl GenericAnalysis {
                     .scope
                     .register_type::<#ty>(#name);
             });
+        }
+        if !name_mapping.is_empty() {
+            for key in name_mapping.keys() {
+                let err = syn::Error::new_spanned(
+                    key,
+                    format!("Generic `{key}` isn't defined correctly. Only `Float`, `Int` and `Numeric` generics can be defined with only a single trait bound."),
+                ).into_compile_error();
+                output.extend(err);
+            }
         }
 
         output
@@ -163,16 +181,29 @@ impl GenericAnalysis {
         let mut map = HashMap::new();
 
         for param in generics.params.pairs() {
-            if let syn::GenericParam::Type(type_param) = param.value()
-                && let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
+            let type_param = if let syn::GenericParam::Type(type_param) = param.value() {
+                type_param
+            } else {
+                continue;
+            };
+
+            if type_param.bounds.len() > 1 {
+                continue;
+            }
+
+            if let Some(syn::TypeParamBound::Trait(trait_bound)) = type_param.bounds.first()
                 && let Some(bound) = trait_bound.path.get_ident()
             {
                 let name = bound.to_string();
                 let index = map.len() as u8;
 
+                // TODO: Check if we can support any CubePrimitive.
                 match name.as_str() {
                     "Float" => {
                         map.insert(type_param.ident.clone(), parse_quote!(FloatExpand<#index>));
+                    }
+                    "Int" => {
+                        map.insert(type_param.ident.clone(), parse_quote!(IntExpand<#index>));
                     }
                     "Numeric" => {
                         map.insert(
@@ -246,12 +277,33 @@ impl KernelReturns {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+/// A generic type that is mapped to a runtime values that implements Into<StorageType>.
+pub enum DefinedGeneric {
+    /// The define annotation is on a single generic element.
+    Single(Ident),
+    /// The define annotation is on multiple generic elements.
+    ///
+    /// The runtime value that maps multiple generics must be an array.
+    Multiple(Ident, usize),
+}
+
+impl DefinedGeneric {
+    /// Whether the defined type contains the provided ident.
+    pub fn contains_ident(&self, ident_input: &Ident) -> bool {
+        match self {
+            DefinedGeneric::Single(ident) => ident == ident_input,
+            DefinedGeneric::Multiple(ident, _) => ident == ident_input,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct KernelParam {
     pub name: Ident,
     pub ty: Type,
     pub normalized_ty: Type,
-    pub defines: Vec<Ident>,
+    pub defines: Vec<DefinedGeneric>,
     pub is_const: bool,
     pub is_mut: bool,
     pub is_ref: bool,
@@ -301,8 +353,20 @@ impl KernelParam {
                 is_const = true;
             }
             if attr.path().is_ident("define") {
-                let ident: Ident = attr.parse_args().unwrap();
-                defines.push(ident);
+                match attr.parse_args::<Ident>() {
+                    Ok(ident) => {
+                        defines.push(DefinedGeneric::Single(ident));
+                    }
+                    Err(_) => {
+                        let list = attr.meta.require_list().expect("Wrong syntax.");
+                        let tokens = list.tokens.to_string();
+                        let names = tokens.split(",");
+                        for (i, name) in names.enumerate() {
+                            let ident = Ident::new(name.trim(), attr.span());
+                            defines.push(DefinedGeneric::Multiple(ident, i));
+                        }
+                    }
+                };
                 is_const = true;
             }
         }
@@ -517,7 +581,7 @@ impl Launch {
                     .sig
                     .parameters
                     .iter()
-                    .any(|p| p.defines.contains(&tp.ident))
+                    .any(|p| p.defines.iter().any(|d| d.contains_ident(&tp.ident)))
             {
                 continue;
             };

@@ -1,7 +1,9 @@
 use crate::components::tile::plane_vec_mat_inner_product::config::PlaneVecMatInnerProductConfig;
 use crate::components::tile::plane_vec_mat_inner_product::matmul::PlaneVecMatInnerProduct;
 use crate::components::tile::{TileMatmulFamily, io::Strided};
-use crate::components::{InvalidConfigError, MatmulLineSizes, MatmulProblem, MatmulSelection};
+use crate::components::{
+    InvalidConfigError, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+};
 use crate::components::{error::MatmulSetupError, tile::io::TileKind};
 use crate::components::{
     resource::ComputeResources,
@@ -29,13 +31,14 @@ where
         Ok(ComputeResources::Planes(1))
     }
 
-    fn setup<Lhs: Numeric, Rhs: Numeric, Acc: Numeric, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        PlaneVecMatInnerProductConfig::new::<Lhs, Rhs, Acc, R>(
+        PlaneVecMatInnerProductConfig::new::<R>(
             client,
             selection.tiling_scheme,
             selection.plane_dim,
@@ -46,6 +49,7 @@ where
             matmul_line_sizes.out as u32,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
+            dtypes,
         )
     }
 }

@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::MatrixPrecision;
 use crate::components::global::GlobalConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -33,16 +32,16 @@ pub trait FullLoadingStrategy:
     type SyncStrategy: SyncStrategy;
 
     /// The [LoadingJob] for this strategy.
-    type Job<IP: MatrixPrecision>: LoadingJob<IP, Self::TilingLayout, Self::SyncStrategy>;
+    type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy>;
 
     const SHOULD_CLEAR: bool = false;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP>;
+    ) -> Self::Job<EG, ES>;
 }
 
 #[derive(Clone, CubeType)]
@@ -50,10 +49,11 @@ pub trait FullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct FullStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> {
-    global_iter: GlobalIterator<Line<IP::Global>>,
-    stage: StridedStage<IP::Stage, L::TilingLayout>,
-    loading_job: CubeOption<L::Job<IP>>,
+pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
+{
+    global_iter: GlobalIterator<Line<EG>>,
+    stage: StridedStage<ES, L::TilingLayout>,
+    loading_job: CubeOption<L::Job<EG, ES>>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
@@ -61,10 +61,12 @@ pub struct FullStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: FullLo
 }
 
 #[cube]
-impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlobalReader<IP, G, L> {
+impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
+    FullStageGlobalReader<EG, ES, G, L>
+{
     /// Create a new SyncFullStageGlobalReader
     pub fn new(
-        view: View<Line<IP::Global>, Coords2d>,
+        view: View<Line<EG>, Coords2d>,
         k_step: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -76,7 +78,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
         let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<IP, G>(ident, view.line_size(), config)),
+            true => CubeOption::new_Some(L::new_job::<EG, ES, G>(ident, view.line_size(), config)),
             false => CubeOption::new_None(),
         };
 
@@ -106,7 +108,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
             }
         }
 
-        FullStageGlobalReader::<IP, G, L> {
+        FullStageGlobalReader::<EG, ES, G, L> {
             global_iter,
             stage,
             loading_job,
@@ -116,7 +118,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
+    pub fn stage(&self) -> StridedStage<ES, L::TilingLayout> {
         self.stage
     }
 
@@ -142,7 +144,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => {
-                L::new_job::<IP, G>(self.ident, self.global_iter.line_size(), config)
+                L::new_job::<EG, ES, G>(self.ident, self.global_iter.line_size(), config)
             }
         };
 
@@ -150,7 +152,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
 
         #[unroll]
         for task_id in 0..len {
-            L::Job::<IP>::execute_task::<G>(
+            L::Job::<EG, ES>::execute_task::<G>(
                 &mut loading_job,
                 task_id,
                 &self.global_iter,
@@ -163,10 +165,10 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
 }
 
 #[cube]
-impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G, L::SyncStrategy>
-    for FullStageGlobalReader<IP, G, L>
+impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
+    JobExecutor<G, L::SyncStrategy> for FullStageGlobalReader<EG, ES, G, L>
 {
-    type JobIterator = FullStageJobIterator<IP, L>;
+    type JobIterator = FullStageJobIterator<EG, ES, L>;
 
     fn create_job_iterator(
         this: &Self,
@@ -176,12 +178,12 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G
         let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<IP, G>(this.ident, view.line_size(), config),
+            CubeOption::None => L::new_job::<EG, ES, G>(this.ident, view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);
 
-        FullStageJobIterator::<IP, L> {
+        FullStageJobIterator::<EG, ES, L> {
             job,
             num_tasks,
             current: ComptimeCell::new(TaskCounter { counter: 0u32 }),
@@ -190,13 +192,13 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G
 
     fn execute_task(
         this: &mut Self,
-        job_iterator: &mut FullStageJobIterator<IP, L>,
+        job_iterator: &mut FullStageJobIterator<EG, ES, L>,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] config: G,
     ) {
         let task_id = job_iterator.current.read().counter;
 
-        L::Job::<IP>::execute_task::<G>(
+        L::Job::<EG, ES>::execute_task::<G>(
             &mut job_iterator.job,
             task_id,
             &this.global_iter,
@@ -220,7 +222,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G
 
         #[unroll]
         for task_id in task_counter..job_iterator.num_tasks {
-            L::Job::<IP>::execute_task::<G>(
+            L::Job::<EG, ES>::execute_task::<G>(
                 &mut job_iterator.job,
                 task_id,
                 &this.global_iter,
@@ -252,15 +254,17 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> JobExecutor<G
 
 #[derive(CubeType)]
 /// A comptime iterator over a job for sync full stage reader
-pub struct FullStageJobIterator<IP: MatrixPrecision, L: FullLoadingStrategy> {
-    job: L::Job<IP>,
+pub struct FullStageJobIterator<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> {
+    job: L::Job<EG, ES>,
     #[cube(comptime)]
     pub num_tasks: u32,
     pub current: ComptimeCell<TaskCounter>,
 }
 
 #[cube]
-impl<IP: MatrixPrecision, L: FullLoadingStrategy> JobIterator for FullStageJobIterator<IP, L> {
+impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> JobIterator
+    for FullStageJobIterator<EG, ES, L>
+{
     fn current(this: &Self) -> comptime_type!(u32) {
         this.current.read().counter
     }

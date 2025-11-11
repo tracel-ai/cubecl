@@ -41,6 +41,26 @@ impl AttentionTilingScheme {
     pub fn elements_in_tile_seq_kv(&self) -> u32 {
         self.tile_size.seq_kv
     }
+
+    pub fn elements_in_tile_head_dim(&self) -> u32 {
+        self.tile_size.head_dim
+    }
+
+    pub fn elements_in_tile_val_dim(&self) -> u32 {
+        self.tile_size.val_dim
+    }
+
+    pub fn tiles_in_stage_seq_kv(&self) -> u32 {
+        self.partition_size.seq_kv
+    }
+
+    pub fn tiles_in_stage_head_dim(&self) -> u32 {
+        self.partition_size.head_dim
+    }
+
+    pub fn tiles_in_stage_val_dim(&self) -> u32 {
+        self.partition_size.val_dim
+    }
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -74,25 +94,25 @@ impl AttentionTileSize {
         self.seq_q * self.val_dim
     }
 
+    // Number of rows of elements in global memory for one row
+    // In global memory, key is not transposed yet
     pub fn num_rows(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            AttentionIdent::Query => self.seq_q,
-            AttentionIdent::Key => self.seq_kv,
-            AttentionIdent::Softmax => self.seq_q,
-            AttentionIdent::Value => self.seq_kv,
-            AttentionIdent::Mask => todo!(),
-            AttentionIdent::Out => self.seq_q,
+            AttentionIdent::Query
+            | AttentionIdent::Softmax
+            | AttentionIdent::Mask
+            | AttentionIdent::Out => self.seq_q,
+            AttentionIdent::Key | AttentionIdent::Value => self.seq_kv,
         }
     }
 
+    // Number of rows of elements in global memory for one row
+    // In global memory, key is not transposed yet
     pub(crate) fn num_cols(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            AttentionIdent::Query => self.head_dim,
-            AttentionIdent::Key => self.head_dim,
-            AttentionIdent::Softmax => self.seq_kv,
-            AttentionIdent::Value => self.val_dim,
-            AttentionIdent::Mask => todo!(),
-            AttentionIdent::Out => self.val_dim,
+            AttentionIdent::Query | AttentionIdent::Key => self.head_dim,
+            AttentionIdent::Softmax | AttentionIdent::Mask => self.seq_kv,
+            AttentionIdent::Value | AttentionIdent::Out => self.val_dim,
         }
     }
 
@@ -124,26 +144,25 @@ pub struct AttentionPartitionSize {
     pub seq_kv: u32,
     pub val_dim: u32,
 }
+
 impl AttentionPartitionSize {
+    // Number of rows of tiles in global memory for one partition
     pub(crate) fn num_rows(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            AttentionIdent::Query => self.seq_q,
-            AttentionIdent::Key => self.seq_kv,
-            AttentionIdent::Softmax => self.seq_q,
-            AttentionIdent::Value => self.seq_kv,
-            AttentionIdent::Mask => self.seq_q,
-            AttentionIdent::Out => self.seq_q,
+            AttentionIdent::Query
+            | AttentionIdent::Softmax
+            | AttentionIdent::Mask
+            | AttentionIdent::Out => self.seq_q,
+            AttentionIdent::Key | AttentionIdent::Value => self.seq_kv,
         }
     }
 
+    // Number of cols of tiles in global memory for one partition
     pub(crate) fn num_cols(&self, ident: AttentionIdent) -> u32 {
         match ident {
-            AttentionIdent::Query => self.head_dim,
-            AttentionIdent::Key => self.head_dim,
-            AttentionIdent::Softmax => self.seq_kv,
-            AttentionIdent::Value => self.val_dim,
-            AttentionIdent::Mask => self.seq_kv,
-            AttentionIdent::Out => self.val_dim,
+            AttentionIdent::Query | AttentionIdent::Key => self.head_dim,
+            AttentionIdent::Softmax | AttentionIdent::Mask => self.seq_kv,
+            AttentionIdent::Value | AttentionIdent::Out => self.val_dim,
         }
     }
 

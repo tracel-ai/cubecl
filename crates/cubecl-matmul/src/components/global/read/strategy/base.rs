@@ -1,7 +1,8 @@
 use crate::components::global::GlobalConfig;
 use crate::components::stage::{StridedStage, TilingLayout};
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
+use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -11,15 +12,15 @@ use cubecl_core::{self as cubecl};
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
+pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy>:
     CubeType + Copy + Clone
 {
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, TL>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );
@@ -44,13 +45,57 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError>;
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError>;
+}
+
+/// Validates if [async barrier instructions](SemanticType::Barrier) is available on the current
+/// device.
+pub fn validate_async_barrier<R: Runtime>(
+    client: &ComputeClient<R::Server>,
+) -> Result<(), InvalidConfigError> {
+    if !client
+        .properties()
+        .features
+        .supports_type(SemanticType::Barrier)
+    {
+        return Err(Box::new(
+            "Async barrier instructions are not available on the current device",
+        ));
+    }
+
+    Ok(())
+}
+
+/// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
+/// device.
+pub fn validate_tma<R: Runtime>(
+    client: &ComputeClient<R::Server>,
+) -> Result<(), InvalidConfigError> {
+    if !client
+        .properties()
+        .features
+        .supports_type(SemanticType::TensorMap)
+    {
+        return Err(Box::new(
+            "Tensor memory accelerator features are not available on the current device",
+        ));
+    }
+
+    Ok(())
 }
 
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalConfig>(_config: &C, _ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        _client: &ComputeClient<R::Server>,
+        _config: &C,
+        _ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }

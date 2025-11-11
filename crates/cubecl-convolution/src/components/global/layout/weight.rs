@@ -96,8 +96,8 @@ impl Layout for WeightLayout {
 
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, k, n) = pos;
-        let check_k = comptime![self.config.check_row_bounds];
-        let check_n = comptime![self.config.check_col_bounds];
+        let check_k = comptime![self.config.check_row_bounds()];
+        let check_n = comptime![self.config.check_col_bounds()];
         (!check_k || k < self.shape_k) && (!check_n || n < self.shape_n)
     }
 }

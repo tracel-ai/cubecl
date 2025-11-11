@@ -1,7 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
-use crate::components::MatmulIdent;
+use crate::components::AvailableLineSizes;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
 use crate::components::MatrixLayout;
@@ -9,7 +9,7 @@ use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
-use crate::components::{AccG, AvailableLineSizes};
+use crate::components::{MatmulElems, MatmulIdent};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
@@ -46,12 +46,18 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
     let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-    });
-    let rhs_handle = MatmulInputHandleRef::Normal(unsafe {
-        TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-    });
+    let lhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
     let out_handle = unsafe {
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
@@ -67,13 +73,18 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .filter_rhs(|ls| *ls == 1)
         .pick_max()
         .unwrap();
-
-    let config = match A::setup::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), R>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let dtypes = MatmulElems {
+        lhs_global: P::EG::as_type_native_unchecked(),
+        rhs_global: P::EG::as_type_native_unchecked(),
+        acc_global: P::EA::as_type_native_unchecked(),
+        lhs_stage: P::ES::as_type_native_unchecked(),
+        rhs_stage: P::ES::as_type_native_unchecked(),
+        acc_stage: P::EA::as_type_native_unchecked(),
+        lhs_register: P::ES::as_type_native_unchecked(),
+        rhs_register: P::ES::as_type_native_unchecked(),
+        acc_register: P::EA::as_type_native_unchecked(),
+    };
+    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -96,22 +107,26 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
-    let output = TensorOutput::<AccG<P::MP>>::create(
+    let output = TensorOutput::create(
         &client,
         &out_handle,
         &selection,
         &problem,
         &line_sizes,
         config,
+        &dtypes,
     );
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
     );
 
+    let dtypes = MatmulElems::new::<P::MP>();
+
     unsafe {
-        A::BatchMatmul::launch_unchecked::<(P::MP, TensorMapArgs), R>(
+        A::BatchMatmul::launch_unchecked::<TensorMapArgs, R>(
             &client,
             config.cube_dim(),
             cube_count_plan.resolve(),
@@ -119,6 +134,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             output,
             cube_count_plan.as_args(),
             config,
+            &dtypes,
         );
     }
 

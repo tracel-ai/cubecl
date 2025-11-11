@@ -1,8 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::{Runtime, client::ComputeClient};
+use cubecl_matmul::components::MatmulElems;
 use cubecl_matmul::components::{
-    InputRuntimeArg, MatmulSpec, OutputRuntimeArg,
+    InputRuntimeArg, OutputRuntimeArg,
     batch::SliceIndex,
     global::{GlobalConfig as _, args::MatmulArgs},
 };
@@ -27,14 +28,15 @@ pub trait ConvolutionLaunch<Config> {
     ///
     /// Out-of-bounds can happen
     #[allow(clippy::too_many_arguments)]
-    unsafe fn launch_unchecked<'a, MS: MatmulSpec, R: Runtime>(
+    unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
         client: &ComputeClient<<R as Runtime>::Server>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
-        input: InputRuntimeArg<'a, MS, R>,
-        output: OutputRuntimeArg<'a, MS, R>,
+        input: InputRuntimeArg<'a, MA, R>,
+        output: OutputRuntimeArg<'a, MA, R>,
         problem: &ConvolutionProblem,
         config: Config,
+        dtypes: &MatmulElems,
     );
 }
 
@@ -53,6 +55,12 @@ pub(crate) fn implicit_conv<
     output: &mut Output<Args, AccG>,
     runtime_args: RuntimeArgs,
     #[comptime] config: GMM::Config,
+    #[define(LhsG)] _lhs_global: StorageType,
+    #[define(RhsG)] _rhs_global: StorageType,
+    #[define(AccG)] _acc_global: StorageType,
+    #[define(LhsS)] _lhs_stage: StorageType,
+    #[define(RhsS)] _rhs_stage: StorageType,
+    #[define(AccS)] _acc_stage: StorageType,
 ) {
     let mut state = Args::init_state::<LhsG, RhsG, AccG, GMM::Config>(inputs, output, config);
 

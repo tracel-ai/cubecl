@@ -14,16 +14,15 @@ use cubecl_runtime::{
 
 #[cube(launch)]
 fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
-    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
+    let expected = select(UNIT_POS == 0, 32 * 16 * F::elem_size(), 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
-        barrier.arrive_tx(1, 32 * 16 * F::elem_size());
-    } else {
-        barrier.arrive();
     }
-    barrier.wait();
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
 
     let out_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     output[out_pos] = stage[out_pos];
@@ -36,7 +35,7 @@ fn tensormap_store<F: Float>(input: &Array<Line<F>>, output: &mut TensorMap<F>) 
     let in_pos = UNIT_POS_Y * 32 + UNIT_POS_X;
     shared[in_pos] = input[in_pos];
 
-    sync_proxy_shared();
+    sync_async_proxy_shared();
     sync_cube();
 
     if UNIT_POS == 0 {
@@ -60,9 +59,10 @@ fn tensormap_im2col_load<F: Float>(
     let tile_k = comptime!(kernel_h as u32 * kernel_w as u32);
     let tile_width = tile_m * channels; // Preserve 128-byte alignment, works for all float kinds.
 
-    let barrier = Barrier::new_with_tma_proxy(BarrierLevel::cube_coop(0u32));
+    let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
+    let expected = select(UNIT_POS == 0, tile_width * tile_k * F::elem_size(), 0);
     if UNIT_POS == 0 {
         #[unroll]
         for kernel_y in 0..kernel_h {
@@ -84,11 +84,9 @@ fn tensormap_im2col_load<F: Float>(
                 );
             }
         }
-        barrier.arrive_tx(1, tile_width * tile_k * F::elem_size());
-    } else {
-        barrier.arrive();
     }
-    barrier.wait();
+    let token = barrier.arrive_and_expect_tx(1, expected);
+    barrier.wait(token);
 
     output[ABSOLUTE_POS] = stage[ABSOLUTE_POS];
 }

@@ -8,7 +8,7 @@ use crate::components::{
     global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
-use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{LhsG, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
 use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
 use cubecl_std::{
     CubeOption,
@@ -29,11 +29,12 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
+    fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.
@@ -89,7 +90,6 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs_reader: Self::RhsGlobalReader,
         acc_reader: Self::AccGlobalReader,
         writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
@@ -137,16 +137,16 @@ pub trait GlobalConfig:
     }
 
     fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
-        GlobalMemoryConfig {
-            elements_in_tile_row: self.tiling_scheme().elements_in_tile_row(ident),
-            elements_in_tile_col: self.tiling_scheme().elements_in_tile_col(ident),
-            elements_in_stage_row: self.tiling_scheme().elements_in_stage_row(ident),
-            elements_in_stage_col: self.tiling_scheme().elements_in_stage_col(ident),
-            global_line_size: self.global_line_size(ident),
-            check_row_bounds: self.check_row_bounds(ident),
-            check_col_bounds: self.check_col_bounds(ident),
-            matrix_layout: self.matrix_layout(ident),
-        }
+        GlobalMemoryConfig::new(
+            self.tiling_scheme().elements_in_tile_row(ident),
+            self.tiling_scheme().elements_in_tile_col(ident),
+            self.tiling_scheme().elements_in_stage_row(ident),
+            self.tiling_scheme().elements_in_stage_col(ident),
+            self.global_line_size(ident),
+            self.check_row_bounds(ident),
+            self.check_col_bounds(ident),
+            self.matrix_layout(ident),
+        )
     }
 
     /// Returns the line size for the global memory corresponding to the given ident

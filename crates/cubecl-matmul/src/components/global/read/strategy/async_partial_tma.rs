@@ -1,6 +1,7 @@
+use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
@@ -19,8 +20,14 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncPartialTmaLoading {}
 
 impl LoadingValidation for AsyncPartialTmaLoading {
-    fn check<C: GlobalConfig>(config: &C, ident: MatmulIdent) -> Result<(), InvalidConfigError> {
+    fn check<C: GlobalConfig, R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        config: &C,
+        ident: MatmulIdent,
+    ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.global_memory_config(ident))?;
+        validate_tma::<R>(client)?;
+        validate_async_barrier::<R>(client)?;
 
         Ok(())
     }
@@ -41,23 +48,22 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
 impl PartialLoadingStrategy for AsyncPartialTmaLoading {
     type TilingLayout = TmaTilingLayout;
     type SyncStrategy = AsyncTma;
-    type Job<IP: MatrixPrecision> = AsyncPartialTmaJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncPartialTmaJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let role_rule_config = config.role_rule_config();
-        let loading_sides = config.specialized_loading_sides();
         let config = config.stage_memory_config(ident);
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
         };
 
-        let is_elected = RoleRule::new(role_rule_config).is_tma_load_unit(ident, loading_sides);
+        let is_elected = RoleRule::new(role_rule_config).elect_load_leader();
 
         AsyncPartialTmaJob {
             is_elected,
@@ -81,12 +87,14 @@ pub struct AsyncPartialTmaJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncPartialTmaJob {
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
+    for AsyncPartialTmaJob
+{
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, TmaTilingLayout>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, TmaTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

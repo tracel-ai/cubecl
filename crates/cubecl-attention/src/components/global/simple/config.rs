@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
 };
 
 use crate::components::{
@@ -18,16 +18,34 @@ pub struct SimpleGlobalConfig<S: StageAttentionConfig> {
 impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     type StageConfig = S;
 
-    fn score_stage_memory_config(&self) -> StageMemoryConfig {
-        self.stage_config
-            .score_stage_memory_config()
-            .into_matmul_config(StageIdent::Rhs)
+    fn key_stage_memory_config(&self) -> StageMemoryConfig {
+        let tiling_scheme = self.stage_config.tiling_scheme();
+
+        StageMemoryConfig {
+            num_main_flow_planes: 1,
+            elements_in_tile_row: tiling_scheme.elements_in_tile_seq_kv(),
+            elements_in_tile_col: tiling_scheme.elements_in_tile_head_dim(),
+            tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),
+            tiles_in_stage_col: tiling_scheme.tiles_in_stage_head_dim(),
+            stage_line_size: 1,
+            matrix_layout: MatrixLayout::RowMajor,
+            num_stages: 1,
+        }
     }
 
     fn value_stage_memory_config(&self) -> StageMemoryConfig {
-        self.stage_config
-            .value_stage_memory_config()
-            .into_matmul_config(StageIdent::Rhs)
+        let tiling_scheme = self.stage_config.tiling_scheme();
+
+        StageMemoryConfig {
+            num_main_flow_planes: 1,
+            elements_in_tile_row: tiling_scheme.elements_in_tile_seq_kv(),
+            elements_in_tile_col: tiling_scheme.elements_in_tile_val_dim(),
+            tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),
+            tiles_in_stage_col: tiling_scheme.tiles_in_stage_val_dim(),
+            stage_line_size: 1,
+            matrix_layout: MatrixLayout::RowMajor,
+            num_stages: 1,
+        }
     }
 
     fn stage_config(&self) -> S {
@@ -52,16 +70,16 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
         let elements_in_stage_col =
             tiling_scheme.partition_size.num_cols(ident) * elements_in_tile_col;
 
-        GlobalMemoryConfig {
+        GlobalMemoryConfig::new(
             elements_in_tile_row,
             elements_in_tile_col,
             elements_in_stage_row,
             elements_in_stage_col,
-            global_line_size: 1,
-            check_row_bounds: false,
-            check_col_bounds: false,
-            matrix_layout: MatrixLayout::RowMajor,
-        }
+            1,
+            false,
+            false,
+            MatrixLayout::RowMajor,
+        )
     }
 
     fn tiling_scheme(&self) -> AttentionTilingScheme {

@@ -3,8 +3,9 @@ use std::marker::PhantomData;
 use cubecl_core::client::ComputeClient;
 
 use crate::components::{
-    Args, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    attention_types::*,
+    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    InputRuntimeArg, OutputRuntimeArg,
+    args::AttentionArgs,
     batch::{
         BatchAttentionFamily,
         entry_point::attention,
@@ -21,13 +22,14 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
     type Attention<AP: AttentionPrecision> = SimpleBatchAttention<AP, GA::Attention<AP>>;
     type Config = SimpleBatchConfig<GA::Config>;
 
-    fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        let global_config = GA::setup::<AP, R>(client, problem, selection, line_sizes)?;
+        let global_config = GA::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         SimpleBatchConfig::new(
             global_config,
@@ -39,37 +41,18 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         .validate(problem)
     }
 
-    unsafe fn launch_unchecked<
-        'a,
-        AS: crate::components::AttentionSpec,
-        R: cubecl_core::Runtime,
-    >(
+    unsafe fn launch_unchecked<'a, AA: AttentionArgs, R: cubecl_core::Runtime>(
         client: &cubecl_core::prelude::ComputeClient<<R as cubecl_core::Runtime>::Server>,
         cube_dim: cubecl_core::CubeDim,
         cube_count: cubecl_core::CubeCount,
-        input: crate::components::InputRuntimeArg<'a, AS, R>,
-        output: crate::components::OutputRuntimeArg<'a, AS, R>,
+        input: InputRuntimeArg<'a, AA, R>,
+        output: OutputRuntimeArg<'a, AA, R>,
         cube_count_input: crate::components::batch::CubeCountInputArgs<'a, R>,
         config: Self::Config,
+        dtypes: &AttentionElems,
     ) {
         unsafe {
-            attention::launch_unchecked::<
-                Args<AS>,
-                QG<AS>,
-                QT<AS>,
-                KG<AS>,
-                KS<AS>,
-                VG<AS>,
-                VS<AS>,
-                KVT<AS>,
-                SM<AS>,
-                ACC<AS>,
-                MSK<AS>,
-                OG<AS>,
-                OS<AS>,
-                Self,
-                R,
-            >(
+            attention::launch_unchecked::<AA, Self, R>(
                 client,
                 cube_count,
                 cube_dim,
@@ -77,6 +60,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
                 output,
                 cube_count_input,
                 config,
+                dtypes.into(),
             );
         }
     }

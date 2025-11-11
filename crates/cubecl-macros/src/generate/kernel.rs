@@ -7,7 +7,8 @@ use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{
-        KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch, strip_ref,
+        DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
+        strip_ref,
     },
     paths::{frontend_type, prelude_path, prelude_type},
 };
@@ -240,10 +241,17 @@ impl Launch {
         let mut mapping = HashMap::new();
         for param in self.func.sig.parameters.iter() {
             for define in param.defines.iter() {
-                mapping.insert(define.clone(), param.name.clone());
+                match define {
+                    DefinedGeneric::Single(ident) => {
+                        mapping.insert(ident.clone(), (param.name.clone(), None));
+                    }
+                    DefinedGeneric::Multiple(ident, index) => {
+                        mapping.insert(ident.clone(), (param.name.clone(), Some(*index)));
+                    }
+                }
             }
         }
-        let register_type = self.analysis.register_types(&mapping);
+        let register_type = self.analysis.register_types(mapping);
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);

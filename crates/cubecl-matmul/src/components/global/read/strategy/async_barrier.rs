@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use cubecl::prelude::*;
 use cubecl_core::{
     self as cubecl,
@@ -16,36 +14,15 @@ pub trait BarrierKind {
     fn level() -> BarrierLevel;
 }
 
-#[derive(CubeType)]
-pub struct CubeCoop {}
-#[derive(CubeType)]
-pub struct CubeManual {}
-
-#[cube]
-impl BarrierKind for CubeCoop {
-    fn level() -> BarrierLevel {
-        BarrierLevel::cube_coop(0u32)
-    }
-}
-
-#[cube]
-impl BarrierKind for CubeManual {
-    fn level() -> BarrierLevel {
-        BarrierLevel::cube_manual(0u32)
-    }
-}
-
 /// Asynchronous barrier for TMA loads
-pub struct AsyncBarrier<Kind: BarrierKind> {
-    _ty: PhantomData<Kind>,
-}
+pub struct AsyncBarrier {}
 
 #[cube]
-impl<Kind: BarrierKind> SyncStrategy for AsyncBarrier<Kind> {
+impl SyncStrategy for AsyncBarrier {
     type Barrier = Barrier;
 
     fn create_barrier() -> Self::Barrier {
-        Barrier::new(Kind::level())
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0))
     }
 
     fn sync<MP: MatmulPrecision, G: GlobalConfig>(

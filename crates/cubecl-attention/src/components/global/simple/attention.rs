@@ -8,12 +8,8 @@ use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
 use crate::components::global::simple::{AttentionWriter, AttentionWriterExpand, MaskReader};
-use crate::components::global::{
-    AttentionGlobalLayout,
-    simple::{DummyKeyReader, DummyValueReader},
-};
+use crate::components::global::{AttentionGlobalLayout, simple::DummyKeyValueReader};
 use crate::components::stage::{AttentionPartitioner, AttentionTilingLayout, StageAttention};
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
@@ -36,8 +32,8 @@ impl<
     AP: AttentionPrecision,
 > GlobalAttention<AP> for SimpleGlobalAttention<AP, SA>
 {
-    type KeyReader = DummyKeyReader<AP, Self::Config>;
-    type ValueReader = DummyValueReader<AP, Self::Config>;
+    type KeyReader = DummyKeyValueReader<KG<AP>, KS<AP>, Self::Config>;
+    type ValueReader = DummyKeyValueReader<VG<AP>, VS<AP>, Self::Config>;
     type MaskReader = MaskReader<AP>;
 
     type Writer = <SA::Partitioner as AttentionPartitioner>::Writer<OS<AP>, OG<AP>>;
@@ -55,8 +51,8 @@ impl<
         #[comptime] config: Self::Config,
     ) {
         // Init staging shared memories
-        let mut key_stage = key_reader.init_stage(config);
-        let mut value_stage = value_reader.init_stage(config);
+        let mut key_stage = key_reader.init_stage(config.key_stage_memory_config());
+        let mut value_stage = value_reader.init_stage(config.value_stage_memory_config());
 
         // Load queries which stay alive in registers for all the kernel
         let mut query_registers = SA::init_query(config.stage_config());
@@ -149,7 +145,7 @@ impl<
             batch_index,
             config.global_memory_config(AttentionIdent::Key),
         );
-        DummyKeyReader::new(key.view(layout), step)
+        DummyKeyValueReader::new(key.view(layout), step, AttentionIdent::Key)
     }
 
     fn init_value_reader(
@@ -163,7 +159,7 @@ impl<
             batch_index,
             config.global_memory_config(AttentionIdent::Value),
         );
-        DummyValueReader::new(value.view(layout), step)
+        DummyKeyValueReader::new(value.view(layout), step, AttentionIdent::Value)
     }
 
     fn init_mask_reader(
@@ -182,7 +178,7 @@ impl<
                 let layout = AttentionGlobalLayout::new(
                     &mask,
                     batch_index,
-                    config.global_memory_config(AttentionIdent::Value),
+                    config.global_memory_config(AttentionIdent::Mask),
                 );
 
                 MaskReader::new_materialized(

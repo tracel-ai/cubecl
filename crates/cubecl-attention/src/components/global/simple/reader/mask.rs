@@ -79,15 +79,22 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         #[comptime] pos_in_partition: Coords2d,
         #[comptime] config: S,
     ) -> (Coords2d, CubeOption<StridedTile<MSK<AP>>>) {
-        match self {
-            MaskReader::Materialized(materialized_mask_reader) => {
-                materialized_mask_reader.read::<P, S>(pos_in_partition, config)
-            }
-            MaskReader::Logical(logical_iter) => (
-                Coords2d::add(logical_iter.read(), pos_in_partition.runtime()),
-                CubeOption::new_None(),
+        let partition_tile_offset = (
+            pos_in_partition.0 * config.tiling_scheme().elements_in_tile_seq_q(),
+            pos_in_partition.1 * config.tiling_scheme().elements_in_tile_seq_kv(),
+        );
+
+        let (origin, tile) = match self {
+            MaskReader::Materialized(materialized_mask_reader) => (
+                materialized_mask_reader.logical_iter.read(),
+                CubeOption::new_Some(
+                    materialized_mask_reader.read::<P, S>(partition_tile_offset, config),
+                ),
             ),
-        }
+            MaskReader::Logical(logical_iter) => (logical_iter.read(), CubeOption::new_None()),
+        };
+
+        (Coords2d::add(origin, partition_tile_offset.runtime()), tile)
     }
 
     pub fn advance_view(&mut self) {
@@ -116,32 +123,25 @@ impl<M: Numeric> MaterializedMaskReader<M> {
 
     fn read<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
-        #[comptime] pos_in_partition: Coords2d,
+        #[comptime] partition_tile_offset: Coords2d,
         #[comptime] config: S,
-    ) -> (Coords2d, CubeOption<StridedTile<M>>) {
-        let (row_in_partition, col) = pos_in_partition;
+    ) -> StridedTile<M> {
+        let (row_offset, col) = partition_tile_offset;
         let attention_tile_size = config.tiling_scheme().tile_size;
 
-        let row = row_in_partition + P::seq_q_index() * config.tiling_scheme().partition_size.seq_q;
+        let row =
+            row_offset + P::seq_q_index() * config.tiling_scheme().elements_in_partition_seq_q();
 
-        let tile = StridedTile::<M>::new_strided(
+        StridedTile::<M>::new_strided(
             self.global_iter
                 .view()
                 .slice(
-                    (
-                        row * attention_tile_size.seq_q,
-                        col.runtime() * attention_tile_size.seq_kv,
-                    ),
+                    (row, col.runtime()),
                     (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
                 )
                 .to_linear_slice(),
             self.seq_kv_shape,
             MatrixLayout::RowMajor,
-        );
-
-        (
-            Coords2d::add(self.logical_iter.read(), pos_in_partition.runtime()),
-            CubeOption::new_Some(tile),
         )
     }
 

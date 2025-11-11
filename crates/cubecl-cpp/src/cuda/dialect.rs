@@ -63,6 +63,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
+        if flags.inst_ptx_wrappers {
+            f.write_str("#include <cuda/ptx>\n")?;
+        }
         if flags.inst_tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
@@ -546,6 +549,28 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
+    }
+
+    fn compile_warp_elect(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
+        let elem = Elem::<Self>::Bool;
+        let uint32 = Elem::<Self>::U32;
+        // Used to have a wrapper but it has been removed in newer version due to being
+        // "incomplete". We only need the predicate and have a fixed mask, so it's trivial to
+        // implement.
+        writeln!(
+            f,
+            r#"{out} = {elem}([&]() -> {uint32} {{
+    {uint32} pred = 0;
+    asm volatile(
+        "{{\n"
+        "     .reg .pred %%px;\n"
+        "     elect.sync _|%%px, 0xffffffff;\n"
+        "     selp.b32 %0, 1, 0, %%px;\n"
+        "}}\n"
+        : "+r"(pred));
+    return pred;
+        }}());"#
+        )
     }
 }
 

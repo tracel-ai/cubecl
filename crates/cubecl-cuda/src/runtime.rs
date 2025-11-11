@@ -20,8 +20,8 @@ use cubecl_cpp::{
     cuda::{CudaDialect, arch::CudaArchitecture},
     register_supported_types,
     shared::{
-        CompilationOptions, CppCompiler, register_mma_features, register_scaled_mma_features,
-        register_wmma_features,
+        CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
+        register_scaled_mma_features, register_wmma_features,
     },
 };
 use cubecl_runtime::{
@@ -98,7 +98,10 @@ impl DeviceState for CudaServer {
         };
 
         let mut comp_opts = CompilationOptions {
-            supports_fast_math: true,
+            supports_features: CppSupportedFeatures {
+                fast_math: true,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -176,7 +179,7 @@ impl DeviceState for CudaServer {
             device_props.register_semantic_type(SemanticType::Barrier);
             device_props.features.plane.insert(Plane::Sync);
 
-            comp_opts.grid_constants = true;
+            comp_opts.supports_features.grid_constants = true;
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
@@ -198,7 +201,8 @@ impl DeviceState for CudaServer {
             device_props.features.tma.insert(Tma::Base);
             device_props.register_semantic_type(SemanticType::TensorMap);
             device_props.features.cube_cluster = true;
-            comp_opts.supports_clusters = true;
+            comp_opts.supports_features.clusters = true;
+            comp_opts.supports_features.elect_sync = true;
         }
 
         if arch_version >= 100 {

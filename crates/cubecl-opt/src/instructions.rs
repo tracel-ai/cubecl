@@ -387,10 +387,51 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match barrier_ops {
-            BarrierOps::Init { barrier, .. } => {
+            BarrierOps::Declare { barrier } => visit_read(self, barrier),
+            BarrierOps::Init {
+                barrier,
+                is_elected,
+                arrival_count,
+                ..
+            } => {
                 visit_read(self, barrier);
+                visit_read(self, is_elected);
+                visit_read(self, arrival_count);
+            }
+            BarrierOps::InitManual {
+                barrier,
+                arrival_count,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, arrival_count);
             }
             BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
+            BarrierOps::MemCopyAsyncCooperative {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
+            BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
                 source_length,
@@ -451,8 +492,13 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, transaction_count_update);
             }
-            BarrierOps::Wait { barrier } => {
+            BarrierOps::Wait { barrier, token } => {
                 visit_read(self, barrier);
+                visit_read(self, token);
+            }
+            BarrierOps::WaitParity { barrier, phase } => {
+                visit_read(self, barrier);
+                visit_read(self, phase);
             }
         }
     }

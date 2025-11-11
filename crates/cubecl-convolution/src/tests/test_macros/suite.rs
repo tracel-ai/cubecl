@@ -10,8 +10,8 @@ use crate::{
     tests::convolution_test_launcher::test_convolution_algorithm,
 };
 use cubecl_core::Runtime;
-use cubecl_matmul::components::global::args::MatmulArgs;
 use cubecl_matmul::components::stage::PartitionBuffering;
+use cubecl_matmul::components::{InputArg, OutputArg};
 use cubecl_matmul::components::{
     MatmulSelection, MatrixLayout, PartitionSize, StageSize, TileSize, TilingScheme,
 };
@@ -25,14 +25,14 @@ pub struct ConvolutionSize {
     pub out_c: usize,
 }
 
-pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
+pub fn test_algo<A: Algorithm, P: TestPrecision, R: Runtime>(
     tile_size: TileSize,
     partition_size: PartitionSize,
     stage_size: StageSize,
     problem: ConvolutionSize,
 ) where
-    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
-    Args::Output<P::EG>: ConcreteOutputFactory,
+    InputArg<A::Args>: ConcreteInputsFactory,
+    OutputArg<A::Args>: ConcreteOutputFactory,
 {
     let client = R::client(&Default::default());
     let plane_dim = client.properties().hardware.plane_size_max;
@@ -87,7 +87,7 @@ pub fn test_algo<A: Algorithm, Args: MatmulArgs, P: TestPrecision, R: Runtime>(
         .partition_buffering(PartitionBuffering::Single)
         .build();
 
-    test_convolution_algorithm::<A, Args, P, R>(client, problem, selection);
+    test_convolution_algorithm::<A, P, R>(client, problem, selection);
 }
 
 /// Calculate the expected output size when doing a convolution operation.
@@ -326,7 +326,6 @@ macro_rules! conv2d_standard_tests {
     };
 
     ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
-        use cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
         use $crate::kernels::layered::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::kernels::layered::algorithm::simple::SimpleConvAlgorithm;
         use $crate::kernels::layered::algorithm::simple_tma::SimpleTmaConvAlgorithm;
@@ -335,7 +334,6 @@ macro_rules! conv2d_standard_tests {
         pub fn simple_coalesced_im2col() {
             cubecl_convolution::tests::test_algo::<
                 SimpleConvAlgorithm<TMM>,
-                TensorArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);
@@ -345,7 +343,6 @@ macro_rules! conv2d_standard_tests {
         pub fn simple_tma_im2col() {
             cubecl_convolution::tests::test_algo::<
                 SimpleTmaConvAlgorithm<TMM>,
-                TensorMapArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);
@@ -355,7 +352,6 @@ macro_rules! conv2d_standard_tests {
         pub fn multi_stage_tma_im2col() {
             cubecl_convolution::tests::test_algo::<
                 MultiStageTmaConvAlgorithm<TMM>,
-                TensorMapArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);

@@ -584,6 +584,13 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 }
 
 pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+    // Correctness is wrong.
+    const ENABLED: bool = false;
+
+    if !ENABLED {
+        return Vec::new();
+    }
+
     // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
     // Feel free to add more if additional intrinsics are supported for execute
     let mut result: SupportedMmaCombinations = vec![];
