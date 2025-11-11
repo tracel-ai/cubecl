@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, MatrixPrecision, TilingScheme,
+    InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
         GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
@@ -65,11 +65,11 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
 impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = AsyncBarrier;
-    type Job<IP: MatrixPrecision> = AsyncFullCyclicJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncFullCyclicJob;
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
@@ -130,14 +130,14 @@ pub struct AsyncFullCyclicJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout<TO>, AsyncBarrier>
-    for AsyncFullCyclicJob
+impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
+    LoadingJob<EG, ES, ContiguousTilingLayout<TO>, AsyncBarrier> for AsyncFullCyclicJob
 {
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
