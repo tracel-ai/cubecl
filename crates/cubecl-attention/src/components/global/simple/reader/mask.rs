@@ -132,7 +132,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         let row =
             row_offset + P::seq_q_index() * config.tiling_scheme().elements_in_partition_seq_q();
 
-        let tile = StridedTile::<M>::new_strided(
+        StridedTile::<M>::new_strided(
             self.global_iter
                 .view()
                 .slice(
@@ -142,9 +142,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
                 .to_linear_slice(),
             self.seq_kv_shape,
             MatrixLayout::RowMajor,
-        );
-
-        tile
+        )
     }
 
     fn advance(&mut self) {
