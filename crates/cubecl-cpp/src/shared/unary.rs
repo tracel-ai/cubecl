@@ -152,7 +152,7 @@ function!(Log, "log");
 function!(FastLog, "__logf", false);
 function!(Sin, "sin");
 function!(Cos, "cos");
-function!(Tan, "tan");
+function!(Tan, "tan", false);
 function!(Sinh, "sinh", false);
 function!(Cosh, "cosh", false);
 // Tanh is separete below, idk why
@@ -218,9 +218,9 @@ impl<D: Dialect> Unary<D> for Degrees {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _out_elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
-        write!(f, "{input}*57.29577951308232f")
+        write!(f, "{input}*{elem}(57.29577951308232f)")
     }
 
     fn can_optimize() -> bool {
@@ -234,9 +234,9 @@ impl<D: Dialect> Unary<D> for Radians {
     fn format_scalar<Input: Component<D>>(
         f: &mut std::fmt::Formatter<'_>,
         input: Input,
-        _out_elem: Elem<D>,
+        elem: Elem<D>,
     ) -> std::fmt::Result {
-        write!(f, "{input}*0.017453292519943295f")
+        write!(f, "{input}*{elem}(0.017453292519943295f)")
     }
 
     fn can_optimize() -> bool {
