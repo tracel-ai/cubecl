@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
-use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
+use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
@@ -147,7 +147,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -180,7 +180,7 @@ pub(crate) fn load_and_store_line<IP: MatrixPrecision, TO: TilingOrder, G: Globa
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<IP::Global>>,
-    stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+    stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
     let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));

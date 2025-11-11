@@ -8,16 +8,16 @@ use crate::{
     components::{ConvolutionParams, Dimensionality, global::memory::Im2colTmaReader},
     kernels::layered::selector::RuntimeArgs,
 };
-use cubecl_matmul::components::stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStage};
+use cubecl_matmul::components::stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStageMemory};
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
-pub type TmaIm2colStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaIm2colTiling>;
+pub type TmaIm2colStage<IP> = StridedStageMemory<<IP as MatrixPrecision>::Stage, TmaIm2colTiling>;
 
 /// Reader that translates matrix coordinates to input coordinates using the `im2col` algorithm
 #[derive(CubeType)]
 pub struct TmaIm2colGlobalReader<IP: MatrixPrecision> {
     pub map: Im2colTmaReader<IP::Global>,
-    pub stages: Sequence<StridedStage<IP::Stage, TmaIm2colTiling>>,
+    pub stages: Sequence<StridedStageMemory<IP::Stage, TmaIm2colTiling>>,
     padded_channels: FastDivmod,
     #[cube(comptime)]
     params: ConvolutionParams,
@@ -40,7 +40,7 @@ impl<IP: MatrixPrecision> TmaIm2colGlobalReader<IP> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StridedStage::new_aligned(128u32, config))
+            stages.push(StridedStageMemory::new_aligned(128u32, config))
         }
 
         let (n_offs, spatial_offsets) = div_mod_seq(x_offset, &runtime_args.shape_out);

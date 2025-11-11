@@ -12,11 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::{
     components::{
         MatmulElems, MatmulSetupError,
-        tile::{
-            cmma::CmmaMatmul,
-            io::{Filled, Strided},
-            mma::{MmaMatmul, SwizzledMmaMatmul},
-        },
+        global::read::async_partial_tma_swizzled::AsyncPartialTmaSwizzledLoading,
+        tile::{cmma::CmmaMatmul, io::Filled, mma::MmaMatmul},
     },
     kernels::layered::{
         Selection,
@@ -25,7 +22,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
-        specialized::{TmaSpecializedAlgorithm, TmaSwizzledSpecializedAlgorithm},
+        specialized::{SpecializedArgs, TmaSpecializedAlgorithm},
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
@@ -70,9 +67,9 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
-        /// Swizzling is only allowed with MMA
+        /// Swizzling is only actually used with MMA
         swizzled: bool,
-        selection: Selection<()>,
+        selection: Selection<SpecializedArgs>,
         tile_kind: AcceleratedTileKind,
     },
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),
@@ -127,7 +124,7 @@ macro_rules! with_tile_kind {
                 ($launch)()
             }
             AcceleratedTileKind::Mma => {
-                type $T = MmaMatmul<Strided, Strided, Filled>;
+                type $T = MmaMatmul;
                 ($launch)()
             }
         }
@@ -502,7 +499,7 @@ pub fn launch_ref<R: Runtime>(
             swizzled: true,
             selection,
             tile_kind: AcceleratedTileKind::Mma,
-        } => layered::launch_ref_tma::<R, TmaSwizzledSpecializedAlgorithm<SwizzledMmaMatmul>>(
+        } => layered::launch_ref_tma::<R, TmaSpecializedAlgorithm<MmaMatmul>>(
             client, lhs, rhs, out, selection, dtypes,
         ),
         Strategy::Specialized {
@@ -513,15 +510,18 @@ pub fn launch_ref<R: Runtime>(
             "Can't swizzle CMMA",
         ))),
         Strategy::Specialized {
-            swizzled: false,
+            swizzled,
             selection,
             tile_kind,
-        } => with_tile_kind!(tile_kind, Accelerated, || layered::launch_ref_tma::<
-            R,
-            TmaSpecializedAlgorithm<Accelerated>,
-        >(
-            client, lhs, rhs, out, selection, dtypes
-        )),
+        } => with_tile_kind!(tile_kind, Accelerated, || match swizzled {
+            true => layered::launch_ref_tma::<
+                R,
+                TmaSpecializedAlgorithm<Accelerated, AsyncPartialTmaSwizzledLoading>,
+            >(client, lhs, rhs, out, selection, dtypes),
+            false => layered::launch_ref_tma::<R, TmaSpecializedAlgorithm<Accelerated>>(
+                client, lhs, rhs, out, selection, dtypes
+            ),
+        }),
         Strategy::OrderedDoubleBuffering {
             selection,
             tile_kind,

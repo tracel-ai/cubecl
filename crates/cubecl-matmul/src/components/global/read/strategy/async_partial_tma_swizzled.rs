@@ -1,10 +1,11 @@
-use crate::components::global::GlobalConfig;
-use crate::components::stage::{SwizzledStage, SwizzledStageFamily};
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{
+    InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme, stage::StridedStageMemory,
+};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
 };
+use crate::components::{global::GlobalConfig, stage::StridedStageFamily};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount},
@@ -43,7 +44,7 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaSwizzledLoading {
 impl PartialLoadingStrategy for AsyncPartialTmaSwizzledLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = AsyncTma;
-    type Stage = SwizzledStageFamily;
+    type Stage = StridedStageFamily;
 
     type Job<IP: MatrixPrecision> = AsyncPartialTmaSwizzledJob;
 
@@ -78,13 +79,13 @@ pub struct AsyncPartialTmaSwizzledJob {
 impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncTma>
     for AsyncPartialTmaSwizzledJob
 {
-    type Stage = SwizzledStageFamily;
+    type Stage = StridedStageFamily;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] _task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut SwizzledStage<IP::Stage>,
+        stage: &mut StridedStageMemory<IP::Stage, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

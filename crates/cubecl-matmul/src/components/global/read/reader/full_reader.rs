@@ -9,7 +9,7 @@ use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::StageBuffer;
 use crate::components::global::read::TaskCounter;
-use crate::components::stage::StridedStage;
+use crate::components::stage::StridedStageMemory;
 use crate::components::stage::TilingLayout;
 use crate::components::{MatmulIdent, global::read::SyncStrategy};
 use crate::components::{MatrixPrecision, stage::StridedStageFamily};
@@ -52,7 +52,7 @@ pub trait FullLoadingStrategy:
 /// each Task represents a single data transfer for a specific unit
 pub struct FullStageGlobalReader<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> {
     global_iter: GlobalIterator<Line<IP::Global>>,
-    stage: StridedStage<IP::Stage, L::TilingLayout>,
+    stage: StridedStageMemory<IP::Stage, L::TilingLayout>,
     loading_job: CubeOption<L::Job<IP>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -71,7 +71,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
-        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
+        let mut stage = StridedStageMemory::new_aligned(128u32, config.stage_memory_config(ident));
         let (shape_row, shape_col) = view.shape();
         let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
@@ -116,7 +116,7 @@ impl<IP: MatrixPrecision, G: GlobalConfig, L: FullLoadingStrategy> FullStageGlob
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(&self) -> StridedStage<IP::Stage, L::TilingLayout> {
+    pub fn stage(&self) -> StridedStageMemory<IP::Stage, L::TilingLayout> {
         self.stage
     }
 

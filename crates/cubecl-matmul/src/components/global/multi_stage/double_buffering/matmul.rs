@@ -16,7 +16,7 @@ use crate::components::{
 };
 use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
-    stage::{FilledStage, StridedStage},
+    stage::{FilledStage, StridedStageMemory},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -49,8 +49,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,

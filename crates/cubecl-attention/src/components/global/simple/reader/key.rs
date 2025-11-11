@@ -7,7 +7,7 @@ use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
     read::tiled::TiledLayout,
 };
-use cubecl_matmul::components::stage::StridedStage;
+use cubecl_matmul::components::stage::StridedStageMemory;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
@@ -38,10 +38,10 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyKeyReader<AP, G> {
 impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<KS<AP>, G>
     for DummyKeyReader<AP, G>
 {
-    type Stage = StridedStage<KS<AP>, AttentionTilingLayout>;
+    type Stage = StridedStageMemory<KS<AP>, AttentionTilingLayout>;
 
     fn init_stage(&mut self, #[comptime] config: G) -> Self::Stage {
-        StridedStage::new(config.score_stage_memory_config())
+        StridedStageMemory::new(config.score_stage_memory_config())
     }
 
     fn read_global(&mut self, stage: &mut Self::Stage, #[comptime] config: G) {

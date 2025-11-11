@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::PartitionedStage;
-use cubecl_matmul::components::stage::StridedStage;
+use cubecl_matmul::components::stage::StridedStageMemory;
 use cubecl_std::tensor::r#virtual::VirtualTensor;
 use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
@@ -29,8 +29,8 @@ pub struct SimpleGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>>
 impl<
     SA: StageAttention<
             AP,
-            KeyStage = StridedStage<KS<AP>, AttentionTilingLayout>,
-            ValueStage = StridedStage<VS<AP>, AttentionTilingLayout>,
+            KeyStage = StridedStageMemory<KS<AP>, AttentionTilingLayout>,
+            ValueStage = StridedStageMemory<VS<AP>, AttentionTilingLayout>,
             OutStage = PartitionedStage<OS<AP>>,
         >,
     AP: AttentionPrecision,

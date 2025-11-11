@@ -6,7 +6,7 @@ use crate::components::{
         multi_stage::LoadMaxRoundPlaneCount,
         read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
     },
-    stage::{StridedStage, StridedStageFamily, StridedTilingLayout, TilingValidation},
+    stage::{StridedStageMemory, StridedStageFamily, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -93,7 +93,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<IP::Stage, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
@@ -132,7 +132,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
 fn load_nth_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
     nth_slice: u32,
     global_iter: &GlobalIterator<Line<EG>>,
-    stage: &mut StridedStage<ES, StridedTilingLayout>,
+    stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
     barrier: &Barrier,
     #[comptime] ident: MatmulIdent,
     #[comptime] config: G,

@@ -1,6 +1,6 @@
 use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
-use crate::components::stage::{StridedStage, StridedTilingLayout};
+use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
@@ -102,7 +102,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, Synchronous> for S
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<IP::Stage, StridedTilingLayout>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {

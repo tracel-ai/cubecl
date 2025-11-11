@@ -1,5 +1,5 @@
-use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, intrinsic};
 use cubecl_std::{Swizzle, type_size};
 
 use crate::components::{MatrixLayout, stage::StageMemoryConfig};
@@ -8,10 +8,16 @@ use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 /// Tile with a linear major dimension, and a strided minor dimension.
 /// Basic tile kind supported by all stage matmuls.
 pub struct StridedTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
-    /// Slice containing all data
-    pub slice: Slice<Line<ES>, IO>,
+    /// Slice containing all data for the stage
+    pub stage: Slice<Line<ES>, IO>,
+    /// Offset of the tile in the stage
+    pub start: u32,
+    /// End of the tile in the stage, may be wrong with swizzle
+    pub end: u32,
     /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
     pub stride: u32,
+    /// Swizzle object to transform the index
+    pub swizzle: Swizzle,
     #[cube(comptime)]
     /// Layout of the tile (row-major or column-major).
     pub layout: MatrixLayout,
@@ -23,9 +29,11 @@ impl<ES: Numeric> StridedTile<ES> {
     ///
     /// The slice length must exactly match the tile size.
     pub fn new_contiguous(
-        slice: Slice<Line<ES>>,
+        stage: Slice<Line<ES>>,
+        start: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
+        let len = config.elements_in_tile() / config.stage_line_size;
         let layout = config.matrix_layout;
         let stride = match layout {
             MatrixLayout::RowMajor => config.elements_in_tile_col,
@@ -35,8 +43,11 @@ impl<ES: Numeric> StridedTile<ES> {
         let stride = comptime![stride / config.stage_line_size];
 
         StridedTile::<ES> {
-            slice,
+            stage,
+            start,
+            end: start + len,
             stride,
+            swizzle: Swizzle::none(),
             layout,
         }
     }
@@ -45,9 +56,11 @@ impl<ES: Numeric> StridedTile<ES> {
     ///
     /// The slice length must exactly match the tile size.
     pub fn new_contiguous_mut(
-        slice: Slice<Line<ES>, ReadWrite>,
+        stage: Slice<Line<ES>, ReadWrite>,
+        start: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES, ReadWrite> {
+        let len = config.elements_in_tile() / config.stage_line_size;
         let layout = config.matrix_layout;
         let stride = match layout {
             MatrixLayout::RowMajor => config.elements_in_tile_col,
@@ -57,8 +70,11 @@ impl<ES: Numeric> StridedTile<ES> {
         let stride = comptime![stride / config.stage_line_size];
 
         StridedTile::<ES, ReadWrite> {
-            slice,
+            stage,
+            start,
+            end: start + len,
             stride,
+            swizzle: Swizzle::none(),
             layout,
         }
     }
@@ -67,13 +83,19 @@ impl<ES: Numeric> StridedTile<ES> {
     ///
     /// The slice must include all elements of the tile, though it may include unused gaps.
     pub fn new_strided(
-        slice: Slice<Line<ES>>,
+        stage: Slice<Line<ES>>,
+        start: u32,
+        end: u32,
         stride: u32,
+        swizzle: Swizzle,
         #[comptime] layout: MatrixLayout,
     ) -> StridedTile<ES> {
         StridedTile::<ES> {
-            slice,
+            stage,
+            start,
+            end,
             stride,
+            swizzle,
             layout,
         }
     }
@@ -82,114 +104,110 @@ impl<ES: Numeric> StridedTile<ES> {
     ///
     /// The slice must include all elements of the tile, though it may include unused gaps.
     pub fn new_strided_mut(
-        slice: Slice<Line<ES>, ReadWrite>,
+        stage: Slice<Line<ES>, ReadWrite>,
+        start: u32,
+        end: u32,
         stride: u32,
+        swizzle: Swizzle,
         #[comptime] layout: MatrixLayout,
     ) -> StridedTile<ES, ReadWrite> {
         StridedTile::<ES, ReadWrite> {
-            slice,
+            stage,
+            start,
+            end,
             stride,
+            swizzle,
             layout,
         }
+    }
+}
+
+#[cube]
+impl<ES: Numeric> StridedTile<ES, ReadOnly> {
+    /// Returns the tile as an unlined (scalar) slice.
+    ///
+    /// Returns:
+    /// - The unlined slice
+    /// - The updated stride to account for line width removal
+    pub fn as_unlined(&self) -> (Slice<ES, ReadOnly>, u32) {
+        let stage_line_size = comptime![self.stage.line_size()];
+        (
+            self.stage.slice(self.start, self.end).try_cast_unchecked(),
+            self.stride * stage_line_size,
+        )
+    }
+}
+
+#[cube]
+impl<ES: Numeric> StridedTile<ES, ReadWrite> {
+    /// Returns the tile as an unlined (scalar) slice.
+    ///
+    /// Returns:
+    /// - The unlined slice
+    /// - The updated stride to account for line width removal
+    pub fn as_unlined_mut(&self) -> (Slice<ES, ReadWrite>, u32) {
+        let stage_line_size = comptime![self.stage.line_size()];
+        (
+            self.stage
+                .slice(self.start, self.end)
+                .as_mut_unchecked()
+                .try_cast_unchecked(),
+            self.stride * stage_line_size,
+        )
+    }
+
+    /// Returns the tile as an offset slice. Should only be used when swizzling is definitely not
+    /// applicable.
+    pub fn as_slice_mut(&self) -> Slice<Line<ES>, ReadWrite> {
+        self.stage.slice(self.start, self.end).as_mut_unchecked()
     }
 }
 
 #[cube]
 impl<ES: Numeric, IO: SliceVisibility> StridedTile<ES, IO> {
-    /// Returns the tile as an unlined (scalar) slice.
-    ///
-    /// Returns:
-    /// - The unlined slice
-    /// - The updated stride to account for line width removal
-    pub fn as_unlined(&self) -> (Slice<ES, IO>, u32) {
-        let stage_line_size = comptime![self.slice.line_size()];
-        (
-            self.slice.try_cast_unchecked(),
-            self.stride * stage_line_size,
-        )
-    }
-
     /// Returns a specific line from the tile based on coordinates.
     pub fn get_line(&self, coor_strided: u32, coor_contiguous: u32) -> Line<ES> {
-        self.slice[coor_strided * self.stride + coor_contiguous]
-    }
-}
-
-// Swizzled
-
-#[derive(CubeType, Clone, Copy)]
-/// Tile with a linear major dimension, and a strided minor dimension.
-/// Unlike strided, this is the entire stage so swizzled offsets can be properly mapped.
-pub struct SwizzledTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
-    /// Slice containing all data in the entire stage
-    pub slice: Slice<Line<ES>, IO>,
-    /// Start of the tile within the slice
-    start: u32,
-    /// Stride between each row/col, depending on MatrixLayout (the other is assumed to be 1)
-    pub stride: u32,
-    /// Swizzle object used to transform the index
-    swizzle: Swizzle,
-    #[cube(comptime)]
-    /// Layout of the tile (row-major or column-major).
-    pub layout: MatrixLayout,
-}
-
-#[cube]
-impl<ES: Numeric> SwizzledTile<ES> {
-    /// Creates a tile from a strided slice of data.
-    pub fn new(
-        slice: Slice<Line<ES>>,
-        start: u32,
-        stride: u32,
-        swizzle: Swizzle,
-        #[comptime] layout: MatrixLayout,
-    ) -> SwizzledTile<ES> {
-        SwizzledTile::<ES> {
-            slice,
-            start,
-            stride,
-            swizzle,
-            layout,
-        }
+        let offset = coor_strided * self.stride + coor_contiguous;
+        let offset_abs = self.start + offset;
+        let type_size = type_size::<ES>(self.stage.line_size());
+        let offset_swizzled = self.swizzle.apply(offset_abs, type_size);
+        self.stage[offset_swizzled]
     }
 
-    /// Creates a tile from a strided slice of data.
-    pub fn new_mut(
-        slice: Slice<Line<ES>, ReadWrite>,
-        start: u32,
-        stride: u32,
-        swizzle: Swizzle,
-        #[comptime] layout: MatrixLayout,
-    ) -> SwizzledTile<ES, ReadWrite> {
-        SwizzledTile::<ES, ReadWrite> {
-            slice,
-            start,
-            stride,
-            swizzle,
-            layout,
-        }
-    }
-}
-
-#[cube]
-impl<ES: Numeric, IO: SliceVisibility> SwizzledTile<ES, IO> {
-    /// Returns the tile as an unlined (scalar) slice.
-    ///
-    /// Returns:
-    /// - The unlined slice
-    /// - The updated stride to account for line width removal
-    pub fn as_unlined(&self) -> (Slice<ES, IO>, u32) {
-        let stage_line_size = comptime![self.slice.line_size()];
-        (
-            self.slice.try_cast_unchecked(),
-            self.stride * stage_line_size,
-        )
-    }
-
-    /// Returns an absolute offset into the slice with the correct swizzle
-    pub fn swizzled_offset(&self, offset: u32) -> u32 {
-        let type_size = type_size::<ES>(self.slice.line_size());
-        let offset = self.start + offset;
+    pub fn stage_offset(&self, relative_offset: u32) -> u32 {
+        let offset = self.start + relative_offset;
+        let type_size = type_size::<ES>(self.stage.line_size());
         self.swizzle.apply(offset, type_size)
+    }
+
+    #[allow(unused_variables)]
+    pub fn with_line_size(&self, #[comptime] line_size: u32) -> Self {
+        intrinsic!(|scope| {
+            let stage_line_size = self.stage.line_size();
+
+            if line_size == self.stage.line_size() {
+                return self;
+            }
+
+            let current = stage_line_size;
+            let mut out = self.clone();
+
+            if current < line_size {
+                let ratio = line_size / current;
+                let end = cubecl::frontend::div::expand(scope, self.end, ratio.into());
+                let start = cubecl::frontend::div::expand(scope, self.start, ratio.into());
+                out.start = start;
+                out.end = end;
+            } else {
+                let ratio = current / line_size;
+                let start = cubecl::frontend::mul::expand(scope, self.start, ratio.into());
+                let end = cubecl::frontend::mul::expand(scope, self.end, ratio.into());
+                out.start = start;
+                out.end = end;
+            }
+
+            out.stage = out.stage.__expand_with_line_size_method(scope, line_size);
+            out
+        })
     }
 }

@@ -30,11 +30,12 @@ macro_rules! testgen_matmul_tma_algorithm {
         // #[cfg(all(feature = "matmul_tests_double"))]
         // mod specialized_tma_swizzled {
         //     use super::*;
-        //     use $crate::components::tile::mma::SwizzledMmaMatmul;
-        //     use $crate::kernels::layered::specialized::TmaSwizzledSpecializedAlgorithm;
+        //     use $crate::components::tile::mma::MmaMatmul;
+        //     use $crate::components::global::read::async_partial_tma_swizzled::AsyncPartialTmaSwizzledLoading;
+        //     use $crate::kernels::layered::specialized::TmaSpecializedAlgorithm;
 
         //     $crate::testgen_matmul_tma_precision!(
-        //         TmaSwizzledSpecializedAlgorithm<SwizzledMmaMatmul>
+        //         TmaSpecializedAlgorithm<MmaMatmul, AsyncPartialTmaSwizzledLoading>
         //     );
         // }
     };

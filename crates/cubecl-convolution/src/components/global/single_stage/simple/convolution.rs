@@ -9,7 +9,7 @@ use cubecl_matmul::components::{
         read::{FullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
-    stage::{RowMajorTilingOrder, StageMatmul, StridedStage},
+    stage::{RowMajorTilingOrder, StageMatmul, StridedStageMemory},
 };
 use cubecl_std::{
     CubeOption,
@@ -40,8 +40,8 @@ impl<MP: MatmulPrecision, SMM> GlobalConvolution<MP> for SimpleConvolution<MP, S
 where
     SMM: StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, ConvTilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, ConvTilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, ConvTilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, ConvTilingLayout>,
             AccStage = BiasStage<AccS<MP>>,
             OutStage = PartitionedStage<AccS<MP>>,
         >,

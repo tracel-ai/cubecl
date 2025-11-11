@@ -9,7 +9,7 @@ use crate::components::{
         read::{FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier},
     },
     stage::{
-        ContiguousTilingLayout, StridedStage, StridedStageFamily, TilingOrder, TilingValidation,
+        ContiguousTilingLayout, StridedStageMemory, StridedStageFamily, TilingOrder, TilingValidation,
     },
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
@@ -134,7 +134,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

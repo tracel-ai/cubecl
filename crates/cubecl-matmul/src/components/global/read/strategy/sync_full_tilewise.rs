@@ -11,7 +11,7 @@ use crate::components::{
 };
 use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
+    stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -143,7 +143,7 @@ impl<IP: MatrixPrecision, TO: TilingOrder> LoadingJob<IP, ContiguousTilingLayout
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -182,7 +182,7 @@ impl SyncFullTilewiseJob {
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<IP::Stage, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));

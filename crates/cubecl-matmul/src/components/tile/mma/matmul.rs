@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::io::{Filled, Strided, Swizzled, TileKind};
+use crate::components::tile::io::{Filled, Strided, TileKind};
 use crate::components::tile::{
     TileConfig, TileMatmul,
     mma::{reader::MmaStageReader, writer::MmaStageWriter},
@@ -10,13 +10,10 @@ use crate::components::{StageIdent, tile::mma::config::MmaMatmulConfig};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, cmma::MmaDefinition, ir::MatrixIdent};
 
-pub type SwizzledMmaMatmul = MmaMatmul<Swizzled, Swizzled, Filled>;
-pub type StridedMmaMatmul = MmaMatmul<Strided, Strided, Filled>;
-
 /// Uses one plane to perform a small matmul using accelerated instructions, with manual register
 /// management.
 /// Currently requires matrix layout to match the platform's preferred layout.
-pub struct MmaMatmul<Lhs: TileKind, Rhs: TileKind, Acc: TileKind> {
+pub struct MmaMatmul<Lhs: TileKind = Strided, Rhs: TileKind = Strided, Acc: TileKind = Filled> {
     _ty: PhantomData<(Lhs, Rhs, Acc)>,
 }
 

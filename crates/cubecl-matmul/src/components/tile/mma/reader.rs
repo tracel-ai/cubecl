@@ -7,8 +7,8 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout, as_cmma_layout, from_cmma_layout,
     tile::{
-        StridedTile, SwizzledTile, TileConfig,
-        io::{Filled, Strided, Swizzled, TileKind},
+        StridedTile, TileConfig,
+        io::{Filled, Strided, TileKind},
         mma::config::{LoadMethod, MmaMatmulConfig},
     },
 };
@@ -68,35 +68,6 @@ impl MmaFragmentReader for MmaStageReader<Strided> {
 }
 
 #[cube]
-impl MmaFragmentReader for MmaStageReader<Swizzled> {
-    type TileKind = Swizzled;
-
-    fn load_fragment<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
-        tile: &SwizzledTile<V>,
-        fragment: &mut Array<Line<E>>,
-        def: MmaDefinition<A, B, CD>,
-        #[comptime] ident: MatrixIdent,
-        #[comptime] layout: MatrixLayout,
-        #[comptime] config: MmaMatmulConfig,
-    ) {
-        let line_layout = def.line_layout(ident);
-
-        let transposed = comptime![as_cmma_layout(layout) != line_layout];
-
-        match config.load_method(ident) {
-            LoadMethod::Manual => {
-                panic!(
-                    "Not worth implementing yet, swizzle is disabled when `ldmatrix` is unavailable"
-                );
-            }
-            LoadMethod::LoadMatrix => {
-                load_ldmatrix_swizzled(tile, fragment, def, transposed, ident, layout, config);
-            }
-        }
-    }
-}
-
-#[cube]
 fn load_manual_transposed<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     tile: &StridedTile<V>,
     fragment: &mut Array<Line<E>>,
@@ -109,7 +80,7 @@ fn load_manual_transposed<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Nu
     let lane_id = UNIT_POS_PLANE;
 
     let (_, stride) = tile.as_unlined();
-    let slice = tile.slice.with_line_size(1u32);
+    let tile = tile.with_line_size(1u32);
 
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
@@ -124,7 +95,9 @@ fn load_manual_transposed<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Nu
             let elem_idx = i * line_size + n;
             let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
             let offset = row * stride_row + col * stride_col;
-            line[n] = E::cast_from(slice[offset]);
+            let offset = tile.stage_offset(offset);
+
+            line[n] = E::cast_from(tile.stage[offset]);
         }
         fragment[i] = line;
     }
@@ -140,10 +113,11 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
 ) {
     let num_lines = def.lines_per_lane(ident);
     let line_size = def.line_size(ident);
+
     let lane_id = UNIT_POS_PLANE;
     let (_, stride) = tile.as_unlined();
     // Supported on all targets that support manual MMA
-    let slice = tile.slice.with_line_size(line_size);
+    let tile = tile.with_line_size(line_size);
 
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
@@ -155,9 +129,9 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
         let elem_idx = i * line_size;
         let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
         let offset = row * stride_row + col * stride_col;
+        let offset = tile.stage_offset(offset / line_size);
 
-        let value = slice[offset / line_size];
-        fragment[i] = Line::cast_from(value);
+        fragment[i] = Line::cast_from(tile.stage[offset]);
     }
 }
 
@@ -177,7 +151,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] layout: MatrixLayout,
     #[comptime] config: MmaMatmulConfig,
 ) {
-    let stage_line_size = tile.slice.line_size();
+    let stage_line_size = tile.stage.line_size();
     let (_, stride) = tile.as_unlined();
 
     let elem_size = E::type_size();
@@ -185,38 +159,9 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     let width = comptime![16 / elem_size / stage_line_size];
 
     let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
+    let start = tile.stage_offset(start);
 
-    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
-    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
-
-    #[unroll]
-    for i in 0..num_regs {
-        fragment[i] = regs[i];
-    }
-}
-
-/// Same as [load_ldmatrix], but with a swizzled stage
-#[cube]
-fn load_ldmatrix_swizzled<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
-    tile: &SwizzledTile<V>,
-    fragment: &mut Array<Line<E>>,
-    def: MmaDefinition<A, B, CD>,
-    #[comptime] transposed: bool,
-    #[comptime] ident: MatrixIdent,
-    #[comptime] layout: MatrixLayout,
-    #[comptime] config: MmaMatmulConfig,
-) {
-    let stage_line_size = tile.slice.line_size();
-    let (_, stride) = tile.as_unlined();
-
-    let elem_size = E::type_size();
-    let num_regs = def.lines_per_lane(ident);
-    let width = comptime![16 / elem_size / stage_line_size];
-
-    let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
-    let start = tile.swizzled_offset(start);
-
-    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
+    let row_slice = tile.stage.slice(start, start + width).try_cast_unchecked();
     let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
 
     #[unroll]

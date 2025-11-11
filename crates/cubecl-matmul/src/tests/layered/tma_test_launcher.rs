@@ -183,14 +183,14 @@ fn select_swizzle(
         MatrixLayout::ColMajor => tiling.elements_in_stage_row(ident),
     };
     let swizzle_dim_bytes = swizzle_dim as usize * elem.size();
-    println!("swizzle_dim_bytes: {swizzle_dim_bytes}");
     if !swizzle_dim_bytes.is_power_of_two() || swizzle_dim_bytes < 32 {
         return SwizzleMode::None;
     }
     match swizzle_dim_bytes {
         32 => SwizzleMode::B32,
         64 => SwizzleMode::B64,
-        _ => SwizzleMode::B128,
+        128 => SwizzleMode::B128,
+        _ => SwizzleMode::None,
     }
 }
 

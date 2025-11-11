@@ -1,4 +1,4 @@
-use crate::components::stage::StridedStage;
+use crate::components::stage::StridedStageMemory;
 use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
 use crate::components::{
     MatrixLayout,
@@ -92,7 +92,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncPar
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, TmaTilingLayout>,
+        stage: &mut StridedStageMemory<IP::Stage, TmaTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

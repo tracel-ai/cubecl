@@ -6,7 +6,7 @@ use crate::components::{
         multi_stage::LoadMaxRoundPlaneCount,
         read::{LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier},
     },
-    stage::{StridedStage, StridedStageFamily, StridedTilingLayout, TilingValidation},
+    stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -132,7 +132,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, AsyncBarrier>
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<IP::Stage, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
