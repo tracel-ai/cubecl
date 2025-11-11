@@ -1,12 +1,16 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
 use crate::bytes::default_controller::{self, NativeAllocationController};
+use crate::bytes::file::FileAllocationController;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::LayoutError;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
+
+#[cfg(feature = "std")]
+use std::sync::{Arc, Mutex};
 
 /// A buffer similar to `Box<[u8]>` that supports custom memory alignment and allows trailing uninitialized bytes.
 ///
@@ -23,6 +27,7 @@ pub struct Bytes {
     len: usize,
 }
 
+#[derive(Debug)]
 pub enum AllocationProperties {
     File,
     Native,
@@ -117,6 +122,20 @@ pub enum AllocationError {
 }
 
 impl Bytes {
+    #[cfg(feature = "std")]
+    pub fn from_file(file: Arc<Mutex<std::fs::File>>, size: u64, offset: u64) -> Self {
+        let controller = FileAllocationController::new(file, size, offset);
+
+        Self {
+            controller: Box::new(controller),
+            len: size as usize,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
     pub fn read_into(self, other: &mut Self) {
         unsafe {
             self.controller.read_into(other);

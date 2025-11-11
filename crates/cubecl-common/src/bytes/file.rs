@@ -39,7 +39,7 @@ impl FileAllocationController {
         }
 
         let mut file = self.file.lock().unwrap();
-        let mut buf = Vec::with_capacity(self.size as usize);
+        let mut buf = vec![0u8; self.size as usize];
         file.seek(SeekFrom::Start(self.offset)).unwrap();
         file.read(&mut buf).unwrap();
 
@@ -77,6 +77,7 @@ impl AllocationController for FileAllocationController {
     }
 
     fn memory(&self) -> &[core::mem::MaybeUninit<u8>] {
+        println!("Memory");
         self.init();
 
         unsafe {

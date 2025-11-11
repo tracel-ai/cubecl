@@ -16,7 +16,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::ResolvedStreams,
+    stream::{GcTask, ResolvedStreams},
 };
 use std::{ffi::c_void, sync::Arc};
 
@@ -298,7 +298,11 @@ impl<'a> Command<'a> {
     ///
     /// * `Ok(())` - If the write operation succeeds.
     /// * `Err(IoError)` - If the strides are invalid or the resource cannot be accessed.
-    pub fn write_to_gpu(&mut self, descriptor: CopyDescriptor, data: Bytes) -> Result<(), IoError> {
+    pub fn write_to_gpu(
+        &mut self,
+        descriptor: CopyDescriptor,
+        bytes: Bytes,
+    ) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
             shape,
@@ -310,20 +314,25 @@ impl<'a> Command<'a> {
         }
 
         let resource = self.resource(binding)?;
-        let size = data.len();
-        let data = match data.properties() {
+        let size = bytes.len();
+        let data = match bytes.properties() {
             AllocationProperties::File => {
-                let mut buffer = self.reserve_pinned(size, None).unwrap();
-                data.read_into(&mut buffer);
-                buffer
+                let mut pinned = self.reserve_pinned(size, None).unwrap();
+                bytes.read_into(&mut pinned);
+                pinned
             }
-            _ => data,
+            _ => bytes,
         };
 
         let current = self.streams.current();
+
         unsafe {
             write_to_gpu(resource, shape, strides, elem_size, &data, current.sys)?;
         };
+
+        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
+        let event = Fence::new(current.sys);
+        self.streams.gc(GcTask::new(data, event));
 
         Ok(())
     }

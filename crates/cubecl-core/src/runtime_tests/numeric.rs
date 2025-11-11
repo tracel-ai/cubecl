@@ -69,14 +69,12 @@ macro_rules! testgen_numeric {
         #[test]
         fn test_kernel_define() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::numeric::test_kernel_define::<TestRuntime>(client);
         }
 
         #[test]
         fn test_kernel_define_many() {
             let client = TestRuntime::client(&Default::default());
-            let cube_dimensions = cube_dim::<TestRuntime>(&client);
             cubecl_core::runtime_tests::numeric::test_kernel_define_many::<TestRuntime>(client);
         }
     };

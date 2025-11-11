@@ -248,7 +248,7 @@ where
                         &alloc.strides,
                         desc.elem_size,
                     ),
-                    Bytes::from_bytes_vec(data.to_vec()),
+                    data,
                 )
             })
             .collect();

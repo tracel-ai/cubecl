@@ -19,7 +19,7 @@ use cubecl_runtime::{
     id::KernelId,
     logging::ServerLogger,
     memory_management::{MemoryAllocationMode, MemoryHandle},
-    stream::ResolvedStreams,
+    stream::{GcTask, ResolvedStreams},
 };
 use cudarc::driver::sys::{
     CUDA_MEMCPY2D_st, CUmemorytype, CUstream_st, CUtensorMap, cuMemcpy2DAsync_v2,
@@ -323,7 +323,13 @@ impl<'a> Command<'a> {
         };
         let current = self.streams.current();
 
-        unsafe { write_to_gpu(shape, strides, elem_size, &data, resource.ptr, current.sys) }
+        unsafe { write_to_gpu(shape, strides, elem_size, &data, resource.ptr, current.sys) }?;
+
+        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
+        let event = Fence::new(current.sys);
+        self.streams.gc(GcTask::new(data, event));
+
+        Ok(())
     }
 
     /// Allocates a new GPU memory buffer and immediately copies contiguous host data into it.
