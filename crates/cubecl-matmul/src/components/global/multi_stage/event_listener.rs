@@ -213,7 +213,7 @@ impl<
                         &mut this.reader_rhs,
                         rhs_job,
                         &mut this.barrier,
-                       comptime!(this.config.rhs_reader_config()),
+                        comptime!(this.config.rhs_reader_config()),
                     );
                 }
             }
