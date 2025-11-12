@@ -1,12 +1,11 @@
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig,
+        GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            GlobalReaderConfig, LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier,
-            validate_async_barrier,
+            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier, validate_async_barrier,
         },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},

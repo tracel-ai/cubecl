@@ -2,21 +2,22 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::global::multi_stage::EventLoadingMode;
+use crate::components::global::read::ReaderMode;
+use crate::components::global::{PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides};
+use crate::components::stage::StageMemoryConfig;
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{
     AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
     stage::StageConfig,
 };
 use crate::components::{LhsG, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
 use cubecl_std::{
     CubeOption,
     tensor::{View, layout::Coords2d},
 };
-use std::{fmt::Debug, hash::Hash};
-
-use super::read::ReaderMode;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -128,13 +129,14 @@ pub trait GlobalConfig:
 {
     /// Underlying Stage matmul config
     type StageConfig: StageConfig;
+    type LhsReaderConfig: GlobalReaderConfig;
+    type RhsReaderConfig: GlobalReaderConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
 
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config().stage_memory_config(ident.into_stage())
-    }
+    fn lhs_reader_config(&self) -> Self::LhsReaderConfig;
+    fn rhs_reader_config(&self) -> Self::RhsReaderConfig;
 
     fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
         GlobalMemoryConfig::new(
@@ -156,6 +158,55 @@ pub trait GlobalConfig:
     fn tiling_scheme(&self) -> TilingScheme {
         self.stage_config().tiling_scheme()
     }
+
+    /// Returns the [MatrixLayout] for the given ident
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
+
+    /// How to identify the role of the plane depending on its index
+    fn role_rule_config(&self) -> RoleRuleConfig;
+
+    /// Returns the size of the plane dimension
+    fn plane_dim(&self) -> u32;
+
+    /// Whether to check if accessing a row would exceed bounds.
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool;
+
+    /// Whether to check if accessing a col would exceed bounds.
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
+
+    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
+    fn check_k_bounds(&self) -> bool;
+
+    /// The number of stages in stage memory
+    fn num_stages(&self, ident: MatmulIdent) -> u32;
+
+    /// The [CubeDim] arising from the [TilingScheme]
+    fn cube_dim(&self) -> CubeDim;
+}
+
+pub trait GlobalReaderConfig:
+    Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
+{
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig;
+
+    fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
+        GlobalMemoryConfig::new(
+            self.tiling_scheme().elements_in_tile_row(ident),
+            self.tiling_scheme().elements_in_tile_col(ident),
+            self.tiling_scheme().elements_in_stage_row(ident),
+            self.tiling_scheme().elements_in_stage_col(ident),
+            self.global_line_size(ident),
+            self.check_row_bounds(ident),
+            self.check_col_bounds(ident),
+            self.matrix_layout(ident),
+        )
+    }
+
+    /// Returns the line size for the global memory corresponding to the given ident
+    fn global_line_size(&self, ident: MatmulIdent) -> u32;
+
+    /// Returns the [TilingScheme]
+    fn tiling_scheme(&self) -> TilingScheme;
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
@@ -183,9 +234,6 @@ pub trait GlobalConfig:
     /// Whether to check if accessing a col would exceed bounds.
     fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
 
-    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
-    fn check_k_bounds(&self) -> bool;
-
     /// Whether to put common computations for loading tasks once before loop
     fn precompute_job(&self) -> bool;
 
@@ -199,12 +247,4 @@ pub trait GlobalConfig:
 
     /// Whether event loading is constrained to be ordered
     fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode;
-
-    /// Whether the matmul is quantized
-    fn quantized(&self) -> bool {
-        self.stage_config().quantized()
-    }
-
-    /// The [CubeDim] arising from the [TilingScheme]
-    fn cube_dim(&self) -> CubeDim;
 }

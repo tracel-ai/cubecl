@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout};
@@ -120,7 +120,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 
     /// Zero out the shared memory
     /// Available for matmul only
-    pub fn clear_all<G: GlobalConfig>(
+    pub fn clear_all<G: GlobalReaderConfig>(
         &mut self,
         #[comptime] ident: MatmulIdent,
         #[comptime] config: G,
@@ -154,7 +154,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 
     /// Zero out the shared memory for only one stage
     /// Available for matmul only
-    pub fn clear_stage<G: GlobalConfig>(
+    pub fn clear_stage<G: GlobalReaderConfig>(
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] ident: MatmulIdent,

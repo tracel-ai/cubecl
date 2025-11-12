@@ -1,11 +1,11 @@
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig,
+        GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            FullLoadingStrategy, GlobalReaderConfig, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
         },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
@@ -127,7 +127,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
 }
 
 #[cube]
-fn load_nth_slice<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+fn load_nth_slice<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
     nth_slice: u32,
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,

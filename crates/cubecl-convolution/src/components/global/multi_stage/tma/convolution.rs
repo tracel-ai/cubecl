@@ -6,12 +6,12 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS, StageIdent,
     global::{
         GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
         single_stage::simple::SimpleConfig,
     },
-    stage::{StageMatmul, StridedStage},
+    stage::{StageConfig, StageMatmul, StridedStage},
 };
 use cubecl_std::{
     CubeOption,
@@ -210,7 +210,7 @@ where
             runtime_args,
             config.num_stages(MatmulIdent::Lhs),
             config.convolution_params(),
-            config.stage_memory_config(MatmulIdent::Lhs),
+            config.stage_config().stage_memory_config(StageIdent::Lhs),
         )
     }
 
@@ -222,7 +222,7 @@ where
             rhs,
             config.k_step,
             config.num_stages(MatmulIdent::Rhs),
-            config.stage_memory_config(MatmulIdent::Rhs),
+            config.stage_config().stage_memory_config(StageIdent::Rhs),
         )
     }
 
@@ -230,7 +230,10 @@ where
         bias: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new(bias, config.stage_memory_config(MatmulIdent::Out))
+        Self::AccGlobalReader::new(
+            bias,
+            config.stage_config().stage_memory_config(StageIdent::Acc),
+        )
     }
 
     fn init_global_writer(

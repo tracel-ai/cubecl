@@ -1,6 +1,7 @@
 use crate::components::TilingScheme;
-use crate::components::global::read::{GlobalReaderConfig, validate_async_barrier, validate_tma};
-use crate::components::global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma};
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::read::{validate_async_barrier, validate_tma};
+use crate::components::global::{RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStage;
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
@@ -50,7 +51,7 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
     type SyncStrategy = AsyncTma;
     type Job<EG: Numeric, ES: Numeric> = AsyncFullTmaJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: G,

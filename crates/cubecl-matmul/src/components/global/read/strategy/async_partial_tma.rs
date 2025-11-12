@@ -1,12 +1,13 @@
-use crate::components::global::read::{GlobalReaderConfig, validate_async_barrier, validate_tma};
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
+use crate::components::stage::TmaTilingLayout;
 use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
 };
-use crate::components::{global::GlobalConfig, stage::TmaTilingLayout};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};

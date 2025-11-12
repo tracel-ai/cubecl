@@ -1,7 +1,6 @@
 use crate::components::TilingScheme;
-use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
-use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{StridedStage, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};

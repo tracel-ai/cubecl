@@ -1,12 +1,11 @@
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig,
+        GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            FullLoadingStrategy, GlobalReaderConfig, LoadingJob, async_barrier::AsyncBarrier,
-            validate_async_barrier,
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
         },
     },
     stage::{StridedStage, StridedTilingLayout, TilingValidation},
@@ -81,7 +80,7 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,

@@ -1,8 +1,8 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::read::{GlobalReaderConfig, StageBuffer, SyncStrategy};
-use crate::components::global::{GlobalConfig, LoadingSides};
+use crate::components::global::read::{StageBuffer, SyncStrategy};
+use crate::components::global::{GlobalConfig, GlobalReaderConfig, LoadingSides};
 use crate::components::stage::{StageConfig as _, StageEvent, StageEventListener};
 use crate::components::{MatmulIdent, TilingScheme};
 
@@ -23,8 +23,8 @@ pub enum EventLoadingMode {
 /// allowing data for the next tile to be loaded while the current tile is being computed.
 pub struct DoubleBufferingEventListener<
     S: SyncStrategy,
-    Lhs: JobExecutor<G, S>,
-    Rhs: JobExecutor<G, S>,
+    Lhs: JobExecutor<G::LhsReaderConfig, S>,
+    Rhs: JobExecutor<G::RhsReaderConfig, S>,
     G: GlobalConfig,
 > {
     #[cube(comptime)]
@@ -66,8 +66,12 @@ struct EventAnalysis {
 impl CubeDebug for EventAnalysis {}
 
 #[cube]
-impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalConfig>
-    DoubleBufferingEventListener<S, Lhs, Rhs, G>
+impl<
+    S: SyncStrategy,
+    Lhs: JobExecutor<G::LhsReaderConfig, S>,
+    Rhs: JobExecutor<G::RhsReaderConfig, S>,
+    G: GlobalConfig,
+> DoubleBufferingEventListener<S, Lhs, Rhs, G>
 {
     /// Create a new DoubleBufferingEventListener
     pub fn new(
@@ -92,8 +96,12 @@ impl<S: SyncStrategy, Lhs: JobExecutor<G, S>, Rhs: JobExecutor<G, S>, G: GlobalC
 }
 
 #[cube]
-impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReaderConfig>
-    StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
+impl<
+    S: SyncStrategy,
+    L: JobExecutor<G::LhsReaderConfig, S>,
+    R: JobExecutor<G::RhsReaderConfig, S>,
+    G: GlobalConfig,
+> StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
 {
     /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
     ///
@@ -130,7 +138,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReade
                     &mut this.reader_lhs,
                     lhs_job,
                     &mut this.barrier,
-                    this.config,
+                    comptime!(this.config.lhs_reader_config()),
                 );
             }
 
@@ -145,7 +153,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReade
                     &mut this.reader_rhs,
                     rhs_job,
                     &mut this.barrier,
-                    this.config,
+                    comptime!(this.config.rhs_reader_config()),
                 );
             }
         }
@@ -192,7 +200,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReade
                         &mut this.reader_lhs,
                         lhs_job,
                         &mut this.barrier,
-                        this.config,
+                        comptime!(this.config.lhs_reader_config()),
                     );
                 }
             }
@@ -205,7 +213,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReade
                         &mut this.reader_rhs,
                         rhs_job,
                         &mut this.barrier,
-                        this.config,
+                       comptime!(this.config.rhs_reader_config()),
                     );
                 }
             }
@@ -214,15 +222,19 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalReade
 }
 
 #[cube]
-impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfig>
-    DoubleBufferingEventListener<S, L, R, G>
+impl<
+    S: SyncStrategy,
+    L: JobExecutor<G::LhsReaderConfig, S>,
+    R: JobExecutor<G::RhsReaderConfig, S>,
+    G: GlobalConfig,
+> DoubleBufferingEventListener<S, L, R, G>
 {
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
             self.state_lhs.push(L::create_job_iterator(
                 &self.reader_lhs,
                 self.stage_buffer,
-                self.config,
+                comptime!(self.config.lhs_reader_config()),
             ));
         }
 
@@ -230,7 +242,7 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
             self.state_rhs.push(R::create_job_iterator(
                 &self.reader_rhs,
                 self.stage_buffer,
-                self.config,
+                comptime!(self.config.rhs_reader_config()),
             ));
         }
     }
@@ -275,8 +287,8 @@ impl<S: SyncStrategy, L: JobExecutor<G, S>, R: JobExecutor<G, S>, G: GlobalConfi
                 true
             };
 
-            let lhs_can_start = lhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Lhs));
-            let rhs_can_start = rhs_len > 0 && can_start(self.config.event_loading_mode(MatmulIdent::Rhs));
+            let lhs_can_start = lhs_len > 0 && can_start(self.config.lhs_reader_config().event_loading_mode(MatmulIdent::Lhs));
+            let rhs_can_start = rhs_len > 0 && can_start(self.config.rhs_reader_config().event_loading_mode(MatmulIdent::Rhs));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);

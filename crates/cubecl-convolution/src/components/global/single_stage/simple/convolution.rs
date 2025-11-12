@@ -3,13 +3,13 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS, StageIdent,
     global::{
         GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
         read::{FullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
-    stage::{RowMajorTilingOrder, StageMatmul, StridedStage},
+    stage::{RowMajorTilingOrder, StageConfig, StageMatmul, StridedStage},
 };
 use cubecl_std::{
     CubeOption,
@@ -149,7 +149,10 @@ where
         bias: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader {
-        Self::AccGlobalReader::new(bias, config.stage_memory_config(MatmulIdent::Out))
+        Self::AccGlobalReader::new(
+            bias,
+            config.stage_config().stage_memory_config(StageIdent::Out),
+        )
     }
 
     fn init_global_writer(

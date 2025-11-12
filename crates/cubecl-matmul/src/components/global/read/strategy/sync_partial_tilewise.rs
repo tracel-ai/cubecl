@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::GlobalReaderConfig;
+use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
-use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use crate::components::{
-    global::{GlobalConfig, memory::GlobalIterator},
+    global::memory::GlobalIterator,
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
 };
+use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::tensor::layout::Coords2d;

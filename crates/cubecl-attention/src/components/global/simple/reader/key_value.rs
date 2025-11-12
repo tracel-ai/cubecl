@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
-    read::tiled::TiledLayout,
+    read::{FullStageGlobalReader, sync_full_cyclic::SyncFullCyclicLoading, tiled::TiledLayout},
 };
 use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStage};
 use cubecl_std::tensor::{View, layout::Coords2d};
@@ -14,6 +14,7 @@ use crate::components::global::base::GlobalAttentionConfig;
 
 #[derive(CubeType)]
 pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
+    // underlying: FullStageGlobalReader<EG, ES, G, SyncFullCyclicLoading<RowMajorTilingOrder>>,
     global_iter: GlobalIterator<Line<EG>>,
     #[cube(comptime)]
     attention_ident: AttentionIdent,
@@ -25,13 +26,14 @@ pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
 #[cube]
 impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES, G> {
     pub fn new(
-        value: View<Line<EG>, Coords2d>,
+        view: View<Line<EG>, Coords2d>,
         step: u32,
         #[comptime] attention_ident: AttentionIdent,
     ) -> Self {
-        let global_iter = GlobalIterator::new(value, step, ViewDirection::Row, false);
+        let global_iter = GlobalIterator::new(view, step, ViewDirection::Row, false);
 
         DummyKeyValueReader::<EG, ES, G> {
+            // underlying: FullStageGlobalReader::new(view, step, ident, config),
             global_iter,
             attention_ident,
             _phantom: PhantomData,

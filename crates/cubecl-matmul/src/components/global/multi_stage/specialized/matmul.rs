@@ -1,13 +1,16 @@
 use crate::components::global::RoleRule;
 use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::stage::StageConfig as _;
 use crate::components::{
     AccG,
     global::read::{
         PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
-use crate::components::{AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, global};
+use crate::components::{
+    AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, StageIdent, global,
+};
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
@@ -93,8 +96,8 @@ where
         let lhs_elem_size = LhsS::<MP>::elem_size();
         let rhs_elem_size = RhsS::<MP>::elem_size();
         let stage_bytes = comptime! {
-            let lhs_bytes = config.stage_memory_config(MatmulIdent::Lhs).elements_in_stage() * lhs_elem_size;
-            let rhs_bytes = config.stage_memory_config(MatmulIdent::Rhs).elements_in_stage() * rhs_elem_size;
+            let lhs_bytes = config.stage_config().stage_memory_config(StageIdent::Lhs).elements_in_stage() * lhs_elem_size;
+            let rhs_bytes = config.stage_config().stage_memory_config(StageIdent::Rhs).elements_in_stage() * rhs_elem_size;
             lhs_bytes + rhs_bytes
         };
 

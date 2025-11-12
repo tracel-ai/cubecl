@@ -1,13 +1,10 @@
-use crate::components::global::GlobalConfig;
+use crate::components::global::{GlobalConfig, GlobalReaderConfig};
 use crate::components::stage::{StridedStage, TilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
-
-#[cube]
-pub trait GlobalReaderConfig {}
 
 #[cube]
 /// A loading job represents a sequence of loading tasks.

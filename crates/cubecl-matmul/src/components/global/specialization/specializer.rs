@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::GlobalConfig;
+use crate::components::global::GlobalReaderConfig;
 use crate::components::global::specialization::config::LoadingSides;
 use crate::components::global::specialization::roles::RoleRuleConfig;
 
@@ -25,11 +25,11 @@ pub struct Specializer {
 
 #[cube]
 impl Specializer {
-    pub fn new<G: GlobalConfig>(#[comptime] config: G) -> Specializer {
+    pub fn new<G: GlobalReaderConfig>(#[comptime] config: G) -> Specializer {
         let plane_role_config = config.plane_role_config();
         let loading_sides = config.specialized_loading_sides();
 
-        if config.plane_role_config().has_specialization() {
+        if plane_role_config.has_specialization() {
             Specializer {
                 kind: comptime! {
                     SpecializerKind::Specialized {

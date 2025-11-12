@@ -1,15 +1,16 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout, TilingScheme,
     error::MatmulSetupError,
     global::{
-        self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
+        self, GlobalConfig, GlobalReaderConfig, LoadingSides, PlaneRoleConfig, RoleRuleConfig,
+        SpecializedLoadingSides,
         multi_stage::EventLoadingMode,
         read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage::{self, StageMemoryConfig},
+    stage::{self, StageConfig, StageMemoryConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -25,11 +26,17 @@ pub struct SimpleConfig<S: stage::StageConfig> {
     reader_mode: ReaderMode,
 }
 
-impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
+impl<S: StageConfig> GlobalConfig for SimpleConfig<S> {
     type StageConfig = S;
+    type LhsReaderConfig = Self;
+    type RhsReaderConfig = Self;
 
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config.stage_memory_config(ident.into_stage())
+    fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
+        *self
+    }
+
+    fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
+        *self
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -68,29 +75,46 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
         self.check_k_bounds
     }
 
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(
+            <Self as global::GlobalConfig>::plane_dim(self),
+            self.num_planes,
+        )
+    }
+
     fn num_stages(&self, _ident: MatmulIdent) -> u32 {
         1
     }
 
-    fn precompute_job(&self) -> bool {
-        self.precompute_job.into()
+    fn role_rule_config(&self) -> RoleRuleConfig {
+        self.plane_role_config().rule
+    }
+}
+
+impl<S: stage::StageConfig> GlobalReaderConfig for SimpleConfig<S> {
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        self.stage_config().stage_memory_config(ident.into_stage())
     }
 
-    fn reader_mode(&self) -> ReaderMode {
-        self.reader_mode
+    fn tiling_scheme(&self) -> TilingScheme {
+        self.stage_config().tiling_scheme()
     }
 
-    fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
-        EventLoadingMode::Relaxed
+    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+        <Self as GlobalConfig>::global_line_size(&self, ident)
     }
 
-    fn plane_role_config(&self) -> PlaneRoleConfig {
-        self.stage_config.plane_role_config()
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+        <Self as GlobalConfig>::matrix_layout(&self, ident)
     }
 
     fn num_loading_planes(&self, _ident: MatmulIdent) -> u32 {
         // Specialized is not available
-        self.stage_config().num_main_flow_planes()
+        <Self as GlobalConfig>::stage_config(self).num_main_flow_planes()
+    }
+
+    fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.stage_config.plane_role_config()
     }
 
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
@@ -101,8 +125,33 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
         }
     }
 
-    fn cube_dim(&self) -> CubeDim {
-        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    fn plane_dim(&self) -> u32 {
+        <Self as GlobalConfig>::plane_dim(&self)
+    }
+
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+        <Self as GlobalConfig>::check_row_bounds(&self, ident)
+    }
+
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+        <Self as GlobalConfig>::check_col_bounds(&self, ident)
+    }
+
+    fn precompute_job(&self) -> bool {
+        self.precompute_job.into()
+    }
+
+    fn reader_mode(&self) -> ReaderMode {
+        self.reader_mode
+    }
+
+    fn num_stages(&self, _ident: MatmulIdent) -> u32 {
+        1
+    }
+
+    fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
+        // Should not be used for simple
+        unreachable!()
     }
 }
 

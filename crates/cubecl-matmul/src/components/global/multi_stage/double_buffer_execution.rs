@@ -19,8 +19,8 @@ pub fn read_first<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     S: SyncStrategy,
-    LJ: JobExecutor<G, S>,
-    RJ: JobExecutor<G, S>,
+    LJ: JobExecutor<G::LhsReaderConfig, S>,
+    RJ: JobExecutor<G::RhsReaderConfig, S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_global_reader: &mut LJ,
@@ -30,6 +30,9 @@ pub fn read_first<
     #[comptime] stage_to_load: StageBuffer,
     #[comptime] config: G,
 ) {
+    let lhs_config = config.lhs_reader_config();
+    let rhs_config = config.rhs_reader_config();
+
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
             main_flow_loading_side,
@@ -39,23 +42,23 @@ pub fn read_first<
             let rule = RoleRule::new(role_rule_config);
             if !rule.is_load_plane() {
                 if main_flow_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
                 }
                 if main_flow_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
                 }
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
                 }
             }
         }
         SpecializerKind::NotSpecialized => {
-            LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
-            RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+            LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, lhs_config);
+            RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, rhs_config);
         }
     };
 }
@@ -68,8 +71,8 @@ pub fn execute_current_and_read_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     S: SyncStrategy,
-    LJ: JobExecutor<G, S>,
-    RJ: JobExecutor<G, S>,
+    LJ: JobExecutor<G::LhsReaderConfig, S>,
+    RJ: JobExecutor<G::RhsReaderConfig, S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -112,10 +115,20 @@ pub fn execute_current_and_read_next<
                 );
             } else {
                 if load_only_loading_side.includes_lhs() {
-                    LJ::execute_whole_job(lhs_global_reader, barrier, stage_to_load, config);
+                    LJ::execute_whole_job(
+                        lhs_global_reader,
+                        barrier,
+                        stage_to_load,
+                        config.lhs_reader_config(),
+                    );
                 }
                 if load_only_loading_side.includes_rhs() {
-                    RJ::execute_whole_job(rhs_global_reader, barrier, stage_to_load, config);
+                    RJ::execute_whole_job(
+                        rhs_global_reader,
+                        barrier,
+                        stage_to_load,
+                        config.rhs_reader_config(),
+                    );
                 }
             }
         }

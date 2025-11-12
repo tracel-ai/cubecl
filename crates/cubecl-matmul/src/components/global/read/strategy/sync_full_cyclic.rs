@@ -1,9 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::components::TilingScheme;
-use crate::components::global::read::GlobalReaderConfig;
 use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
-use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -157,7 +156,12 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalReaderConfig>(
+pub(crate) fn load_and_store_line<
+    EG: Numeric,
+    ES: Numeric,
+    TO: TilingOrder,
+    G: GlobalReaderConfig,
+>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,

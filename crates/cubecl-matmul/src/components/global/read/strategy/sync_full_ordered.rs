@@ -1,8 +1,9 @@
-use crate::components::global::read::{FullLoadingStrategy, GlobalReaderConfig};
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::read::FullLoadingStrategy;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
+use crate::components::stage::ContiguousTilingLayout;
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
-use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -92,7 +93,7 @@ impl FullLoadingStrategy for SyncFullOrderedLoading {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = sync_full_tilewise::SyncFullTilewiseJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,

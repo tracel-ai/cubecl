@@ -3,12 +3,11 @@ use std::marker::PhantomData;
 use crate::components::{
     InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig, RoleRule,
+        GlobalReaderConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            FullLoadingStrategy, GlobalReaderConfig, LoadingJob, async_barrier::AsyncBarrier,
-            validate_async_barrier,
+            FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
         },
     },
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
@@ -70,7 +69,7 @@ impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,

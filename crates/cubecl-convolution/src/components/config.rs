@@ -4,8 +4,8 @@ use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
     MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
-        read::ReaderMode,
+        GlobalConfig, GlobalReaderConfig, PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides,
+        multi_stage::EventLoadingMode, read::ReaderMode,
     },
     stage::{StageConfig, StageMemoryConfig},
 };
@@ -46,9 +46,15 @@ impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
 
 impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
     type StageConfig = M::StageConfig;
+    type LhsReaderConfig = M::LhsReaderConfig;
+    type RhsReaderConfig = M::RhsReaderConfig;
 
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config().stage_memory_config(ident.into_stage())
+    fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
+        todo!()
+    }
+
+    fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
+        todo!()
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -63,9 +69,9 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         self.matmul.matrix_layout(ident)
     }
 
-    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
-        self.matmul.num_loading_planes(ident)
-    }
+    // fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
+    //     self.matmul.num_loading_planes(ident)
+    // }
 
     fn plane_dim(&self) -> u32 {
         self.matmul.plane_dim()
@@ -83,36 +89,102 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
         self.matmul.check_k_bounds()
     }
 
-    fn precompute_job(&self) -> bool {
-        self.matmul.precompute_job()
-    }
+    // fn precompute_job(&self) -> bool {
+    //     self.matmul.precompute_job()
+    // }
 
     fn num_stages(&self, _ident: MatmulIdent) -> u32 {
         self.num_stages
     }
 
-    fn reader_mode(&self) -> ReaderMode {
-        self.matmul.reader_mode()
-    }
+    // fn reader_mode(&self) -> ReaderMode {
+    //     self.matmul.reader_mode()
+    // }
 
     fn tiling_scheme(&self) -> TilingScheme {
         self.matmul.tiling_scheme()
     }
 
-    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
-        self.matmul.event_loading_mode(ident)
+    // fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
+    //     self.matmul.event_loading_mode(ident)
+    // }
+
+    // fn plane_role_config(&self) -> PlaneRoleConfig {
+    //     self.matmul.plane_role_config()
+    // }
+
+    // fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+    //     self.matmul.specialized_loading_sides()
+    // }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new(
+            <Self as GlobalConfig>::plane_dim(self),
+            <Self as GlobalConfig>::tiling_scheme(self).tiles_in_stage_m(),
+            1,
+        )
+    }
+
+    fn role_rule_config(&self) -> RoleRuleConfig {
+        self.matmul.role_rule_config()
+    }
+}
+
+impl<M: GlobalConfig> GlobalReaderConfig for ConvolutionConfig<M> {
+    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+        todo!()
+    }
+
+    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+        todo!()
+    }
+
+    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
+        todo!()
     }
 
     fn plane_role_config(&self) -> PlaneRoleConfig {
-        self.matmul.plane_role_config()
+        todo!()
     }
 
     fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        self.matmul.specialized_loading_sides()
+        todo!()
     }
 
-    fn cube_dim(&self) -> CubeDim {
-        CubeDim::new(self.plane_dim(), self.tiling_scheme().tiles_in_stage_m(), 1)
+    fn plane_dim(&self) -> u32 {
+        todo!()
+    }
+
+    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+        todo!()
+    }
+
+    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+        todo!()
+    }
+
+    fn precompute_job(&self) -> bool {
+        todo!()
+    }
+
+    fn num_stages(&self, ident: MatmulIdent) -> u32 {
+        todo!()
+    }
+
+    fn reader_mode(&self) -> ReaderMode {
+        todo!()
+    }
+
+    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
+        todo!()
+    }
+
+    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+        todo!()
+    }
+
+    fn tiling_scheme(&self) -> TilingScheme {
+        todo!()
     }
 }
 
@@ -123,9 +195,9 @@ impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
 
     fn line_sizes(&self) -> cubecl_matmul::components::MatmulLineSizes {
         MatmulLineSizes {
-            lhs: self.global_line_size(MatmulIdent::Lhs) as u8,
-            rhs: self.global_line_size(MatmulIdent::Rhs) as u8,
-            out: self.global_line_size(MatmulIdent::Out) as u8,
+            lhs: <Self as GlobalReaderConfig>::global_line_size(self, MatmulIdent::Lhs) as u8,
+            rhs: <Self as GlobalReaderConfig>::global_line_size(self, MatmulIdent::Rhs) as u8,
+            out: <Self as GlobalReaderConfig>::global_line_size(self, MatmulIdent::Out) as u8,
         }
     }
 
