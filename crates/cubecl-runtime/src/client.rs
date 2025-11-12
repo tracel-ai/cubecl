@@ -438,18 +438,15 @@ where
         let mut context = self.context.lock();
         let stagings = context.staging(&sizes, stream_id).unwrap();
         core::mem::drop(context);
-        use rayon::prelude::*;
 
-        let mut tmp = bytes
+        bytes
             .iter_mut()
             .filter(|b| has_staging(b))
             .zip(stagings.into_iter())
-            .collect::<Vec<_>>();
-
-        tmp.par_iter_mut().for_each(|(b, staging)| {
-            b.copy_into(staging);
-            core::mem::swap(*b, staging);
-        });
+            .for_each(|(b, mut staging)| {
+                b.copy_into(&mut staging);
+                core::mem::swap(b, &mut staging);
+            });
     }
 
     /// Transfer data from one client to another
