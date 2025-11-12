@@ -172,6 +172,7 @@ impl ComputeServer for WgpuServer {
     }
 
     fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        // TODO: Check if using a staging buffer is useful here.
         Err(IoError::UnsupportedIoOperation)
     }
 
@@ -242,7 +243,7 @@ impl ComputeServer for WgpuServer {
             let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding.clone());
             let task = ScheduleTask::Write {
-                data: data.to_vec(),
+                data,
                 buffer: resource,
             };
 
