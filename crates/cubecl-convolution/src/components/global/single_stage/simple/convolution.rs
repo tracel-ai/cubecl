@@ -5,7 +5,7 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS, StageIdent,
     global::{
-        GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter,
+        GlobalConfig, GlobalWriter, PartitionedStage, PlaneWriter,
         read::{FullStageGlobalReader, sync_full_cyclic},
         single_stage::simple::SimpleConfig,
     },
@@ -49,14 +49,14 @@ where
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
-        Self::Config,
+        <Self::Config as GlobalConfig>::LhsReaderConfig,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
     type RhsGlobalReader = FullStageGlobalReader<
         <MP::Rhs as MatrixPrecision>::Global,
         <MP::Rhs as MatrixPrecision>::Stage,
-        Self::Config,
+        <Self::Config as GlobalConfig>::RhsReaderConfig,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
@@ -90,8 +90,8 @@ where
         for _ in 0..num_loops {
             sync_cube();
 
-            lhs_reader.load_stage(&mut barrier, config);
-            rhs_reader.load_stage(&mut barrier, config);
+            lhs_reader.load_stage(&mut barrier, config.lhs_reader_config());
+            rhs_reader.load_stage(&mut barrier, config.rhs_reader_config());
 
             sync_cube();
 
@@ -134,7 +134,7 @@ where
             lhs.slice_unchecked(offset, slice_size),
             config.k_step,
             MatmulIdent::Lhs,
-            config,
+            config.lhs_reader_config(),
         )
     }
 
@@ -142,7 +142,12 @@ where
         rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        Self::RhsGlobalReader::new(rhs, config.k_step, MatmulIdent::Rhs, config)
+        Self::RhsGlobalReader::new(
+            rhs,
+            config.k_step,
+            MatmulIdent::Rhs,
+            config.rhs_reader_config(),
+        )
     }
 
     fn init_bias_global_reader(
