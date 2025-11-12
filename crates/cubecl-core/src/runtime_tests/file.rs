@@ -1,13 +1,12 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
-use std::{io::Write, time::SystemTime};
+use std::io::Write;
 
 const MB: usize = 1024 * 1024;
 pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
-    let now = SystemTime::now();
-    let duration = now.duration_since(SystemTime::UNIX_EPOCH).unwrap();
-    let file_name = format!("/tmp/{:?}", duration);
+    let dir = tempfile::tempdir().unwrap();
+    let file_name = dir.path().join("test");
     let data_init = (0i32..MB as i32).collect::<Vec<i32>>();
     let bytes_generated = i32::as_bytes(&data_init);
 
@@ -33,7 +32,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     let bytes = client.read_one(handle);
     let bytes_from_client: &[u8] = &bytes;
 
-    std::fs::remove_file(&file_name).ok();
+    core::mem::drop(dir);
     assert_eq!(
         bytes_generated, bytes_from_client,
         "The data is correctly loaded."

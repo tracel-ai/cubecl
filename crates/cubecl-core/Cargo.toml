@@ -15,7 +15,7 @@ version.workspace = true
 
 [features]
 default = ["cubecl-runtime/default"]
-export_tests = []
+export_tests = ["tempfile"]
 std = ["cubecl-runtime/std"]
 template = []
 
@@ -47,6 +47,7 @@ paste = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 variadics_please = { workspace = true }
+tempfile = { version = "3.20", optional = true }
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
