@@ -346,7 +346,7 @@ impl<'a> Command<'a> {
         let handle = self.reserve(data.len() as u64)?;
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
-        if !valid_strides(&desc.shape, &desc.strides) {
+        if !valid_strides(desc.shape, desc.strides) {
             return Err(IoError::UnsupportedStrides);
         }
 

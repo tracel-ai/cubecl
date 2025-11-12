@@ -436,13 +436,16 @@ where
 
         let stream_id = self.stream_id();
         let mut context = self.context.lock();
-        let stagings = context.staging(&sizes, stream_id).unwrap();
+        let stagings = match context.staging(&sizes, stream_id) {
+            Ok(val) => val,
+            Err(_) => return,
+        };
         core::mem::drop(context);
 
         bytes
             .iter_mut()
             .filter(|b| has_staging(b))
-            .zip(stagings.into_iter())
+            .zip(stagings)
             .for_each(|(b, mut staging)| {
                 b.copy_into(&mut staging);
                 core::mem::swap(b, &mut staging);

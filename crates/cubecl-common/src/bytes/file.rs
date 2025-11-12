@@ -44,7 +44,7 @@ impl FileAllocationController {
         let mut file = File::open(self.file.as_ref()).unwrap();
         let mut buf = vec![0u8; self.size as usize];
         file.seek(SeekFrom::Start(self.offset)).unwrap();
-        file.read(&mut buf).unwrap();
+        file.read_exact(&mut buf).unwrap();
 
         let controller = NativeAllocationController::from_elems(buf);
         unsafe {
@@ -137,6 +137,6 @@ impl AllocationController for FileAllocationController {
 
         let mut file = File::open(self.file.as_ref()).unwrap();
         file.seek(SeekFrom::Start(self.offset)).unwrap();
-        file.read(buf).unwrap();
+        file.read_exact(buf).unwrap();
     }
 }

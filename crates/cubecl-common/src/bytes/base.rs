@@ -67,6 +67,7 @@ pub trait AllocationController {
     fn memory(&self) -> &[MaybeUninit<u8>];
 
     /// Splits the current allocation in multiple separate allocations.
+    #[allow(clippy::type_complexity)]
     fn split(
         &mut self,
         _offset: usize,
@@ -187,6 +188,7 @@ impl Bytes {
     /// # Notes
     ///
     /// This is used so that calling `bytes.len()` doesn't trigger [Deref], which may be expensive.
+    #[allow(clippy::len_without_is_empty)]
     pub fn len(&self) -> usize {
         self.len
     }

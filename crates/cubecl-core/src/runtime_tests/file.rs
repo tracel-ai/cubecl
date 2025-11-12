@@ -1,11 +1,7 @@
 use crate::{self as cubecl};
 use cubecl::prelude::*;
 use cubecl_common::bytes::Bytes;
-use std::{
-    io::Write,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
+use std::{io::Write, time::SystemTime};
 
 const MB: usize = 1024 * 1024;
 pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
@@ -22,8 +18,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     file.write(bytes_generated).unwrap();
     core::mem::drop(file);
 
-    let file = Arc::new(Mutex::new(std::fs::File::open(&file_name).unwrap()));
-    let bytes = Bytes::from_file(file, size, offset);
+    let bytes = Bytes::from_file(&file_name, size, offset);
 
     let bytes_from_file: &[u8] = &bytes;
     assert_eq!(
@@ -32,8 +27,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     );
     core::mem::drop(bytes);
 
-    let file = Arc::new(Mutex::new(std::fs::File::open(&file_name).unwrap()));
-    let bytes = Bytes::from_file(file, size, offset);
+    let bytes = Bytes::from_file(&file_name, size, offset);
 
     let handle = client.create(bytes);
     let bytes = client.read_one(handle);

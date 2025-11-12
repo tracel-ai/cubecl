@@ -339,7 +339,7 @@ impl<'a> Command<'a> {
         let shape = [data.len()];
         let desc = CopyDescriptor::new(handle.clone().binding(), &shape, &[1], 1);
 
-        if !valid_strides(&desc.shape, &desc.strides) {
+        if !valid_strides(desc.shape, desc.strides) {
             return Err(IoError::UnsupportedStrides);
         }
 
@@ -353,7 +353,7 @@ impl<'a> Command<'a> {
                 desc.shape,
                 desc.strides,
                 desc.elem_size,
-                &data,
+                data,
                 current.sys,
             )?;
         }
