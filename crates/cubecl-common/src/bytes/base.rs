@@ -165,8 +165,8 @@ impl Bytes {
 
                         return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
                     }
-                    Err(this) => return Err((this, err)),
-                };
+                    Err(this) => Err((this, err)),
+                }
             }
         }
     }

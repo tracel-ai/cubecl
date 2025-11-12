@@ -319,7 +319,7 @@ impl<'a> Command<'a> {
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, shape, strides, elem_size, &bytes, current.sys)?;
+            write_to_gpu(resource, shape, strides, elem_size, bytes, current.sys)?;
         };
 
         Ok(())
