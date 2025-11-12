@@ -1,5 +1,5 @@
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{
     MatmulElems,
     global::read::{validate_async_barrier, validate_tma},
@@ -57,14 +57,14 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
     type SyncStrategy = AsyncTma;
     type Stage = StridedStageFamily;
 
-    type Job<IP: MatrixPrecision> = AsyncPartialTmaJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncPartialTmaJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let role_rule_config = config.role_rule_config();
         let config = config.stage_memory_config(ident);
         let tile_count_col = match config.matrix_layout {
@@ -102,14 +102,16 @@ pub struct AsyncPartialTmaJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncPartialTmaJob {
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
+    for AsyncPartialTmaJob
+{
     type Stage = StridedStageFamily;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStageMemory<IP::Stage, TmaTilingLayout>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

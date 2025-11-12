@@ -112,9 +112,9 @@ impl MmaMatmulConfig {
             out_global_line_size,
             lhs_stage_line_size,
             rhs_stage_line_size,
-            lhs_load_method: load_method::<R>(client, dtypes.lhs_register),
-            rhs_load_method: load_method::<R>(client, dtypes.rhs_register),
-            acc_load_method: load_method::<R>(client, dtypes.acc_register),
+            lhs_load_method: load_method::<R>(client, dtypes.lhs_stage),
+            rhs_load_method: load_method::<R>(client, dtypes.rhs_stage),
+            acc_load_method: load_method::<R>(client, dtypes.acc_stage),
             swizzle,
         }
         .check_availability::<R>(client, dtypes)

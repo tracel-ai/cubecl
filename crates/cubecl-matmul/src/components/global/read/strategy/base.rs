@@ -1,6 +1,4 @@
-use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixPrecision, stage::as_swizzle_object,
-};
+use crate::components::{InvalidConfigError, MatmulIdent, stage::as_swizzle_object};
 use crate::components::{
     MatmulElems, MatrixLayout,
     stage::{StageMemoryConfig, SwizzleMode, TilingLayout},
@@ -17,7 +15,7 @@ use cubecl_core::{self as cubecl};
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
+pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy>:
     CubeType + Copy + Clone
 {
     type Stage: StageFamily;
@@ -26,8 +24,8 @@ pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut <Self::Stage as StageFamily>::Stage<IP::Stage, TL>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut <Self::Stage as StageFamily>::Stage<ES, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );

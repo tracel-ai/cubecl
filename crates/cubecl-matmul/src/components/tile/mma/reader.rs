@@ -162,11 +162,11 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     let start = tile.stage_offset(start);
 
     let row_slice = tile.stage.slice(start, start + width).try_cast_unchecked();
-    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
+    let regs = def.load_matrix::<V>(&row_slice, ident, num_regs, transposed);
 
     #[unroll]
     for i in 0..num_regs {
-        fragment[i] = regs[i];
+        fragment[i] = Line::cast_from(regs[i]);
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::components::TilingScheme;
 use crate::components::global::{
     multi_stage::LoadMaxRoundPlaneCount,
     read::{sync::Synchronous, validate_swizzle},
@@ -8,7 +9,6 @@ use crate::components::{
     MatmulElems,
     global::{GlobalConfig, RoleRule},
 };
-use crate::components::{MatrixPrecision, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::read::{FullLoadingStrategy, stage::FullStageLayout},
@@ -67,13 +67,13 @@ impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
 impl FullLoadingStrategy for SyncFullStridedLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = Synchronous;
-    type Job<IP: MatrixPrecision> = SyncFullStridedJob;
+    type Job<EG: Numeric, ES: Numeric> = SyncFullStridedJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
@@ -108,14 +108,16 @@ pub struct SyncFullStridedJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, Synchronous> for SyncFullStridedJob {
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchronous>
+    for SyncFullStridedJob
+{
     type Stage = StridedStageFamily;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStageMemory<IP::Stage, StridedTilingLayout>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -125,7 +127,7 @@ impl<IP: MatrixPrecision> LoadingJob<IP, StridedTilingLayout, Synchronous> for S
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked(unit_position * this.line_size);
-        let type_size = type_size::<IP::Stage>(this.line_size);
+        let type_size = type_size::<ES>(this.line_size);
         let stage_offs = stage.swizzle.apply(unit_position, type_size);
 
         stage.as_slice_mut(this.line_size)[stage_offs] = Line::cast_from(line_read);

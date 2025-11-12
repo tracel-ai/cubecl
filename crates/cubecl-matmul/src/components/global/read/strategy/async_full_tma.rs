@@ -1,11 +1,13 @@
-use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{
     MatmulElems,
     global::read::{validate_async_barrier, validate_tma},
 };
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
-use crate::components::{MatrixPrecision, TilingScheme};
+use crate::components::{
+    TilingScheme,
+    stage::{StridedStageMemory, SwizzleMode},
+};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TmaTilingLayout};
 use crate::components::{
@@ -55,13 +57,13 @@ impl LoadMaxRoundPlaneCount for AsyncFullTmaLoading {
 impl FullLoadingStrategy for AsyncFullTmaLoading {
     type TilingLayout = TmaTilingLayout;
     type SyncStrategy = AsyncTma;
-    type Job<IP: MatrixPrecision> = AsyncFullTmaJob;
+    type Job<EG: Numeric, ES: Numeric> = AsyncFullTmaJob;
 
-    fn new_job<IP: MatrixPrecision, G: GlobalConfig>(
+    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: G,
-    ) -> Self::Job<IP> {
+    ) -> Self::Job<EG, ES> {
         let role_rule_config = config.role_rule_config();
         let config = config.stage_memory_config(ident);
         let tile_count_col = match config.matrix_layout {
@@ -96,14 +98,14 @@ pub struct AsyncFullTmaJob {
 }
 
 #[cube]
-impl<IP: MatrixPrecision> LoadingJob<IP, TmaTilingLayout, AsyncTma> for AsyncFullTmaJob {
+impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for AsyncFullTmaJob {
     type Stage = StridedStageFamily;
 
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStageMemory<IP::Stage, TmaTilingLayout>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {
