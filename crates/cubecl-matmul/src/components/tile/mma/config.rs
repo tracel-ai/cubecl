@@ -50,11 +50,10 @@ impl TileConfig for MmaMatmulConfig {
     fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
         // Only supported with ldmatrix for now
         match ident {
-            StageIdent::Lhs if self.lhs_load_method == LoadMethod::LoadMatrix => self.swizzle.lhs,
-            StageIdent::Rhs if self.rhs_load_method == LoadMethod::LoadMatrix => self.swizzle.rhs,
-            StageIdent::Acc if self.acc_load_method == LoadMethod::LoadMatrix => self.swizzle.acc,
+            StageIdent::Lhs => self.swizzle.lhs,
+            StageIdent::Rhs => self.swizzle.rhs,
+            StageIdent::Acc => self.swizzle.acc,
             StageIdent::Out => self.swizzle.out,
-            _ => SwizzleMode::None,
         }
     }
 
