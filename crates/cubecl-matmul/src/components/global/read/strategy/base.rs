@@ -1,6 +1,6 @@
 use crate::components::global::GlobalConfig;
 use crate::components::stage::{StridedStage, TilingLayout};
-use crate::components::{InvalidConfigError, MatmulIdent, MatrixPrecision};
+use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
@@ -12,15 +12,15 @@ use cubecl_core::{self as cubecl};
 /// one unit at one iteration, operating at a specific point within a read view.
 /// The job holds shared information reused across read views and iterations.
 /// By calling execute_task at strategic moments, one can hope to speed up the matmul.
-pub trait LoadingJob<IP: MatrixPrecision, TL: TilingLayout, S: SyncStrategy>:
+pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy>:
     CubeType + Copy + Clone
 {
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
-        global_iter: &GlobalIterator<Line<IP::Global>>,
-        stage: &mut StridedStage<IP::Stage, TL>,
+        global_iter: &GlobalIterator<Line<EG>>,
+        stage: &mut StridedStage<ES, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );

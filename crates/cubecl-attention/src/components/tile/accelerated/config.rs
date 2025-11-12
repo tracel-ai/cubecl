@@ -3,7 +3,7 @@ use std::hash::Hash;
 
 use crate::components::tile::TileAttentionConfig;
 use crate::components::tile::accelerated::local_tile::InnerLayout;
-use crate::components::{AttentionPrecision, AttentionSetupError, AttentionTileSize};
+use crate::components::{AttentionSetupError, AttentionTileSize};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct BlackboxAcceleratedAttentionMatmulConfig {
@@ -48,7 +48,7 @@ impl TileAttentionConfig for BlackboxAcceleratedAttentionMatmulConfig {
 
 impl BlackboxAcceleratedAttentionMatmulConfig {
     #[allow(clippy::too_many_arguments)]
-    pub fn new<AP: AttentionPrecision>(
+    pub fn new(
         plane_dim: u32,
         attention_tile_size: AttentionTileSize,
         num_planes: u32,

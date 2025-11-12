@@ -1,5 +1,5 @@
 use crate::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
     global::{
         GlobalMatmul, GlobalWriter,
         read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},
@@ -46,8 +46,18 @@ where
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = SimpleConfig<SMM::Config>;
-    type LhsGlobalReader = FullStageGlobalReader<MP::Lhs, Self::Config, LL>;
-    type RhsGlobalReader = FullStageGlobalReader<MP::Rhs, Self::Config, RL>;
+    type LhsGlobalReader = FullStageGlobalReader<
+        <MP::Lhs as MatrixPrecision>::Global,
+        <MP::Lhs as MatrixPrecision>::Stage,
+        Self::Config,
+        LL,
+    >;
+    type RhsGlobalReader = FullStageGlobalReader<
+        <MP::Rhs as MatrixPrecision>::Global,
+        <MP::Rhs as MatrixPrecision>::Stage,
+        Self::Config,
+        RL,
+    >;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
     type GlobalWriter = GW;
     type Accumulators = SMM::Accumulators;

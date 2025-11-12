@@ -326,7 +326,6 @@ macro_rules! conv2d_standard_tests {
     };
 
     ($tile:expr, $partition:expr, $stage:expr, $problem:expr) => {
-        use cubecl_matmul::components::global::args::{TensorArgs, TensorMapArgs};
         use $crate::kernels::layered::algorithm::multi_stage_tma::MultiStageTmaConvAlgorithm;
         use $crate::kernels::layered::algorithm::simple::SimpleConvAlgorithm;
         use $crate::kernels::layered::algorithm::simple_tma::SimpleTmaConvAlgorithm;
@@ -335,7 +334,6 @@ macro_rules! conv2d_standard_tests {
         pub fn simple_coalesced_im2col() {
             cubecl_convolution::tests::test_algo::<
                 SimpleConvAlgorithm<TMM>,
-                TensorArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);
@@ -345,7 +343,6 @@ macro_rules! conv2d_standard_tests {
         pub fn simple_tma_im2col() {
             cubecl_convolution::tests::test_algo::<
                 SimpleTmaConvAlgorithm<TMM>,
-                TensorMapArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);
@@ -355,7 +352,6 @@ macro_rules! conv2d_standard_tests {
         pub fn multi_stage_tma_im2col() {
             cubecl_convolution::tests::test_algo::<
                 MultiStageTmaConvAlgorithm<TMM>,
-                TensorMapArgs,
                 Precision,
                 TestRuntime,
             >($tile, $partition, $stage, $problem);

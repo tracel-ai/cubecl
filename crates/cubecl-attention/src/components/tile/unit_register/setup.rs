@@ -1,6 +1,7 @@
 use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::ComputeResources;
 
+use crate::components::AttentionElems;
 use crate::components::tile::unit_register::UnitRegisterTileAttention;
 use crate::components::tile::unit_register::UnitRegisterTileAttentionConfig;
 use crate::components::{
@@ -21,14 +22,15 @@ impl TileAttentionFamily for UnitRegisterTileAttention {
         Ok(ComputeResources::Units(1))
     }
 
-    fn setup<AP: AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         _client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
         num_planes: u32,
+        _dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        UnitRegisterTileAttentionConfig::new::<AP>(
+        UnitRegisterTileAttentionConfig::new(
             selection.plane_dim,
             selection.tiling_scheme.tile_size,
             line_sizes.query as u32,

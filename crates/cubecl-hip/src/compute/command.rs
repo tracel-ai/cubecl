@@ -1,7 +1,4 @@
-use cubecl_common::{
-    bytes::{AllocationProperty, Bytes},
-    stream_id::StreamId,
-};
+use cubecl_common::{bytes::Bytes, stream_id::StreamId};
 use cubecl_core::{
     ExecutionMode, MemoryUsage,
     compute::CubeTask,
