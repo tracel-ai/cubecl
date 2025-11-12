@@ -86,7 +86,7 @@ pub trait AllocationController {
     /// # Safety
     ///
     /// Ensures the length provided reflect initialized values in the current allocation controller.
-    unsafe fn move_into(self: Box<Self>, buf: &mut [u8]) {
+    unsafe fn copy_into(&self, buf: &mut [u8]) {
         let len = buf.len();
         let memory = self.memory();
         let memory_slice = &memory[0..len];
@@ -191,10 +191,10 @@ impl Bytes {
         self.len
     }
 
-    /// Moves the data from the current allocation to the provided [Bytes].
-    pub fn move_into(self, other: &mut Self) {
+    /// Copy the data from the current allocation to the provided [Bytes].
+    pub fn copy_into(&self, other: &mut Self) {
         unsafe {
-            self.controller.move_into(other);
+            self.controller.copy_into(other);
         }
     }
 

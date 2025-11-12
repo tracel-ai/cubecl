@@ -316,7 +316,7 @@ impl<'a> Command<'a> {
         let data = match data.property() {
             AllocationProperty::File => {
                 let mut buffer = self.reserve_pinned(size, None).unwrap();
-                data.move_into(&mut buffer);
+                data.copy_into(&mut buffer);
                 buffer
             }
             _ => data,

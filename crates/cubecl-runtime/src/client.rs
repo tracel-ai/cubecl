@@ -232,21 +232,9 @@ where
     fn do_create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
-        data: Vec<Bytes>,
+        mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
-        println!("Do create {}", data.len());
-        let data = data
-            .into_iter()
-            .map(|data| {
-                // We ensure the data isn't on a file, to avoid doing the copy from the file to
-                // ram while the context is locked.
-                if matches!(data.property(), AllocationProperty::File) {
-                    self.staging(data)
-                } else {
-                    data
-                }
-            })
-            .collect::<Vec<_>>();
+        self.stagings(&mut data, true);
 
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
@@ -428,24 +416,37 @@ where
 
     /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
     /// for faster data transfer with compute device.
-    pub fn staging(&self, bytes: Bytes) -> Bytes {
-        if let AllocationProperty::Pinned = bytes.property() {
-            return bytes;
+    pub fn stagings(&self, bytes: &mut [Bytes], file_only: bool) {
+        let has_staging = |b: &Bytes| match b.property() {
+            AllocationProperty::Pinned => false,
+            AllocationProperty::File => true,
+            AllocationProperty::Native | AllocationProperty::Other => !file_only,
+        };
+        let sizes = bytes
+            .iter()
+            .filter_map(|b| match has_staging(b) {
+                true => Some(b.len()),
+                false => None,
+            })
+            .collect::<Vec<usize>>();
+
+        if sizes.is_empty() {
+            return;
         }
 
-        println!("Staging");
         let stream_id = self.stream_id();
         let mut context = self.context.lock();
-        let mut staging = match context.staging(&[bytes.len()], stream_id) {
-            Ok(val) => val,
-            Err(_) => return bytes,
-        };
+        let stagings = context.staging(&sizes, stream_id).unwrap();
         core::mem::drop(context);
 
-        let mut staging = staging.remove(0);
-        bytes.move_into(&mut staging);
-
-        staging
+        bytes
+            .iter_mut()
+            .filter(|b| has_staging(b))
+            .zip(stagings.into_iter())
+            .for_each(|(b, mut staging)| {
+                b.copy_into(&mut staging);
+                core::mem::swap(b, &mut staging);
+            });
     }
 
     /// Transfer data from one client to another

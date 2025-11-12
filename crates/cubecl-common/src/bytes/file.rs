@@ -121,7 +121,7 @@ impl AllocationController for FileAllocationController {
         Some(Box::new(controller))
     }
 
-    unsafe fn move_into(self: Box<Self>, buf: &mut [u8]) {
+    unsafe fn copy_into(&self, buf: &mut [u8]) {
         if self.init.load(Ordering::Relaxed) {
             let len = buf.len();
             let memory = self.memory();
