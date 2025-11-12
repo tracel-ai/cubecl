@@ -58,6 +58,25 @@ impl AllocationController for FileAllocationController {
         MAX_ALIGN
     }
 
+    fn split(
+        &mut self,
+        offset: usize,
+    ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), super::SplitError>
+    {
+        if self.size <= offset as u64 {
+            return Err(super::SplitError::InvalidOffset);
+        }
+
+        let left = FileAllocationController::new(self.file.clone(), offset as u64, self.offset);
+        let right = FileAllocationController::new(
+            self.file.clone(),
+            self.size - offset as u64,
+            self.offset + offset as u64,
+        );
+
+        Ok((Box::new(left), Box::new(right)))
+    }
+
     fn property(&self) -> AllocationProperty {
         AllocationProperty::File
     }
@@ -91,7 +110,7 @@ impl AllocationController for FileAllocationController {
         }
     }
 
-    unsafe fn read_into(self: Box<Self>, buf: &mut [u8]) {
+    unsafe fn move_into(self: Box<Self>, buf: &mut [u8]) {
         if self.init.load(Ordering::Relaxed) {
             let len = buf.len();
             let memory = self.memory();

@@ -40,6 +40,11 @@ pub enum AllocationProperty {
     Other,
 }
 
+pub enum SplitError {
+    InvalidOffset,
+    Unsupported,
+}
+
 /// Defines how an [Allocation] can be controlled.
 ///
 /// This trait enables type erasure of the allocator after an [Allocation] is created, while still
@@ -61,13 +66,21 @@ pub trait AllocationController {
     /// Returns a view of the memory of the whole allocation
     fn memory(&self) -> &[MaybeUninit<u8>];
 
+    /// Splits the current allocation in multiple separate allocations.
+    fn split(
+        &mut self,
+        _offset: usize,
+    ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
+        Err(SplitError::Unsupported)
+    }
+
     /// Reads the data from the current allocation controller and copy its content into the provided
     /// buffer.
     ///
     /// # Safety
     ///
     /// Ensures the length provided reflect initialized values in the current allocation controller.
-    unsafe fn read_into(self: Box<Self>, buf: &mut [u8]) {
+    unsafe fn move_into(self: Box<Self>, buf: &mut [u8]) {
         let len = buf.len();
         let memory = self.memory();
         let memory_slice = &memory[0..len];
@@ -127,6 +140,30 @@ pub enum AllocationError {
 }
 
 impl Bytes {
+    pub fn split(self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
+        let mut this = match self.try_into_vec() {
+            Ok(mut left) => {
+                let right = left.split_off(offset);
+
+                return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
+            }
+            Err(this) => this,
+        };
+
+        let right_len = this.len - offset;
+        let (left, right) = match this.controller.split(offset) {
+            Ok(result) => result,
+            Err(err) => return Err((this, err)),
+        };
+
+        unsafe {
+            Ok((
+                Bytes::from_controller(left, offset),
+                Bytes::from_controller(right, right_len),
+            ))
+        }
+    }
+
     #[cfg(feature = "std")]
     /// Creates bytes from a file at the given offset of the given size.
     pub fn from_file(file: Arc<Mutex<std::fs::File>>, size: u64, offset: u64) -> Self {
@@ -150,7 +187,7 @@ impl Bytes {
     /// Moves the data from the current allocation to the provided [Bytes].
     pub fn move_into(self, other: &mut Self) {
         unsafe {
-            self.controller.read_into(other);
+            self.controller.move_into(other);
         }
     }
 
