@@ -145,3 +145,70 @@ impl AllocationController for FileAllocationController {
         file.read_exact(buf).unwrap();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::super::Bytes;
+    use std::{io::Write, path::PathBuf};
+
+    #[test]
+    fn test_from_file() {
+        let elems = (0..250).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+
+        assert_eq!(&bytes, &bytes_file);
+        core::mem::drop(dir);
+    }
+
+    #[test]
+    fn test_split_file() {
+        let elems = (0..250).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+        let offset = 40;
+        let (left, right) = bytes_file.split(offset).unwrap();
+
+        let left_expected: &[u8] = &bytes[0..offset];
+        let right_expected: &[u8] = &bytes[offset..];
+        let left_actual: &[u8] = &left;
+        let right_actual: &[u8] = &right;
+
+        assert_eq!(left_expected, left_actual);
+        assert_eq!(right_expected, right_actual);
+        core::mem::drop(dir);
+    }
+
+    #[test]
+    fn test_duplicate_mut_file() {
+        let elems = (0..250).collect();
+        let (path, bytes, dir) = with_data(elems);
+
+        let bytes_file = Bytes::from_file(&path, bytes.len() as u64, 0);
+
+        let mut bytes_mut = bytes_file.clone();
+        bytes_mut[0] = 5;
+
+        let expected: &[u8] = &bytes[1..];
+        let actual: &[u8] = &bytes_mut[1..];
+
+        assert_eq!(&bytes, &bytes_file);
+        assert_eq!(bytes_mut[0], 5);
+        assert_eq!(expected, actual);
+        core::mem::drop(dir);
+    }
+
+    fn with_data(elems: Vec<u8>) -> (PathBuf, Bytes, TempDir) {
+        let bytes = Bytes::from_bytes_vec(elems);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test");
+
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&bytes).unwrap();
+        (path, bytes, dir)
+    }
+}

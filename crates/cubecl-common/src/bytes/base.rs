@@ -38,6 +38,7 @@ pub enum AllocationProperty {
 }
 
 /// Error when splitting an allocation.
+#[derive(Debug, Clone, Copy)]
 pub enum SplitError {
     /// The offset isn't valid.
     InvalidOffset,
@@ -149,7 +150,6 @@ pub enum AllocationError {
 impl Bytes {
     /// Splits the current allocation at the given offset.
     pub fn split(mut self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
-
         let right_len = self.len - offset;
         match self.controller.split(offset) {
             Ok((left, right)) => unsafe {
