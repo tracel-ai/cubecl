@@ -314,25 +314,15 @@ impl<'a> Command<'a> {
         }
 
         let resource = self.resource(binding)?;
-        let size = bytes.len();
-        let data = match bytes.property() {
-            AllocationProperty::File => {
-                let mut pinned = self.reserve_pinned(size, None).unwrap();
-                bytes.move_into(&mut pinned);
-                pinned
-            }
-            _ => bytes,
-        };
-
         let current = self.streams.current();
 
         unsafe {
-            write_to_gpu(resource, shape, strides, elem_size, &data, current.sys)?;
+            write_to_gpu(resource, shape, strides, elem_size, &bytes, current.sys)?;
         };
 
         // Make sure we don't reuse the pinned memory until the write to gpu is completed.
         let event = Fence::new(current.sys);
-        self.streams.gc(GcTask::new(data, event));
+        self.streams.gc(GcTask::new(bytes, event));
 
         Ok(())
     }

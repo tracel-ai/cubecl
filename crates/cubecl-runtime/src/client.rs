@@ -234,6 +234,20 @@ where
         descriptors: Vec<AllocationDescriptor<'_>>,
         data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
+        println!("Do create {}", data.len());
+        let data = data
+            .into_iter()
+            .map(|data| {
+                // We ensure the data isn't on a file, to avoid doing the copy from the file to
+                // ram while the context is locked.
+                if matches!(data.property(), AllocationProperty::File) {
+                    self.staging(data)
+                } else {
+                    data
+                }
+            })
+            .collect::<Vec<_>>();
+
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
@@ -419,6 +433,7 @@ where
             return bytes;
         }
 
+        println!("Staging");
         let stream_id = self.stream_id();
         let mut context = self.context.lock();
         let mut staging = match context.staging(&[bytes.len()], stream_id) {

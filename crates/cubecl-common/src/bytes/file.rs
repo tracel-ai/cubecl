@@ -8,12 +8,14 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 use std::{
+    fs::File,
     io::{Read, Seek, SeekFrom},
-    sync::{Arc, Mutex},
+    path::PathBuf,
+    sync::Arc,
 };
 
 pub(crate) struct FileAllocationController {
-    file: Arc<Mutex<std::fs::File>>,
+    file: Arc<PathBuf>,
     size: u64,
     offset: u64,
     controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
@@ -24,21 +26,22 @@ unsafe impl Send for FileAllocationController {}
 unsafe impl Sync for FileAllocationController {}
 
 impl FileAllocationController {
-    pub fn new(file: Arc<Mutex<std::fs::File>>, size: u64, offset: u64) -> Self {
+    pub fn new<P: Into<PathBuf>>(file: P, size: u64, offset: u64) -> Self {
         Self {
-            file,
+            file: Arc::new(file.into()),
             size,
             controller: UnsafeCell::new(None),
             offset,
             init: false.into(),
         }
     }
+
     fn init(&self) {
         if self.init.load(Ordering::Relaxed) {
             return;
         }
 
-        let mut file = self.file.lock().unwrap();
+        let mut file = File::open(self.file.as_ref()).unwrap();
         let mut buf = vec![0u8; self.size as usize];
         file.seek(SeekFrom::Start(self.offset)).unwrap();
         file.read(&mut buf).unwrap();
@@ -67,9 +70,9 @@ impl AllocationController for FileAllocationController {
             return Err(super::SplitError::InvalidOffset);
         }
 
-        let left = FileAllocationController::new(self.file.clone(), offset as u64, self.offset);
+        let left = FileAllocationController::new(self.file.as_ref(), offset as u64, self.offset);
         let right = FileAllocationController::new(
-            self.file.clone(),
+            self.file.as_ref(),
             self.size - offset as u64,
             self.offset + offset as u64,
         );
@@ -96,7 +99,6 @@ impl AllocationController for FileAllocationController {
     }
 
     fn memory(&self) -> &[core::mem::MaybeUninit<u8>] {
-        println!("Memory");
         self.init();
 
         unsafe {
@@ -108,6 +110,15 @@ impl AllocationController for FileAllocationController {
                 None => unreachable!(),
             }
         }
+    }
+
+    fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
+        if self.init.load(Ordering::Relaxed) {
+            return None;
+        }
+
+        let controller = Self::new(self.file.as_ref(), self.size, self.offset);
+        Some(Box::new(controller))
     }
 
     unsafe fn move_into(self: Box<Self>, buf: &mut [u8]) {
@@ -124,7 +135,7 @@ impl AllocationController for FileAllocationController {
             return;
         }
 
-        let mut file = self.file.lock().unwrap();
+        let mut file = File::open(self.file.as_ref()).unwrap();
         file.seek(SeekFrom::Start(self.offset)).unwrap();
         file.read(buf).unwrap();
     }
