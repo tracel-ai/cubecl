@@ -21,7 +21,7 @@ use crate::{
         ordered_double_buffering::OrderedSelectionArgs,
         simple::SimpleArgs,
         simple_unit::SimpleUnitSelectionArgs,
-        specialized::{SpecializedArgs, TmaSpecializedAlgorithm},
+        specialized::TmaSpecializedAlgorithm,
         vecmat::{DoubleVecMatAlgorithm, SimpleVecMatAlgorithm},
     },
 };
@@ -66,7 +66,7 @@ pub enum Strategy {
         tile_kind: AcceleratedTileKind,
     },
     Specialized {
-        selection: Selection<SpecializedArgs>,
+        selection: Selection<()>,
         tile_kind: AcceleratedTileKind,
     },
     SimpleUnit(Selection<SimpleUnitSelectionArgs>),

@@ -25,11 +25,6 @@ use crate::components::{
 use crate::kernels::layered::algorithm::base;
 use crate::kernels::layered::selector::{PlaneMatmulSelectionOptions, plane_matmul_selection};
 
-#[derive(Default, Debug, Clone, Copy)]
-pub struct SpecializedArgs {
-    pub swizzled: bool,
-}
-
 /// Plane accelerated specialized matmul with TMA readers
 pub struct TmaSpecializedAlgorithm<TMM, L = AsyncPartialTmaLoading> {
     pub _phantom: PhantomData<(TMM, L)>,
@@ -45,7 +40,7 @@ where
         >,
     L: PartialLoadingStrategy<SyncStrategy = AsyncTma>,
 {
-    type SelectionArgs = SpecializedArgs;
+    type SelectionArgs = ();
     type TileMatmul = TMM;
     type StageMatmul = PlaneMatmulFamily<Self::TileMatmul, L::Stage, L::Stage, FilledStageFamily>;
     type GlobalMatmul = SpecializedMatmulFamily<Self::StageMatmul, L, L, PlaneWriterFamily>;
@@ -57,7 +52,7 @@ where
         problem: &MatmulProblem,
         plane_dim: u32,
         _line_sizes: &MatmulLineSizes,
-        args: &Self::SelectionArgs,
+        _args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         plane_matmul_selection::<TMM, R>(
@@ -70,7 +65,7 @@ where
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
-                swizzled: args.swizzled,
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )

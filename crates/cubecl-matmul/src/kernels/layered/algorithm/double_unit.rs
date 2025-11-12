@@ -44,7 +44,7 @@ impl Algorithm for DoubleUnitAlgorithm {
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        _dtypes: &mut MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(unit_matmul_selection::<R>(
             client,
@@ -56,6 +56,7 @@ impl Algorithm for DoubleUnitAlgorithm {
                 tile: args.tile_size,
                 ..Default::default()
             },
+            dtypes,
         ))
     }
 

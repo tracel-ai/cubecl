@@ -55,6 +55,13 @@ where
         )
     }
 
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+        // Selection isn't getting rid of all conflicts with the current load strategy, but does
+        // reduce conflicts significantly (i.e. average 18 vs average 5). Should try to find more
+        // optimal settings in the future.
+        client.properties().features.alignment
+    }
+
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }

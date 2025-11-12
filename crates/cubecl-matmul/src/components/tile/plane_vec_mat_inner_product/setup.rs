@@ -53,4 +53,10 @@ where
             dtypes,
         )
     }
+
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+        // Supported but need to find good settings for this tiling. Currently tuned for `ldmatrix`.
+        // Need to profile at some point
+        false
+    }
 }

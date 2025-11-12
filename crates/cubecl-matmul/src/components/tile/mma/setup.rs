@@ -63,6 +63,12 @@ where
         )
     }
 
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+        // No alignment means swizzling can't be properly used, since it needs to be applied to
+        // the address, and alignment guarantees the offset is aligned to the pattern repeat.
+        client.properties().features.alignment
+    }
+
     fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
         client.properties().features.mma.contains(&config)
     }

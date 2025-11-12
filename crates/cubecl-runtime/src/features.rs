@@ -14,6 +14,8 @@ pub struct Features {
     pub cube_cluster: bool,
     /// Enables to change the line size of containers during kernel execution.
     pub dynamic_line_size: bool,
+    /// Enables explicit alignment. If false, alignment still compiles, but isn't actually applied.
+    pub alignment: bool,
 
     /// Types supported by this runtime, and which usages they support.
     pub storage_types: BTreeMap<StorageType, EnumSet<TypeUsage>>,

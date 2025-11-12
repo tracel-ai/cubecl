@@ -91,6 +91,7 @@ where
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     tiny_selection_enabled: true,
+                    swizzled: TMM::should_swizzle::<R>(client),
                     ..Default::default()
                 },
             )

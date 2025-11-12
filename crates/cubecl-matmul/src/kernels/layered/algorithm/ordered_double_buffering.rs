@@ -81,6 +81,7 @@ where
                     .unwrap_or_else(|| MultiRowStrategy::Adaptive {
                         minimum_stage_count: 8,
                     }),
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )
