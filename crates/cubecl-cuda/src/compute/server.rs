@@ -63,7 +63,12 @@ impl ComputeServer for CudaServer {
     }
 
     fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        todo!()
+        let mut command = self.command_no_inputs(stream_id);
+
+        Ok(sizes
+            .iter()
+            .map(|size| command.reserve_cpu(*size, true, None))
+            .collect())
     }
 
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {

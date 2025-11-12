@@ -351,6 +351,9 @@ pub enum IoError {
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution")]
     Unknown(String),
+    /// The current IO operation is not supported
+    #[error("The current IO operation is not supported")]
+    UnsupportedIoOperation,
 }
 
 impl Handle {

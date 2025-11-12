@@ -171,8 +171,8 @@ impl ComputeServer for WgpuServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
-        todo!()
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
     }
 
     fn create(

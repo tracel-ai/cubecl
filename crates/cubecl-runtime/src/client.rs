@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
     ExecutionMode,
-    bytes::Bytes,
+    bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceContext},
     future::DynFut,
     profile::ProfileDuration,
@@ -410,6 +410,27 @@ where
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
         self.do_empty(descriptors).unwrap()
+    }
+
+    /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
+    /// for faster data transfer with compute device.
+    pub fn staging(&self, bytes: Bytes) -> Bytes {
+        if let AllocationProperty::Pinned = bytes.property() {
+            return bytes;
+        }
+
+        let stream_id = self.stream_id();
+        let mut context = self.context.lock();
+        let mut staging = match context.staging(&[bytes.len()], stream_id) {
+            Ok(val) => val,
+            Err(_) => return bytes,
+        };
+        core::mem::drop(context);
+
+        let mut staging = staging.remove(0);
+        bytes.move_into(&mut staging);
+
+        staging
     }
 
     /// Transfer data from one client to another
