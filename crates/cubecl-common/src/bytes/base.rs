@@ -9,9 +9,6 @@ use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 use core::ptr::NonNull;
 
-#[cfg(feature = "std")]
-use std::sync::{Arc, Mutex};
-
 /// A buffer similar to `Box<[u8]>` that supports custom memory alignment and allows trailing uninitialized bytes.
 ///
 /// `Bytes` is designed for efficient memory management in specialized contexts.
@@ -40,8 +37,11 @@ pub enum AllocationProperty {
     Other,
 }
 
+/// Error when splitting an allocation.
 pub enum SplitError {
+    /// The offset isn't valid.
     InvalidOffset,
+    /// The operation isn't supported.
     Unsupported,
 }
 
@@ -72,6 +72,12 @@ pub trait AllocationController {
         _offset: usize,
     ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
         Err(SplitError::Unsupported)
+    }
+
+    /// Duplicates the current allocation with a clone on write strategy if the allocation
+    /// controller supports it.
+    fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
+        None
     }
 
     /// Reads the data from the current allocation controller and copy its content into the provided
@@ -166,7 +172,7 @@ impl Bytes {
 
     #[cfg(feature = "std")]
     /// Creates bytes from a file at the given offset of the given size.
-    pub fn from_file(file: Arc<Mutex<std::fs::File>>, size: u64, offset: u64) -> Self {
+    pub fn from_file<P: Into<std::path::PathBuf>>(file: P, size: u64, offset: u64) -> Self {
         let controller = FileAllocationController::new(file, size, offset);
 
         Self {
@@ -495,6 +501,13 @@ impl<'de> serde::Deserialize<'de> for Bytes {
 
 impl Clone for Bytes {
     fn clone(&self) -> Self {
+        if let Some(controller) = self.controller.duplicate() {
+            return Self {
+                controller,
+                len: self.len,
+            };
+        }
+
         // unwrap here: the layout is valid as it has the alignment & size of self
         Self::try_from_data(self.align(), self.deref()).unwrap()
     }
