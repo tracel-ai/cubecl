@@ -436,7 +436,7 @@ where
 
         let stream_id = self.stream_id();
         let mut context = self.context.lock();
-        let stagings = match context.staging(&sizes, stream_id) {
+        let stagings = match context.stagings(&sizes, stream_id) {
             Ok(val) => val,
             Err(_) => return,
         };

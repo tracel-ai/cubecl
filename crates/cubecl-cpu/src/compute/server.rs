@@ -96,7 +96,7 @@ impl ComputeServer for CpuServer {
         self.utilities.logger.clone()
     }
 
-    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn stagings(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
         Err(IoError::UnsupportedIoOperation)
     }
 

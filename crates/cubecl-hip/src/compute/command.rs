@@ -128,6 +128,11 @@ impl<'a> Command<'a> {
             .unwrap_or_else(|| Bytes::from_bytes_vec(vec![0; size]))
     }
 
+    pub fn gc<T: Send + 'static>(&mut self, to_drop: T) {
+        let fence = Fence::new(self.streams.current().sys);
+        self.streams.gc(GcTask::new(to_drop, fence));
+    }
+
     fn reserve_pinned(&mut self, size: usize, origin: Option<StreamId>) -> Option<Bytes> {
         let stream = match origin {
             Some(id) => self.streams.get(&id),
@@ -298,7 +303,7 @@ impl<'a> Command<'a> {
     pub fn write_to_gpu(
         &mut self,
         descriptor: CopyDescriptor,
-        bytes: Bytes,
+        bytes: &Bytes,
     ) -> Result<(), IoError> {
         let CopyDescriptor {
             binding,
@@ -316,10 +321,6 @@ impl<'a> Command<'a> {
         unsafe {
             write_to_gpu(resource, shape, strides, elem_size, &bytes, current.sys)?;
         };
-
-        // Make sure we don't reuse the pinned memory until the write to gpu is completed.
-        let event = Fence::new(current.sys);
-        self.streams.gc(GcTask::new(bytes, event));
 
         Ok(())
     }

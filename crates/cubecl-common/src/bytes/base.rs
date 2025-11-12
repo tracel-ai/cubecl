@@ -148,27 +148,26 @@ pub enum AllocationError {
 
 impl Bytes {
     /// Splits the current allocation at the given offset.
-    pub fn split(self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
-        let mut this = match self.try_into_vec() {
-            Ok(mut left) => {
-                let right = left.split_off(offset);
+    pub fn split(mut self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
 
-                return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
+        let right_len = self.len - offset;
+        match self.controller.split(offset) {
+            Ok((left, right)) => unsafe {
+                Ok((
+                    Bytes::from_controller(left, offset),
+                    Bytes::from_controller(right, right_len),
+                ))
+            },
+            Err(err) => {
+                match self.try_into_vec() {
+                    Ok(mut left) => {
+                        let right = left.split_off(offset);
+
+                        return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
+                    }
+                    Err(this) => return Err((this, err)),
+                };
             }
-            Err(this) => this,
-        };
-
-        let right_len = this.len - offset;
-        let (left, right) = match this.controller.split(offset) {
-            Ok(result) => result,
-            Err(err) => return Err((this, err)),
-        };
-
-        unsafe {
-            Ok((
-                Bytes::from_controller(left, offset),
-                Bytes::from_controller(right, right_len),
-            ))
         }
     }
 

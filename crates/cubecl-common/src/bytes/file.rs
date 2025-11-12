@@ -27,8 +27,12 @@ unsafe impl Sync for FileAllocationController {}
 
 impl FileAllocationController {
     pub fn new<P: Into<PathBuf>>(file: P, size: u64, offset: u64) -> Self {
+        Self::from_path_buf(Arc::new(file.into()), size, offset)
+    }
+
+    fn from_path_buf(file: Arc<PathBuf>, size: u64, offset: u64) -> Self {
         Self {
-            file: Arc::new(file.into()),
+            file,
             size,
             controller: UnsafeCell::new(None),
             offset,
@@ -70,9 +74,10 @@ impl AllocationController for FileAllocationController {
             return Err(super::SplitError::InvalidOffset);
         }
 
-        let left = FileAllocationController::new(self.file.as_ref(), offset as u64, self.offset);
-        let right = FileAllocationController::new(
-            self.file.as_ref(),
+        let left =
+            FileAllocationController::from_path_buf(self.file.clone(), offset as u64, self.offset);
+        let right = FileAllocationController::from_path_buf(
+            self.file.clone(),
             self.size - offset as u64,
             self.offset + offset as u64,
         );

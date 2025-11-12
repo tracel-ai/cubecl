@@ -50,7 +50,7 @@ impl ComputeServer for HipServer {
         self.utilities.clone()
     }
 
-    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn stagings(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
         let mut command = self.command_no_inputs(stream_id);
 
         Ok(sizes
@@ -127,9 +127,14 @@ impl ComputeServer for HipServer {
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
 
+        let mut to_drop = Vec::with_capacity(descriptors.len());
+
         for (descriptor, data) in descriptors {
-            command.write_to_gpu(descriptor, data)?;
+            command.write_to_gpu(descriptor, &data)?;
+            to_drop.push(data);
         }
+
+        command.gc(to_drop);
 
         Ok(())
     }
@@ -374,7 +379,8 @@ impl HipServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, bytes)?;
+        command_dst.write_to_gpu(copy_desc, &bytes)?;
+        command_dst.gc(bytes);
 
         // We drop the last command.
         core::mem::drop(command_dst);
