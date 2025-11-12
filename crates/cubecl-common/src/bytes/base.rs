@@ -146,6 +146,7 @@ pub enum AllocationError {
 }
 
 impl Bytes {
+    /// Splits the current allocation at the given offset.
     pub fn split(self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
         let mut this = match self.try_into_vec() {
             Ok(mut left) => {
