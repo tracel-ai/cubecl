@@ -14,7 +14,7 @@ pub fn test_file_memory<R: Runtime>(client: ComputeClient<R::Server>) {
     let offset = 0;
 
     let mut file = std::fs::File::create(&file_name).unwrap();
-    file.write(bytes_generated).unwrap();
+    file.write_all(bytes_generated).unwrap();
     core::mem::drop(file);
 
     let bytes = Bytes::from_file(&file_name, size, offset);
