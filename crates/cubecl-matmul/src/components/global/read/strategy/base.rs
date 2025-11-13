@@ -128,6 +128,10 @@ pub fn validate_tma<R: Runtime>(
         ));
     }
 
+    if matches!(config.swizzle, SwizzleMode::None) {
+        return Ok(());
+    }
+
     let row_size = match config.matrix_layout {
         MatrixLayout::RowMajor => config.elements_in_stage_col(),
         MatrixLayout::ColMajor => config.elements_in_stage_row(),
