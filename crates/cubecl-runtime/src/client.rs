@@ -234,7 +234,7 @@ where
         descriptors: Vec<AllocationDescriptor<'_>>,
         mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
-        self.stagings(&mut data, true);
+        self.staging(data.iter_mut(), true);
 
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
@@ -416,16 +416,24 @@ where
 
     /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
     /// for faster data transfer with compute device.
-    pub fn stagings(&self, bytes: &mut [Bytes], file_only: bool) {
+    pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
+    where
+        I: Iterator<Item = &'a mut Bytes>,
+    {
         let has_staging = |b: &Bytes| match b.property() {
             AllocationProperty::Pinned => false,
             AllocationProperty::File => true,
             AllocationProperty::Native | AllocationProperty::Other => !file_only,
         };
+
+        let mut to_be_updated = Vec::new();
         let sizes = bytes
-            .iter()
             .filter_map(|b| match has_staging(b) {
-                true => Some(b.len()),
+                true => {
+                    let len = b.len();
+                    to_be_updated.push(b);
+                    Some(len)
+                }
                 false => None,
             })
             .collect::<Vec<usize>>();
@@ -436,15 +444,14 @@ where
 
         let stream_id = self.stream_id();
         let mut context = self.context.lock();
-        let stagings = match context.stagings(&sizes, stream_id) {
+        let stagings = match context.staging(&sizes, stream_id) {
             Ok(val) => val,
             Err(_) => return,
         };
         core::mem::drop(context);
 
-        bytes
-            .iter_mut()
-            .filter(|b| has_staging(b))
+        to_be_updated
+            .into_iter()
             .zip(stagings)
             .for_each(|(b, mut staging)| {
                 b.copy_into(&mut staging);

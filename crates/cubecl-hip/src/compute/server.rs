@@ -50,7 +50,7 @@ impl ComputeServer for HipServer {
         self.utilities.clone()
     }
 
-    fn stagings(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
         let mut command = self.command_no_inputs(stream_id);
 
         Ok(sizes
