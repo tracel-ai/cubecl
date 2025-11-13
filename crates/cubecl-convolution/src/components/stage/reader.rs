@@ -3,7 +3,9 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     InvalidConfigError, MatrixLayout,
     global::memory::GlobalMemoryConfig,
-    stage::{StageMemoryConfig, StridedStageMemory, TilingLayout, TilingLayoutEnum, TilingValidation},
+    stage::{
+        StageMemoryConfig, StridedStageMemory, TilingLayout, TilingLayoutEnum, TilingValidation,
+    },
     tile::StridedTile,
 };
 use cubecl_std::tensor::layout::Coords2d;

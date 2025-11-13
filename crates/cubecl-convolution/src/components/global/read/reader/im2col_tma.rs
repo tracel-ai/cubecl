@@ -8,7 +8,9 @@ use crate::{
     components::{ConvolutionParams, Dimensionality, global::memory::Im2colTmaReader},
     kernels::layered::selector::RuntimeArgs,
 };
-use cubecl_matmul::components::stage::{ColMajorTilingOrder, ContiguousTilingLayout, StridedStageMemory};
+use cubecl_matmul::components::stage::{
+    ColMajorTilingOrder, ContiguousTilingLayout, StridedStageMemory,
+};
 
 pub type TmaIm2colTiling = ContiguousTilingLayout<ColMajorTilingOrder>;
 pub type TmaIm2colStage<IP> = StridedStageMemory<<IP as MatrixPrecision>::Stage, TmaIm2colTiling>;
