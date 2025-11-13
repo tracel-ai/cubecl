@@ -101,11 +101,11 @@ impl<S: stage::StageConfig> GlobalReaderConfig for SimpleConfig<S> {
     }
 
     fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        <Self as GlobalConfig>::global_line_size(&self, ident)
+        <Self as GlobalConfig>::global_line_size(self, ident)
     }
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        <Self as GlobalConfig>::matrix_layout(&self, ident)
+        <Self as GlobalConfig>::matrix_layout(self, ident)
     }
 
     fn num_loading_planes(&self, _ident: MatmulIdent) -> u32 {
@@ -126,15 +126,15 @@ impl<S: stage::StageConfig> GlobalReaderConfig for SimpleConfig<S> {
     }
 
     fn plane_dim(&self) -> u32 {
-        <Self as GlobalConfig>::plane_dim(&self)
+        <Self as GlobalConfig>::plane_dim(self)
     }
 
     fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_row_bounds(&self, ident)
+        <Self as GlobalConfig>::check_row_bounds(self, ident)
     }
 
     fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_col_bounds(&self, ident)
+        <Self as GlobalConfig>::check_col_bounds(self, ident)
     }
 
     fn precompute_job(&self) -> bool {

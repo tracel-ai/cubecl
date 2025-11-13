@@ -97,11 +97,11 @@ impl<S: StageConfig> GlobalReaderConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        <Self as GlobalConfig>::global_line_size(&self, ident)
+        <Self as GlobalConfig>::global_line_size(self, ident)
     }
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        <Self as GlobalConfig>::matrix_layout(&self, ident)
+        <Self as GlobalConfig>::matrix_layout(self, ident)
     }
 
     fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
@@ -125,11 +125,11 @@ impl<S: StageConfig> GlobalReaderConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_row_bounds(&self, ident)
+        <Self as GlobalConfig>::check_row_bounds(self, ident)
     }
 
     fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_col_bounds(&self, ident)
+        <Self as GlobalConfig>::check_col_bounds(self, ident)
     }
 
     fn precompute_job(&self) -> bool {
@@ -137,7 +137,7 @@ impl<S: StageConfig> GlobalReaderConfig for DoubleBufferingGlobalConfig<S> {
     }
 
     fn num_stages(&self, ident: MatmulIdent) -> u32 {
-        <Self as GlobalConfig>::num_stages(&self, ident)
+        <Self as GlobalConfig>::num_stages(self, ident)
     }
 
     fn reader_mode(&self) -> ReaderMode {
