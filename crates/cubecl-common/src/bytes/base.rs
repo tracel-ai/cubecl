@@ -1,7 +1,6 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
 use crate::bytes::default_controller::{self, NativeAllocationController};
-use crate::bytes::file::FileAllocationController;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::LayoutError;
@@ -172,7 +171,7 @@ impl Bytes {
     #[cfg(feature = "std")]
     /// Creates bytes from a file at the given offset of the given size.
     pub fn from_file<P: Into<std::path::PathBuf>>(file: P, size: u64, offset: u64) -> Self {
-        let controller = FileAllocationController::new(file, size, offset);
+        let controller = crate::bytes::file::FileAllocationController::new(file, size, offset);
 
         Self {
             controller: Box::new(controller),
