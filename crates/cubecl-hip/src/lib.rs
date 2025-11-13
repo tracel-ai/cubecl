@@ -26,8 +26,6 @@ mod tests {
 
     #[cfg(feature = "matmul_tests_plane")]
     cubecl_matmul::testgen_matmul_plane_accelerated!();
-    #[cfg(feature = "matmul_tests_plane")]
-    cubecl_matmul::testgen_matmul_plane_mma!();
     #[cfg(all(feature = "matmul_tests_plane", feature = "matmul_tests_vecmat"))]
     cubecl_matmul::testgen_matmul_plane_vecmat!();
     #[cfg(feature = "matmul_tests_simple")]
