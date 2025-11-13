@@ -9,7 +9,7 @@ use crate::components::{
         PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
-use crate::components::{AccS, LhsG, LhsS, MatmulIdent, RhsG, RhsS, global};
+use crate::components::{AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
@@ -57,8 +57,18 @@ where
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;
 
-    type LhsGlobalReader = PartialStageGlobalReader<MP::Lhs, Self::Config, LL>;
-    type RhsGlobalReader = PartialStageGlobalReader<MP::Rhs, Self::Config, RL>;
+    type LhsGlobalReader = PartialStageGlobalReader<
+        <MP::Lhs as MatrixPrecision>::Global,
+        <MP::Lhs as MatrixPrecision>::Stage,
+        Self::Config,
+        LL,
+    >;
+    type RhsGlobalReader = PartialStageGlobalReader<
+        <MP::Rhs as MatrixPrecision>::Global,
+        <MP::Rhs as MatrixPrecision>::Stage,
+        Self::Config,
+        RL,
+    >;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
 
     type GlobalWriter = GW;
@@ -210,12 +220,12 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
         let k_step = k_step::<Self::Config>(config);
-        PartialStageGlobalReader::<MP::Lhs, Self::Config, LL>::new(
-            lhs,
-            k_step,
-            MatmulIdent::Lhs,
-            config,
-        )
+        PartialStageGlobalReader::<
+            <MP::Lhs as MatrixPrecision>::Global,
+            <MP::Lhs as MatrixPrecision>::Stage,
+            Self::Config,
+            LL,
+        >::new(lhs, k_step, MatmulIdent::Lhs, config)
     }
 
     fn init_rhs_global_reader(
@@ -223,12 +233,12 @@ where
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
         let k_step = k_step::<Self::Config>(config);
-        PartialStageGlobalReader::<MP::Rhs, Self::Config, RL>::new(
-            rhs,
-            k_step,
-            MatmulIdent::Rhs,
-            config,
-        )
+        PartialStageGlobalReader::<
+            <MP::Rhs as MatrixPrecision>::Global,
+            <MP::Rhs as MatrixPrecision>::Stage,
+            Self::Config,
+            RL,
+        >::new(rhs, k_step, MatmulIdent::Rhs, config)
     }
 
     fn init_acc_global_reader(

@@ -4,7 +4,7 @@ use cubecl_core::client::ComputeClient;
 use cubecl_matmul::components::{global::PartitionedStageFamily, stage::StridedStageFamily};
 
 use crate::components::{
-    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionElems, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
     AttentionSetupError,
     global::{
         GlobalAttentionFamily,
@@ -29,13 +29,14 @@ impl<
 
     type Config = SimpleGlobalConfig<SA::Config>;
 
-    fn setup<AP: crate::components::AttentionPrecision, R: cubecl_core::Runtime>(
+    fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
+        dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let stage_config = SA::setup::<AP, R>(client, problem, selection, line_sizes)?;
+        let stage_config = SA::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         SimpleGlobalConfig::new(stage_config, stage_config.num_planes(), problem.causal)
     }

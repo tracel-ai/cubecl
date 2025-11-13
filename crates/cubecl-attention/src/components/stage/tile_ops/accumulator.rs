@@ -3,18 +3,18 @@ use cubecl_core::prelude::*;
 
 use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
-use crate::components::tile::FragmentAttention;
 use crate::components::tile::RowWise;
+use crate::components::tile::TileAttention;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 
 #[derive(CubeType)]
 /// Accumulator tile for Tile Attention
-pub struct AccumulatorTile<AP: AttentionPrecision, FA: FragmentAttention<AP>> {
+pub struct AccumulatorTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
     pub fragment: FA::Accumulator,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> AccumulatorTile<AP, FA> {
     pub fn new(#[comptime] config: FA::Config) -> AccumulatorTile<AP, FA> {
         let mut fragment = FA::allocate_accumulator(config);
         fragment.zero();
@@ -24,7 +24,7 @@ impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> 
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: FragmentAttention<AP>> AccumulatorTile<AP, FA> {
+impl<AP: AttentionPrecision, FA: TileAttention<AP>> AccumulatorTile<AP, FA> {
     /// Multiplies each row by a scale
     pub fn scale_mul(&mut self, scale: &RowWise<SM<AP>>) {
         self.fragment

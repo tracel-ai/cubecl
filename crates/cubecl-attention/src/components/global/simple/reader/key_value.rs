@@ -1,5 +1,3 @@
-use crate::components::attention_types::*;
-use crate::components::global::simple::reader::{AttentionReader, AttentionReaderExpand};
 use crate::components::stage::AttentionTilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -7,53 +5,63 @@ use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
     read::tiled::TiledLayout,
 };
-use cubecl_matmul::components::stage::StridedStage;
+use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStage};
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
+use crate::components::AttentionIdent;
 use crate::components::global::base::GlobalAttentionConfig;
-use crate::components::{AttentionIdent, AttentionPrecision};
 
 #[derive(CubeType)]
-pub struct DummyValueReader<AP: AttentionPrecision, G: GlobalAttentionConfig> {
-    global_iter: GlobalIterator<Line<VG<AP>>>,
+pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
+    global_iter: GlobalIterator<Line<EG>>,
+    #[cube(comptime)]
+    attention_ident: AttentionIdent,
 
     #[cube(comptime)]
-    _phantom: PhantomData<G>,
+    _phantom: PhantomData<(ES, G)>,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> DummyValueReader<AP, G> {
-    pub fn new(value: View<Line<VG<AP>>, Coords2d>, step: u32) -> Self {
+impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES, G> {
+    pub fn new(
+        value: View<Line<EG>, Coords2d>,
+        step: u32,
+        #[comptime] attention_ident: AttentionIdent,
+    ) -> Self {
         let global_iter = GlobalIterator::new(value, step, ViewDirection::Row, false);
 
-        DummyValueReader::<AP, G> {
+        DummyKeyValueReader::<EG, ES, G> {
             global_iter,
+            attention_ident,
             _phantom: PhantomData,
         }
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<VS<AP>, G>
-    for DummyValueReader<AP, G>
-{
-    type Stage = StridedStage<VS<AP>, AttentionTilingLayout>;
-
-    fn init_stage(&mut self, #[comptime] config: G) -> Self::Stage {
-        StridedStage::new(config.value_stage_memory_config())
+impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES, G> {
+    pub fn init_stage(
+        &mut self,
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedStage<ES, AttentionTilingLayout> {
+        StridedStage::new(config)
     }
 
-    fn read_global(&mut self, stage: &mut Self::Stage, #[comptime] config: G) {
+    pub fn read_global(
+        &mut self,
+        stage: &mut StridedStage<ES, AttentionTilingLayout>,
+        #[comptime] config: G,
+    ) {
         if UNIT_POS_Y == 0 {
             // TODO this reader is bad, it's not coalesced
-            let memory_config = config.global_memory_config(AttentionIdent::Value);
+            let memory_config = config.global_memory_config(comptime!(self.attention_ident));
             let mut slice = stage.as_slice_mut(1u32);
 
-            let tile_rows = memory_config.elements_in_tile_row;
-            let tile_cols = memory_config.elements_in_tile_col;
-            let partition_rows = memory_config.elements_in_stage_row / tile_rows;
-            let partition_cols = memory_config.elements_in_stage_col / tile_cols;
+            let tile_rows = memory_config.elements_in_tile_row();
+            let tile_cols = memory_config.elements_in_tile_col();
+            let partition_rows = memory_config.elements_in_stage_row() / tile_rows;
+            let partition_cols = memory_config.elements_in_stage_col() / tile_cols;
 
             let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
             let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
@@ -96,7 +104,7 @@ impl<AP: AttentionPrecision, G: GlobalAttentionConfig> AttentionReader<VS<AP>, G
         }
     }
 
-    fn advance_view(&mut self) {
+    pub fn advance_view(&mut self) {
         self.global_iter.advance();
     }
 }

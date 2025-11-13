@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
-use crate::components::tile::FragmentAttention;
+use crate::components::tile::TileAttention;
 use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 
 #[derive(CubeType)]
@@ -11,8 +11,8 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 /// Each of the seq_kv column can be done sequentially reusing those tiles.
 pub struct SoftmaxPartition<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    FA: TileAttention<AP>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > {
     sequence: Sequence<FA::Softmax>,
     #[cube(comptime)]
@@ -22,8 +22,8 @@ pub struct SoftmaxPartition<
 #[cube]
 impl<
     AP: AttentionPrecision,
-    FA: FragmentAttention<AP>,
-    S: StageAttentionConfig<FragmentAttentionConfig = FA::Config>,
+    FA: TileAttention<AP>,
+    S: StageAttentionConfig<TileAttentionConfig = FA::Config>,
 > SoftmaxPartition<AP, FA, S>
 {
     pub fn new(#[comptime] config: S) -> SoftmaxPartition<AP, FA, S> {

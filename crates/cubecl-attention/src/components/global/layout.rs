@@ -44,7 +44,7 @@ impl Layout for AttentionGlobalLayout {
     type SourceCoordinates = Coords1d;
 
     fn to_source_pos(&self, coords: Self::Coordinates) -> u32 {
-        let line_size = comptime![self.config.global_line_size];
+        let line_size = comptime![self.config.line_size()];
         let (row, col) = coords;
         let idx = self.batch_offset + row * self.stride_row + col * self.stride_col;
 
@@ -62,7 +62,10 @@ impl Layout for AttentionGlobalLayout {
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (row, col) = pos;
 
-        match comptime!((self.config.check_row_bounds, self.config.check_col_bounds)) {
+        match comptime!((
+            self.config.check_row_bounds(),
+            self.config.check_col_bounds()
+        )) {
             (true, true) => row < self.rows && col < self.columns,
             (true, false) => row < self.rows,
             (false, true) => col < self.columns,
