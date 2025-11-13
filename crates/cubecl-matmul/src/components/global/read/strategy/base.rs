@@ -1,4 +1,4 @@
-use crate::components::{InvalidConfigError, MatmulIdent, stage::as_swizzle_object};
+use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{
     MatmulElems, MatrixLayout,
     stage::{StageMemoryConfig, SwizzleMode, TilingLayout},
@@ -80,27 +80,6 @@ pub fn validate_async_barrier<R: Runtime>(
 pub fn validate_noswizzle(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
     if config.swizzle != SwizzleMode::None {
         return Err(Box::new("This loader doesn't support swizzling"));
-    }
-
-    Ok(())
-}
-
-/// Validates if swizzle size is valid for this stage config.
-pub fn validate_swizzle(
-    config: StageMemoryConfig,
-    ident: MatmulIdent,
-    dtypes: &MatmulElems,
-) -> Result<(), InvalidConfigError> {
-    if matches!(config.swizzle, SwizzleMode::None) {
-        return Ok(());
-    }
-
-    let stage_size_bytes = config.elements_in_stage() * dtypes.stage(ident).size() as u32;
-    let swizzle = as_swizzle_object(config.swizzle);
-
-    // Stage needs to align to the full size of the swizzle pattern
-    if stage_size_bytes < swizzle.repeats_after() {
-        return Err(Box::new("Swizzling pattern repeat must be <= stage size"));
     }
 
     Ok(())

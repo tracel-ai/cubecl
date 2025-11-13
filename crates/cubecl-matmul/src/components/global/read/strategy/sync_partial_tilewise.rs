@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
+use crate::components::stage::TilingOrderEnum;
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{
     MatmulElems,
     global::{RoleRule, read::tiled::TiledLayout},
 };
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
-use crate::components::{global::read::validate_swizzle, stage::TilingOrderEnum};
 use crate::components::{
     global::read::{PartialLoadingStrategy, sync::Synchronous},
     stage::StridedStageFamily,
@@ -50,7 +50,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
-        dtypes: &MatmulElems,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -94,7 +94,6 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
             MatmulIdent::Out => unreachable!(),
         }
 
-        validate_swizzle(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
 
         Ok(())

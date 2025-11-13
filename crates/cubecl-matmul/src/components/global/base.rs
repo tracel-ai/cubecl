@@ -164,6 +164,7 @@ pub trait GlobalConfig:
     /// Returns the [SwizzleMode] for the given ident
     fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode;
 
+    /// Returns the [TilingLayoutEnum] for the loader of the given ident
     fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum;
 
     /// Returns the number of planes participating in loading `ident`

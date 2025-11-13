@@ -1,9 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{
-    multi_stage::LoadMaxRoundPlaneCount,
-    read::{sync::Synchronous, validate_swizzle},
-};
+use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
 use crate::components::{
@@ -34,7 +31,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
-        dtypes: &MatmulElems,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
@@ -59,7 +56,6 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             }
         }
 
-        validate_swizzle(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
 
         Ok(())
