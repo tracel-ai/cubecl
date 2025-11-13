@@ -173,7 +173,7 @@ pub trait StageConfig:
     fn stage_memory_config(self, ident: StageIdent) -> StageMemoryConfig {
         let tiling = self.tiling_scheme();
         StageMemoryConfig {
-            num_main_flow_planes: self.num_main_flow_planes(),
+            num_reading_planes: self.num_main_flow_planes(),
             elements_in_tile_row: tiling.elements_in_tile_row(ident),
             elements_in_tile_col: tiling.elements_in_tile_col(ident),
             tiles_in_stage_row: tiling.tiles_in_stage_row(ident),

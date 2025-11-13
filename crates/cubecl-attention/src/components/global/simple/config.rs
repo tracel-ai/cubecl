@@ -22,7 +22,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         StageMemoryConfig {
-            num_main_flow_planes: 1,
+            num_reading_planes: 1,
             elements_in_tile_row: tiling_scheme.elements_in_tile_seq_kv(),
             elements_in_tile_col: tiling_scheme.elements_in_tile_head_dim(),
             tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),
@@ -37,7 +37,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         StageMemoryConfig {
-            num_main_flow_planes: 1,
+            num_reading_planes: 1,
             elements_in_tile_row: tiling_scheme.elements_in_tile_seq_kv(),
             elements_in_tile_col: tiling_scheme.elements_in_tile_val_dim(),
             tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),

@@ -39,55 +39,15 @@ where
 
     fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        problem: &MatmulProblem,
+        _problem: &MatmulProblem,
         selection: &MatmulSelection,
-        matmul_line_sizes: &MatmulLineSizes,
+        _matmul_line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<SharedTileConfig, MatmulSetupError> {
-        let tile_config = SharedTileConfig::new(
-            selection.tiling_scheme.tile_size,
-            selection.plane_dim,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-            matmul_line_sizes.out as u32,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-        );
+        let tile_config =
+            SharedTileConfig::new(selection.tiling_scheme.tile_size, selection.plane_dim);
 
-        Self::validate::<R>(tile_config, client, dtypes)
-    }
-
-    fn validate<R: Runtime>(
-        tile_config: SharedTileConfig,
-        client: &ComputeClient<R::Server>,
-        dtypes: &MatmulElems,
-    ) -> Result<SharedTileConfig, MatmulSetupError> {
-        let lhs = dtypes.lhs_register;
-        let rhs = dtypes.rhs_register;
-        let acc = dtypes.acc_register;
-
-        let size = tile_config.tile_size;
-        if !client.properties().features.mma.contains(&MmaConfig {
-            a_type: lhs,
-            b_type: rhs,
-            cd_type: acc,
-            m: size.m(),
-            k: size.k(),
-            n: size.n(),
-        }) {
-            return Err(MatmulSetupError::Unavailable(
-                MatmulAvailabilityError::CmmaInstructionUnavailable {
-                    lhs,
-                    rhs,
-                    output: acc,
-                    size: Some(TileSize::new(size.m(), size.n(), size.k())),
-                },
-            ));
-        }
-
-        Ok(tile_config)
+        validate::<R>(tile_config, client, dtypes)
     }
 
     fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
@@ -109,4 +69,35 @@ where
             .map(|it| (it.m, it.n, it.k).into())
             .collect()
     }
+}
+
+fn validate<R: Runtime>(
+    tile_config: SharedTileConfig,
+    client: &ComputeClient<R::Server>,
+    dtypes: &MatmulElems,
+) -> Result<SharedTileConfig, MatmulSetupError> {
+    let lhs = dtypes.lhs_register;
+    let rhs = dtypes.rhs_register;
+    let acc = dtypes.acc_register;
+
+    let size = tile_config.tile_size;
+    if !client.properties().features.mma.contains(&MmaConfig {
+        a_type: lhs,
+        b_type: rhs,
+        cd_type: acc,
+        m: size.m(),
+        k: size.k(),
+        n: size.n(),
+    }) {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::CmmaInstructionUnavailable {
+                lhs,
+                rhs,
+                output: acc,
+                size: Some(TileSize::new(size.m(), size.n(), size.k())),
+            },
+        ));
+    }
+
+    Ok(tile_config)
 }

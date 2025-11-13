@@ -8,7 +8,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout,
     tile::{
-        SharedTileConfig, StridedTile,
+        StridedTile,
         io::{Filled, Strided, Tile, TileKind},
         plane_vec_mat_inner_product::LineContainer,
     },
@@ -27,7 +27,7 @@ pub(super) trait MatrixFragmentReader {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &Tile<Self::TileKind, V>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: SharedTileConfig,
+        #[comptime] n: u32,
     );
 }
 
@@ -57,19 +57,19 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &StridedTile<V>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: SharedTileConfig,
+        #[comptime] n: u32,
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::ColMajor));
 
-        let mut n = comptime![0];
+        let mut n_ = comptime![0];
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.tile_size.n() {
-            let line_container = frag.index_mut(n);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
+        for _ in 0..n {
+            let line_container = frag.index_mut(n_);
+            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n_ * tile.stride]);
 
-            comptime![n += 1];
+            comptime![n_ += 1];
         }
     }
 }
@@ -81,17 +81,17 @@ impl MatrixFragmentReader for MatrixStageReader<Filled> {
     fn load_fragment<E: Numeric, V: Numeric>(
         value: &V,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: SharedTileConfig,
+        #[comptime] n: u32,
     ) {
-        let mut n = comptime![0];
+        let mut n_ = comptime![0];
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.tile_size.n() {
-            let line_container = frag.index_mut(n);
+        for _ in 0..n {
+            let line_container = frag.index_mut(n_);
             line_container.line = Line::cast_from(*value);
 
-            comptime![n += 1];
+            comptime![n_ += 1];
         }
     }
 }
@@ -106,12 +106,12 @@ where
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &CubeOption<Inner::Tile<V>>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: SharedTileConfig,
+        #[comptime] n: u32,
     ) {
         match tile {
-            CubeOption::Some(tile) => MatrixStageReader::<Inner>::load_fragment(tile, frag, config),
+            CubeOption::Some(tile) => MatrixStageReader::<Inner>::load_fragment(tile, frag, n),
             CubeOption::None => {
-                MatrixStageReader::<Filled>::load_fragment::<E, V>(&V::from_int(0), frag, config)
+                MatrixStageReader::<Filled>::load_fragment::<E, V>(&V::from_int(0), frag, n)
             }
         }
     }

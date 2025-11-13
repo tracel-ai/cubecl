@@ -177,7 +177,7 @@ impl TilingOrder for OrderedTilingOrder {
         tile_count_cols: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> Coords2d {
-        let group_rows = tile_count_rows / config.num_main_flow_planes;
+        let group_rows = tile_count_rows / config.num_reading_planes;
         let tiles_per_group = group_rows * tile_count_cols;
 
         let group = nth / tiles_per_group;
@@ -198,7 +198,7 @@ impl TilingOrder for OrderedTilingOrder {
     ) -> u32 {
         let (row, col) = tile;
 
-        let group_rows = tile_count_rows / config.num_main_flow_planes;
+        let group_rows = tile_count_rows / config.num_reading_planes;
         let group = row / group_rows;
 
         let local_row = row % group_rows;
@@ -415,6 +415,7 @@ impl TilingLayout for StridedTilingLayout {
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
                     matrix_layout,
+                    stage_line_size,
                 )
             }
             MatrixLayout::ColMajor => {
@@ -429,6 +430,7 @@ impl TilingLayout for StridedTilingLayout {
                     stage.as_slice(stage_line_size).slice(start, start + length),
                     stride,
                     matrix_layout,
+                    stage_line_size,
                 )
             }
         }

@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::MatrixLayout;
 use crate::components::tile::io::{Strided, TileKind};
 use crate::components::tile::{
     SharedTileConfig, TileMatmul,
@@ -49,7 +50,10 @@ where
         }
     }
 
-    fn allocate_lhs(#[comptime] config: SharedTileConfig) -> Self::LhsFragment {
+    fn allocate_lhs(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: SharedTileConfig,
+    ) -> Self::LhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::A);
         let mut frag = Sequence::new();
@@ -63,7 +67,10 @@ where
         frag
     }
 
-    fn allocate_rhs(#[comptime] config: SharedTileConfig) -> Self::RhsFragment {
+    fn allocate_rhs(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: SharedTileConfig,
+    ) -> Self::RhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::B);
         let mut frag = Sequence::new();
@@ -77,7 +84,10 @@ where
         frag
     }
 
-    fn allocate_acc(#[comptime] config: SharedTileConfig) -> Self::AccFragment {
+    fn allocate_acc(
+        #[comptime] _layout: MatrixLayout,
+        #[comptime] config: SharedTileConfig,
+    ) -> Self::AccFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::Accumulator);
         let mut frag = Sequence::new();
@@ -101,7 +111,7 @@ where
             lhs,
             mma_definition::<L, R, A>(config),
             MatrixIdent::A,
-            config.lhs_layout,
+            tile.layout,
         );
     }
 
@@ -115,7 +125,7 @@ where
             rhs,
             mma_definition::<L, R, A>(config),
             MatrixIdent::B,
-            config.rhs_layout,
+            tile.layout,
         );
     }
 
@@ -129,7 +139,7 @@ where
             acc,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.out_layout,
+            MatrixLayout::RowMajor,
         );
     }
 
@@ -143,7 +153,7 @@ where
             out,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.out_layout,
+            tile.layout,
         );
     }
 }

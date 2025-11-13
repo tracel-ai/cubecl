@@ -14,6 +14,9 @@ pub struct StridedTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
     #[cube(comptime)]
     /// Layout of the tile (row-major or column-major).
     pub layout: MatrixLayout,
+    #[cube(comptime)]
+    /// Line size of the slice
+    pub line_size: u32,
 }
 
 #[cube]
@@ -37,6 +40,7 @@ impl<ES: Numeric> StridedTile<ES> {
             slice,
             stride,
             layout,
+            line_size: config.stage_line_size,
         }
     }
 
@@ -59,6 +63,7 @@ impl<ES: Numeric> StridedTile<ES> {
             slice,
             stride,
             layout,
+            line_size: config.stage_line_size,
         }
     }
 
@@ -69,11 +74,13 @@ impl<ES: Numeric> StridedTile<ES> {
         slice: Slice<Line<ES>>,
         stride: u32,
         #[comptime] layout: MatrixLayout,
+        #[comptime] line_size: u32,
     ) -> StridedTile<ES> {
         StridedTile::<ES> {
             slice,
             stride,
             layout,
+            line_size,
         }
     }
 
@@ -84,11 +91,13 @@ impl<ES: Numeric> StridedTile<ES> {
         slice: Slice<Line<ES>, ReadWrite>,
         stride: u32,
         #[comptime] layout: MatrixLayout,
+        #[comptime] line_size: u32,
     ) -> StridedTile<ES, ReadWrite> {
         StridedTile::<ES, ReadWrite> {
             slice,
             stride,
             layout,
+            line_size,
         }
     }
 }

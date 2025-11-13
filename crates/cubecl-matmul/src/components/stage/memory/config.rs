@@ -4,7 +4,8 @@ use crate::components::MatrixLayout;
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct StageMemoryConfig {
-    pub num_main_flow_planes: u32,
+    // Planes that read this stage memory
+    pub num_reading_planes: u32,
     pub elements_in_tile_row: u32,
     pub elements_in_tile_col: u32,
     pub tiles_in_stage_row: u32,

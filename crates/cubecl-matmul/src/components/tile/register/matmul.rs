@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::MatrixLayout;
 use crate::components::tile::register::config::{ProductType, RegisterMatmulConfig};
 use crate::components::tile::{TileMatmul, register::reader::RegisterFragmentReader};
 use crate::components::tile::{io::Strided, register::reader::RegisterStageReader};
@@ -18,6 +19,13 @@ pub struct RegisterMatmul<Acc: TileKind> {
 /// TODO: make it configurable
 pub(super) const UNROLL: bool = false;
 
+#[derive(CubeType)]
+pub struct UnitFragment<E: Numeric> {
+    pub array: Array<E>,
+    #[cube(comptime)]
+    pub layout: MatrixLayout,
+}
+
 #[cube]
 impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
     for RegisterMatmul<AccTile>
@@ -26,9 +34,9 @@ where
 {
     type Config = RegisterMatmulConfig;
 
-    type LhsFragment = Array<L>;
-    type RhsFragment = Array<R>;
-    type AccFragment = Array<A>;
+    type LhsFragment = UnitFragment<L>;
+    type RhsFragment = UnitFragment<R>;
+    type AccFragment = UnitFragment<A>;
 
     type LhsTile = Strided;
     type RhsTile = Strided;
@@ -42,21 +50,43 @@ where
         #[comptime] config: Self::Config,
     ) {
         match config.product_type {
-            ProductType::Inner => Self::inner_product(lhs, rhs, acc, config),
-            ProductType::Outer => Self::outer_product(lhs, rhs, acc, config),
+            ProductType::Inner => {
+                Self::inner_product(&lhs.array, &rhs.array, &mut acc.array, config)
+            }
+            ProductType::Outer => {
+                Self::outer_product(&lhs.array, &rhs.array, &mut acc.array, config)
+            }
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
-        Array::new(config.shared.tile_size.mk())
+    fn allocate_lhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsFragment {
+        UnitFragment::<L> {
+            array: Array::new(config.shared.tile_size.mk()),
+            layout,
+        }
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
-        Array::new(config.shared.tile_size.nk())
+    fn allocate_rhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsFragment {
+        UnitFragment::<R> {
+            array: Array::new(config.shared.tile_size.nk()),
+            layout,
+        }
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
-        Array::new(config.shared.tile_size.mn())
+    fn allocate_acc(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccFragment {
+        UnitFragment::<A> {
+            array: Array::new(config.shared.tile_size.mn()),
+            layout,
+        }
     }
 
     fn load_lhs<E: Numeric>(

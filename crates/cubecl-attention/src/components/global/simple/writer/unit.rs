@@ -55,7 +55,7 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
             let planes = stage_config.num_planes();
 
             StageMemoryConfig {
-                num_main_flow_planes: planes,
+                num_reading_planes: planes,
                 elements_in_tile_row,
                 elements_in_tile_col,
                 // Each unit has its slot in row direction

@@ -97,6 +97,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
             slice: tile.slice.as_mut_unchecked(),
             stride: tile.stride,
             layout: tile.layout,
+            line_size: tile.line_size,
         }
     }
 

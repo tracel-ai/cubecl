@@ -10,7 +10,7 @@ use crate::components::{
     resource::ComputeResources,
     tile::io::{Tile, TileKind},
 };
-use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatrixLayout};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
@@ -52,12 +52,6 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
-        dtypes: &MatmulElems,
-    ) -> Result<Self::Config, MatmulSetupError>;
-
-    fn validate<R: Runtime>(
-        tile_config: Self::Config,
-        client: &ComputeClient<R::Server>,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
@@ -129,7 +123,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call [load_lhs](TileMatmul::load_lhs) prior to [execute](TileMatmul::execute).
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment;
+    fn allocate_lhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsFragment;
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
@@ -144,7 +141,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call [load_rhs](TileMatmul::load_rhs) prior to [execute](TileMatmul::execute).
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment;
+    fn allocate_rhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsFragment;
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
@@ -160,7 +160,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
     /// Make sure to call [load_acc](TileMatmul::load_acc) prior to [execute](TileMatmul::execute).
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment;
+    fn allocate_acc(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccFragment;
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(

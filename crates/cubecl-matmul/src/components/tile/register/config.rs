@@ -1,5 +1,5 @@
+use crate::components::MatrixLayout;
 use crate::components::tile::{SharedTileConfig, TileConfig};
-use crate::components::{MatrixLayout, StageIdent};
 
 /// Execution mode for the RegisterMatmul
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -17,12 +17,16 @@ pub enum ProductType {
 }
 
 impl ProductType {
-    fn from_shared_tile_config(config: SharedTileConfig) -> Self {
-        let lhs_preferred = match config.lhs_layout {
+    fn from_layouts(
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        config: &SharedTileConfig,
+    ) -> Self {
+        let lhs_preferred = match lhs_layout {
             MatrixLayout::RowMajor => ProductType::Inner,
             MatrixLayout::ColMajor => ProductType::Outer,
         };
-        let rhs_preferred = match config.lhs_layout {
+        let rhs_preferred = match rhs_layout {
             MatrixLayout::RowMajor => ProductType::Outer,
             MatrixLayout::ColMajor => ProductType::Inner,
         };
@@ -47,27 +51,19 @@ pub struct RegisterMatmulConfig {
 }
 
 impl RegisterMatmulConfig {
-    pub fn from_shared_tile_config(shared: SharedTileConfig) -> Self {
+    pub fn from_shared_tile_config(
+        lhs_layout: MatrixLayout,
+        rhs_layout: MatrixLayout,
+        config: SharedTileConfig,
+    ) -> Self {
         Self {
-            shared,
-            product_type: ProductType::from_shared_tile_config(shared),
+            shared: config,
+            product_type: ProductType::from_layouts(lhs_layout, rhs_layout, &config),
         }
     }
 }
 
 impl TileConfig for RegisterMatmulConfig {
-    fn stage_line_size(&self, ident: StageIdent) -> u32 {
-        self.shared.stage_line_size(ident)
-    }
-
-    fn global_line_size(&self, ident: StageIdent) -> u32 {
-        self.shared.global_line_size(ident)
-    }
-
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
-        self.shared.matrix_layout(ident)
-    }
-
     fn plane_dim(&self) -> u32 {
         self.shared.plane_dim()
     }

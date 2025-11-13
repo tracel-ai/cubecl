@@ -42,81 +42,85 @@ where
         matmul_line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = RegisterMatmulConfig::from_shared_tile_config(SharedTileConfig::new(
-            selection.tiling_scheme.tile_size,
-            selection.plane_dim,
+        let tile_config = RegisterMatmulConfig::from_shared_tile_config(
             problem.lhs_layout,
             problem.rhs_layout,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-            matmul_line_sizes.out as u32,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-        ));
+            SharedTileConfig::new(selection.tiling_scheme.tile_size, selection.plane_dim),
+        );
 
-        Self::validate::<R>(tile_config, client, dtypes)
+        validate::<R>(
+            tile_config,
+            problem.lhs_layout,
+            problem.rhs_layout,
+            matmul_line_sizes,
+            client,
+            dtypes,
+        )
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
     }
+}
 
-    fn validate<R: Runtime>(
-        tile_config: RegisterMatmulConfig,
-        client: &ComputeClient<R::Server>,
-        dtypes: &MatmulElems,
-    ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
+fn validate<R: Runtime>(
+    tile_config: RegisterMatmulConfig,
+    lhs_layout: MatrixLayout,
+    rhs_layout: MatrixLayout,
+    matmul_line_sizes: &MatmulLineSizes,
+    client: &ComputeClient<R::Server>,
+    dtypes: &MatmulElems,
+) -> Result<RegisterMatmulConfig, MatmulSetupError> {
+    let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
 
-        let m = tile_config.shared.tile_size.m();
-        let n = tile_config.shared.tile_size.n();
-        let k = tile_config.shared.tile_size.k();
+    let m = tile_config.shared.tile_size.m();
+    let n = tile_config.shared.tile_size.n();
+    let k = tile_config.shared.tile_size.k();
 
-        let lhs = tile_config.shared.lhs_stage_line_size;
-        let rhs = tile_config.shared.rhs_stage_line_size;
-        let out = tile_config.shared.out_global_line_size;
+    let lhs = matmul_line_sizes.lhs as u32;
+    let rhs = matmul_line_sizes.rhs as u32;
+    let out = matmul_line_sizes.out as u32;
 
-        match tile_config.shared.lhs_layout {
-            MatrixLayout::RowMajor => {
-                if !k.is_multiple_of(lhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis k({k:?}) should be divisible by line size lhs({lhs:?})"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if !m.is_multiple_of(lhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis m({m:?}) should be divisible by line size lhs({lhs:?})"
-                    ))));
-                }
+    match lhs_layout {
+        MatrixLayout::RowMajor => {
+            if !k.is_multiple_of(lhs) {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                    "Tile shape in lined axis k({k:?}) should be divisible by line size lhs({lhs:?})"
+                ))));
             }
         }
-        match tile_config.shared.rhs_layout {
-            MatrixLayout::RowMajor => {
-                if !n.is_multiple_of(rhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis n({n:?}) should be divisible by line size rhs({rhs:?})"
-                    ))));
-                }
-            }
-            MatrixLayout::ColMajor => {
-                if !k.is_multiple_of(rhs) {
-                    return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                        "Tile shape in lined axis k({k:?}) should be divisible by line size rhs({rhs:?})"
-                    ))));
-                }
+        MatrixLayout::ColMajor => {
+            if !m.is_multiple_of(lhs) {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                    "Tile shape in lined axis m({m:?}) should be divisible by line size lhs({lhs:?})"
+                ))));
             }
         }
-
-        if !n.is_multiple_of(out) {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
-                "Tile shape in lined axis n({n:?}) should be divisible by line size out({out:?})"
-            ))));
-        }
-
-        Ok(tile_config)
     }
+    match rhs_layout {
+        MatrixLayout::RowMajor => {
+            if !n.is_multiple_of(rhs) {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                    "Tile shape in lined axis n({n:?}) should be divisible by line size rhs({rhs:?})"
+                ))));
+            }
+        }
+        MatrixLayout::ColMajor => {
+            if !k.is_multiple_of(rhs) {
+                return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+                    "Tile shape in lined axis k({k:?}) should be divisible by line size rhs({rhs:?})"
+                ))));
+            }
+        }
+    }
+
+    if !n.is_multiple_of(out) {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(format!(
+            "Tile shape in lined axis n({n:?}) should be divisible by line size out({out:?})"
+        ))));
+    }
+
+    Ok(tile_config)
 }
 
 fn check_availability<R: Runtime>(

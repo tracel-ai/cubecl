@@ -15,6 +15,7 @@ pub struct UnitPartitionedStageConfig<T: TileConfig> {
     pub partition_buffering: PartitionBuffering,
     pub num_stages: NumStages,
     plane_role_config: PlaneRoleConfig,
+    // rm, needed only for compute config
     ordered: bool,
 }
 
@@ -25,18 +26,24 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         self.tile_config
     }
 
+    // delegate to stage memory config
     fn stage_line_size(&self, ident: StageIdent) -> u32 {
         self.tile_config.stage_line_size(ident)
     }
 
+    // rm
     fn global_line_size(&self, ident: StageIdent) -> u32 {
         self.tile_config.global_line_size(ident)
     }
 
+    // ensure it means the layout of the stage
+    // + delegate to stage memory config
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout {
         self.tile_config.matrix_layout(ident)
     }
 
+    // rm should be part of a compute config
+    // then also rm from tile_config
     fn plane_dim(&self) -> u32 {
         self.tile_config.plane_dim()
     }
@@ -45,10 +52,12 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         self.partition_buffering
     }
 
+    // rm
     fn tiling_scheme(&self) -> TilingScheme {
         self.tiling_scheme
     }
 
+    // delegate to plane_role_config better
     fn num_main_flow_planes(&self) -> u32 {
         self.plane_role_config.main_flow_count()
     }
@@ -57,14 +66,17 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         self.plane_role_config
     }
 
+    // delegate to plane_role_config better
     fn role_rule_config(&self) -> RoleRuleConfig {
         self.plane_role_config.rule
     }
 
+    // rm
     fn quantized(&self) -> bool {
         self.quantized
     }
 
+    // rm part of compute config
     fn must_sync_plane_after_execution(&self) -> bool {
         let execution_is_sync = {
             #[cfg(target_os = "macos")]
@@ -79,10 +91,12 @@ impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
         !execution_is_sync && self.ordered
     }
 
+    // keep
     fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme {
         PartitionSchedulerScheme::Naive
     }
 
+    // rm doesnt event seems used
     fn num_stages(&self, ident: StageIdent) -> u32 {
         match ident {
             StageIdent::Lhs => self.num_stages.lhs,
