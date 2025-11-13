@@ -16,7 +16,7 @@ pub struct Accumulators<
             <MP::Rhs as MatrixPrecision>::Register,
             <MP::Acc as MatrixPrecision>::Register,
         >,
-    S: StageConfig<TileConfig = TM::Config>,
+    S: StageConfig,
 > {
     sequence: Sequence<TM::AccFragment>,
     #[cube(comptime)]

@@ -12,7 +12,7 @@ use crate::components::stage::StageFamily;
 use crate::components::stage::matmul::unit_partitioned::UnitMatmul;
 use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConfig;
 use crate::components::stage::{StageMatmulFamily, TilingLayout};
-use crate::components::tile::TileConfig;
+use crate::components::tile::TileConfig as _;
 use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::io::Strided;
 use crate::components::{AccS, ComputeResources};

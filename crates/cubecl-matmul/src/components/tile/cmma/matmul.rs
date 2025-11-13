@@ -1,12 +1,12 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::{TileConfig, TileMatmul, cmma::reader::CmmaFragmentReader};
-use crate::components::tile::{cmma::writer::CmmaStageWriter, tile_data::StridedTile};
+use crate::components::as_cmma_layout;
+use crate::components::tile::{SharedTileConfig, TileMatmul, cmma::reader::CmmaFragmentReader};
 use crate::components::tile::{
-    cmma::{config::CmmaConfig, reader::CmmaStageReader},
+    cmma::reader::CmmaStageReader,
     io::{Strided, TileKind},
 };
-use crate::components::{StageIdent, as_cmma_layout};
+use crate::components::tile::{cmma::writer::CmmaStageWriter, tile_data::StridedTile};
 use cubecl_core as cubecl;
 use cubecl_core::{cmma, prelude::*};
 use cubecl_std::CubeOption;
@@ -22,7 +22,8 @@ impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
 where
     CmmaStageReader<AccTile>: CmmaFragmentReader<TileKind = AccTile>,
 {
-    type Config = CmmaConfig;
+    type Config = SharedTileConfig;
+
     type LhsFragment = cmma::Matrix<L>;
     type RhsFragment = cmma::Matrix<R>;
     type AccFragment = cmma::Matrix<A>;
@@ -42,8 +43,8 @@ where
     }
 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
-        let size = config.tile_size();
-        let layout = config.matrix_layout(StageIdent::Lhs);
+        let size = config.tile_size;
+        let layout = config.lhs_layout;
         unsafe {
             cmma::Matrix::<L>::uninitialized(
                 cmma::MatrixIdent::A,
@@ -56,8 +57,8 @@ where
     }
 
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
-        let size = config.tile_size();
-        let layout = config.matrix_layout(StageIdent::Rhs);
+        let size = config.tile_size;
+        let layout = config.rhs_layout;
         unsafe {
             cmma::Matrix::<R>::uninitialized(
                 cmma::MatrixIdent::B,
@@ -90,7 +91,7 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        let layout = comptime!(as_cmma_layout(config.matrix_layout(StageIdent::Acc)));
+        let layout = comptime!(as_cmma_layout(config.out_layout));
         CmmaStageReader::<Self::AccTile>::load_fragment(tile, acc, CubeOption::new_Some(layout));
     }
 
@@ -104,7 +105,7 @@ where
     }
 
     fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
-        let size = config.tile_size();
+        let size = config.tile_size;
         unsafe {
             cmma::Matrix::<A>::uninitialized(
                 cmma::MatrixIdent::Accumulator,

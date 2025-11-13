@@ -6,11 +6,11 @@ use std::marker::PhantomData;
 use crate::components::{
     MatrixLayout, StageIdent,
     tile::{
-        StridedTile, TileConfig,
+        StridedTile,
         io::{Filled, Strided, TileKind},
         register::{
             RegisterMatmul,
-            config::{ProductType, RegisterConfig},
+            config::{ProductType, RegisterMatmulConfig},
         },
     },
 };
@@ -32,7 +32,7 @@ pub(super) trait RegisterFragmentReader {
         tile: &<Self::TileKind as TileKind>::Tile<V>,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     );
 }
 
@@ -44,7 +44,7 @@ impl RegisterFragmentReader for RegisterStageReader<Strided> {
         tile: &StridedTile<V>,
         frag: &mut Array<E>,
         #[comptime] ident: StageIdent,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     ) {
         // Could these be unified somehow?
         match ident {
@@ -62,13 +62,13 @@ type MM = RegisterMatmul<Strided>;
 fn load_lhs<E: Numeric, V: Numeric>(
     tile: &StridedTile<V>,
     frag: &mut Array<E>,
-    #[comptime] config: RegisterConfig,
+    #[comptime] config: RegisterMatmulConfig,
 ) {
-    let size = config.tile_size();
-    let line_size = config.stage_line_size(StageIdent::Lhs);
-    let layout = config.matrix_layout(StageIdent::Lhs);
+    let size = config.shared.tile_size;
+    let line_size = config.shared.lhs_stage_line_size;
+    let layout = config.shared.lhs_layout;
 
-    match config.product_type() {
+    match config.product_type {
         ProductType::Inner => match layout {
             MatrixLayout::RowMajor => {
                 MM::load_plain(tile, frag, size.m(), size.k(), line_size);
@@ -92,13 +92,13 @@ fn load_lhs<E: Numeric, V: Numeric>(
 fn load_rhs<E: Numeric, V: Numeric>(
     tile: &StridedTile<V>,
     frag: &mut Array<E>,
-    #[comptime] config: RegisterConfig,
+    #[comptime] config: RegisterMatmulConfig,
 ) {
-    let size = config.tile_size();
-    let line_size = config.stage_line_size(StageIdent::Rhs);
-    let layout = config.matrix_layout(StageIdent::Rhs);
+    let size = config.shared.tile_size;
+    let line_size = config.shared.rhs_stage_line_size;
+    let layout = config.shared.rhs_layout;
 
-    match config.product_type() {
+    match config.product_type {
         ProductType::Inner => match layout {
             MatrixLayout::RowMajor => {
                 MM::load_transposed(tile, frag, size.k(), size.n(), line_size);
@@ -122,11 +122,11 @@ fn load_rhs<E: Numeric, V: Numeric>(
 fn load_acc<E: Numeric, V: Numeric>(
     tile: &StridedTile<V>,
     frag: &mut Array<E>,
-    #[comptime] config: RegisterConfig,
+    #[comptime] config: RegisterMatmulConfig,
 ) {
-    let size = config.tile_size();
-    let line_size = config.stage_line_size(StageIdent::Acc);
-    let layout = config.matrix_layout(StageIdent::Acc);
+    let size = config.shared.tile_size;
+    let line_size = config.shared.out_global_line_size;
+    let layout = config.shared.out_layout;
 
     match layout {
         MatrixLayout::RowMajor => {
@@ -146,9 +146,9 @@ impl RegisterFragmentReader for RegisterStageReader<Filled> {
         value: &V,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     ) {
-        let size = config.tile_size();
+        let size = config.shared.tile_size;
         let size = match ident {
             StageIdent::Lhs => size.mk(),
             StageIdent::Rhs => size.nk(),
@@ -173,7 +173,7 @@ where
         tile: &CubeOption<Inner::Tile<V>>,
         fragment: &mut Array<E>,
         #[comptime] ident: StageIdent,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     ) {
         match tile {
             CubeOption::Some(tile) => {

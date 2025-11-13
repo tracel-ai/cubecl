@@ -51,7 +51,7 @@ pub struct PartitionedStageMatmul<
             TileKind = TM::OutTile,
         >,
     SP: StagePartitioner,
-    S: StageConfig<TileConfig = TM::Config>,
+    S: StageConfig,
 > {
     #[allow(clippy::type_complexity)]
     _phantom: PhantomData<(MP, TM, StageLhs, StageRhs, StageAcc, StageOut, SP, S)>,

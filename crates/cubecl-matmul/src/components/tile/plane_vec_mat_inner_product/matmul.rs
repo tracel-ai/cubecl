@@ -1,17 +1,14 @@
 use std::marker::PhantomData;
 
 use crate::components::tile::{
-    TileMatmul,
+    SharedTileConfig, TileMatmul,
     plane_vec_mat_inner_product::{reader::MatrixFragmentReader, writer::MatrixStageWriter},
 };
 use crate::components::tile::{
     io::Strided, plane_vec_mat_inner_product::reader::MatrixStageReader, tile_data::StridedTile,
 };
 use crate::components::tile::{
-    io::TileKind,
-    plane_vec_mat_inner_product::{
-        config::PlaneVecMatInnerProductConfig, reader::VectorStageReader,
-    },
+    io::TileKind, plane_vec_mat_inner_product::reader::VectorStageReader,
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -41,7 +38,7 @@ impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
 where
     MatrixStageReader<AccTile>: MatrixFragmentReader<TileKind = AccTile>,
 {
-    type Config = PlaneVecMatInnerProductConfig;
+    type Config = SharedTileConfig;
 
     // One line per unit in the plane
     type LhsFragment = LineContainer<L>;
@@ -60,40 +57,40 @@ where
         lhs: &Self::LhsFragment,
         rhs: &Self::RhsFragment,
         acc: &mut Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         let mut n = comptime![0];
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
+        for _ in 0..config.tile_size.n() {
             let lhs: Line<A> = Line::cast_from(lhs.line);
             let rhs: Line<A> = Line::cast_from(rhs.index(n).line);
 
-            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.reduce_line_size());
+            plane_sum_lined(lhs * rhs, acc.index_mut(n), config.lhs_stage_line_size);
 
             comptime![n += 1];
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
-        LineContainer::<L>::new(config.reduce_line_size())
+    fn allocate_lhs(#[comptime] config: SharedTileConfig) -> Self::LhsFragment {
+        LineContainer::<L>::new(config.lhs_stage_line_size)
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
+    fn allocate_rhs(#[comptime] config: SharedTileConfig) -> Self::RhsFragment {
         let mut rhs = Sequence::new();
         #[unroll]
-        for _ in 0..config.n() {
-            rhs.push(LineContainer::new(config.reduce_line_size()))
+        for _ in 0..config.tile_size.n() {
+            rhs.push(LineContainer::new(config.lhs_stage_line_size))
         }
         rhs
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
+    fn allocate_acc(#[comptime] config: SharedTileConfig) -> Self::AccFragment {
         let mut acc = Sequence::new();
         #[unroll]
-        for _ in 0..config.n() {
-            acc.push(LineContainer::new(config.reduce_line_size()))
+        for _ in 0..config.tile_size.n() {
+            acc.push(LineContainer::new(config.lhs_stage_line_size))
         }
         acc
     }
@@ -101,7 +98,7 @@ where
     fn load_lhs<E: Numeric>(
         tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
-        #[comptime] _config: Self::Config,
+        #[comptime] _config: SharedTileConfig,
     ) {
         VectorStageReader::load_fragment(tile, lhs)
     }
@@ -109,7 +106,7 @@ where
     fn load_rhs<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MatrixStageReader::<Strided>::load_fragment(tile, rhs, config)
     }
@@ -117,7 +114,7 @@ where
     fn load_acc<E: Numeric>(
         tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MatrixStageReader::<AccTile>::load_fragment(tile, acc, config);
     }
@@ -125,7 +122,7 @@ where
     fn write_results<E: Numeric>(
         tile: &mut StridedTile<E, ReadWrite>,
         acc: &Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MatrixStageWriter::store_fragment(tile, acc, config)
     }

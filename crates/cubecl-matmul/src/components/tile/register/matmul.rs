@@ -1,13 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::{TileConfig, TileMatmul, register::reader::RegisterFragmentReader};
-use crate::components::tile::{
-    io::Strided,
-    register::{
-        config::{ProductType, RegisterConfig},
-        reader::RegisterStageReader,
-    },
-};
+use crate::components::tile::register::config::{ProductType, RegisterMatmulConfig};
+use crate::components::tile::{TileMatmul, register::reader::RegisterFragmentReader};
+use crate::components::tile::{io::Strided, register::reader::RegisterStageReader};
 use crate::components::tile::{io::TileKind, tile_data::StridedTile};
 use crate::components::{StageIdent, tile::register::writer::RegisterStageWriter};
 use cubecl_core::prelude::*;
@@ -29,7 +24,8 @@ impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
 where
     RegisterStageReader<AccTile>: RegisterFragmentReader<TileKind = AccTile>,
 {
-    type Config = RegisterConfig;
+    type Config = RegisterMatmulConfig;
+
     type LhsFragment = Array<L>;
     type RhsFragment = Array<R>;
     type AccFragment = Array<A>;
@@ -45,22 +41,22 @@ where
         acc: &mut Self::AccFragment,
         #[comptime] config: Self::Config,
     ) {
-        match config.product_type() {
+        match config.product_type {
             ProductType::Inner => Self::inner_product(lhs, rhs, acc, config),
             ProductType::Outer => Self::outer_product(lhs, rhs, acc, config),
         }
     }
 
     fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
-        Array::new(config.tile_size().mk())
+        Array::new(config.shared.tile_size.mk())
     }
 
     fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
-        Array::new(config.tile_size().nk())
+        Array::new(config.shared.tile_size.nk())
     }
 
     fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
-        Array::new(config.tile_size().mn())
+        Array::new(config.shared.tile_size.mn())
     }
 
     fn load_lhs<E: Numeric>(
@@ -102,10 +98,10 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
         lhs: &Array<Lhs>,
         rhs: &Array<Rhs>,
         acc: &mut Array<EA>,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     ) {
         let (m, n, k) =
-            comptime! {let (m, n, k): (u32, u32, u32) = (*config.tile_size()).into(); (m, n, k)};
+            comptime! {let (m, n, k): (u32, u32, u32) = config.shared.tile_size.into(); (m, n, k)};
 
         #[unroll(UNROLL)]
         for m_ in 0..m {
@@ -125,10 +121,10 @@ impl<Acc: TileKind> RegisterMatmul<Acc> {
         lhs: &Array<Lhs>,
         rhs: &Array<Rhs>,
         acc: &mut Array<EA>,
-        #[comptime] config: RegisterConfig,
+        #[comptime] config: RegisterMatmulConfig,
     ) {
         let (m, n, k) =
-            comptime! {let (m, n, k): (u32, u32, u32) = (*config.tile_size()).into(); (m, n, k)};
+            comptime! {let (m, n, k): (u32, u32, u32) = config.shared.tile_size.into(); (m, n, k)};
 
         #[unroll(UNROLL)]
         for k_ in 0..k {

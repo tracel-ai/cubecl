@@ -2,11 +2,10 @@ use std::marker::PhantomData;
 
 use crate::components::tile::io::{Strided, TileKind};
 use crate::components::tile::{
-    TileConfig, TileMatmul,
+    SharedTileConfig, TileMatmul,
     mma::{reader::MmaStageReader, writer::MmaStageWriter},
 };
 use crate::components::tile::{mma::reader::MmaFragmentReader, tile_data::StridedTile};
-use crate::components::{StageIdent, tile::mma::config::MmaMatmulConfig};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, cmma::MmaDefinition, ir::MatrixIdent};
 
@@ -23,7 +22,8 @@ impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
 where
     MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
-    type Config = MmaMatmulConfig;
+    type Config = SharedTileConfig;
+
     type LhsFragment = Sequence<Line<L>>;
     type RhsFragment = Sequence<Line<R>>;
     type AccFragment = Sequence<Line<A>>;
@@ -37,7 +37,7 @@ where
         lhs: &Self::LhsFragment,
         rhs: &Self::RhsFragment,
         out: &mut Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         let def = mma_definition(config);
         let out_arr = def.execute(lhs, rhs, out);
@@ -49,7 +49,7 @@ where
         }
     }
 
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment {
+    fn allocate_lhs(#[comptime] config: SharedTileConfig) -> Self::LhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::A);
         let mut frag = Sequence::new();
@@ -63,7 +63,7 @@ where
         frag
     }
 
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment {
+    fn allocate_rhs(#[comptime] config: SharedTileConfig) -> Self::RhsFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::B);
         let mut frag = Sequence::new();
@@ -77,7 +77,7 @@ where
         frag
     }
 
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment {
+    fn allocate_acc(#[comptime] config: SharedTileConfig) -> Self::AccFragment {
         let def = mma_definition::<L, R, A>(config);
         let line_size = def.line_size(MatrixIdent::Accumulator);
         let mut frag = Sequence::new();
@@ -94,64 +94,64 @@ where
     fn load_lhs<E: Numeric>(
         tile: &StridedTile<E>,
         lhs: &mut Self::LhsFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MmaStageReader::<Self::LhsTile>::load_fragment(
             tile,
             lhs,
             mma_definition::<L, R, A>(config),
             MatrixIdent::A,
-            config.matrix_layout(StageIdent::Lhs),
+            config.lhs_layout,
         );
     }
 
     fn load_rhs<E: Numeric>(
         tile: &StridedTile<E>,
         rhs: &mut Self::RhsFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MmaStageReader::<Self::LhsTile>::load_fragment(
             tile,
             rhs,
             mma_definition::<L, R, A>(config),
             MatrixIdent::B,
-            config.matrix_layout(StageIdent::Rhs),
+            config.rhs_layout,
         );
     }
 
     fn load_acc<E: Numeric>(
         tile: &AccTile::Tile<E>,
         acc: &mut Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MmaStageReader::<Self::AccTile>::load_fragment(
             tile,
             acc,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.matrix_layout(StageIdent::Acc),
+            config.out_layout,
         );
     }
 
     fn write_results<E: Numeric>(
         tile: &mut StridedTile<E, ReadWrite>,
         out: &Self::AccFragment,
-        #[comptime] config: Self::Config,
+        #[comptime] config: SharedTileConfig,
     ) {
         MmaStageWriter::store_fragment(
             tile,
             out,
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
-            config.matrix_layout(StageIdent::Out),
+            config.out_layout,
         );
     }
 }
 
 #[cube]
 pub(super) fn mma_definition<L: Numeric, R: Numeric, A: Numeric>(
-    #[comptime] config: MmaMatmulConfig,
+    #[comptime] config: SharedTileConfig,
 ) -> MmaDefinition<L, R, A> {
-    let size = config.tile_size();
+    let size = config.tile_size;
     MmaDefinition::new(size.m(), size.n(), size.k())
 }

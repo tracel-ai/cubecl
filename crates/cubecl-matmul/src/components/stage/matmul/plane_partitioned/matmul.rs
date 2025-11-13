@@ -14,7 +14,7 @@ use cubecl_std::tensor::layout::Coords2d;
 /// [PartitionedStageMatmul] partitioned across units
 pub type PlaneMatmul<
     MP: MatmulPrecision,
-    TMM: TileMatmul<
+    TM: TileMatmul<
             <MP::Lhs as MatrixPrecision>::Register,
             <MP::Rhs as MatrixPrecision>::Register,
             <MP::Acc as MatrixPrecision>::Register,
@@ -25,13 +25,13 @@ pub type PlaneMatmul<
     StageOut,
 > = PartitionedStageMatmul<
     MP,
-    TMM,
+    TM,
     StageLhs,
     StageRhs,
     StageAcc,
     StageOut,
     PlanePartitioner,
-    PlanePartitionedStageConfig<TMM::Config>,
+    PlanePartitionedStageConfig<TM::Config>,
 >;
 
 /// Defines how to partition across planes

@@ -1,5 +1,7 @@
+use crate::components::tile::SharedTileConfig;
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+    InvalidConfigError, MatmulAvailabilityError, MatmulElems, MatmulLineSizes, MatmulProblem,
+    MatmulSelection,
 };
 use crate::components::{
     TileSize,
@@ -7,7 +9,6 @@ use crate::components::{
         TileMatmulFamily,
         mma::{
             MmaMatmul,
-            config::MmaMatmulConfig,
             reader::{MmaFragmentReader, MmaStageReader},
         },
     },
@@ -21,13 +22,12 @@ impl<Tile: TileKind> TileMatmulFamily for MmaMatmul<Tile>
 where
     MmaStageReader<Tile>: MmaFragmentReader<TileKind = Tile>,
 {
+    type Config = SharedTileConfig;
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = MmaMatmul<Tile>;
     type LhsTile = Strided;
     type RhsTile = Strided;
     type AccTile = Tile;
     type OutTile = Strided;
-
-    type Config = MmaMatmulConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -43,9 +43,8 @@ where
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
-    ) -> Result<Self::Config, MatmulSetupError> {
-        MmaMatmulConfig::new::<R>(
-            client,
+    ) -> Result<SharedTileConfig, MatmulSetupError> {
+        let tile_config = SharedTileConfig::new(
             selection.tiling_scheme.tile_size,
             selection.plane_dim,
             problem.lhs_layout,
@@ -55,8 +54,40 @@ where
             matmul_line_sizes.out as u32,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
-            dtypes,
-        )
+        );
+
+        Self::validate::<R>(tile_config, client, dtypes)
+    }
+
+    fn validate<R: Runtime>(
+        tile_config: SharedTileConfig,
+        client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
+    ) -> Result<SharedTileConfig, MatmulSetupError> {
+        let lhs = dtypes.lhs_register;
+        let rhs = dtypes.rhs_register;
+        let acc = dtypes.acc_register;
+
+        let size = tile_config.tile_size;
+        if !client.properties().features.mma.contains(&MmaConfig {
+            a_type: lhs,
+            b_type: rhs,
+            cd_type: acc,
+            m: size.m(),
+            k: size.k(),
+            n: size.n(),
+        }) {
+            return Err(MatmulSetupError::Unavailable(
+                MatmulAvailabilityError::CmmaInstructionUnavailable {
+                    lhs,
+                    rhs,
+                    output: acc,
+                    size: Some(TileSize::new(size.m(), size.n(), size.k())),
+                },
+            ));
+        }
+
+        Ok(tile_config)
     }
 
     fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {

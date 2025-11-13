@@ -8,9 +8,9 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout,
     tile::{
-        StridedTile,
+        SharedTileConfig, StridedTile,
         io::{Filled, Strided, Tile, TileKind},
-        plane_vec_mat_inner_product::{LineContainer, config::PlaneVecMatInnerProductConfig},
+        plane_vec_mat_inner_product::LineContainer,
     },
 };
 
@@ -27,7 +27,7 @@ pub(super) trait MatrixFragmentReader {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &Tile<Self::TileKind, V>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: PlaneVecMatInnerProductConfig,
+        #[comptime] config: SharedTileConfig,
     );
 }
 
@@ -57,7 +57,7 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &StridedTile<V>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: PlaneVecMatInnerProductConfig,
+        #[comptime] config: SharedTileConfig,
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::ColMajor));
 
@@ -65,7 +65,7 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
+        for _ in 0..config.tile_size.n() {
             let line_container = frag.index_mut(n);
             line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n * tile.stride]);
 
@@ -81,13 +81,13 @@ impl MatrixFragmentReader for MatrixStageReader<Filled> {
     fn load_fragment<E: Numeric, V: Numeric>(
         value: &V,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: PlaneVecMatInnerProductConfig,
+        #[comptime] config: SharedTileConfig,
     ) {
         let mut n = comptime![0];
 
         #[unroll]
         #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..config.n() {
+        for _ in 0..config.tile_size.n() {
             let line_container = frag.index_mut(n);
             line_container.line = Line::cast_from(*value);
 
@@ -106,7 +106,7 @@ where
     fn load_fragment<E: Numeric, V: Numeric>(
         tile: &CubeOption<Inner::Tile<V>>,
         frag: &mut Sequence<LineContainer<E>>,
-        #[comptime] config: PlaneVecMatInnerProductConfig,
+        #[comptime] config: SharedTileConfig,
     ) {
         match tile {
             CubeOption::Some(tile) => MatrixStageReader::<Inner>::load_fragment(tile, frag, config),
