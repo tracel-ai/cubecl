@@ -75,8 +75,8 @@ macro_rules! test_binary_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create($float_type::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice($float_type::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice($float_type::as_bytes(rhs));
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(
@@ -183,8 +183,8 @@ macro_rules! test_powi_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create(i32::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice($float_type::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice(i32::as_bytes(rhs));
 
                 unsafe {
                     test_powi_kernel::launch_unchecked::<F, R>(
@@ -252,8 +252,8 @@ macro_rules! test_mulhi_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<u32>());
-                let lhs_handle = client.create(u32::as_bytes(lhs));
-                let rhs_handle = client.create(u32::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice(u32::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice(u32::as_bytes(rhs));
 
                 unsafe {
                     test_mulhi_kernel::launch_unchecked::<R>(

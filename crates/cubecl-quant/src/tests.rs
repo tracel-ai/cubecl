@@ -16,15 +16,19 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
     let num_elems: usize = m * n;
     let half = num_elems as f32 / 2.0;
     let data: Vec<_> = (0..num_elems).map(|v| v as f32 - half).collect();
-    let input_alloc = client.create_tensor(f32::as_bytes(&data), &shape, f32::type_size() as usize);
+    let input_alloc =
+        client.create_tensor_from_slice(f32::as_bytes(&data), &shape, f32::type_size() as usize);
 
     let (q_min, q_max) = value.range();
     // input data range is not affected by quant range symmetry
     let scale_f32 = (2.0 * half) / (q_max - q_min);
     let data_scale = vec![scale_f32];
 
-    let scale_alloc =
-        client.create_tensor(f32::as_bytes(&data_scale), &[1], f32::type_size() as usize);
+    let scale_alloc = client.create_tensor_from_slice(
+        f32::as_bytes(&data_scale),
+        &[1],
+        f32::type_size() as usize,
+    );
 
     let input = TensorHandle::<R>::new(
         input_alloc.handle,
@@ -134,7 +138,8 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
     let data: Vec<_> = (0..num_elems)
         .map(|v| (v as f32 - half) / num_elems as f32)
         .collect();
-    let input_alloc = client.create_tensor(f32::as_bytes(&data), &shape, f32::type_size() as usize);
+    let input_alloc =
+        client.create_tensor_from_slice(f32::as_bytes(&data), &shape, f32::type_size() as usize);
 
     let (q_min, q_max) = value.range();
 
@@ -161,7 +166,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         scales.push(scale);
     }
 
-    let scale_alloc = client.create_tensor(
+    let scale_alloc = client.create_tensor_from_slice(
         f32::as_bytes(&scales),
         &shape_scale,
         f32::type_size() as usize,

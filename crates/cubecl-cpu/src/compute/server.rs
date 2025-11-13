@@ -96,6 +96,10 @@ impl ComputeServer for CpuServer {
         self.utilities.logger.clone()
     }
 
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
     }
@@ -140,7 +144,7 @@ impl ComputeServer for CpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
@@ -148,7 +152,7 @@ impl ComputeServer for CpuServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            self.copy_to_binding(desc.binding, data);
+            self.copy_to_binding(desc.binding, &data);
         }
         Ok(())
     }

@@ -115,7 +115,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         if problem.rhs_layout == MatrixLayout::ColMajor {
             let elem_size = dtypes.rhs_global.size() as u32;
             while partition_shape_k * tile_size.k() * elem_size > 128 {
-                partition_shape_k /= 2
+                partition_shape_k /= 2;
             }
         }
     }

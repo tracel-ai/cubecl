@@ -201,7 +201,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -238,7 +238,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -260,7 +260,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let shape = problem.shape(MatmulIdent::Out);
             let Allocation { handle, strides } =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+                client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {
                 handle,
                 scale: None,

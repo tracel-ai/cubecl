@@ -1,6 +1,7 @@
 //! A version of [`bytemuck::BoxBytes`] that is cloneable and allows trailing uninitialized elements.
 
 use crate::bytes::default_controller::{self, NativeAllocationController};
+use crate::bytes::file::FileAllocationController;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::alloc::LayoutError;
@@ -23,6 +24,28 @@ pub struct Bytes {
     len: usize,
 }
 
+#[derive(Debug)]
+/// The kind of allocation bahind the [Bytes] type.
+pub enum AllocationProperty {
+    /// A file is used to store the data.
+    File,
+    /// The native allocator of Rust is used.
+    Native,
+    /// Pinned memory is used.
+    Pinned,
+    /// Another kind of memory is used.
+    Other,
+}
+
+/// Error when splitting an allocation.
+#[derive(Debug, Clone, Copy)]
+pub enum SplitError {
+    /// The offset isn't valid.
+    InvalidOffset,
+    /// The operation isn't supported.
+    Unsupported,
+}
+
 /// Defines how an [Allocation] can be controlled.
 ///
 /// This trait enables type erasure of the allocator after an [Allocation] is created, while still
@@ -31,7 +54,11 @@ pub trait AllocationController {
     /// The alignment this allocation was created with.
     fn alloc_align(&self) -> usize;
 
+    /// Returns memory property for the current allocation.
+    fn property(&self) -> AllocationProperty;
+
     /// Returns a mutable view of the memory of the whole allocation
+    ///
     /// # Safety
     ///
     /// Must only write initialized data to the buffer.
@@ -39,6 +66,39 @@ pub trait AllocationController {
 
     /// Returns a view of the memory of the whole allocation
     fn memory(&self) -> &[MaybeUninit<u8>];
+
+    /// Splits the current allocation in multiple separate allocations.
+    #[allow(clippy::type_complexity)]
+    fn split(
+        &mut self,
+        _offset: usize,
+    ) -> Result<(Box<dyn AllocationController>, Box<dyn AllocationController>), SplitError> {
+        Err(SplitError::Unsupported)
+    }
+
+    /// Duplicates the current allocation with a clone on write strategy if the allocation
+    /// controller supports it.
+    fn duplicate(&self) -> Option<Box<dyn AllocationController>> {
+        None
+    }
+
+    /// Reads the data from the current allocation controller and copy its content into the provided
+    /// buffer.
+    ///
+    /// # Safety
+    ///
+    /// Ensures the length provided reflect initialized values in the current allocation controller.
+    unsafe fn copy_into(&self, buf: &mut [u8]) {
+        let len = buf.len();
+        let memory = self.memory();
+        let memory_slice = &memory[0..len];
+
+        // SAFETY: By construction, bytes up to len are initialized.
+        let data = unsafe {
+            core::slice::from_raw_parts(memory_slice.as_ptr().cast(), memory_slice.len())
+        };
+        buf.copy_from_slice(data);
+    }
 
     /// Extends the provided [Allocation] to a new size with specified alignment.
     ///
@@ -88,6 +148,59 @@ pub enum AllocationError {
 }
 
 impl Bytes {
+    /// Splits the current allocation at the given offset.
+    pub fn split(mut self, offset: usize) -> Result<(Bytes, Bytes), (Bytes, SplitError)> {
+        let right_len = self.len - offset;
+        match self.controller.split(offset) {
+            Ok((left, right)) => unsafe {
+                Ok((
+                    Bytes::from_controller(left, offset),
+                    Bytes::from_controller(right, right_len),
+                ))
+            },
+            Err(err) => match self.try_into_vec() {
+                Ok(mut left) => {
+                    let right = left.split_off(offset);
+
+                    Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)))
+                }
+                Err(this) => Err((this, err)),
+            },
+        }
+    }
+
+    #[cfg(feature = "std")]
+    /// Creates bytes from a file at the given offset of the given size.
+    pub fn from_file<P: Into<std::path::PathBuf>>(file: P, size: u64, offset: u64) -> Self {
+        let controller = FileAllocationController::new(file, size, offset);
+
+        Self {
+            controller: Box::new(controller),
+            len: size as usize,
+        }
+    }
+
+    /// The size of the allocation.
+    ///
+    /// # Notes
+    ///
+    /// This is used so that calling `bytes.len()` doesn't trigger [Deref], which may be expensive.
+    #[allow(clippy::len_without_is_empty)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Copy the data from the current allocation to the provided [Bytes].
+    pub fn copy_into(&self, other: &mut Self) {
+        unsafe {
+            self.controller.copy_into(other);
+        }
+    }
+
+    /// Retrieves the allocation property of the given allocation.
+    pub fn property(&self) -> AllocationProperty {
+        self.controller.property()
+    }
     /// Creates the type from its raw parts.
     ///
     /// # Safety
@@ -388,6 +501,13 @@ impl<'de> serde::Deserialize<'de> for Bytes {
 
 impl Clone for Bytes {
     fn clone(&self) -> Self {
+        if let Some(controller) = self.controller.duplicate() {
+            return Self {
+                controller,
+                len: self.len,
+            };
+        }
+
         // unwrap here: the layout is valid as it has the alignment & size of self
         Self::try_from_data(self.align(), self.deref()).unwrap()
     }

@@ -17,7 +17,7 @@ use alloc::vec::Vec;
 use core::ops::DerefMut;
 use cubecl_common::{
     ExecutionMode,
-    bytes::Bytes,
+    bytes::{AllocationProperty, Bytes},
     device::{Device, DeviceContext},
     future::DynFut,
     profile::ProfileDuration,
@@ -201,11 +201,41 @@ where
         self.context.lock().get_resource(binding, stream_id)
     }
 
+    fn do_create_from_slices(
+        &self,
+        descriptors: Vec<AllocationDescriptor<'_>>,
+        slices: Vec<&[u8]>,
+    ) -> Result<Vec<Allocation>, IoError> {
+        let mut state = self.context.lock();
+        let allocations = state.create(descriptors.clone(), self.stream_id())?;
+        let descriptors = descriptors
+            .into_iter()
+            .zip(allocations.iter())
+            .zip(slices)
+            .map(|((desc, alloc), data)| {
+                (
+                    CopyDescriptor::new(
+                        alloc.handle.clone().binding(),
+                        desc.shape,
+                        &alloc.strides,
+                        desc.elem_size,
+                    ),
+                    Bytes::from_bytes_vec(data.to_vec()),
+                )
+            })
+            .collect();
+        let stream_id = self.stream_id();
+        state.write(descriptors, stream_id)?;
+        Ok(allocations)
+    }
+
     fn do_create(
         &self,
         descriptors: Vec<AllocationDescriptor<'_>>,
-        data: Vec<&[u8]>,
+        mut data: Vec<Bytes>,
     ) -> Result<Vec<Allocation>, IoError> {
+        self.staging(data.iter_mut(), true);
+
         let mut state = self.context.lock();
         let allocations = state.create(descriptors.clone(), self.stream_id())?;
         let descriptors = descriptors
@@ -229,8 +259,29 @@ where
         Ok(allocations)
     }
 
-    /// Given a resource, stores it and returns the resource handle.
-    pub fn create(&self, data: &[u8]) -> Handle {
+    /// Returns a resource handle containing the given data.
+    ///
+    /// # Notes
+    ///
+    /// Prefer using the more efficient [Self::create] function.
+    pub fn create_from_slice(&self, slice: &[u8]) -> Handle {
+        let shape = [slice.len()];
+
+        self.do_create_from_slices(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Contiguous,
+                &shape,
+                1,
+            )],
+            vec![slice],
+        )
+        .unwrap()
+        .remove(0)
+        .handle
+    }
+
+    /// Returns a resource handle containing the given [Bytes].
+    pub fn create(&self, data: Bytes) -> Handle {
         let shape = [data.len()];
 
         self.do_create(
@@ -259,14 +310,49 @@ where
     ///
     /// However, the stride must be taken into account when indexing and reading the tensor
     /// (also see [ComputeClient::read_tensor]).
-    pub fn create_tensor(&self, data: &[u8], shape: &[usize], elem_size: usize) -> Allocation {
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensor] for better performance.
+    pub fn create_tensor_from_slice(
+        &self,
+        slice: &[u8],
+        shape: &[usize],
+        elem_size: usize,
+    ) -> Allocation {
+        self.do_create_from_slices(
+            vec![AllocationDescriptor::new(
+                AllocationKind::Optimized,
+                shape,
+                elem_size,
+            )],
+            vec![slice],
+        )
+        .unwrap()
+        .remove(0)
+    }
+
+    /// Given a resource and shape, stores it and returns the tensor handle and strides.
+    /// This may or may not return contiguous strides. The layout is up to the runtime, and care
+    /// should be taken when indexing.
+    ///
+    /// Currently the tensor may either be contiguous (most runtimes), or "pitched", to use the CUDA
+    /// terminology. This means the last (contiguous) dimension is padded to fit a certain alignment,
+    /// and the strides are adjusted accordingly. This can make memory accesses significantly faster
+    /// since all rows are aligned to at least 16 bytes (the maximum load width), meaning the GPU
+    /// can load as much data as possible in a single instruction. It may be aligned even more to
+    /// also take cache lines into account.
+    ///
+    /// However, the stride must be taken into account when indexing and reading the tensor
+    /// (also see [ComputeClient::read_tensor]).
+    pub fn create_tensor(&self, bytes: Bytes, shape: &[usize], elem_size: usize) -> Allocation {
         self.do_create(
             vec![AllocationDescriptor::new(
                 AllocationKind::Optimized,
                 shape,
                 elem_size,
             )],
-            vec![data],
+            vec![bytes],
         )
         .unwrap()
         .remove(0)
@@ -275,9 +361,25 @@ where
     /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
     /// handle, and returns the handles for them.
     /// See [ComputeClient::create_tensor]
-    pub fn create_tensors(
+    ///
+    /// # Notes
+    ///
+    /// Prefer using [Self::create_tensors] for better performance.
+    pub fn create_tensors_from_slices(
         &self,
         descriptors: Vec<(AllocationDescriptor<'_>, &[u8])>,
+    ) -> Vec<Allocation> {
+        let (descriptors, data) = descriptors.into_iter().unzip();
+
+        self.do_create_from_slices(descriptors, data).unwrap()
+    }
+
+    /// Reserves all `shapes` in a single storage buffer, copies the corresponding `data` into each
+    /// handle, and returns the handles for them.
+    /// See [ComputeClient::create_tensor]
+    pub fn create_tensors(
+        &self,
+        descriptors: Vec<(AllocationDescriptor<'_>, Bytes)>,
     ) -> Vec<Allocation> {
         let (descriptors, data) = descriptors.into_iter().unzip();
 
@@ -310,6 +412,51 @@ where
     /// See [ComputeClient::create_tensor]
     pub fn empty_tensors(&self, descriptors: Vec<AllocationDescriptor<'_>>) -> Vec<Allocation> {
         self.do_empty(descriptors).unwrap()
+    }
+
+    /// Marks the given [Bytes] as being a staging buffer, maybe transfering it to pinned memory
+    /// for faster data transfer with compute device.
+    pub fn staging<'a, I>(&self, bytes: I, file_only: bool)
+    where
+        I: Iterator<Item = &'a mut Bytes>,
+    {
+        let has_staging = |b: &Bytes| match b.property() {
+            AllocationProperty::Pinned => false,
+            AllocationProperty::File => true,
+            AllocationProperty::Native | AllocationProperty::Other => !file_only,
+        };
+
+        let mut to_be_updated = Vec::new();
+        let sizes = bytes
+            .filter_map(|b| match has_staging(b) {
+                true => {
+                    let len = b.len();
+                    to_be_updated.push(b);
+                    Some(len)
+                }
+                false => None,
+            })
+            .collect::<Vec<usize>>();
+
+        if sizes.is_empty() {
+            return;
+        }
+
+        let stream_id = self.stream_id();
+        let mut context = self.context.lock();
+        let stagings = match context.staging(&sizes, stream_id) {
+            Ok(val) => val,
+            Err(_) => return,
+        };
+        core::mem::drop(context);
+
+        to_be_updated
+            .into_iter()
+            .zip(stagings)
+            .for_each(|(b, mut staging)| {
+                b.copy_into(&mut staging);
+                core::mem::swap(b, &mut staging);
+            });
     }
 
     /// Transfer data from one client to another
@@ -613,7 +760,7 @@ where
             .remove(0);
 
         let read = self.context.lock().read(vec![src_descriptor], stream_id);
-        let data = cubecl_common::future::block_on(read).unwrap();
+        let mut data = cubecl_common::future::block_on(read).unwrap();
 
         let desc_descriptor = CopyDescriptor {
             binding: alloc.handle.clone().binding(),
@@ -625,7 +772,7 @@ where
         dst_server
             .context
             .lock()
-            .write(vec![(desc_descriptor, &data[0])], stream_id)
+            .write(vec![(desc_descriptor, data.remove(0))], stream_id)
             .unwrap();
 
         alloc

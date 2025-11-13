@@ -42,8 +42,8 @@ pub fn test_saturating_add_unsigned<R: Runtime, I: Int + CubeElement>(
         I::max_value(),
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
@@ -76,8 +76,8 @@ pub fn test_saturating_sub_unsigned<R: Runtime, I: Int + CubeElement>(
     let rhs = vec![I::new(1), I::new(6), I::new(8), I::max_value()];
     let out = vec![I::new(1), I::new(0), I::new(2), I::new(0)];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(4 * size_of::<I>());
 
     unsafe {
@@ -157,8 +157,8 @@ pub fn test_saturating_add_signed<R: Runtime, I: Int + CubeElement>(
         I::min_value(),
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
@@ -238,8 +238,8 @@ pub fn test_saturating_sub_signed<R: Runtime, I: Int + CubeElement>(
         I::new(80),     // 50 - (-30) = 80
     ];
 
-    let lhs_handle = client.create(I::as_bytes(&lhs));
-    let rhs_handle = client.create(I::as_bytes(&rhs));
+    let lhs_handle = client.create_from_slice(I::as_bytes(&lhs));
+    let rhs_handle = client.create_from_slice(I::as_bytes(&rhs));
     let out_handle = client.empty(16 * size_of::<I>());
 
     unsafe {
