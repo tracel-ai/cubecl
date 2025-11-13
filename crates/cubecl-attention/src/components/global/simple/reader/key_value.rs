@@ -14,7 +14,6 @@ use crate::components::global::base::GlobalAttentionConfig;
 
 #[derive(CubeType)]
 pub struct DummyKeyValueReader<EG: Float, ES: Float, G: GlobalAttentionConfig> {
-    // underlying: FullStageGlobalReader<EG, ES, G, SyncFullCyclicLoading<RowMajorTilingOrder>>,
     global_iter: GlobalIterator<Line<EG>>,
     #[cube(comptime)]
     attention_ident: AttentionIdent,
@@ -33,7 +32,6 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
         let global_iter = GlobalIterator::new(view, step, ViewDirection::Row, false);
 
         DummyKeyValueReader::<EG, ES, G> {
-            // underlying: FullStageGlobalReader::new(view, step, ident, config),
             global_iter,
             attention_ident,
             _phantom: PhantomData,
