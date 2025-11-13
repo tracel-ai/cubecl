@@ -6,11 +6,7 @@ use cubecl_core as cubecl;
 use super::TensorHandle;
 
 #[cube(launch_unchecked)]
-fn identity_kernel<C: Numeric>(
-    output: &mut Tensor<Line<C>>,
-    gap: u32,
-    #[define(C)] _elem: StorageType,
-) {
+fn identity_kernel<C: Numeric>(output: &mut Tensor<Line<C>>, gap: u32) {
     let pos_x = ABSOLUTE_POS_X * output.line_size();
     if ABSOLUTE_POS_Y < output.shape(0) && pos_x < output.shape(1) {
         let mut line = Line::empty(output.line_size()).fill(C::from_int(0));
@@ -34,18 +30,19 @@ fn identity_kernel<C: Numeric>(
 /// Launch identity matrix kernel.
 /// Ensure output is a [`TensorHandle`] containing a square matrix.
 /// output will contain the identity matrix.
-pub fn launch<R: Runtime>(client: &ComputeClient<R::Server>, output: &TensorHandle<R>) {
-    let dtype = output.dtype;
-    launch_ref::<R>(client, &output.as_ref(), dtype);
+pub fn launch<R: Runtime, C: Numeric>(
+    client: &ComputeClient<R::Server>,
+    output: &TensorHandle<R, C>,
+) {
+    launch_ref::<R, C>(client, &output.as_ref());
 }
 
 /// Launch identity matrix kernel by ref.
 /// Ensure output is a [`TensorHandleRef`] containing a square matrix.
 /// output will contain the identity matrix.
-pub fn launch_ref<R: Runtime>(
+pub fn launch_ref<R: Runtime, C: Numeric>(
     client: &ComputeClient<R::Server>,
     output: &TensorHandleRef<R>,
-    dtype: StorageType,
 ) {
     assert_eq!(2, output.shape.len(), "input should be a matrix");
     assert_eq!(
@@ -67,19 +64,17 @@ pub fn launch_ref<R: Runtime>(
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 
     unsafe {
-        identity_kernel::launch_unchecked::<R>(
+        identity_kernel::launch_unchecked::<C, R>(
             client,
             cube_count,
             cube_dim,
-            TensorArg::from_raw_parts_and_size(
+            TensorArg::from_raw_parts::<C>(
                 output.handle,
                 output.strides,
                 output.shape,
                 vectorization_factor,
-                dtype.size(),
             ),
             ScalarArg::new(output.strides[0] as u32 + 1),
-            dtype,
         );
     }
 }
