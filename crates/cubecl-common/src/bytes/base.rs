@@ -162,7 +162,7 @@ impl Bytes {
                 Ok(mut left) => {
                     let right = left.split_off(offset);
 
-                    return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
+                    Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)))
                 }
                 Err(this) => Err((this, err)),
             },
