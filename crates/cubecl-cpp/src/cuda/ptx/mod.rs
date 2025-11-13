@@ -1,6 +1,6 @@
 use crate::{
     Dialect,
-    shared::{Elem, FP4Kind, FP6Kind, FP8Kind},
+    shared::{Component, Elem, FP4Kind, FP6Kind, FP8Kind, Variable},
 };
 
 pub const TMA_LOAD_IM2COL: &str = include_str!("tma_load_im2col.cuh");
@@ -236,4 +236,70 @@ fn mma_ty<D: Dialect>(elem: Elem<D>) -> &'static str {
         Elem::Bool => "b1",
         other => panic!("{other} not supported for MMA"),
     }
+}
+
+pub fn ldmatrix_call<D: Dialect>(
+    output: &Variable<D>,
+    buffer: &Variable<D>,
+    offset: &Variable<D>,
+    line_size: &Option<u32>,
+    factor: &u32,
+    transpose: &bool,
+) -> String {
+    let elem = output.elem();
+    let width = 16 / output.elem().size();
+    let is_transposed = if *transpose { "_trans" } else { "" };
+    let regs =
+        comma_separated((0..*factor).map(|i| format!("reinterpret_cast<uint32&>({output}[{i}])")));
+    let buffer = if let Some(line_size) = *line_size {
+        let mut item = buffer.item();
+        item.vectorization = line_size as usize;
+        format!("reinterpret_cast<{item}*>({})", buffer.fmt_ptr())
+    } else {
+        buffer.fmt_ptr()
+    };
+
+    format!("__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({regs}, {buffer} + {offset});\n")
+}
+
+pub fn ldmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool) -> String {
+    let width = 16 / elem.size();
+    let arg_ty = Elem::<D>::U32;
+
+    let args_regs = (0..factor).map(|i| format!("{arg_ty} &reg_{i}"));
+    let arg_addr = ["void const *row_addr".to_string()];
+    let args = args_regs.chain(arg_addr).collect::<Vec<_>>().join(", ");
+
+    let mut idx = 0usize;
+
+    let placeholders_reg = comma_separated((0..factor).map(|_| placeholder(&mut idx)));
+    let placeholders_reg = format!("{{{placeholders_reg}}}");
+
+    let placeholder_addr = format!("[{}]", placeholder(&mut idx));
+
+    let params_out = comma_separated((0..factor).map(|i| format!(r#""=r"(reg_{i})"#)));
+    let params_in = r#""l"(addr)"#;
+
+    let is_transposed = if transpose { "_trans" } else { "" };
+    let transposed_arg = if transpose { ".trans" } else { "" };
+    let num = format!("x{factor}");
+
+    let ty = match elem.size() {
+        2 => "b16",
+        1 => "b8",
+        _ => unreachable!(),
+    };
+
+    format!(
+        r#"
+inline __device__ void
+__ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
+  uint64 addr = reinterpret_cast<uint64>(row_addr);
+  asm volatile("ldmatrix.sync.aligned.m8n{width}.{num}{transposed_arg}.shared::cta.{ty}"
+               " {placeholders_reg}, {placeholder_addr};"
+               : {params_out}
+               : {params_in});
+    }}
+    "#
+    )
 }

@@ -52,7 +52,7 @@ use super::{
 };
 use crate::{
     self as cubecl,
-    prelude::{Array, Line, Sequence},
+    prelude::{Array, Line},
 };
 use crate::{
     ir::{self, Instruction},
@@ -517,14 +517,51 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         })
     }
 
+    /// Load one or more matrix register using intrinsic instructions. CUDA only.
+    /// The number of matrices must be 1, 2, or 4. The rows for the nth matrix are passed by the 8
+    /// lanes starting at `n * 8`. All slice starts must be valid, even for non-participating lanes.
+    /// The slice determines the starting address for a 16-byte row loaded by this unit, with
+    /// the row index being `UNIT_POS_PLANE % 8`.
+    /// The number of elements is determined by element size.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    #[allow(unused_variables)]
+    pub fn load_matrix<E: CubePrimitive>(
+        &self,
+        row: &Slice<Line<E>>,
+        #[comptime] ident: MatrixIdent,
+        #[comptime] num_matrices: u32,
+        #[comptime] transpose: bool,
+    ) -> Array<Line<E>> {
+        intrinsic!(|scope| {
+            let line_size = self.__expand_line_size_method(scope, ident);
+            let slice_line_size = row.line_size;
+            let (buffer, offset) = row.__to_raw_parts();
+            let out = Array::__expand_vectorized(scope, num_matrices, line_size);
+            scope.register(Instruction::new(
+                CoopMma::LoadMatrix {
+                    buffer,
+                    offset,
+                    line_size: slice_line_size,
+                    factor: num_matrices,
+                    transpose,
+                },
+                *out.expand,
+            ));
+            out
+        })
+    }
+
     /// Execute a low level `mma` operation with manually managed registers. Register layout
     /// and index mapping can be retrieved from the [`MatrixDefinition`]
     #[allow(unused)]
     pub fn execute(
         &self,
-        registers_a: &Sequence<Line<A>>,
-        registers_b: &Sequence<Line<B>>,
-        registers_c: &Sequence<Line<CD>>,
+        registers_a: &Array<Line<A>>,
+        registers_b: &Array<Line<B>>,
+        registers_c: &Array<Line<CD>>,
     ) -> Array<Line<CD>> {
         intrinsic!(|scope| {
             let acc_elems = self
@@ -537,18 +574,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
 
             let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
 
-            let registers_a = registers_a
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
-            let registers_b = registers_b
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
-            let registers_c = registers_c
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
+            let registers_a = *registers_a.expand;
+            let registers_b = *registers_b.expand;
+            let registers_c = *registers_c.expand;
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {
@@ -579,9 +607,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
     #[allow(unused)]
     pub fn execute_scaled<S: CubePrimitive>(
         &self,
-        registers_a: &Sequence<Line<A>>,
-        registers_b: &Sequence<Line<B>>,
-        registers_c: &Sequence<Line<CD>>,
+        registers_a: &Array<Line<A>>,
+        registers_b: &Array<Line<B>>,
+        registers_c: &Array<Line<CD>>,
         scales_a: Line<S>,
         scales_b: Line<S>,
     ) -> Array<Line<CD>> {
@@ -596,18 +624,9 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
 
             let registers_d = Array::__expand_vectorized(scope, num_registers, acc_line_size);
 
-            let registers_a = registers_a
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
-            let registers_b = registers_b
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
-            let registers_c = registers_c
-                .iter_cloned()
-                .map(|it| *it.expand)
-                .collect::<Vec<_>>();
+            let registers_a = *registers_a.expand;
+            let registers_b = *registers_b.expand;
+            let registers_c = *registers_c.expand;
 
             // Only shape is actually used
             let matrix = cubecl_ir::Matrix {

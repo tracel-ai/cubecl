@@ -3,7 +3,7 @@ macro_rules! testgen_matmul_problem_size {
     ($kind: ident, $algorithm: ty, $precision: ty, $selection: expr, $layouts: expr) => {
         use $crate::components::MatmulProblem;
 
-        mod g16x16x32 {
+        mod g16x8x16 {
             use super::*;
             $crate::testgen_matmul_launch!(
                 $kind,
@@ -12,8 +12,8 @@ macro_rules! testgen_matmul_problem_size {
                 $selection,
                 MatmulProblem {
                     m: 16,
-                    n: 16,
-                    k: 32,
+                    n: 8,
+                    k: 16,
                     lhs_batches: vec![1],
                     rhs_batches: vec![1],
                     out_batches: vec![1],

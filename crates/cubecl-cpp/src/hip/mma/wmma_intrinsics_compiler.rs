@@ -2,7 +2,6 @@ use std::fmt::Formatter;
 
 use crate::{
     Dialect,
-    cuda::ptx::comma_separated,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
@@ -385,6 +384,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let value_ptr = frag_as_ptr(f, value, offset);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
+            WmmaInstruction::LdMatrix { .. } => {
+                unimplemented!("Not supported in HIP")
+            }
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -538,33 +540,15 @@ fn get_output_accumulator_index_step<D: Dialect>(
 pub(super) fn compile_manual_mma<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     shape: MmaShape<D>,
-    frag_a: &[Variable<D>],
-    frag_b: &[Variable<D>],
-    frag_c: &[Variable<D>],
+    frag_a: &Variable<D>,
+    frag_b: &Variable<D>,
+    frag_c: &Variable<D>,
     frag_d: &Variable<D>,
 ) -> std::fmt::Result {
-    let extension = WmmaExecute::from_manual(shape, frag_a[0].elem(), frag_c[0].elem());
-    let frag_d_len = frag_c.len();
+    let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
-    let frag_a = comma_separated(
-        frag_a
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
-    let frag_b = comma_separated(
-        frag_b
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
-    let frag_c = comma_separated(
-        frag_c
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
-
+    let d_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+    let frag_d_len = d_elems as usize / (32 / frag_d.elem().unpacked().size_bits());
     // Item is irrelevant
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
@@ -572,7 +556,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
     writeln!(
         f,
-        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
+        "{name}(reinterpret_cast<{}>({frag_a}), reinterpret_cast<{}>({frag_b}), reinterpret_cast<{}>({frag_c}), {frag_d_tmp});",
         extension.frag_a, extension.frag_b, extension.frag_c
     )?;
 

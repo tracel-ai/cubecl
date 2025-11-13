@@ -1,4 +1,8 @@
-use crate::{self as cubecl, runtime_tests::binary::assert_equals_approx};
+use crate::{
+    self as cubecl,
+    prelude::barrier::{Barrier, BarrierLevel},
+    runtime_tests::binary::assert_equals_approx,
+};
 
 use cubecl::{
     ir::{ElemType, FloatKind},
@@ -763,17 +767,17 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Sequence::<Line<A>>::new();
+    let mut registers_a = Array::<Line<A>>::vectorized(line_count_a, line_size_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Sequence::<Line<B>>::new();
+    let mut registers_b = Array::<Line<B>>::vectorized(line_count_b, line_size_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Sequence::<Line<CD>>::new();
+    let mut registers_c = Array::<Line<CD>>::vectorized(line_count_c, line_size_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -790,7 +794,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
             let value = a[row * size_k + col];
             reg[k] = value;
         }
-        registers_a.push(reg)
+        registers_a[i] = reg;
     }
 
     // Load B
@@ -804,7 +808,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
             let value = b[row * size_n + col];
             reg[k] = value;
         }
-        registers_b.push(reg)
+        registers_b[i] = reg;
     }
 
     // Load C
@@ -818,7 +822,7 @@ pub fn kernel_manual<A: Numeric, B: Numeric, CD: Numeric>(
             let value = c[row * size_n + col];
             reg[k] = value;
         }
-        registers_c.push(reg)
+        registers_c[i] = reg;
     }
 
     let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
@@ -873,10 +877,11 @@ pub fn test_cmma_manual<
     let rhs: Vec<B> = (0..k)
         .flat_map(|i| (0..n).map(move |j| B::from_int((i * 3 + j) as i64)))
         .collect();
+    let acc = vec![CD::from_int(0); m * n];
 
     let lhs = client.create(A::as_bytes(&lhs));
     let rhs = client.create(B::as_bytes(&rhs));
-    let out = client.empty(core::mem::size_of::<CD>() * m * n);
+    let out = client.create(CD::as_bytes(&acc));
 
     unsafe {
         kernel_manual::launch::<A, B, CD, R>(
@@ -885,6 +890,180 @@ pub fn test_cmma_manual<
             cube_dimensions,
             TensorArg::from_raw_parts::<A>(&lhs, &[k, 1], &[m, k], 1),
             TensorArg::from_raw_parts::<B>(&rhs, &[n, 1], &[k, n], 1),
+            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
+            TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
+            m as u32,
+            n as u32,
+            k as u32,
+        )
+    };
+
+    let actual = client.read_one(out);
+    let actual = CD::from_bytes(&actual);
+
+    // Calculate expected results (row-major order)
+    let mut expected = Vec::with_capacity(m * n);
+    for i in 0..m {
+        // For each output row
+        // For each output row
+        for j in 0..n {
+            // For each output column
+            // For each output column
+            let mut sum = 0;
+            for l in 0..k {
+                // Dot product over k-dimension
+                let lhs_val = (i * 2 + l) as i64; // LHS[i, l]
+                let rhs_val = (l * 3 + j) as i64; // RHS[l, j]
+                sum += lhs_val * rhs_val;
+            }
+            expected.push(CD::from_int(sum));
+        }
+    }
+
+    // Need tolerance for slight differences because CPU integer version isn't exactly the same
+    // as GPU MMA for fp8. 3% tolerance seems to work for both FP8 types.
+    // Existing approximate comparison requires `Float`, so just do a simple one here.
+    for (i, (expected_val, actual_val)) in expected.iter().zip(actual).enumerate() {
+        let expected_val = expected_val.to_f64().unwrap();
+        let actual_val = actual_val.to_f64().unwrap();
+        let difference = (expected_val - actual_val).abs();
+        let max_difference = expected_val * 0.03;
+        if difference > max_difference {
+            panic!(
+                "Expected != actual at position {i}: (expected: {expected_val}, actual: {actual_val}, difference: {difference}, max_difference: {max_difference})"
+            )
+        }
+    }
+}
+
+// Kinda hardcoded for f16 right now, but it's hard to make generic
+#[cube(launch)]
+pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
+    a: &Tensor<Line<AB>>,
+    b: &Tensor<Line<AB>>,
+    c: &Tensor<CD>,
+    out: &mut Tensor<CD>,
+    #[comptime] size_m: u32,
+    #[comptime] size_n: u32,
+    #[comptime] size_k: u32,
+) {
+    let bar = Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0));
+    let def = cmma::MmaDefinition::<AB, AB, CD>::new(size_m, size_n, size_k);
+    let lane_id = UNIT_POS_PLANE;
+
+    let elem_size = AB::elem_size();
+    let width = comptime![16 / elem_size];
+
+    let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 1u32, 16u32);
+    let mut stage_b = SharedMemory::new_aligned(size_k * size_n, 1u32, 16u32);
+    bar.memcpy_async_cooperative(&a.to_slice(), &mut stage_a.to_slice_mut());
+    bar.memcpy_async_cooperative(&b.to_slice(), &mut stage_b.to_slice_mut());
+    bar.arrive_and_wait();
+
+    let row = lane_id % 16;
+
+    let col_a = (lane_id / 16) * width;
+    let start_a = row * size_k + col_a;
+    let slice_a = stage_a.slice(start_a, start_a + width);
+    let line_count_a = def.lines_per_lane(MatrixIdent::A);
+
+    let registers_a = def.load_matrix(&slice_a, MatrixIdent::A, line_count_a, false);
+
+    // B frags are only 2 registers, so top 16 threads do nothing
+    let col_b = 0;
+    let start_b = row * size_n + col_b;
+    let slice_b = stage_b.slice(start_b, start_b + width);
+    let line_count_b = def.lines_per_lane(MatrixIdent::B);
+
+    let registers_b = def.load_matrix(&slice_b, MatrixIdent::B, line_count_b, true);
+
+    let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
+    let line_size_c = def.line_size(MatrixIdent::Accumulator);
+    let line_count_c = comptime!(elem_count_c / line_size_c);
+    let mut registers_c = Array::<Line<CD>>::vectorized(line_count_c, line_size_c);
+
+    let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
+    let line_size_d = def.line_size(MatrixIdent::Accumulator);
+    let line_count_d = comptime!(elem_count_d / line_size_d);
+
+    // Load C
+    #[unroll]
+    for i in 0..line_count_c {
+        let mut reg = Line::empty(line_size_c);
+        #[unroll]
+        for k in 0..line_size_c {
+            let n_elem = i * line_size_c + k;
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            let value = c[row * size_n + col];
+            reg[k] = value;
+        }
+        registers_c[i] = reg;
+    }
+
+    let registers_d = def.execute(&registers_a, &registers_b, &registers_c);
+
+    // Store D
+    #[unroll]
+    for i in 0..line_count_d {
+        let reg = registers_d[i];
+        #[unroll]
+        for k in 0..line_size_d {
+            let n_elem = i * line_size_d + k;
+            let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
+            out[row * size_n + col] = reg[k];
+        }
+    }
+}
+
+pub fn test_cmma_manual_ldmatrix<
+    R: Runtime,
+    AB: CubeElement + Numeric,
+    CD: CubeElement + Numeric,
+>(
+    client: ComputeClient<R::Server>,
+    cube_dimensions: CubeDim,
+    (m, n, k): (usize, usize, usize),
+) {
+    if !client.properties().features.mma.contains(&MmaConfig {
+        a_type: AB::cube_type(),
+        b_type: AB::cube_type(),
+        cd_type: CD::cube_type(),
+        m: m as u32,
+        n: n as u32,
+        k: k as u32,
+    }) {
+        // We can't execute the test, skip.
+        println!(
+            "Skipping test for a: {:?} b: {:?}, cd: {:?}, m: {m}, n: {n}, k: {k}",
+            AB::cube_type(),
+            AB::cube_type(),
+            CD::cube_type()
+        );
+        return;
+    }
+
+    // LHS: matrix where each element = (row_index * 2) + column_index
+    let lhs: Vec<AB> = (0..m)
+        .flat_map(|i| (0..k).map(move |j| AB::from_int((i * 2 + j) as i64)))
+        .collect();
+
+    // RHS: matrix where each element = (row_index * 3) + column_index
+    let rhs: Vec<AB> = (0..k)
+        .flat_map(|i| (0..n).map(move |j| AB::from_int((i * 3 + j) as i64)))
+        .collect();
+    let acc = vec![CD::from_int(0); m * n];
+
+    let lhs = client.create(AB::as_bytes(&lhs));
+    let rhs = client.create(AB::as_bytes(&rhs));
+    let out = client.create(CD::as_bytes(&acc));
+
+    unsafe {
+        kernel_manual_ldmatrix::launch::<AB, CD, R>(
+            &client,
+            CubeCount::Static(1, 1, 1),
+            cube_dimensions,
+            TensorArg::from_raw_parts::<AB>(&lhs, &[k, 1], &[m, k], 1),
+            TensorArg::from_raw_parts::<AB>(&rhs, &[n, 1], &[k, n], 1),
             TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
             TensorArg::from_raw_parts::<CD>(&out, &[n, 1], &[m, n], 1),
             m as u32,
@@ -954,17 +1133,17 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
     let elem_count_a = def.elems_per_lane(MatrixIdent::A);
     let line_size_a = def.line_size(MatrixIdent::A);
     let line_count_a = comptime!(elem_count_a / line_size_a);
-    let mut registers_a = Sequence::<Line<A>>::new();
+    let mut registers_a = Array::<Line<A>>::vectorized(line_count_a, line_size_a);
 
     let elem_count_b = def.elems_per_lane(MatrixIdent::B);
     let line_size_b = def.line_size(MatrixIdent::B);
     let line_count_b = comptime!(elem_count_b / line_size_b);
-    let mut registers_b = Sequence::<Line<B>>::new();
+    let mut registers_b = Array::<Line<B>>::vectorized(line_count_b, line_size_b);
 
     let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
     let line_count_c = comptime!(elem_count_c / line_size_c);
-    let mut registers_c = Sequence::<Line<CD>>::new();
+    let mut registers_c = Array::<Line<CD>>::vectorized(line_count_c, line_size_c);
 
     let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
@@ -981,9 +1160,8 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
         let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::A);
         let idx = row * size_k + col;
         let idx = idx / (a.line_size() * a_pack);
-        let value = a[idx];
 
-        registers_a.push(value)
+        registers_a[i] = a[idx];
     }
 
     let scales_idx_a = def.scales_index(lane_id, MatrixIdent::A);
@@ -999,9 +1177,8 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
         let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::B);
         let idx = col * size_k + row;
         let idx = idx / (b.line_size() * b_pack);
-        let value = b[idx];
 
-        registers_b.push(value);
+        registers_b[i] = b[idx];
     }
 
     let scales_idx_b = def.scales_index(lane_id, MatrixIdent::B);
@@ -1017,7 +1194,7 @@ pub fn kernel_scaled<A: CubePrimitive, B: CubePrimitive, CD: Numeric, S: Numeric
         let (row, col) = def.position_of_nth(lane_id, n_elem, MatrixIdent::Accumulator);
         let idx = row * size_n + col;
         let value = c[idx / c.line_size()];
-        registers_c.push(value)
+        registers_c[i] = value;
     }
 
     let registers_d = def.execute_scaled(
@@ -1092,11 +1269,13 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
         .flat_map(|j| (0..scales_factor).map(move |i| S::from_bits((i * 3 + j + 120) as u8)))
         .collect();
 
+    let out: Vec<f32> = vec![0.0; m * n];
+
     let lhs = client.create(A::as_bytes(&lhs));
     let lhs_scales = client.create(S::as_bytes(&lhs_scales));
     let rhs = client.create(B::as_bytes(&rhs));
     let rhs_scales = client.create(S::as_bytes(&rhs_scales));
-    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    let out = client.create(f32::as_bytes(&out));
 
     unsafe {
         kernel_scaled::launch::<A, B, f32, S, R>(
@@ -1205,11 +1384,13 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
         .flat_map(|j| (0..scales_factor).map(move |i| S::from_bits((i * 3 + j + 120) as u8)))
         .collect();
 
+    let out = vec![0.0; m * n];
+
     let lhs = client.create(AB::as_bytes(&lhs));
     let lhs_scales = client.create(S::as_bytes(&lhs_scales_data));
     let rhs = client.create(AB::as_bytes(&rhs));
     let rhs_scales = client.create(S::as_bytes(&rhs_scales_data));
-    let out = client.empty(core::mem::size_of::<f32>() * m * n);
+    let out = client.create(f32::as_bytes(&out));
 
     unsafe {
         kernel_scaled::launch::<AB, AB, f32, S, R>(
@@ -1376,6 +1557,30 @@ macro_rules! testgen_cmma {
             // HIP
             test::<f16, f16, f32>(16, 16, 16);
             test::<bf16, bf16, f32>(16, 16, 16);
+        }
+
+        #[test]
+        fn test_cmma_manual_ldmatrix() {
+            use cubecl_common::*;
+            use half::{bf16, f16};
+
+            fn test<AB: CubeElement + Numeric, CD: CubeElement + Numeric>(
+                m: usize,
+                n: usize,
+                k: usize,
+            ) {
+                let client = TestRuntime::client(&Default::default());
+                let cube_dimensions = cube_dim::<TestRuntime>(&client);
+                cubecl_core::runtime_tests::cmma::test_cmma_manual_ldmatrix::<TestRuntime, AB, CD>(
+                    client,
+                    cube_dimensions,
+                    (m, n, k),
+                )
+            }
+
+            // CUDA
+            test::<f16, f32>(16, 8, 16);
+            test::<bf16, f32>(16, 8, 16);
         }
 
         #[test]

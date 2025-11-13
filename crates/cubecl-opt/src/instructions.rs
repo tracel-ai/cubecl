@@ -330,21 +330,25 @@ impl Optimizer {
                 visit_read(self, lane_id);
                 visit_read(self, i);
             }
+            CoopMma::LoadMatrix { buffer, offset, .. } => {
+                visit_read(self, buffer);
+                visit_read(self, offset);
+            }
+            CoopMma::StoreMatrix {
+                offset, registers, ..
+            } => {
+                visit_read(self, offset);
+                visit_read(self, registers);
+            }
             CoopMma::ExecuteManual {
                 registers_a,
                 registers_b,
                 registers_c,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
             }
             CoopMma::ExecuteScaled {
                 registers_a,
@@ -354,15 +358,9 @@ impl Optimizer {
                 scales_b,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
                 visit_read(self, scales_a);
                 visit_read(self, scales_b);
             }

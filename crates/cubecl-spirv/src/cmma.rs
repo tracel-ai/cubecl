@@ -36,6 +36,8 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
             CoopMma::Cast { input } => self.compile_cast(input, out),
             CoopMma::RowIndex { .. }
             | CoopMma::ColIndex { .. }
+            | CoopMma::LoadMatrix { .. }
+            | CoopMma::StoreMatrix { .. }
             | CoopMma::ExecuteManual { .. }
             | CoopMma::ExecuteScaled { .. } => {
                 panic!("Manual register management not currently supported in SPIR-V")
