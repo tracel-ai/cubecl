@@ -1,14 +1,14 @@
+use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_core::{ir::StorageType, prelude::*};
 
+use crate::components::MatmulProblem;
+use crate::components::MatmulSelection;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
 use crate::components::{AvailableLineSizes, MatrixLayout};
 use crate::components::{MatmulElems, MatmulIdent};
-use crate::components::{MatmulProblem, TilingScheme};
-use crate::components::{MatmulSelection, stage::SwizzleMode};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
 use crate::tests::test_utils::TestPrecision;
@@ -147,30 +147,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &out.shape,
         &out.strides,
     );
-}
-
-// keep here for testing swizzling kernels, need to add macro for this eventually
-#[allow(unused)]
-fn select_swizzle(
-    tiling: TilingScheme,
-    ident: MatmulIdent,
-    elem: StorageType,
-    layout: MatrixLayout,
-) -> SwizzleMode {
-    let swizzle_dim = match layout {
-        MatrixLayout::RowMajor => tiling.elements_in_stage_col(ident),
-        MatrixLayout::ColMajor => tiling.elements_in_stage_row(ident),
-    };
-    let swizzle_dim_bytes = swizzle_dim as usize * elem.size();
-    if !swizzle_dim_bytes.is_power_of_two() || swizzle_dim_bytes < 32 {
-        return SwizzleMode::None;
-    }
-    match swizzle_dim_bytes {
-        32 => SwizzleMode::B32,
-        64 => SwizzleMode::B64,
-        128 => SwizzleMode::B128,
-        _ => SwizzleMode::None,
-    }
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
