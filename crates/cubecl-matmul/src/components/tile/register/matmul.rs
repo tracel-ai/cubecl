@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::{TileConfig, TileMatmul, register::reader::RegisterFragmentReader};
+use crate::components::tile::{
+    TileConfig, TileMatmul, io::Filled, register::reader::RegisterFragmentReader,
+};
 use crate::components::tile::{
     io::Strided,
     register::{
@@ -14,7 +16,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 /// Uses one unit to perform a small matmul directly in registers
-pub struct RegisterMatmul<Acc: TileKind> {
+pub struct RegisterMatmul<Acc: TileKind = Filled> {
     _ty: PhantomData<Acc>,
 }
 

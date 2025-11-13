@@ -19,9 +19,9 @@ impl MmaStageWriter {
         let num_lines = def.lines_per_lane(ident);
         let line_size = def.line_size(ident);
         let lane_id = UNIT_POS_PLANE;
-        let (_, stride) = tile.as_unlined();
+        let (_, stride) = tile.as_unlined_mut();
         // Supported on all targets that support manual MMA
-        let mut slice = tile.slice.with_line_size(line_size);
+        let mut tile = tile.with_line_size(line_size);
 
         let (stride_row, stride_col) = match layout {
             MatrixLayout::RowMajor => (stride, 1),
@@ -34,7 +34,8 @@ impl MmaStageWriter {
             let elem_idx = i * line_size;
             let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
             let offset = row * stride_row + col * stride_col;
-            slice[offset / line_size] = Line::cast_from(value);
+            let offset = tile.stage_offset(offset / line_size);
+            tile.stage[offset] = Line::cast_from(value);
         }
     }
 }

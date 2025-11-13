@@ -3,7 +3,9 @@ use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     InvalidConfigError, MatrixLayout,
     global::memory::GlobalMemoryConfig,
-    stage::{StageMemoryConfig, StridedStage, TilingLayout, TilingValidation},
+    stage::{
+        StageMemoryConfig, StridedStageMemory, TilingLayout, TilingLayoutEnum, TilingValidation,
+    },
     tile::StridedTile,
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -15,7 +17,7 @@ pub struct BiasTilingLayout {}
 #[cube]
 impl TilingLayout for BiasTilingLayout {
     fn get_tile<ES: Numeric>(
-        stage: &StridedStage<ES, Self>,
+        stage: &StridedStageMemory<ES, Self>,
         tile: Coords2d,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
@@ -32,10 +34,17 @@ impl TilingLayout for BiasTilingLayout {
         let start = col * tile_size_col;
 
         StridedTile::new_strided(
-            stage.as_slice(stage_line_size).slice(start, start + length),
+            stage.as_slice(stage_line_size),
+            start,
+            start + length,
             0,
+            stage.swizzle,
             MatrixLayout::RowMajor,
         )
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Other]
     }
 }
 

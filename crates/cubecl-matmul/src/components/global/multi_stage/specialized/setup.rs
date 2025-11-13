@@ -1,7 +1,10 @@
-use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
-use crate::components::stage::StageConfig;
+use crate::components::stage::{StageConfig, TilingLayout};
+use crate::components::{MatmulElems, error::MatmulSetupError};
+use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
+use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
 use crate::components::{
-    MatmulElems,
     global::{
         GlobalWriterFamily,
         multi_stage::{
@@ -9,12 +12,12 @@ use crate::components::{
         },
         read::SyncStrategy,
     },
+    stage::TilingLayoutConfig,
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
-use crate::components::{MatmulPrecision, MatmulProblem, stage};
-use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
-use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
-use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
+use crate::components::{
+    global::{WriteTiling, read::PartialLoadingStrategy},
+    stage::TilingLayoutEnum,
+};
 use cubecl_core::prelude::{barrier::Barrier, *};
 use std::marker::PhantomData;
 
@@ -34,8 +37,8 @@ pub struct SpecializedMatmulFamily<
 impl<SMM, LL, RL, GW> GlobalMatmulFamily for SpecializedMatmulFamily<SMM, LL, RL, GW>
 where
     SMM: stage::StageMatmulFamily<
-            LhsStage = StridedStageFamily,
-            RhsStage = StridedStageFamily,
+            LhsStage = LL::Stage,
+            RhsStage = RL::Stage,
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
@@ -65,11 +68,18 @@ where
             selection.plane_dim,
         );
 
+        let tiling_layout = TilingLayoutConfig {
+            lhs: LL::TilingLayout::to_enum(),
+            rhs: RL::TilingLayout::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
             line_sizes,
+            tiling_layout,
             (2, 2).into(),
             Some(max_global_readers),
             false,
@@ -92,6 +102,7 @@ where
             selection.loading_precompute_strategy,
             selection.reader_mode,
             selection.load_specialization_config.into(),
+            dtypes,
         )
     }
 }

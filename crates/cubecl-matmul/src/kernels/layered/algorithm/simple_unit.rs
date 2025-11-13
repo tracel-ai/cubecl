@@ -15,7 +15,7 @@ use crate::{
             ColMajorTilingOrder, FilledStageFamily, RowMajorTilingOrder, StridedStageFamily,
             UnitMatmulFamily,
         },
-        tile::{io::Filled, register::RegisterMatmul},
+        tile::{TileMatmulFamily, io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -60,7 +60,7 @@ where
         plane_dim: u32,
         line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
-        _dtypes: &mut MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(unit_matmul_selection::<R>(
             client,
@@ -78,7 +78,9 @@ where
                     TileSizeSelection::MinTileSize => PartitionScaling::Disabled,
                     TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
                 },
+                swizzle: <RegisterMatmul as TileMatmulFamily>::should_swizzle::<R>(client),
             },
+            dtypes,
         ))
     }
 

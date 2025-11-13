@@ -45,6 +45,7 @@ where
             selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,
+            selection.shared_swizzle,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
             matmul_line_sizes.out as u32,
@@ -52,6 +53,13 @@ where
             matmul_line_sizes.rhs as u32,
             dtypes,
         )
+    }
+
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+        // Selection isn't getting rid of all conflicts with the current load strategy, but does
+        // reduce conflicts significantly (i.e. average 18 vs average 5). Should try to find more
+        // optimal settings in the future.
+        client.properties().features.alignment
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

@@ -951,7 +951,7 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
     let def = cmma::MmaDefinition::<AB, AB, CD>::new(size_m, size_n, size_k);
     let lane_id = UNIT_POS_PLANE;
 
-    let elem_size = AB::elem_size();
+    let elem_size = AB::type_size();
     let width = comptime![16 / elem_size];
 
     let mut stage_a = SharedMemory::new_aligned(size_m * size_k, 1u32, 16u32);

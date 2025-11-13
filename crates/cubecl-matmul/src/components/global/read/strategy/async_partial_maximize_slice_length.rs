@@ -1,14 +1,15 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
-            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier, validate_async_barrier,
+            LoadingJob, PartialLoadingStrategy, async_barrier::AsyncBarrier,
+            validate_async_barrier, validate_noswizzle,
         },
     },
-    stage::{StridedStage, StridedTilingLayout, TilingValidation},
+    stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -25,9 +26,11 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }
@@ -50,6 +53,8 @@ impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
 impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type TilingLayout = StridedTilingLayout;
     type SyncStrategy = AsyncBarrier;
+    type Stage = StridedStageFamily;
+
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialMaximizeSliceLengthJob;
 
     fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
@@ -131,11 +136,13 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncPartialMaximizeSliceLengthJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

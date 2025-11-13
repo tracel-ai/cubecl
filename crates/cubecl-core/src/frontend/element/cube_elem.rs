@@ -67,11 +67,11 @@ pub trait CubePrimitive:
         client.properties().features.type_usage(elem)
     }
 
-    fn elem_size() -> u32 {
+    fn type_size() -> u32 {
         Self::as_type_native_unchecked().size() as u32
     }
 
-    fn elem_size_bits() -> u32 {
+    fn type_size_bits() -> u32 {
         Self::as_type_native_unchecked().size_bits() as u32
     }
 
@@ -79,11 +79,11 @@ pub trait CubePrimitive:
         Self::as_type_native_unchecked().packing_factor()
     }
 
-    fn __expand_elem_size(scope: &Scope) -> u32 {
+    fn __expand_type_size(scope: &Scope) -> u32 {
         Self::as_type(scope).size() as u32
     }
 
-    fn __expand_elem_size_bits(scope: &Scope) -> u32 {
+    fn __expand_type_size_bits(scope: &Scope) -> u32 {
         Self::as_type(scope).size_bits() as u32
     }
 
