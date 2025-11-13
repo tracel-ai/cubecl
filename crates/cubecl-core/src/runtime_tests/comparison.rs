@@ -24,8 +24,8 @@ macro_rules! test_binary_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($lhs.len() * core::mem::size_of::<u32>());
-                let lhs_handle = client.create($primitive_type::as_bytes(lhs));
-                let rhs_handle = client.create($primitive_type::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice($primitive_type::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice($primitive_type::as_bytes(rhs));
 
                 unsafe {
                     test_function::launch_unchecked::<R>(

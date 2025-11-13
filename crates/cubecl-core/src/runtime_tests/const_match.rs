@@ -29,7 +29,7 @@ pub fn test_kernel_const_match<
 >(
     client: ComputeClient<R::Server>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let index = 1;
     let value = 5.0;

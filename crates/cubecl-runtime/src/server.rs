@@ -100,6 +100,11 @@ where
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 
@@ -108,6 +113,33 @@ where
 
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
+        let alloc = self
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
+            .remove(0);
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        )?;
+        Ok(alloc.handle)
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
             .create(
                 vec![AllocationDescriptor::new(
@@ -143,7 +175,7 @@ where
     /// Writes the specified bytes into the buffers given
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
@@ -321,6 +353,9 @@ pub enum IoError {
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution")]
     Unknown(String),
+    /// The current IO operation is not supported
+    #[error("The current IO operation is not supported")]
+    UnsupportedIoOperation,
 }
 
 impl Handle {

@@ -54,7 +54,7 @@ pub fn test_unroll_add<R: Runtime, F: Float + CubeElement>(client: ComputeClient
 pub fn test_unroll_load_store<R: Runtime, F: Float + CubeElement>(
     client: ComputeClient<R::Server>,
 ) {
-    let handle = client.create(as_bytes!(F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0));
+    let handle = client.create_from_slice(as_bytes!(F: 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0));
 
     unroll_load_store::launch::<F, R>(
         &client,

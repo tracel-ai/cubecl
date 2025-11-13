@@ -321,8 +321,8 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R::Server>, cube_di
     let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
@@ -373,8 +373,8 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
     let rhs_len = rhs.len() / line_size;
     let out_len = (256 / line_size) + offset_out;
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * line_size * out_len);
 
     unsafe {
@@ -416,8 +416,8 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R::Server>, cube_dimensio
     let lhs: Vec<f16> = (0..256).map(|i| f16::from_f32(i as f32)).collect();
     let rhs: Vec<f16> = (0..256).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
@@ -519,7 +519,7 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R::Server>, cube_dim
     }
 
     let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
-    let input = client.create(f32::as_bytes(&input));
+    let input = client.create_from_slice(f32::as_bytes(&input));
     let out = client.empty(core::mem::size_of::<f16>() * 256);
 
     unsafe {
@@ -553,7 +553,7 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R::Server>, cube_di
     }
 
     let input: Vec<f32> = (0..256).map(|i| i as f32).collect();
-    let input = client.create(f32::as_bytes(&input));
+    let input = client.create_from_slice(f32::as_bytes(&input));
     let out = client.empty(core::mem::size_of::<f16>() * 256);
 
     unsafe {
@@ -589,8 +589,8 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R::Server>, cube_dimen
     let lhs: Vec<f32> = (0..128).map(|i| i as f32).collect();
     let rhs: Vec<f32> = (0..128).map(|i| (i % 8) as f32).collect();
 
-    let lhs = client.create(f32::as_bytes(&lhs));
-    let rhs = client.create(f32::as_bytes(&rhs));
+    let lhs = client.create_from_slice(f32::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f32::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
@@ -704,8 +704,8 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R::Server>, cube_dime
         .collect();
     let rhs: Vec<f16> = (0..n * k).map(|i| f16::from_f32((i % 8) as f32)).collect();
 
-    let lhs = client.create(f16::as_bytes(&lhs));
-    let rhs = client.create(f16::as_bytes(&rhs));
+    let lhs = client.create_from_slice(f16::as_bytes(&lhs));
+    let rhs = client.create_from_slice(f16::as_bytes(&rhs));
     let out = client.empty(core::mem::size_of::<f32>() * m * n);
 
     unsafe {
@@ -879,9 +879,9 @@ pub fn test_cmma_manual<
         .collect();
     let acc = vec![CD::from_int(0); m * n];
 
-    let lhs = client.create(A::as_bytes(&lhs));
-    let rhs = client.create(B::as_bytes(&rhs));
-    let out = client.create(CD::as_bytes(&acc));
+    let lhs = client.create_from_slice(A::as_bytes(&lhs));
+    let rhs = client.create_from_slice(B::as_bytes(&rhs));
+    let out = client.create_from_slice(CD::as_bytes(&acc));
 
     unsafe {
         kernel_manual::launch::<A, B, CD, R>(
@@ -1053,9 +1053,9 @@ pub fn test_cmma_manual_ldmatrix<
         .collect();
     let acc = vec![CD::from_int(0); m * n];
 
-    let lhs = client.create(AB::as_bytes(&lhs));
-    let rhs = client.create(AB::as_bytes(&rhs));
-    let out = client.create(CD::as_bytes(&acc));
+    let lhs = client.create_from_slice(AB::as_bytes(&lhs));
+    let rhs = client.create_from_slice(AB::as_bytes(&rhs));
+    let out = client.create_from_slice(CD::as_bytes(&acc));
 
     unsafe {
         kernel_manual_ldmatrix::launch::<AB, CD, R>(
@@ -1271,11 +1271,11 @@ pub fn test_cmma_scaled<R: Runtime, A: CubeElement + Numeric, B: CubeElement + N
 
     let out: Vec<f32> = vec![0.0; m * n];
 
-    let lhs = client.create(A::as_bytes(&lhs));
-    let lhs_scales = client.create(S::as_bytes(&lhs_scales));
-    let rhs = client.create(B::as_bytes(&rhs));
-    let rhs_scales = client.create(S::as_bytes(&rhs_scales));
-    let out = client.create(f32::as_bytes(&out));
+    let lhs = client.create_from_slice(A::as_bytes(&lhs));
+    let lhs_scales = client.create_from_slice(S::as_bytes(&lhs_scales));
+    let rhs = client.create_from_slice(B::as_bytes(&rhs));
+    let rhs_scales = client.create_from_slice(S::as_bytes(&rhs_scales));
+    let out = client.create_from_slice(f32::as_bytes(&out));
 
     unsafe {
         kernel_scaled::launch::<A, B, f32, S, R>(
@@ -1386,11 +1386,11 @@ pub fn test_cmma_scaled_fp4<R: Runtime>(
 
     let out = vec![0.0; m * n];
 
-    let lhs = client.create(AB::as_bytes(&lhs));
-    let lhs_scales = client.create(S::as_bytes(&lhs_scales_data));
-    let rhs = client.create(AB::as_bytes(&rhs));
-    let rhs_scales = client.create(S::as_bytes(&rhs_scales_data));
-    let out = client.create(f32::as_bytes(&out));
+    let lhs = client.create_from_slice(AB::as_bytes(&lhs));
+    let lhs_scales = client.create_from_slice(S::as_bytes(&lhs_scales_data));
+    let rhs = client.create_from_slice(AB::as_bytes(&rhs));
+    let rhs_scales = client.create_from_slice(S::as_bytes(&rhs_scales_data));
+    let out = client.create_from_slice(f32::as_bytes(&out));
 
     unsafe {
         kernel_scaled::launch::<AB, AB, f32, S, R>(

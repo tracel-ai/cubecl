@@ -203,7 +203,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let shape = shape(problem, MatmulIdent::Out);
             let Allocation { handle, strides } =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+                client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             TensorRawParts {
                 handle,
