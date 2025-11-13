@@ -11,7 +11,7 @@ pub struct MmaStageWriter {}
 impl MmaStageWriter {
     pub fn store_fragment<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
         tile: &mut StridedTile<V, ReadWrite>,
-        fragment: &Sequence<Line<E>>,
+        fragment: &Array<Line<E>>,
         def: MmaDefinition<A, B, CD>,
         #[comptime] ident: MatrixIdent,
         #[comptime] layout: MatrixLayout,
@@ -30,7 +30,7 @@ impl MmaStageWriter {
 
         #[unroll]
         for i in 0..num_lines {
-            let value = *fragment.index(i);
+            let value = fragment[i];
             let elem_idx = i * line_size;
             let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
             let offset = row * stride_row + col * stride_col;

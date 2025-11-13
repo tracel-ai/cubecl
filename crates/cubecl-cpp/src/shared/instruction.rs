@@ -880,11 +880,24 @@ impl<D: Dialect> Remainder<D> {
             format!("{prefix}floor")
         };
 
+        let is_int = matches!(
+            out.elem(),
+            Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
+        );
+        let rem_expr = |lhs, rhs, floor| {
+            if is_int {
+                format!("{lhs} - {rhs} * {floor}((float){lhs} / (float){rhs})")
+            } else {
+                format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
+            }
+        };
+
         if out.item().vectorization == 1 {
             let floor = floor(out.elem());
 
             let out = out.fmt_left();
-            return writeln!(f, "{out} = {lhs} - {rhs} * {floor}({lhs} / {rhs});");
+            let rem = rem_expr(lhs.to_string(), rhs.to_string(), &floor);
+            return writeln!(f, "{out} = {rem};");
         }
 
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
@@ -908,7 +921,8 @@ impl<D: Dialect> Remainder<D> {
                     let lhsi = lhs.index(i);
                     let rhsi = rhs.index(i);
 
-                    writeln!(f, "{lhsi} - {rhsi} * {floor}({lhsi} / {rhsi})")?;
+                    let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
+                    writeln!(f, "{rem}")?;
                     f.write_str(", ")?;
                 }
 
