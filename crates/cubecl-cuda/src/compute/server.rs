@@ -834,15 +834,15 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
     );
     let tile_size_0_bytes = tile_size[0] as usize * map.storage_ty.size();
     if matches!(map.interleave, TensorMapInterleave::None) {
-        let align = match map.swizzle {
-            TensorMapSwizzle::None => 16,
+        let max_tile_bytes = match map.swizzle {
+            TensorMapSwizzle::None => usize::MAX,
             TensorMapSwizzle::B32 => 32,
             TensorMapSwizzle::B64 => 64,
             TensorMapSwizzle::B128 => 128,
         };
         assert!(
-            tile_size_0_bytes.is_multiple_of(align),
-            "Innermost tile dimension must be aligned to swizzle size"
+            tile_size_0_bytes <= max_tile_bytes,
+            "Innermost tile dim must be <= swizzle size"
         );
     }
     if matches!(map.interleave, TensorMapInterleave::B32) {

@@ -1,16 +1,25 @@
 use std::marker::PhantomData;
 
-use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
-use crate::components::global::{RoleRule, read::tiled::TiledLayout};
-use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{
+    FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme,
+    global::read::validate_swizzle_atom_size,
+};
+use crate::components::{
+    MatmulElems,
+    global::{RoleRule, read::tiled::TiledLayout},
+};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use crate::components::{
+    global::read::{FullLoadingStrategy, sync::Synchronous},
+    stage::StridedStageFamily,
+};
+use crate::components::{
     global::{GlobalConfig, memory::GlobalIterator},
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
+    stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::tensor::layout::Coords2d;
+use cubecl_std::{tensor::layout::Coords2d, type_size};
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -44,6 +53,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
         let num_planes = config.num_loading_planes(ident);
@@ -71,6 +81,7 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
             }));
         }
 
+        validate_swizzle_atom_size(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
 
         Ok(())
@@ -136,11 +147,13 @@ pub struct SyncFullTilewiseJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullTilewiseJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -179,7 +192,7 @@ impl SyncFullTilewiseJob {
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: G,
     ) {
         let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
@@ -188,6 +201,8 @@ impl SyncFullTilewiseJob {
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));
 
         let offset = this.num_lines_to_skip + line_index_within_tile + num_lines_to_skip_local;
+        let type_size = type_size::<ES>(this.line_size);
+        let offset = stage.swizzle.apply(offset, type_size);
 
         stage.as_slice_mut(this.line_size)[offset] = Line::cast_from(line_read);
     }

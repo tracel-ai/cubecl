@@ -80,7 +80,7 @@ fn load_manual_transposed<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Nu
     let lane_id = UNIT_POS_PLANE;
 
     let (_, stride) = tile.as_unlined();
-    let slice = tile.slice.with_line_size(1u32);
+    let tile = tile.with_line_size(1u32);
 
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
@@ -95,7 +95,9 @@ fn load_manual_transposed<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Nu
             let elem_idx = i * line_size + n;
             let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
             let offset = row * stride_row + col * stride_col;
-            line[n] = E::cast_from(slice[offset]);
+            let offset = tile.stage_offset(offset);
+
+            line[n] = E::cast_from(tile.stage[offset]);
         }
         fragment[i] = line;
     }
@@ -111,10 +113,11 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
 ) {
     let num_lines = def.lines_per_lane(ident);
     let line_size = def.line_size(ident);
+
     let lane_id = UNIT_POS_PLANE;
     let (_, stride) = tile.as_unlined();
     // Supported on all targets that support manual MMA
-    let slice = tile.slice.with_line_size(line_size);
+    let tile = tile.with_line_size(line_size);
 
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
@@ -126,15 +129,12 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
         let elem_idx = i * line_size;
         let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
         let offset = row * stride_row + col * stride_col;
+        let offset = tile.stage_offset(offset / line_size);
 
-        let value = slice[offset / line_size];
-        fragment[i] = Line::cast_from(value);
+        fragment[i] = Line::cast_from(tile.stage[offset]);
     }
 }
 
-/// This logic is horrible and hard to reason about, and very hardcoded. But can't figure out a
-/// better way to do it.
-///
 /// This is important to use on CUDA because CUDA's matrices are heavily permuted, being organized
 /// into 8x8 chunks with only 32 contiguous bits per thread. `ldmatrix` loads 8 consecutive elements
 /// in each thread (if executed with x4), then uses warp shuffles to move the elements to the
@@ -151,16 +151,44 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] layout: MatrixLayout,
     #[comptime] config: MmaMatmulConfig,
 ) {
-    let expected_layout = from_cmma_layout(def.line_layout(ident));
-    let stage_line_size = tile.slice.line_size();
-    let tiling = config.tile_size();
+    let stage_line_size = tile.stage.line_size();
     let (_, stride) = tile.as_unlined();
+
+    let elem_size = E::type_size();
+    let num_regs = def.lines_per_lane(ident);
+    let width = comptime![16 / elem_size / stage_line_size];
+
+    let start = ldmatrix_offset::<E, A, B, CD>(stride, def, stage_line_size, ident, layout, config);
+    let start = tile.stage_offset(start);
+
+    let row_slice = tile.stage.slice(start, start + width);
+    let regs = def.load_matrix(&row_slice, ident, num_regs, transposed);
+
+    #[unroll]
+    for i in 0..num_regs {
+        fragment[i] = Line::cast_from(regs[i]);
+    }
+}
+
+/// This logic is horrible and hard to reason about, and very hardcoded. But can't figure out a
+/// better way to do it.
+#[cube]
+fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
+    stride: u32,
+    def: MmaDefinition<A, B, CD>,
+    #[comptime] stage_line_size: u32,
+    #[comptime] ident: MatrixIdent,
+    #[comptime] layout: MatrixLayout,
+    #[comptime] config: MmaMatmulConfig,
+) -> u32 {
+    let expected_layout = from_cmma_layout(def.line_layout(ident));
+    let tiling = config.tile_size();
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
         MatrixLayout::ColMajor => (1, stride),
     };
 
-    let elem_size = E::elem_size();
+    let elem_size = E::type_size();
     let num_regs = def.lines_per_lane(ident);
     let width = comptime![16 / elem_size];
     // Height is always 8, and lanes are divided into blocks of 8.
@@ -194,15 +222,7 @@ fn load_ldmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     };
 
     let start = row * stride_row + col * stride_col;
-    let start = start / stage_line_size;
-
-    let row_slice = tile.slice.slice(start, start + width).try_cast_unchecked();
-    let regs = def.load_matrix::<V>(&row_slice, ident, num_regs, transposed);
-
-    #[unroll]
-    for i in 0..num_regs {
-        fragment[i] = Line::cast_from(regs[i]);
-    }
+    start / stage_line_size
 }
 
 #[cube]

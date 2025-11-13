@@ -76,21 +76,23 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         if args.multi_rows {
-            selection_multi_rows::<R, TMM>(client, problem, plane_dim, dtypes)
+            selection_multi_rows::<R, TMM>(client, problem, plane_dim, dtypes, line_sizes)
         } else {
             plane_matmul_selection::<TMM, R>(
                 client,
                 problem,
                 plane_dim,
                 dtypes,
+                line_sizes,
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     tiny_selection_enabled: true,
+                    swizzled: TMM::should_swizzle::<R>(client),
                     ..Default::default()
                 },
             )
@@ -103,6 +105,7 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     problem: &MatmulProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
+    line_sizes: &MatmulLineSizes,
 ) -> Result<MatmulSelection, MatmulSetupError> {
     adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
 
@@ -175,6 +178,7 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 partition_buffering: Some(PartitionBuffering::Single),
                 multi_row_strategy: MultiRowStrategy::Always(2),

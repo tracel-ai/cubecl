@@ -17,15 +17,16 @@ impl RegisterStageWriter {
         acc: &Array<A>,
         #[comptime] config: RegisterConfig,
     ) {
-        let out_line_size = tile.slice.line_size();
+        let out_line_size = tile.stage.line_size();
         #[unroll(UNROLL)]
         for i in 0..comptime!(config.tile_size.mn() / out_line_size) {
+            let offs = tile.stage_offset(i);
             let mut line = Line::empty(out_line_size);
             #[unroll]
             for j in 0..comptime!(out_line_size) {
                 line[j] = acc[i * out_line_size + j];
             }
-            tile.slice[i] = Line::cast_from(line);
+            tile.stage[offs] = Line::cast_from(line);
         }
     }
 }

@@ -1,6 +1,8 @@
 use cubecl_core::{ir::StorageType, prelude::*};
 use half::{bf16, f16};
 
+use crate::components::MatmulIdent;
+
 use super::global::args::MatmulArgs;
 
 /// Matrix multiplication precisions.
@@ -194,6 +196,30 @@ impl MatmulElems {
             lhs_register: lhs,
             rhs_register: rhs,
             acc_register: acc_type(out),
+        }
+    }
+
+    pub fn global(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_global,
+            MatmulIdent::Rhs => self.rhs_global,
+            MatmulIdent::Out => self.acc_global,
+        }
+    }
+
+    pub fn stage(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_stage,
+            MatmulIdent::Rhs => self.rhs_stage,
+            MatmulIdent::Out => self.acc_stage,
+        }
+    }
+
+    pub fn register(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_register,
+            MatmulIdent::Rhs => self.rhs_register,
+            MatmulIdent::Out => self.acc_register,
         }
     }
 }

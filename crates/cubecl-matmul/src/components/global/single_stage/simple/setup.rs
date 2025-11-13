@@ -6,7 +6,10 @@ use crate::components::{
         read::FullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
-    stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
+    stage::{
+        FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily, TilingLayout,
+        TilingLayoutConfig, TilingLayoutEnum,
+    },
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -58,11 +61,18 @@ where
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
+        let tiling_layout = TilingLayoutConfig {
+            lhs: LL::TilingLayout::to_enum(),
+            rhs: RL::TilingLayout::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
             line_sizes,
+            tiling_layout,
             (1, 1).into(),
             None,
             false,
@@ -91,6 +101,7 @@ where
             stage_shape_k,
             selection.loading_precompute_strategy,
             selection.reader_mode,
+            dtypes,
         )
     }
 }

@@ -3,9 +3,12 @@ use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::{client::ComputeClient, ir::StorageType};
 use cubecl_runtime::{Plane, TypeUsage};
 
-use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
-use crate::components::tile::TileConfig;
-use crate::components::{MatmulElems, MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{MatmulElems, SwizzleConfig, tile::TileConfig};
+use crate::components::{MatrixLayout, StageIdent, TileSize, TilingScheme};
+use crate::components::{
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    stage::SwizzleMode,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Register Matmul
@@ -14,6 +17,7 @@ pub struct PlaneVecMatInnerProductConfig {
     plane_dim: u32,
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
+    swizzle_config: SwizzleConfig,
     lhs_global_line_size: u32,
     rhs_global_line_size: u32,
     out_global_line_size: u32,
@@ -32,6 +36,15 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
             StageIdent::Rhs => self.rhs_layout,
             StageIdent::Acc => MatrixLayout::RowMajor,
             StageIdent::Out => MatrixLayout::RowMajor,
+        }
+    }
+
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        match ident {
+            StageIdent::Lhs => self.swizzle_config.lhs,
+            StageIdent::Rhs => self.swizzle_config.rhs,
+            StageIdent::Acc => self.swizzle_config.acc,
+            StageIdent::Out => self.swizzle_config.out,
         }
     }
 
@@ -81,6 +94,7 @@ impl PlaneVecMatInnerProductConfig {
         plane_dim: u32,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
+        swizzle_config: SwizzleConfig,
         lhs_global_line_size: u32,
         rhs_global_line_size: u32,
         out_global_line_size: u32,
@@ -93,6 +107,7 @@ impl PlaneVecMatInnerProductConfig {
             plane_dim,
             lhs_layout,
             rhs_layout,
+            swizzle_config,
             lhs_global_line_size,
             rhs_global_line_size,
             out_global_line_size,

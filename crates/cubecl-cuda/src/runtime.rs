@@ -253,6 +253,7 @@ impl DeviceState for CudaServer {
         }
 
         device_props.features.dynamic_line_size = true;
+        device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);

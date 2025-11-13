@@ -1,16 +1,20 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
         GlobalConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
             FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
         },
     },
-    stage::{ContiguousTilingLayout, StridedStage, TilingOrder, TilingValidation},
+    stage::{
+        ContiguousTilingLayout, StridedStageFamily, StridedStageMemory, TilingOrder,
+        TilingValidation,
+    },
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -30,6 +34,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let total_units = config.num_loading_planes(ident) * config.plane_dim();
         let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
@@ -43,6 +48,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 
         ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }
@@ -133,11 +139,13 @@ pub struct AsyncFullCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, AsyncBarrier> for AsyncFullCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

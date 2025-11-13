@@ -1,14 +1,15 @@
 use crate::components::{
-    InvalidConfigError, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
         GlobalConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
             FullLoadingStrategy, LoadingJob, async_barrier::AsyncBarrier, validate_async_barrier,
+            validate_noswizzle,
         },
     },
-    stage::{StridedStage, StridedTilingLayout, TilingValidation},
+    stage::{StridedStageFamily, StridedStageMemory, StridedTilingLayout, TilingValidation},
 };
 use cubecl_core::prelude::{barrier::Barrier, *};
 use cubecl_core::{self as cubecl};
@@ -25,6 +26,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
         let line_size = config.global_line_size(ident);
@@ -54,6 +56,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
         StridedTilingLayout::check(config.global_memory_config(ident))?;
         validate_async_barrier::<R>(client)?;
+        validate_noswizzle(config.stage_memory_config(ident))?;
 
         Ok(())
     }
@@ -129,11 +132,13 @@ pub struct AsyncFullMaximizeUnitCountJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeUnitCountJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] _task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: G,
     ) {

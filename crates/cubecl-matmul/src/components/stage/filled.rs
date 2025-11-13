@@ -15,7 +15,7 @@ impl StageFamily for FilledStageFamily {
     type Stage<ES: Numeric, T: TilingLayout> = FilledStage<ES>;
 }
 
-#[derive(CubeType)]
+#[derive(CubeType, Clone)]
 pub struct FilledStage<ES: Numeric> {
     value: ES,
 }

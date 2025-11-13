@@ -9,7 +9,8 @@ use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::StageBuffer;
 use crate::components::global::read::TaskCounter;
-use crate::components::stage::StridedStage;
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::StridedStageMemory;
 use crate::components::stage::TilingLayout;
 use crate::components::{MatmulIdent, global::read::SyncStrategy};
 use cubecl_core as cubecl;
@@ -32,7 +33,7 @@ pub trait FullLoadingStrategy:
     type SyncStrategy: SyncStrategy;
 
     /// The [LoadingJob] for this strategy.
-    type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy>;
+    type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy, Stage = StridedStageFamily>;
 
     const SHOULD_CLEAR: bool = false;
 
@@ -52,7 +53,7 @@ pub trait FullLoadingStrategy:
 pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
 {
     global_iter: GlobalIterator<Line<EG>>,
-    stage: StridedStage<ES, L::TilingLayout>,
+    stage: StridedStageMemory<ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<EG, ES>>,
     #[cube(comptime)]
     ident: MatmulIdent,
@@ -73,7 +74,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
-        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
+        let mut stage = StridedStageMemory::new_aligned(128u32, config.stage_memory_config(ident));
         let (shape_row, shape_col) = view.shape();
         let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
@@ -118,7 +119,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalConfig, L: FullLoadingStrategy>
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(&self) -> StridedStage<ES, L::TilingLayout> {
+    pub fn stage(&self) -> StridedStageMemory<ES, L::TilingLayout> {
         self.stage
     }
 

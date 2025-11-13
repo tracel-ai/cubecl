@@ -1,6 +1,8 @@
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+    MatrixLayout,
+    global::memory::GlobalMemoryConfig,
+    stage::{StageMemoryConfig, SwizzleMode},
 };
 
 use crate::components::{
@@ -29,6 +31,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             tiles_in_stage_col: tiling_scheme.tiles_in_stage_head_dim(),
             stage_line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
             num_stages: 1,
         }
     }
@@ -44,6 +47,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             tiles_in_stage_col: tiling_scheme.tiles_in_stage_val_dim(),
             stage_line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
             num_stages: 1,
         }
     }
@@ -79,6 +83,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             false,
             false,
             MatrixLayout::RowMajor,
+            SwizzleMode::None,
         )
     }
 

@@ -123,10 +123,10 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(balanced_workload) {
-            write_line(global, &smem_tile.slice, unit_write, tile_pos);
+            write_line(global, smem_tile, unit_write, tile_pos);
         } else {
             if unit_write < tile_size {
-                write_line(global, &smem_tile.slice, unit_write, tile_pos);
+                write_line(global, smem_tile, unit_write, tile_pos);
             }
         }
     }
@@ -135,15 +135,15 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
 #[cube]
 fn write_line<ES: Numeric, EG: Numeric>(
     view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
-    out_smem_slice: &Slice<Line<ES>, ReadWrite>,
+    out_smem_tile: &StridedTile<ES, ReadWrite>,
     unit_write: u32,
     tile: Coords2d,
 ) {
     let output_line_size = view.line_size();
-    let out_smem_line_size = out_smem_slice.line_size();
+    let out_smem_line_size = out_smem_tile.stage.line_size();
 
     let value = if comptime!(output_line_size == out_smem_line_size) {
-        out_smem_slice[unit_write / output_line_size]
+        out_smem_tile.stage[out_smem_tile.stage_offset(unit_write / output_line_size)]
     } else if comptime!(
         out_smem_line_size < output_line_size
             && output_line_size.is_multiple_of(out_smem_line_size)
@@ -151,9 +151,10 @@ fn write_line<ES: Numeric, EG: Numeric>(
         let mut value = Line::empty(output_line_size);
         #[unroll]
         for i in 0..comptime!(output_line_size / out_smem_line_size) {
+            let offs = out_smem_tile.stage_offset(unit_write + i);
             #[unroll]
             for j in 0..out_smem_line_size {
-                value[i * out_smem_line_size + j] = out_smem_slice[unit_write + i][j];
+                value[i * out_smem_line_size + j] = out_smem_tile.stage[offs][j];
             }
         }
         value

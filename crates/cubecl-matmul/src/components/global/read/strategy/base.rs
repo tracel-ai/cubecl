@@ -1,7 +1,10 @@
-use crate::components::global::GlobalConfig;
-use crate::components::stage::{StridedStage, TilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{
+    MatmulElems, MatrixLayout,
+    stage::{StageMemoryConfig, SwizzleMode, TilingLayout},
+};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
+use crate::components::{global::GlobalConfig, stage::StageFamily};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
@@ -15,12 +18,14 @@ use cubecl_core::{self as cubecl};
 pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy>:
     CubeType + Copy + Clone
 {
+    type Stage: StageFamily;
+
     /// Execute the `task_id`th loading task
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, TL>,
+        stage: &mut <Self::Stage as StageFamily>::Stage<ES, TL>,
         barrier: &mut S::Barrier,
         #[comptime] config: G,
     );
@@ -49,6 +54,7 @@ pub trait LoadingValidation {
         client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError>;
 }
 
@@ -70,10 +76,41 @@ pub fn validate_async_barrier<R: Runtime>(
     Ok(())
 }
 
+/// Validates if swizzling is disabled, for loaders that can't support it.
+pub fn validate_noswizzle(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+    if config.swizzle != SwizzleMode::None {
+        return Err(Box::new("This loader doesn't support swizzling"));
+    }
+
+    Ok(())
+}
+
+/// Validates if swizzling is valid with the line size, for sync readers that read in terms of full
+/// lines
+pub fn validate_swizzle_atom_size(
+    config: StageMemoryConfig,
+    ident: MatmulIdent,
+    dtypes: &MatmulElems,
+) -> Result<(), InvalidConfigError> {
+    if config.swizzle == SwizzleMode::None {
+        return Ok(());
+    }
+
+    let line_bytes = dtypes.stage(ident).size() * config.stage_line_size as usize;
+    if line_bytes > config.swizzle.atom_size() {
+        return Err(Box::new("Load atom can't be larger than swizzle atom"));
+    }
+
+    Ok(())
+}
+
 /// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
 /// device.
 pub fn validate_tma<R: Runtime>(
     client: &ComputeClient<R::Server>,
+    config: StageMemoryConfig,
+    ident: MatmulIdent,
+    dtypes: &MatmulElems,
 ) -> Result<(), InvalidConfigError> {
     if !client
         .properties()
@@ -83,6 +120,28 @@ pub fn validate_tma<R: Runtime>(
         return Err(Box::new(
             "Tensor memory accelerator features are not available on the current device",
         ));
+    }
+
+    if dtypes.global(ident).size() != dtypes.stage(ident).size() {
+        return Err(Box::new(
+            "TMA requires stage and global types to be the same",
+        ));
+    }
+
+    if matches!(config.swizzle, SwizzleMode::None) {
+        return Ok(());
+    }
+
+    let row_size = match config.matrix_layout {
+        MatrixLayout::RowMajor => config.elements_in_stage_col(),
+        MatrixLayout::ColMajor => config.elements_in_stage_row(),
+    };
+    let row_bytes = row_size * dtypes.global(ident).size() as u32;
+
+    // Slightly tighter than the actual requirements, but simple enough and is always followed by
+    // selection. Getting illegal memory access if this isn't followed for some reason.
+    if row_bytes as usize != config.swizzle.span_size() {
+        return Err(Box::new("Swizzling size must be equal to row size for TMA"));
     }
 
     Ok(())
@@ -95,6 +154,7 @@ impl LoadingValidation for NoLoadingValidation {
         _client: &ComputeClient<R::Server>,
         _config: &C,
         _ident: MatmulIdent,
+        _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         Ok(())
     }

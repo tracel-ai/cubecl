@@ -1,10 +1,13 @@
 //! Cubecl standard library.
 extern crate alloc;
 
-mod reinterpret_slice;
-pub use reinterpret_slice::*;
 mod fast_math;
+mod reinterpret_slice;
+mod swizzle;
+
 pub use fast_math::*;
+pub use reinterpret_slice::*;
+pub use swizzle::*;
 
 mod option;
 pub use option::*;

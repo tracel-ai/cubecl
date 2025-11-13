@@ -4,8 +4,8 @@ use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::global::memory::{GlobalIterator, ViewDirection};
 use cubecl_matmul::components::tile::StridedTile;
-use cubecl_std::tensor::layout::Coordinates;
 use cubecl_std::tensor::{View, layout::Coords2d};
+use cubecl_std::{Swizzle, tensor::layout::Coordinates};
 
 use crate::components::AttentionPrecision;
 use crate::components::stage::{AttentionPartitioner, StageAttentionConfig};
@@ -140,7 +140,10 @@ impl<M: Numeric> MaterializedMaskReader<M> {
                     (attention_tile_size.seq_q, attention_tile_size.seq_kv).runtime(),
                 )
                 .to_linear_slice(),
+            0,
+            attention_tile_size.seq_q * attention_tile_size.seq_kv,
             self.seq_kv_shape,
+            Swizzle::none(),
             MatrixLayout::RowMajor,
         )
     }

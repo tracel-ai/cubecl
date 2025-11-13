@@ -1,6 +1,3 @@
-use crate::components::global::multi_stage::double_buffer_execution::{
-    execute_current_and_read_next, execute_last_and_write_results, read_first,
-};
 use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, read::SyncStrategy};
 use crate::components::{
@@ -12,8 +9,14 @@ use crate::components::{
 use crate::components::{AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
+    global::multi_stage::double_buffer_execution::{
+        execute_current_and_read_next, execute_last_and_write_results, read_first,
+    },
+    stage::StridedStageFamily,
+};
+use crate::components::{
     global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
-    stage::{FilledStage, StridedStage},
+    stage::{FilledStage, StridedStageMemory},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -46,13 +49,13 @@ impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    LL: PartialLoadingStrategy<Stage = StridedStageFamily>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = DoubleBufferingGlobalConfig<SMM::Config>;

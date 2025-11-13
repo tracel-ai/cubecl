@@ -54,6 +54,11 @@ where
         )
     }
 
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+        // Unsupported
+        false
+    }
+
     fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
         client.properties().features.cmma.contains(&config)
     }

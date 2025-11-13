@@ -8,15 +8,15 @@ use cubecl_matmul::components::{
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use cubecl_matmul::components::stage::RowMajorTilingOrder;
-use cubecl_matmul::components::stage::{ContiguousTilingLayout, StridedStage};
+use cubecl_matmul::components::stage::{ContiguousTilingLayout, StridedStageMemory};
 
 pub type TmaWeightTiling = ContiguousTilingLayout<RowMajorTilingOrder>;
-pub type TmaWeightStage<IP> = StridedStage<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
+pub type TmaWeightStage<IP> = StridedStageMemory<<IP as MatrixPrecision>::Stage, TmaWeightTiling>;
 
 #[derive(CubeType)]
 pub struct TmaWeightGlobalReader<IP: MatrixPrecision> {
     pub global_iter: GlobalIterator<Line<IP::Global>>,
-    pub stages: Sequence<StridedStage<IP::Stage, TmaWeightTiling>>,
+    pub stages: Sequence<StridedStageMemory<IP::Stage, TmaWeightTiling>>,
     #[cube(comptime)]
     config: StageMemoryConfig,
 }
@@ -33,7 +33,7 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
 
         #[unroll]
         for _ in 0..num_stages {
-            stages.push(StridedStage::new_aligned(128u32, config));
+            stages.push(StridedStageMemory::new_aligned(128u32, config));
         }
 
         let global_iter = GlobalIterator::new(global_view, k_step, ViewDirection::Row, false);
