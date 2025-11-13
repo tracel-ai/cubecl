@@ -548,10 +548,12 @@ impl Display for Instruction {
             Instruction::Remainder { lhs, rhs, out } => {
                 let f_type = out.item().with_elem(Elem::F32);
                 let ty = out.item();
-                let lhs = lhs.fmt_cast_to(f_type);
-                let rhs = rhs.fmt_cast_to(f_type);
+                let lhs_f = lhs.fmt_cast_to(f_type);
+                let rhs_f = rhs.fmt_cast_to(f_type);
+                let lhs = lhs.fmt_cast_to(ty);
+                let rhs = rhs.fmt_cast_to(ty);
                 let out = out.fmt_left();
-                let floor = f_type.fmt_cast_to(ty, format!("floor({lhs} / {rhs})"));
+                let floor = f_type.fmt_cast_to(ty, format!("floor({lhs_f} / {rhs_f})"));
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
             Instruction::Sub { lhs, rhs, out } => {
