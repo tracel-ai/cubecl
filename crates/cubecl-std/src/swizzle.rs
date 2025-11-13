@@ -15,6 +15,18 @@ use cubecl_core as cubecl;
 /// 0bxxxxxxxxxxxxxxxxYYxxxxxxxxxZZxxx
 /// the result is:
 /// 0bxxxxxxxxxxxxxxxxYYxxxxxxxxxAAxxx where AA = ZZ xor YY
+///
+///
+/// Some newer features, as well as cutlass in places, use a different terminology of `span` and
+/// `atom`. For shared memory swizzle specifically, the parameters map as follows:
+/// * `bits` = `log2(span / atom)`, or the number of atoms within one span, converted to address bits
+/// * `base` = `log2(atom)`, the size of the atom, converted to address bits
+/// * `shift` = `log2(all_banks_bytes / atom)`, or the total number of atoms in all 32 shared memory banks, converted to address bits
+///
+/// For example:
+/// * 32-byte span with a 16-byte atom = `[1, 4, 3]`
+/// * 128-byte span with a 32-byte atom = `[3, 5, 2]`
+///
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
 pub struct Swizzle {
     #[cube(comptime)]
