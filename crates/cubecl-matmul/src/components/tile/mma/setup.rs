@@ -59,7 +59,7 @@ where
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
             dtypes,
-            selection.swizzling,
+            selection.shared_swizzle,
         )
     }
 

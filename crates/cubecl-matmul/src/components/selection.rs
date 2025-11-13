@@ -12,7 +12,7 @@ pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
     pub quantized: bool,
-    pub swizzling: SwizzleConfig,
+    pub shared_swizzle: SwizzleConfig,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub reader_mode: ReaderMode,
@@ -152,7 +152,7 @@ impl MatmulSelectionBuilder {
         MatmulSelection {
             plane_dim: self.plane_dim.unwrap(),
             tiling_scheme: self.tiling_scheme.unwrap(),
-            swizzling: self.shared_swizzle,
+            shared_swizzle: self.shared_swizzle,
             hypercube_selection: self.hypercube_selection.unwrap(),
             quantized: self.quantized,
             partition_buffering: self.partition_buffering,

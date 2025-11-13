@@ -34,6 +34,24 @@ pub enum SwizzleMode {
     B128,
 }
 
+impl SwizzleMode {
+    pub fn atom_size(&self) -> usize {
+        match self {
+            SwizzleMode::None => usize::MAX,
+            SwizzleMode::B32 | SwizzleMode::B64 | SwizzleMode::B128 => 16,
+        }
+    }
+
+    pub fn span_size(&self) -> usize {
+        match self {
+            SwizzleMode::None => 1,
+            SwizzleMode::B32 => 32,
+            SwizzleMode::B64 => 64,
+            SwizzleMode::B128 => 128,
+        }
+    }
+}
+
 impl StageMemoryConfig {
     pub fn elements_in_stage_row(&self) -> u32 {
         self.tiles_in_stage_row * self.elements_in_tile_row

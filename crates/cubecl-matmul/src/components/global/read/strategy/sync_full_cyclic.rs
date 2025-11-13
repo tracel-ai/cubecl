@@ -1,6 +1,5 @@
 use std::marker::PhantomData;
 
-use crate::components::TilingScheme;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -8,6 +7,7 @@ use crate::components::{
     MatmulElems,
     global::{GlobalConfig, RoleRule},
 };
+use crate::components::{TilingScheme, global::read::validate_swizzle_atom_size};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::read::{FullLoadingStrategy, tiled::TiledLayout},
@@ -31,7 +31,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
-        _dtypes: &MatmulElems,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
@@ -47,6 +47,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
+        validate_swizzle_atom_size(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
 
         Ok(())

@@ -51,7 +51,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         _args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -60,6 +60,7 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 specialized: true,
                 multi_row_strategy: MultiRowStrategy::Adaptive {

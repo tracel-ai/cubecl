@@ -45,7 +45,7 @@ where
             selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,
-            selection.swizzling,
+            selection.shared_swizzle,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
             matmul_line_sizes.out as u32,

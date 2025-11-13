@@ -1,4 +1,3 @@
-use crate::components::TilingScheme;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
@@ -6,6 +5,7 @@ use crate::components::{
     MatmulElems,
     global::{GlobalConfig, RoleRule},
 };
+use crate::components::{TilingScheme, global::read::validate_swizzle_atom_size};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{
     global::read::{FullLoadingStrategy, stage::FullStageLayout},
@@ -27,7 +27,7 @@ impl LoadingValidation for SyncFullStridedLoading {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
-        _dtypes: &MatmulElems,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
 
@@ -41,6 +41,7 @@ impl LoadingValidation for SyncFullStridedLoading {
             ));
         }
 
+        validate_swizzle_atom_size(config.stage_memory_config(ident), ident, dtypes)?;
         StridedTilingLayout::check(config.global_memory_config(ident))?;
 
         Ok(())

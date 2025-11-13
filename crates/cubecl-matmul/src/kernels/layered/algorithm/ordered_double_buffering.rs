@@ -63,7 +63,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -72,6 +72,7 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 partition_k: args.partition_k,
                 row_count: args.row_count,

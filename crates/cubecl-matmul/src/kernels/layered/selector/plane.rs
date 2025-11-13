@@ -1,7 +1,6 @@
 use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType};
 use cubecl_runtime::MmaConfig;
 
-use crate::components::stage::PartitionBuffering;
 use crate::components::{
     MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
     PartitionSize, StageSize, TileSize, TilingScheme, adjust_dtypes,
@@ -11,6 +10,7 @@ use crate::components::{
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::SwizzleMode,
 };
+use crate::components::{MatmulLineSizes, stage::PartitionBuffering};
 use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::components::{
     SwizzleConfig,
@@ -39,6 +39,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     problem: &MatmulProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
+    line_sizes: &MatmulLineSizes,
     options: PlaneMatmulSelectionOptions,
 ) -> Result<MatmulSelection, MatmulSetupError> {
     adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
@@ -175,31 +176,40 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
             tiling_scheme,
             MatmulIdent::Lhs,
             dtypes.lhs_stage,
+            line_sizes.lhs,
             problem.lhs_layout,
         );
         let rhs = select_swizzle(
             tiling_scheme,
             MatmulIdent::Rhs,
             dtypes.rhs_stage,
+            line_sizes.rhs,
             problem.rhs_layout,
         );
         builder = builder.shared_swizzle(SwizzleConfig {
             lhs,
             rhs,
-            acc: SwizzleMode::None,
-            out: SwizzleMode::None,
+            ..Default::default()
         });
     }
 
     Ok(builder.build())
 }
 
+/// All modes currently use atom size 16
+const SWIZZLE_ATOM: usize = 16;
+
 fn select_swizzle(
     tiling: TilingScheme,
     ident: MatmulIdent,
     elem: StorageType,
+    line_size: u8,
     layout: MatrixLayout,
 ) -> SwizzleMode {
+    // Line size exceeds swizzle atom
+    if elem.size() * line_size as usize > SWIZZLE_ATOM {
+        return SwizzleMode::None;
+    }
     let swizzle_dim = match layout {
         MatrixLayout::RowMajor => tiling.elements_in_stage_col(ident),
         MatrixLayout::ColMajor => tiling.elements_in_stage_row(ident),

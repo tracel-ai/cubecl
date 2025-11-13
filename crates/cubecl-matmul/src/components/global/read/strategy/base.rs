@@ -85,6 +85,25 @@ pub fn validate_noswizzle(config: StageMemoryConfig) -> Result<(), InvalidConfig
     Ok(())
 }
 
+/// Validates if swizzling is valid with the line size, for sync readers that read in terms of full
+/// lines
+pub fn validate_swizzle_atom_size(
+    config: StageMemoryConfig,
+    ident: MatmulIdent,
+    dtypes: &MatmulElems,
+) -> Result<(), InvalidConfigError> {
+    if config.swizzle == SwizzleMode::None {
+        return Ok(());
+    }
+
+    let line_bytes = dtypes.stage(ident).size() * config.stage_line_size as usize;
+    if line_bytes > config.swizzle.atom_size() {
+        return Err(Box::new("Load atom can't be larger than swizzle atom"));
+    }
+
+    Ok(())
+}
+
 /// Validates if [tensor memory accelerator features](SemanticType::TensorMap) are available on the current
 /// device.
 pub fn validate_tma<R: Runtime>(
@@ -115,16 +134,9 @@ pub fn validate_tma<R: Runtime>(
     };
     let row_bytes = row_size * dtypes.global(ident).size() as u32;
 
-    let swizzle_span = match config.swizzle {
-        SwizzleMode::None => return Ok(()),
-        SwizzleMode::B32 => 32,
-        SwizzleMode::B64 => 64,
-        SwizzleMode::B128 => 128,
-    };
-
     // Slightly tighter than the actual requirements, but simple enough and is always followed by
     // selection. Getting illegal memory access if this isn't followed for some reason.
-    if row_bytes != swizzle_span {
+    if row_bytes as usize != config.swizzle.span_size() {
         return Err(Box::new("Swizzling size must be equal to row size for TMA"));
     }
 

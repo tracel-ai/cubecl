@@ -399,40 +399,6 @@ impl StridedTilingLayout {
             .as_slice_mut(stage_line_size)
             .slice_mut(start, start + slice_length)
     }
-
-    pub fn to_offset_and_stride(
-        tile: Coords2d,
-        #[comptime] config: StageMemoryConfig,
-    ) -> (u32, u32) {
-        let (x, y) = tile;
-
-        let stage_line_size = config.stage_line_size;
-        let matrix_layout = config.matrix_layout;
-
-        let tile_count_x = config.tiles_in_stage_row;
-        let tile_count_y = config.tiles_in_stage_col;
-
-        match matrix_layout {
-            MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
-
-                let stride = tile_count_y * tile_size_y;
-                let start = x * tile_size_x * stride + y * tile_size_y;
-
-                (start, stride)
-            }
-            MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
-
-                let stride = tile_count_x * tile_size_x;
-                let start = x * tile_size_x + y * tile_size_y * stride;
-
-                (start, stride)
-            }
-        }
-    }
 }
 
 #[cube]

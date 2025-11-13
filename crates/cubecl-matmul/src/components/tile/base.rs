@@ -43,7 +43,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 
     /// Returns whether this tile matmul may benefit from swizzling.
     /// Used to determine the selection, since swizzling may require different stage sizes.
-    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool;
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool;
 
     /// Returns the compute resources required to run this tile matmul.
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
