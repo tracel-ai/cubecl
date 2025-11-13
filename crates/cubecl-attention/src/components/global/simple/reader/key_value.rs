@@ -3,7 +3,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
-    read::{FullStageGlobalReader, sync_full_cyclic::SyncFullCyclicLoading, tiled::TiledLayout},
+    read::tiled::TiledLayout,
 };
 use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStage};
 use cubecl_std::tensor::{View, layout::Coords2d};
