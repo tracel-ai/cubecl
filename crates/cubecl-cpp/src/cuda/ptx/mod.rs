@@ -294,7 +294,7 @@ pub fn ldmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool
         r#"
 inline __device__ void
 __ldmatrix_m{width}n8_{elem}_{factor}x{is_transposed}({args}) {{
-  uint64 addr = reinterpret_cast<uint64>(row_addr);
+  uint64 addr = __cvta_generic_to_shared(row_addr);
   asm volatile("ldmatrix.sync.aligned.m8n{width}.{num}{transposed_arg}.shared::cta.{ty}"
                " {placeholders_reg}, {placeholder_addr};"
                : {params_out}
