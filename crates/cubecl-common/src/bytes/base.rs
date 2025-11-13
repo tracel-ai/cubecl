@@ -158,16 +158,14 @@ impl Bytes {
                     Bytes::from_controller(right, right_len),
                 ))
             },
-            Err(err) => {
-                match self.try_into_vec() {
-                    Ok(mut left) => {
-                        let right = left.split_off(offset);
+            Err(err) => match self.try_into_vec() {
+                Ok(mut left) => {
+                    let right = left.split_off(offset);
 
-                        return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
-                    }
-                    Err(this) => Err((this, err)),
+                    return Ok((Bytes::from_bytes_vec(left), Bytes::from_bytes_vec(right)));
                 }
-            }
+                Err(this) => Err((this, err)),
+            },
         }
     }
 

@@ -14,6 +14,19 @@ use std::{
     sync::Arc,
 };
 
+/// The allocation is managed on a file.
+///
+/// # Safety
+///
+/// This implementation uses an [UnsafeCell] to copy the content of a file into an in-memory buffer
+/// using the [NativeAllocationController]. It is safe because the controller can't be cloned or
+/// sync between multiple threads. You can duplicate the file allocator, but every version of it
+/// will have its own buffer.
+///
+/// # Notes
+///
+/// Because of that mechanism, dereferencing [crate::bytes::Bytes] isn't cost-free when using the
+/// file allocator, since it's going to trigger a copy from the file system to an in-memory buffer.
 pub(crate) struct FileAllocationController {
     file: Arc<PathBuf>,
     size: u64,
@@ -21,9 +34,6 @@ pub(crate) struct FileAllocationController {
     controller: UnsafeCell<Option<Box<dyn AllocationController>>>,
     init: AtomicBool,
 }
-
-unsafe impl Send for FileAllocationController {}
-unsafe impl Sync for FileAllocationController {}
 
 impl FileAllocationController {
     pub fn new<P: Into<PathBuf>>(file: P, size: u64, offset: u64) -> Self {
@@ -184,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_mut_file() {
+    fn test_memory_mut_on_duplicated_file() {
         let elems = (0..250).collect();
         let (path, bytes, dir) = with_data(elems);
 
