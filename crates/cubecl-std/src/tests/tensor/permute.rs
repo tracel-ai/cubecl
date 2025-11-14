@@ -2,7 +2,6 @@ use cubecl_core::{
     CubeElement,
     prelude::{Float, Runtime},
 };
-use cubecl_runtime::server::Binding;
 
 use crate::tensor::{self, TensorHandle};
 
@@ -18,7 +17,7 @@ pub fn test_permute_2d_transpose<R: Runtime, C: Float + CubeElement>(
     let numel = height * width;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![height, width], handle, dtype);
     let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
@@ -61,7 +60,7 @@ pub fn test_permute_3d_batch_transpose<R: Runtime, C: Float + CubeElement>(
     let numel = batch * height * width;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![batch, height, width], handle, dtype);
     let output = tensor::permute::launch_alloc(&client, &input, &[0, 2, 1]);
@@ -107,7 +106,7 @@ pub fn test_permute_3d_complex<R: Runtime, C: Float + CubeElement>(
     let numel = dim0 * dim1 * dim2;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![dim0, dim1, dim2], handle, dtype);
     let output = tensor::permute::launch_alloc(&client, &input, &[2, 0, 1]);
@@ -156,7 +155,7 @@ pub fn test_permute_empty<R: Runtime, C: Float + CubeElement>(device: &R::Device
 pub fn test_permute_single_element<R: Runtime, C: Float + CubeElement>(device: &R::Device) {
     let client = R::client(device);
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&[C::from(42.0).unwrap()])));
+    let handle = client.create_from_slice(C::as_bytes(&[C::from(42.0).unwrap()]));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![1, 1], handle, dtype);
     let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
@@ -185,7 +184,7 @@ pub fn test_permute_4d_last_two_transpose<R: Runtime, C: Float + CubeElement>(
     let numel = batch * channels * height * width;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
@@ -242,7 +241,7 @@ pub fn test_permute_4d_complex<R: Runtime, C: Float + CubeElement>(
     let numel = batch * channels * height * width;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
@@ -297,7 +296,7 @@ pub fn test_permute_channel_shuffle<R: Runtime, C: Float + CubeElement>(
     let numel = batch * channels * height * width;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
@@ -352,7 +351,7 @@ pub fn test_permute_attention_transpose<R: Runtime, C: Float + CubeElement>(
     let numel = batch * heads * seq_len * head_dim;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, heads, seq_len, head_dim], handle, dtype);
@@ -406,7 +405,7 @@ pub fn test_permute_small_transpose<R: Runtime, C: Float + CubeElement>(
     let numel = size * size;
     let input_data: Vec<C> = (0..numel).map(|i| C::from(i as f32).unwrap()).collect();
 
-    let handle = client.create(Binding::from_bytes(C::as_bytes(&input_data)));
+    let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![size, size], handle, dtype);
     let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
