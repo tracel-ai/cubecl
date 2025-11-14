@@ -117,7 +117,8 @@ impl<B: EventStreamBackend> GcThread<B> {
 
         std::thread::spawn(move || {
             while let Ok(event) = recv.recv() {
-                B::wait_event_sync(event.event);
+                log::info!("Dropping GC Task ...");
+                // B::wait_event_sync(event.event);
                 core::mem::drop(event.to_drop);
             }
         });
