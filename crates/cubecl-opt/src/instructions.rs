@@ -84,7 +84,8 @@ impl Optimizer {
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
             | Arithmetic::Dot(binary_operator)
-            | Arithmetic::MulHi(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            | Arithmetic::MulHi(binary_operator)
+            | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)
@@ -92,7 +93,18 @@ impl Optimizer {
             | Arithmetic::Log1p(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
+            | Arithmetic::Tan(unary_operator)
             | Arithmetic::Tanh(unary_operator)
+            | Arithmetic::Sinh(unary_operator)
+            | Arithmetic::Cosh(unary_operator)
+            | Arithmetic::ArcCos(unary_operator)
+            | Arithmetic::ArcSin(unary_operator)
+            | Arithmetic::ArcTan(unary_operator)
+            | Arithmetic::ArcSinh(unary_operator)
+            | Arithmetic::ArcCosh(unary_operator)
+            | Arithmetic::ArcTanh(unary_operator)
+            | Arithmetic::Degrees(unary_operator)
+            | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
             | Arithmetic::InverseSqrt(unary_operator)
             | Arithmetic::Round(unary_operator)

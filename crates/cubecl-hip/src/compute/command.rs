@@ -441,7 +441,7 @@ pub(crate) unsafe fn write_to_cpu(
         };
 
         if status != HIP_SUCCESS {
-            return Err(IoError::Unknown(format!("HIP memcpy failed: {}", status)));
+            return Err(IoError::Unknown(format!("HIP memcpy failed: {status}")));
         }
         return Ok(());
     }

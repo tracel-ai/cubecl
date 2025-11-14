@@ -83,8 +83,7 @@ impl ComputeStorage for PinnedMemoryStorage {
 
             if result != cudarc::driver::sys::CUresult::CUDA_SUCCESS {
                 return Err(IoError::Unknown(format!(
-                    "cuMemAllocHost_v2 failed with error code: {:?}",
-                    result
+                    "cuMemAllocHost_v2 failed with error code: {result:?}"
                 )));
             }
 

@@ -9,6 +9,9 @@ pub use fast_math::*;
 pub use reinterpret_slice::*;
 pub use swizzle::*;
 
+mod trigonometry;
+pub use trigonometry::*;
+
 mod option;
 pub use option::*;
 

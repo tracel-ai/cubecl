@@ -126,7 +126,7 @@ impl ComputeStorage for GpuStorage {
             match status {
                 HIP_SUCCESS => {}
                 other => {
-                    return Err(IoError::Unknown(format!("HIP allocation error: {}", other)));
+                    return Err(IoError::Unknown(format!("HIP allocation error: {other}")));
                 }
             }
             self.memory.insert(id, dptr);
