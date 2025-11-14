@@ -377,11 +377,14 @@ mod context {
 
     static GLOBAL: spin::Mutex<DeviceLocator> = spin::Mutex::new(DeviceLocator { state: None });
 
+    #[derive(Default)]
+    struct DeviceLocatorState {
+        device: HashMap<Key, DeviceStateLock>,
+        device_kind: HashMap<TypeId, Arc<ReentrantMutex<()>>>,
+    }
+
     struct DeviceLocator {
-        state: Option<(
-            HashMap<Key, DeviceStateLock>,
-            HashMap<TypeId, Arc<ReentrantMutex<()>>>,
-        )>,
+        state: Option<DeviceLocatorState>,
     }
 
     #[derive(Clone)]
@@ -400,15 +403,15 @@ mod context {
             let key = (id, TypeId::of::<D>());
             let mut global = GLOBAL.lock();
 
-            let map = match &mut global.state {
+            let locator_state = match &mut global.state {
                 Some(state) => state,
                 None => {
-                    global.state = Some((HashMap::default(), HashMap::new()));
+                    global.state = Some(Default::default());
                     global.state.as_mut().expect("Just created Option::Some")
                 }
             };
 
-            let lock = match map.0.get(&key) {
+            let lock = match locator_state.device.get(&key) {
                 Some(value) => value.clone(),
                 None => {
                     let state = DeviceStateMap::new();
@@ -417,18 +420,22 @@ mod context {
                         lock: Arc::new(ReentrantMutex::new(state)),
                     };
 
-                    map.0.insert(key, value);
-                    map.0
+                    locator_state.device.insert(key, value);
+                    locator_state
+                        .device
                         .get(&key)
                         .expect("Just inserted the key/value")
                         .clone()
                 }
             };
-            let lock_kind = match map.1.get(&kind) {
+            let lock_kind = match locator_state.device_kind.get(&kind) {
                 Some(value) => value.clone(),
                 None => {
-                    map.1.insert(kind, Arc::new(ReentrantMutex::new(())));
-                    map.1
+                    locator_state
+                        .device_kind
+                        .insert(kind, Arc::new(ReentrantMutex::new(())));
+                    locator_state
+                        .device_kind
                         .get(&kind)
                         .expect("Just inserted the key/value")
                         .clone()
