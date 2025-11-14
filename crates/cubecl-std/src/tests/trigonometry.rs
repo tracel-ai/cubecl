@@ -15,7 +15,7 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R::Server>) {
     let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
     let expected = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
 
-    let input = client.create(f32::as_bytes(&input_data));
+    let input = client.create_from_slice(f32::as_bytes(&input_data));
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
@@ -53,7 +53,7 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R::Server>) {
     let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
     let expected = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
 
-    let input = client.create(f32::as_bytes(&input_data));
+    let input = client.create_from_slice(f32::as_bytes(&input_data));
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
@@ -92,8 +92,8 @@ pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server>) {
     let y_data = vec![4.0, 1.0, 1.0, 12.0, 0.0];
     let expected = vec![5.0, 1.0, 1.4142135623730951, 13.0, 0.0];
 
-    let x = client.create(f32::as_bytes(&x_data));
-    let y = client.create(f32::as_bytes(&y_data));
+    let x = client.create_from_slice(f32::as_bytes(&x_data));
+    let y = client.create_from_slice(f32::as_bytes(&y_data));
     let output = client.empty(x_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
