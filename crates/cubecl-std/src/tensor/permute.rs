@@ -346,7 +346,7 @@ fn permute_kernel_generic<F: Float>(
     axes_2: u32,
     axes_3: u32,
     axes_4: u32,
-    axes_5: u32,
+    _axes_5: u32,
     #[comptime] rank: u32,
 ) {
     let i = ABSOLUTE_POS;
