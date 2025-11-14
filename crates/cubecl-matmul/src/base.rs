@@ -77,8 +77,8 @@ pub enum Strategy {
         selection: Selection<OrderedSelectionArgs>,
         tile_kind: AcceleratedTileKind,
     },
-    Naive,
     #[default]
+    Naive,
     /// Tries using a Simple matmul, then a SimpleUnit if the former failed
     Auto,
 }
