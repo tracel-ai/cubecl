@@ -20,7 +20,7 @@ pub fn test_permute_2d_transpose<R: Runtime, C: Float + CubeElement>(
     let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![height, width], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[1, 0]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -63,7 +63,7 @@ pub fn test_permute_3d_batch_transpose<R: Runtime, C: Float + CubeElement>(
     let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![batch, height, width], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[0, 2, 1]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[0, 2, 1]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -109,7 +109,7 @@ pub fn test_permute_3d_complex<R: Runtime, C: Float + CubeElement>(
     let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![dim0, dim1, dim2], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[2, 0, 1]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[2, 0, 1]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -158,7 +158,7 @@ pub fn test_permute_single_element<R: Runtime, C: Float + CubeElement>(device: &
     let handle = client.create_from_slice(C::as_bytes(&[C::from(42.0).unwrap()]));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![1, 1], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[1, 0]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -188,7 +188,7 @@ pub fn test_permute_4d_last_two_transpose<R: Runtime, C: Float + CubeElement>(
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[0, 1, 3, 2]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[0, 1, 3, 2]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -245,7 +245,7 @@ pub fn test_permute_4d_complex<R: Runtime, C: Float + CubeElement>(
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[0, 3, 1, 2]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[0, 3, 1, 2]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -300,7 +300,7 @@ pub fn test_permute_channel_shuffle<R: Runtime, C: Float + CubeElement>(
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, channels, height, width], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[0, 2, 3, 1]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[0, 2, 3, 1]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -355,7 +355,7 @@ pub fn test_permute_attention_transpose<R: Runtime, C: Float + CubeElement>(
     let dtype = C::as_type_native().unwrap();
     let input =
         TensorHandle::<R>::new_contiguous(vec![batch, heads, seq_len, head_dim], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[0, 2, 1, 3]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[0, 2, 1, 3]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
@@ -408,7 +408,7 @@ pub fn test_permute_small_transpose<R: Runtime, C: Float + CubeElement>(
     let handle = client.create_from_slice(C::as_bytes(&input_data));
     let dtype = C::as_type_native().unwrap();
     let input = TensorHandle::<R>::new_contiguous(vec![size, size], handle, dtype);
-    let output = tensor::permute::launch_alloc(&client, &input, &[1, 0]);
+    let output = tensor::permute::launch_alloc::<R, C>(&client, &input, &[1, 0]);
 
     let actual = client.read_one_tensor(output.handle.clone().copy_descriptor(
         &output.shape,
