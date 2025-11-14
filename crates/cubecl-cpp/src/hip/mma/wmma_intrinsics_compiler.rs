@@ -548,20 +548,31 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
     let d_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+
     let frag_d_len = d_elems as usize / (32 / frag_d.elem().unpacked().size_bits());
+
     // Item is irrelevant
+    let frag_a_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+    let frag_b_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+    let frag_c_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
+    // Should optimize out
     let name = extension.fn_name();
+    writeln!(f, "{ty} {frag_a_tmp};", ty = extension.frag_a)?;
+    writeln!(f, "memcpy(&{frag_a_tmp}, {frag_a}, sizeof({frag_a_tmp}));")?;
+    writeln!(f, "{ty} {frag_b_tmp};", ty = extension.frag_b)?;
+    writeln!(f, "memcpy(&{frag_b_tmp}, {frag_b}, sizeof({frag_b_tmp}));")?;
+    writeln!(f, "{ty} {frag_c_tmp};", ty = extension.frag_c)?;
+    writeln!(f, "memcpy(&{frag_c_tmp}, {frag_c}, sizeof({frag_c_tmp}));")?;
     writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
     writeln!(
         f,
-        "{name}(reinterpret_cast<{}>({frag_a}), reinterpret_cast<{}>({frag_b}), reinterpret_cast<{}>({frag_c}), {frag_d_tmp});",
-        extension.frag_a, extension.frag_b, extension.frag_c
+        "{name}({frag_a_tmp}, {frag_b_tmp}, {frag_c_tmp}, {frag_d_tmp});"
     )?;
 
-    for i in 0..frag_d_len {
-        writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i}];")?;
+    for _ in 0..frag_d_len {
+        writeln!(f, "memcpy({frag_d}, &{frag_d_tmp}, sizeof({frag_d_tmp}));")?;
     }
 
     Ok(())
@@ -569,7 +580,7 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 
 pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
     // Correctness is wrong.
-    const ENABLED: bool = false;
+    const ENABLED: bool = true;
 
     if !ENABLED {
         return Vec::new();

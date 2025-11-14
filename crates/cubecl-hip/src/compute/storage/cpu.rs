@@ -89,8 +89,7 @@ impl ComputeStorage for PinnedMemoryStorage {
 
             if result != HIP_SUCCESS {
                 return Err(IoError::Unknown(format!(
-                    "cuMemAllocHost_v2 failed with error code: {:?}",
-                    result
+                    "cuMemAllocHost_v2 failed with error code: {result:?}"
                 )));
             }
 

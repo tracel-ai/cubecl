@@ -16,5 +16,16 @@ macro_rules! testgen_matmul_tma_tile {
                 })
             );
         }
+
+        #[cfg(feature = "matmul_tests_mma")]
+        mod t16x8x16 {
+            use super::*;
+
+            $crate::testgen_matmul_tma_partition!(
+                $algorithm,
+                $precision,
+                $tiling_scheme_builder.with_tile_size(TileSize { m: 16, n: 8, k: 16 })
+            );
+        }
     };
 }

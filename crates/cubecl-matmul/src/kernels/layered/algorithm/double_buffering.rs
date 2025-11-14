@@ -79,7 +79,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -88,11 +88,13 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )
@@ -130,7 +132,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -139,11 +141,13 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )
@@ -180,7 +184,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -189,11 +193,13 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )
@@ -230,7 +236,7 @@ where
         client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
@@ -239,11 +245,13 @@ where
             problem,
             plane_dim,
             dtypes,
+            line_sizes,
             PlaneMatmulSelectionOptions {
                 specialized: args.specialized,
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
+                swizzled: TMM::should_swizzle::<R>(client),
                 ..Default::default()
             },
         )

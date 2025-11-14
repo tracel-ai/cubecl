@@ -1,12 +1,18 @@
 use std::marker::PhantomData;
 
-use crate::components::TilingScheme;
-use crate::components::global::read::{FullLoadingStrategy, tiled::TiledLayout};
-use crate::components::global::{GlobalConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
-use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
+use crate::components::stage::{ContiguousTilingLayout, StridedStageMemory, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent};
+use crate::components::{
+    MatmulElems,
+    global::{GlobalConfig, RoleRule},
+};
+use crate::components::{TilingScheme, global::read::validate_swizzle_atom_size};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
+use crate::components::{
+    global::read::{FullLoadingStrategy, tiled::TiledLayout},
+    stage::StridedStageFamily,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
@@ -25,6 +31,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
             let line_size = config.global_line_size(ident);
@@ -40,6 +47,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
+        validate_swizzle_atom_size(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
 
         Ok(())
@@ -124,11 +132,13 @@ pub struct SyncFullCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task<G: GlobalConfig>(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: G,
     ) {
@@ -160,9 +170,10 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: 
     job: &SyncFullCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,
-    stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+    stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: G,
 ) {
+    let line_size = job.line_size;
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
@@ -174,7 +185,10 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: 
         comptime!(config.stage_memory_config(job.ident)),
     );
 
-    let line_read = view.read_checked((tile, pos_within_tile));
+    let mut slice = stage.as_slice_mut(line_size);
 
-    stage.as_slice_mut(job.line_size)[unit_position / job.line_size] = Line::cast_from(line_read);
+    let line_read = view.read_checked((tile, pos_within_tile));
+    let stage_offs = stage.swizzle.apply(unit_position, ES::type_size());
+
+    slice[stage_offs / job.line_size] = Line::cast_from(line_read);
 }

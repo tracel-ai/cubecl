@@ -44,6 +44,7 @@ where
             selection.plane_dim,
             problem.lhs_layout,
             problem.rhs_layout,
+            selection.shared_swizzle,
             matmul_line_sizes.lhs as u32,
             matmul_line_sizes.rhs as u32,
             matmul_line_sizes.out as u32,
@@ -51,5 +52,11 @@ where
             matmul_line_sizes.rhs as u32,
             dtypes,
         )
+    }
+
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+        // Supported but need to find good settings for this tiling. Currently tuned for `ldmatrix`.
+        // Need to profile at some point
+        false
     }
 }

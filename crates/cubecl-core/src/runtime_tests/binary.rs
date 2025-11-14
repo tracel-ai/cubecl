@@ -155,6 +155,35 @@ test_binary_impl!(
     ]
 );
 
+test_binary_impl!(
+    test_atan2,
+    F,
+    F::atan2,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 0., 1., -1., 1., -1.],
+            rhs: as_type![F: 1., 0., 0., 1., -1.],
+            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339, -2.35619449019]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339]
+        }
+    ]
+);
+
 #[cube(launch_unchecked)]
 fn test_powi_kernel<F: Float>(
     lhs: &Array<Line<F>>,
@@ -326,6 +355,7 @@ macro_rules! testgen_binary {
             add_test!(test_dot);
             add_test!(test_powf);
             add_test!(test_powi);
+            add_test!(test_atan2);
         }
     };
 }

@@ -1,7 +1,10 @@
-use crate::components::global::read::FullLoadingStrategy;
-use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
+use crate::components::global::{
+    multi_stage::LoadMaxRoundPlaneCount,
+    read::{sync::Synchronous, validate_swizzle_atom_size},
+};
 use crate::components::stage::OrderedTilingOrder;
 use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{MatmulElems, global::read::FullLoadingStrategy};
 use crate::components::{global::GlobalConfig, stage::ContiguousTilingLayout};
 use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
@@ -25,6 +28,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
         _client: &ComputeClient<R::Server>,
         config: &C,
         ident: MatmulIdent,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if ident != MatmulIdent::Lhs {
             return Err(FormattedConfigError::new(move || {
@@ -69,6 +73,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
+        validate_swizzle_atom_size(config.stage_memory_config(ident), ident, dtypes)?;
         ContiguousTilingLayout::<OrderedTilingOrder>::check(config.global_memory_config(ident))?;
 
         Ok(())

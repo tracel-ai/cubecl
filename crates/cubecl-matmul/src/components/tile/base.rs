@@ -2,7 +2,6 @@ use cubecl_core::{self as cubecl};
 use cubecl_core::{ir::StorageType, prelude::*};
 use cubecl_runtime::MmaConfig;
 
-use crate::components::error::MatmulSetupError;
 use crate::components::{
     AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
     resource::ComputeResources,
@@ -10,6 +9,7 @@ use crate::components::{
 };
 use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection};
 use crate::components::{StageIdent, tile::io::TileMut};
+use crate::components::{error::MatmulSetupError, stage::SwizzleMode};
 use std::{fmt::Debug, hash::Hash};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
@@ -40,6 +40,10 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;
+
+    /// Returns whether this tile matmul may benefit from swizzling.
+    /// Used to determine the selection, since swizzling may require different stage sizes.
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool;
 
     /// Returns the compute resources required to run this tile matmul.
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError>;
@@ -178,6 +182,9 @@ pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync
 
     /// Returns the [MatrixLayout] for the given ident
     fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
+
+    /// Returns the [SwizzleMode] for the given ident
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
 
     /// Returns the line size for the given ident
     fn stage_line_size(&self, ident: StageIdent) -> u32;

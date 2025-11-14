@@ -1,8 +1,4 @@
-use crate::components::global::{
-    WriteTiling,
-    multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
-};
-use crate::components::stage::StageConfig;
+use crate::components::stage::{StageConfig, TilingLayoutConfig, TilingLayoutEnum};
 use crate::components::{
     MatmulElems,
     global::{
@@ -15,6 +11,13 @@ use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
+use crate::components::{
+    global::{
+        WriteTiling,
+        multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+    },
+    stage::TilingLayout,
+};
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
 
@@ -39,7 +42,7 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    RL: PartialLoadingStrategy<SyncStrategy = Synchronous>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = Synchronous>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = OrderedDoubleBufferingMatmul<
@@ -74,11 +77,18 @@ where
                 )
             });
 
+        let tiling_layout = TilingLayoutConfig {
+            lhs: <LL as FullLoadingStrategy>::TilingLayout::to_enum(),
+            rhs: RL::TilingLayout::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
             line_sizes,
+            tiling_layout,
             (1, 2).into(),
             max_global_readers,
             true,
@@ -101,6 +111,7 @@ where
             selection.loading_precompute_strategy,
             selection.reader_mode,
             selection.load_specialization_config.into(),
+            dtypes,
         )
     }
 }

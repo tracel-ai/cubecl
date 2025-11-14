@@ -223,11 +223,11 @@ impl<
             #[unroll]
             for vd in 0..p.val_dim {
                 let tile_pos = (q + P::seq_q_index() * p.seq_q, vd.runtime());
-                let mut tile = SO::tile(stage, tile_pos);
+                let tile = SO::tile(stage, tile_pos);
 
                 FA::write_results(
                     &AccumulatorPartition::<AP, FA, S>::get_at(acc, q, vd, stage_config).fragment,
-                    &mut tile.slice,
+                    &mut tile.as_slice_mut(),
                     stage_config.tile_config(),
                 );
 

@@ -14,7 +14,7 @@ impl CmmaStageWriter {
         fragment: &cmma::Matrix<E>,
     ) {
         let layout = as_cmma_layout(tile.layout);
-        let (mut slice, stride) = tile.as_unlined();
+        let (mut slice, stride) = tile.as_unlined_mut();
         cmma::store(&mut slice, fragment, stride, layout);
     }
 }

@@ -96,10 +96,7 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - expected_sum).abs() < 1e-3,
-            "Warp sum failed at position {}: got {}, expected {}",
-            i,
-            value,
-            expected_sum
+            "Warp sum failed at position {i}: got {value}, expected {expected_sum}"
         );
     }
 }
@@ -129,9 +126,7 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - 31.0).abs() < 1e-3,
-            "Warp max failed at position {}: got {}, expected 31",
-            i,
-            value
+            "Warp max failed at position {i}: got {value}, expected 31"
         );
     }
 }
@@ -161,9 +156,7 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             value.abs() < 1e-3,
-            "Warp min failed at position {}: got {}, expected 0",
-            i,
-            value
+            "Warp min failed at position {i}: got {value}, expected 0"
         );
     }
 }
@@ -199,11 +192,7 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
         let rel_error = ((value - expected) / expected).abs();
         assert!(
             rel_error < 0.01, // 1% tolerance
-            "Warp prod failed at position {}: got {}, expected {}, rel_error={}",
-            i,
-            value,
-            expected,
-            rel_error
+            "Warp prod failed at position {i}: got {value}, expected {expected}, rel_error={rel_error}"
         );
     }
 }
@@ -239,10 +228,7 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
         let expected = (row as f32) * 32.0 * 32.0 + 496.0;
         assert!(
             (value - expected).abs() < 1e-2,
-            "Matrix row reduce failed at row {}: got {}, expected {}",
-            row,
-            value,
-            expected
+            "Matrix row reduce failed at row {row}: got {value}, expected {expected}"
         );
     }
 }

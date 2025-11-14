@@ -150,7 +150,7 @@ fn saturating_sub_unsigned<U: Int>(a: Line<U>, b: Line<U>) -> Line<U> {
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
 fn saturating_add_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
-    let bit_width = I::elem_size_bits();
+    let bit_width = I::type_size_bits();
     let shift = Line::<U>::new(U::new(comptime![(bit_width - 1) as i64]));
 
     let ux = Line::<U>::cast_from(x);
@@ -166,7 +166,7 @@ fn saturating_add_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
 /// <https://locklessinc.com/articles/sat_arithmetic/>
 #[cube]
 fn saturating_sub_signed<I: Int, U: Int>(x: Line<I>, y: Line<I>) -> Line<I> {
-    let bit_width = I::elem_size_bits();
+    let bit_width = I::type_size_bits();
     let shift = Line::<U>::new(U::new(comptime![(bit_width - 1) as i64]));
 
     let ux = Line::<U>::cast_from(x);

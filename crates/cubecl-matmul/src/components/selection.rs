@@ -4,7 +4,7 @@ use crate::components::{
     MatmulElems, TilingScheme,
     batch::HypercubeSelection,
     global::{LoadSpecializationConfig, read::ReaderMode},
-    stage::PartitionBuffering,
+    stage::{PartitionBuffering, SwizzleMode},
 };
 
 #[derive(Debug, Clone)]
@@ -12,6 +12,7 @@ pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
     pub quantized: bool,
+    pub shared_swizzle: SwizzleConfig,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
     pub reader_mode: ReaderMode,
@@ -51,6 +52,14 @@ pub fn adjust_dtypes<R: Runtime>(
     }
 }
 
+#[derive(Default, Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SwizzleConfig {
+    pub lhs: SwizzleMode,
+    pub rhs: SwizzleMode,
+    pub acc: SwizzleMode,
+    pub out: SwizzleMode,
+}
+
 impl MatmulSelection {
     pub fn builder(tiling_scheme: TilingScheme, plane_dim: u32) -> MatmulSelectionBuilder {
         let hypercube_config = HypercubeSelection::builder(&tiling_scheme).build();
@@ -64,6 +73,7 @@ impl MatmulSelection {
 pub struct MatmulSelectionBuilder {
     plane_dim: Option<u32>,
     pub tiling_scheme: Option<TilingScheme>,
+    shared_swizzle: SwizzleConfig,
     hypercube_selection: Option<HypercubeSelection>,
     quantized: bool,
     partition_buffering: PartitionBuffering,
@@ -77,6 +87,7 @@ impl MatmulSelectionBuilder {
         Self {
             plane_dim: None,
             tiling_scheme: None,
+            shared_swizzle: Default::default(),
             hypercube_selection: None,
             quantized: false,
             partition_buffering: PartitionBuffering::default(),
@@ -93,6 +104,11 @@ impl MatmulSelectionBuilder {
 
     pub fn tiling_scheme(mut self, tiling_scheme: TilingScheme) -> Self {
         self.tiling_scheme = Some(tiling_scheme);
+        self
+    }
+
+    pub fn shared_swizzle(mut self, swizzle: SwizzleConfig) -> Self {
+        self.shared_swizzle = swizzle;
         self
     }
 
@@ -136,6 +152,7 @@ impl MatmulSelectionBuilder {
         MatmulSelection {
             plane_dim: self.plane_dim.unwrap(),
             tiling_scheme: self.tiling_scheme.unwrap(),
+            shared_swizzle: self.shared_swizzle,
             hypercube_selection: self.hypercube_selection.unwrap(),
             quantized: self.quantized,
             partition_buffering: self.partition_buffering,

@@ -1,6 +1,6 @@
 use std::marker::PhantomData;
 
-use crate::components::tile::io::{Strided, TileKind};
+use crate::components::tile::io::{Filled, Strided, TileKind};
 use crate::components::tile::{
     TileConfig, TileMatmul,
     mma::{reader::MmaStageReader, writer::MmaStageWriter},
@@ -13,14 +13,16 @@ use cubecl_core::{self as cubecl, cmma::MmaDefinition, ir::MatrixIdent};
 /// Uses one plane to perform a small matmul using accelerated instructions, with manual register
 /// management.
 /// Currently requires matrix layout to match the platform's preferred layout.
-pub struct MmaMatmul<Acc: TileKind> {
-    _ty: PhantomData<Acc>,
+pub struct MmaMatmul<Lhs: TileKind = Strided, Rhs: TileKind = Strided, Acc: TileKind = Filled> {
+    _ty: PhantomData<(Lhs, Rhs, Acc)>,
 }
 
 #[cube]
-impl<L: Numeric, R: Numeric, A: Numeric, AccTile: TileKind> TileMatmul<L, R, A>
-    for MmaMatmul<AccTile>
+impl<L: Numeric, R: Numeric, A: Numeric, LhsTile: TileKind, RhsTile: TileKind, AccTile: TileKind>
+    TileMatmul<L, R, A> for MmaMatmul<LhsTile, RhsTile, AccTile>
 where
+    MmaStageReader<LhsTile>: MmaFragmentReader<TileKind = LhsTile>,
+    MmaStageReader<RhsTile>: MmaFragmentReader<TileKind = RhsTile>,
     MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
     type Config = MmaMatmulConfig;
@@ -28,8 +30,8 @@ where
     type RhsFragment = Array<Line<R>>;
     type AccFragment = Array<Line<A>>;
 
-    type LhsTile = Strided;
-    type RhsTile = Strided;
+    type LhsTile = LhsTile;
+    type RhsTile = RhsTile;
     type AccTile = AccTile;
     type OutTile = Strided;
 
@@ -71,7 +73,7 @@ where
     }
 
     fn load_lhs<E: Numeric>(
-        tile: &StridedTile<E>,
+        tile: &LhsTile::Tile<E>,
         lhs: &mut Self::LhsFragment,
         #[comptime] config: Self::Config,
     ) {
@@ -86,11 +88,11 @@ where
     }
 
     fn load_rhs<E: Numeric>(
-        tile: &StridedTile<E>,
+        tile: &RhsTile::Tile<E>,
         rhs: &mut Self::RhsFragment,
         #[comptime] config: Self::Config,
     ) {
-        MmaStageReader::<Self::LhsTile>::load_fragment(
+        MmaStageReader::<Self::RhsTile>::load_fragment(
             tile,
             rhs,
             mma_definition::<L, R, A>(config),

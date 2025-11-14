@@ -22,6 +22,7 @@ use crate::{
                 SimpleTmaGlobalLayoutLaunch,
             },
         },
+        stage::SwizzleMode,
     },
 };
 
@@ -345,35 +346,58 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         selection: &MatmulSelection,
         problem: &MatmulProblem,
         line_sizes: &MatmulLineSizes,
-        _config: impl BatchConfig,
+        config: impl BatchConfig,
         dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let lhs = lhs_handle.data();
         let rhs = rhs_handle.data();
 
+        let config = config.global_config();
+
         let tiling_scheme = selection.tiling_scheme;
         let stage_m = tiling_scheme.elements_in_stage_m();
         let stage_n = tiling_scheme.elements_in_stage_n();
         let stage_k = tiling_scheme.elements_in_stage_k();
-        let stage_size_lhs = match problem.lhs_layout {
-            components::MatrixLayout::RowMajor => {
-                vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
-            }
-            components::MatrixLayout::ColMajor => {
-                vec![1, stage_k, tiling_scheme.elements_in_tile_m()]
-            }
-        };
-        let stage_size_rhs = match problem.rhs_layout {
-            components::MatrixLayout::RowMajor => {
-                vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
-            }
-            components::MatrixLayout::ColMajor => {
-                vec![1, stage_n, tiling_scheme.elements_in_tile_k()]
-            }
-        };
 
-        let lhs_elem_size = dtypes.lhs_global.size();
-        let rhs_elem_size = dtypes.rhs_global.size();
+        // Loaders use dynamic layout based on swizzle setting. For no swizzle, contiguous tiles are
+        // loaded and TMA loads single tile wide columns.
+        // For swizzled, bank conflicts aren't an issue so the tile size is the full stage.
+        let stage_size_lhs = match config.swizzle_mode(MatmulIdent::Lhs) {
+            SwizzleMode::None => match problem.lhs_layout {
+                components::MatrixLayout::RowMajor => {
+                    vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
+                }
+                components::MatrixLayout::ColMajor => {
+                    vec![1, stage_k, tiling_scheme.elements_in_tile_m()]
+                }
+            },
+            _ => match problem.lhs_layout {
+                components::MatrixLayout::RowMajor => {
+                    vec![1, stage_m, stage_k]
+                }
+                components::MatrixLayout::ColMajor => {
+                    vec![1, stage_k, stage_m]
+                }
+            },
+        };
+        let stage_size_rhs = match config.swizzle_mode(MatmulIdent::Rhs) {
+            SwizzleMode::None => match problem.rhs_layout {
+                components::MatrixLayout::RowMajor => {
+                    vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
+                }
+                components::MatrixLayout::ColMajor => {
+                    vec![1, stage_n, tiling_scheme.elements_in_tile_k()]
+                }
+            },
+            _ => match problem.rhs_layout {
+                components::MatrixLayout::RowMajor => {
+                    vec![1, stage_k, stage_n]
+                }
+                components::MatrixLayout::ColMajor => {
+                    vec![1, stage_n, stage_k]
+                }
+            },
+        };
 
         let lhs_rank = lhs.shape.len();
         let mut lhs_shape = vec![
@@ -428,17 +452,17 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             rhs_strides.insert(0, stride);
         }
 
-        fn prefetch(bytes: usize) -> TensorMapPrefetch {
-            match bytes {
-                ..64 => TensorMapPrefetch::None,
-                64..128 => TensorMapPrefetch::B64,
-                128..256 => TensorMapPrefetch::B128,
-                256.. => TensorMapPrefetch::B256,
+        fn swizzle(mode: SwizzleMode) -> TensorMapSwizzle {
+            match mode {
+                SwizzleMode::None => TensorMapSwizzle::None,
+                SwizzleMode::B32 => TensorMapSwizzle::B32,
+                SwizzleMode::B64 => TensorMapSwizzle::B64,
+                SwizzleMode::B128 => TensorMapSwizzle::B128,
             }
         }
 
-        let prefetch_lhs = prefetch(stage_size_lhs[2] as usize * lhs_elem_size);
-        let prefetch_rhs = prefetch(stage_size_rhs[2] as usize * rhs_elem_size);
+        let swizzle_lhs = swizzle(config.swizzle_mode(MatmulIdent::Lhs));
+        let swizzle_rhs = swizzle(config.swizzle_mode(MatmulIdent::Rhs));
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
@@ -462,8 +486,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             strides: lhs_strides,
             elem_stride: vec![1, 1, 1],
             interleave: TensorMapInterleave::None,
-            swizzle: TensorMapSwizzle::None,
-            prefetch: prefetch_lhs,
+            swizzle: swizzle_lhs,
+            prefetch: TensorMapPrefetch::None,
             oob_fill: OobFill::Zero,
             storage_ty: lhs_elem,
         };
@@ -477,8 +501,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             strides: rhs_strides,
             elem_stride: vec![1, 1, 1],
             interleave: TensorMapInterleave::None,
-            swizzle: TensorMapSwizzle::None,
-            prefetch: prefetch_rhs,
+            swizzle: swizzle_rhs,
+            prefetch: TensorMapPrefetch::None,
             oob_fill: OobFill::Zero,
             storage_ty: rhs_elem,
         };

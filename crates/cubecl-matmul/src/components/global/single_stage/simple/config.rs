@@ -1,7 +1,7 @@
 use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
 
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout,
+    LoadingPrecomputeStrategy, MatmulElems, MatmulIdent, MatrixLayout,
     error::MatmulSetupError,
     global::{
         self, LoadingSides, PlaneRoleConfig, SpecializedLoadingSides,
@@ -9,7 +9,7 @@ use crate::components::{
         read::{LoadingValidation, ReaderMode},
         shared::shared_global_config_validation,
     },
-    stage::{self, StageMemoryConfig},
+    stage::{self, StageMemoryConfig, SwizzleMode, TilingLayoutEnum},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -42,6 +42,14 @@ impl<S: stage::StageConfig> global::GlobalConfig for SimpleConfig<S> {
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
         self.stage_config.matrix_layout(ident.into_stage())
+    }
+
+    fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode {
+        self.stage_config.swizzle_mode(ident.into_stage())
+    }
+
+    fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum {
+        self.stage_config.tiling_layout(ident.into_stage())
     }
 
     fn plane_dim(&self) -> u32 {
@@ -124,6 +132,7 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
         k_step: u32,
         precompute_job: LoadingPrecomputeStrategy,
         reader_mode: ReaderMode,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
         Self {
             stage_config,
@@ -135,15 +144,16 @@ impl<S: stage::StageConfig> SimpleConfig<S> {
             precompute_job,
             reader_mode,
         }
-        .validate::<LL, RL, R>(client)
+        .validate::<LL, RL, R>(client, dtypes)
     }
 
     fn validate<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
         self,
         client: &ComputeClient<R::Server>,
+        dtypes: &MatmulElems,
     ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs)?;
-        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs)?;
+        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs, dtypes)?;
+        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs, dtypes)?;
         shared_global_config_validation(self)?;
 
         Ok(self)

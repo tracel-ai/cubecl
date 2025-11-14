@@ -3,7 +3,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
-use cubecl_std::tensor::{View, layout::Coords2d};
+use cubecl_std::{
+    Swizzle,
+    tensor::{View, layout::Coords2d},
+};
 
 use crate::components::AttentionPrecision;
 use crate::components::stage::{AttentionPartitioner, StageAttentionConfig};
@@ -41,7 +44,10 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
                     (attention_tile_size.seq_q, attention_tile_size.head_dim).runtime(),
                 )
                 .to_linear_slice(),
+            0,
+            attention_tile_size.seq_q * attention_tile_size.head_dim,
             config.tiling_scheme().elements_in_partition_head_dim(),
+            Swizzle::none(),
             MatrixLayout::RowMajor,
         )
     }

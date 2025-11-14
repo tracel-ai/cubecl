@@ -2,9 +2,12 @@ use cubecl_core::Runtime;
 use cubecl_core::client::ComputeClient;
 use cubecl_runtime::MmaConfig;
 
-use crate::components::error::{MatmulAvailabilityError, MatmulSetupError};
-use crate::components::tile::TileConfig;
-use crate::components::{MatmulElems, MatrixLayout, StageIdent, TileSize};
+use crate::components::{MatmulElems, tile::TileConfig};
+use crate::components::{MatrixLayout, StageIdent, TileSize};
+use crate::components::{
+    error::{MatmulAvailabilityError, MatmulSetupError},
+    stage::SwizzleMode,
+};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for Accelerated Matmul
@@ -32,6 +35,11 @@ impl TileConfig for CmmaConfig {
             StageIdent::Acc => MatrixLayout::RowMajor,
             StageIdent::Out => MatrixLayout::RowMajor,
         }
+    }
+
+    fn swizzle_mode(&self, _ident: StageIdent) -> SwizzleMode {
+        // Can't swizzle with CMMA
+        SwizzleMode::None
     }
 
     fn stage_line_size(&self, ident: StageIdent) -> u32 {

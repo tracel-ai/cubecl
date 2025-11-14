@@ -282,8 +282,7 @@ mod context {
 
             if map.contains_key(&id) {
                 return Err(alloc::format!(
-                    "A server is still registered for device {:?}",
-                    device
+                    "A server is still registered for device {device:?}"
                 ));
             }
 

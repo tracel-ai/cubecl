@@ -1,4 +1,3 @@
-use crate::components::global::{self, GlobalConfig, GlobalWriter};
 use crate::components::global::{Specializer, read::sync::Synchronous};
 use crate::components::{
     AccG,
@@ -15,7 +14,11 @@ use crate::components::{
     global::multi_stage::double_buffer_execution::{
         execute_current_and_read_next, execute_last_and_write_results, read_first,
     },
-    stage::{FilledStage, StridedStage},
+    stage::{FilledStage, StridedStageMemory},
+};
+use crate::components::{
+    global::{self, GlobalConfig, GlobalWriter},
+    stage::StridedStageFamily,
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -49,12 +52,12 @@ impl<MP: MatmulPrecision, SMM, RL, GW> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, <LL as FullLoadingStrategy>::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, <LL as FullLoadingStrategy>::TilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    RL: PartialLoadingStrategy<SyncStrategy = Synchronous>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = Synchronous>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = OrderedDoubleBufferingGlobalConfig<SMM::Config>;

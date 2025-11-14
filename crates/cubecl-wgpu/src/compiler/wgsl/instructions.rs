@@ -117,8 +117,57 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Tan {
+        input: Variable,
+        out: Variable,
+    },
     Tanh {
         input: Variable,
+        out: Variable,
+    },
+    Sinh {
+        input: Variable,
+        out: Variable,
+    },
+    Cosh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcCos {
+        input: Variable,
+        out: Variable,
+    },
+    ArcSin {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan {
+        input: Variable,
+        out: Variable,
+    },
+    ArcSinh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcCosh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTanh {
+        input: Variable,
+        out: Variable,
+    },
+    Degrees {
+        input: Variable,
+        out: Variable,
+    },
+    Radians {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan2 {
+        lhs: Variable,
+        rhs: Variable,
         out: Variable,
     },
     Powf {
@@ -625,6 +674,10 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sin({input});")
             }
+            Instruction::Tan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = tan({input});")
+            }
             Instruction::Tanh { input, out } => {
                 #[cfg(target_os = "macos")]
                 let result = super::call_safe_tanh(f, input, out);
@@ -635,6 +688,50 @@ impl Display for Instruction {
                 };
 
                 result
+            }
+            Instruction::Sinh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = sinh({input});")
+            }
+            Instruction::Cosh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = cosh({input});")
+            }
+            Instruction::ArcCos { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = acos({input});")
+            }
+            Instruction::ArcSin { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = asin({input});")
+            }
+            Instruction::ArcTan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan({input});")
+            }
+            Instruction::ArcSinh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = asinh({input});")
+            }
+            Instruction::ArcCosh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = acosh({input});")
+            }
+            Instruction::ArcTanh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atanh({input});")
+            }
+            Instruction::Degrees { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = degrees({input});")
+            }
+            Instruction::Radians { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = radians({input});")
+            }
+            Instruction::ArcTan2 { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan2({lhs}, {rhs});")
             }
             Instruction::Recip { input, out } => {
                 let item = input.item();
