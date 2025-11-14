@@ -9,11 +9,11 @@ use cubecl_common::{
 };
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
-    ir::{MatrixLayout, MmaProperties, TargetProperties},
+    ir::{ContiguousElements, MatrixLayout, MmaProperties, TargetProperties},
     server::ServerUtilities,
 };
 use cubecl_cpp::{
-    hip::{HipDialect, arch::AMDArchitecture},
+    hip::{HipDialect, arch::AMDArchitecture, mma::contiguous_elements_rdna3},
     register_supported_types,
     shared::{
         Architecture, CompilationOptions, CppCompiler, CppSupportedFeatures, DialectWmmaCompiler,
@@ -228,6 +228,7 @@ impl Runtime for HipRuntime {
                 register_duplication_a: 2,
                 register_duplication_b: 2,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_rdna3),
             },
         }
     }

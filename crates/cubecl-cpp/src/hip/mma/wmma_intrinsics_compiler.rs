@@ -10,7 +10,7 @@ use crate::{
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
+use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent};
 use cubecl_runtime::MmaConfig;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -559,21 +559,12 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 
     // Should optimize out
     let name = extension.fn_name();
-    writeln!(f, "{ty} {frag_a_tmp};", ty = extension.frag_a)?;
-    writeln!(f, "memcpy(&{frag_a_tmp}, {frag_a}, sizeof({frag_a_tmp}));")?;
-    writeln!(f, "{ty} {frag_b_tmp};", ty = extension.frag_b)?;
-    writeln!(f, "memcpy(&{frag_b_tmp}, {frag_b}, sizeof({frag_b_tmp}));")?;
-    writeln!(f, "{ty} {frag_c_tmp};", ty = extension.frag_c)?;
-    writeln!(f, "memcpy(&{frag_c_tmp}, {frag_c}, sizeof({frag_c_tmp}));")?;
-    writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
+
     writeln!(
         f,
-        "{name}({frag_a_tmp}, {frag_b_tmp}, {frag_c_tmp}, {frag_d_tmp});"
+        "{name}(reinterpret_cast<{}>({frag_a}[0]), reinterpret_cast<{}>({frag_b}[0]), reinterpret_cast<{}>({frag_c}), reinterpret_cast<{}>({frag_d}[0]));",
+        extension.frag_a, extension.frag_b, extension.frag_c, extension.frag_d
     )?;
-
-    for _ in 0..frag_d_len {
-        writeln!(f, "memcpy({frag_d}, &{frag_d_tmp}, sizeof({frag_d_tmp}));")?;
-    }
 
     Ok(())
 }
@@ -612,6 +603,10 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         result.extend(combinations);
     }
     result
+}
+
+pub fn contiguous_elements_rdna3(_ident: MatrixIdent, _matrix: Matrix) -> u32 {
+    16
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

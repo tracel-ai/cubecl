@@ -13,7 +13,7 @@ use crate::{
         SupportedScaledMmaCombinations, Variable, WmmaInstruction,
     },
 };
-use cubecl_core::ir::{self as gpu, ConstantScalarValue};
+use cubecl_core::ir::{self as gpu, ConstantScalarValue, Matrix, MatrixIdent};
 use cubecl_runtime::{MmaConfig, ScaledMmaConfig};
 use itertools::Itertools;
 
@@ -575,8 +575,24 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 
     let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
     let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
-    let frag_c = (0..cd_regs).map(|i| as_const_ty(format!("{frag_c}[{i}]"), cd_ty));
-    let frag_d = (0..cd_regs).map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty));
+    let frag_c = match cd_elem.size() {
+        4 | 8 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_c}[{}].i_{}", i / 2, i % 2), cd_ty))
+            .collect::<Vec<_>>(),
+        2 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
+            .collect::<Vec<_>>(),
+        other => panic!("Found unhandled accumulator elem size {other}"),
+    };
+    let frag_d = match cd_elem.size() {
+        4 | 8 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{}].i_{}", i / 2, i % 2), cd_ty))
+            .collect::<Vec<_>>(),
+        2 => (0..cd_regs)
+            .map(|i| as_ty(format!("{frag_d}[{i}]"), cd_ty))
+            .collect::<Vec<_>>(),
+        other => panic!("Found unhandled accumulator elem size {other}"),
+    };
     let args = comma_separated(frag_a.chain(frag_b).chain(frag_c).chain(frag_d));
     write!(
         f,
@@ -767,4 +783,11 @@ pub(super) fn supported_scaled_mma_combinations(
         ]);
     }
     result
+}
+
+pub fn contiguous_elements_cuda(ident: MatrixIdent, matrix: Matrix) -> u32 {
+    match ident {
+        MatrixIdent::A | MatrixIdent::B => (32 / matrix.storage.size_bits()) as u32,
+        MatrixIdent::Accumulator => 2,
+    }
 }

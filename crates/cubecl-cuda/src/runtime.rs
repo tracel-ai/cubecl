@@ -10,14 +10,14 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
-        TargetProperties,
+        ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType,
+        StorageType, TargetProperties,
     },
     server::ServerUtilities,
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
     register_supported_types,
     shared::{
         CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
@@ -325,6 +325,7 @@ impl Runtime for CudaRuntime {
                 register_duplication_a: 1,
                 register_duplication_b: 1,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
     }
