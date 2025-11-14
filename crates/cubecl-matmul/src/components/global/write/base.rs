@@ -1,7 +1,7 @@
 use crate::components::{
     MatrixPrecision,
-    global::{WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
-    stage::{Stage, StageConfig, StageFamily},
+    global::{RoleRuleConfig, WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
+    stage::{Stage, StageFamily, StageMemoryConfig},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -25,10 +25,13 @@ pub trait GlobalWriter<IP: MatrixPrecision>:
     type Stage: Stage<IP::Stage, ReadWrite>;
 
     /// Init this writer from a global tensor and config
-    fn init<S: StageConfig>(
+    fn init(
         tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] gmem_config: GlobalMemoryConfig,
+        #[comptime] smem_config: StageMemoryConfig,
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] plane_dim: u32,
+        #[comptime] num_partitions_n: u32,
     ) -> Self;
 
     /// Stage used by this writer

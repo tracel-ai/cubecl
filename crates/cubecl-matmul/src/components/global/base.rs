@@ -156,7 +156,8 @@ pub trait GlobalConfig:
 
     /// Returns the [TilingScheme]
     fn tiling_scheme(&self) -> TilingScheme {
-        self.stage_config().tiling_scheme()
+        todo!()
+        // self.stage_config().tiling_scheme()
     }
 
     /// Returns the [MatrixLayout] for the given ident
@@ -183,6 +184,9 @@ pub trait GlobalConfig:
     /// The [CubeDim] arising from the [TilingScheme]
     fn cube_dim(&self) -> CubeDim;
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TodoGRC;
 
 pub trait GlobalReaderConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static

@@ -255,8 +255,8 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        let conf = config.global_memory_config(MatmulIdent::Out);
-        Self::GlobalWriter::init::<SMM::Config>(out, conf, config.stage_config())
+        let gmem_config = config.global_memory_config(MatmulIdent::Out);
+        Self::GlobalWriter::init::<SMM::Config>(out, gmem_config, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

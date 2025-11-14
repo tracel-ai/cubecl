@@ -118,7 +118,9 @@ impl<
     fn on_event(
         this: &mut Self,
         #[comptime] event: StageEvent,
-        #[comptime] config: G::StageConfig,
+        #[comptime] must_sync_plane_after_execution: bool,
+        #[comptime] lhs_reader_config: GlobalReaderConfig,
+        #[comptime] rhs_reader_config: GlobalReaderConfig,
     ) {
         if let StageEvent::Begin = event {
             this.init();
@@ -130,7 +132,7 @@ impl<
             if comptime![analysis.lhs.should_execute(current)] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
-                if comptime!(config.must_sync_plane_after_execution()) {
+                if must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -138,14 +140,14 @@ impl<
                     &mut this.reader_lhs,
                     lhs_job,
                     &mut this.barrier,
-                    comptime!(this.config.lhs_reader_config()),
+                    lhs_reader_config,
                 );
             }
 
             if comptime![analysis.rhs.should_execute(current)] {
                 let rhs_job = this.state_rhs.index_mut(0);
 
-                if comptime!(config.must_sync_plane_after_execution()) {
+                if must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -153,7 +155,7 @@ impl<
                     &mut this.reader_rhs,
                     rhs_job,
                     &mut this.barrier,
-                    comptime!(this.config.rhs_reader_config()),
+                    rhs_reader_config,
                 );
             }
         }

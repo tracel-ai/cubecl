@@ -1,10 +1,9 @@
 use crate::components::MatmulPrecision;
 use crate::components::MatrixPrecision;
 use crate::components::global::RoleRule;
-use crate::components::stage::StageConfig;
+use crate::components::global::RoleRuleConfig;
 use crate::components::stage::matmul::partitioned_matmul::PartitionedStageMatmul;
 use crate::components::stage::matmul::partitioned_matmul::StagePartitioner;
-use crate::components::stage::matmul::unit_partitioned::UnitPartitionedStageConfig;
 use crate::components::tile::TileMatmul;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -23,28 +22,22 @@ pub type UnitMatmul<
     StageRhs,
     StageAcc,
     StageOut,
-> = PartitionedStageMatmul<
-    MP,
-    TM,
-    StageLhs,
-    StageRhs,
-    StageAcc,
-    StageOut,
-    UnitPartitioner,
-    UnitPartitionedStageConfig<TM::Config>,
->;
+> = PartitionedStageMatmul<MP, TM, StageLhs, StageRhs, StageAcc, StageOut, UnitPartitioner>;
 
 /// Defines how to partition across units
 pub struct UnitPartitioner {}
 
 #[cube]
 impl StagePartitioner for UnitPartitioner {
-    fn coordinates<S: StageConfig>(#[comptime] config: S) -> Coords2d {
-        let plane_id = RoleRule::new(config.role_rule_config()).compute_index();
+    fn coordinates(
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] plane_dim: u32,
+        #[comptime] num_partitions_n: u32,
+    ) -> Coords2d {
+        let plane_id = RoleRule::new(role_rule_config).compute_index();
 
-        let absolute_index = UNIT_POS_X + config.plane_dim() * plane_id;
+        let absolute_index = UNIT_POS_X + plane_dim * plane_id;
 
-        let num_partitions_n = config.tiling_scheme().stage_partitions_in_stage_n();
         (
             absolute_index / num_partitions_n,
             absolute_index % num_partitions_n,

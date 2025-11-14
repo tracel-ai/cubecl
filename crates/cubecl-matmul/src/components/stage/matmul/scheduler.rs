@@ -4,6 +4,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
 /// Defines how partition indices are scheduled across axes.
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum PartitionSchedulerScheme {
     /// Rotates indices per axis to stagger partitions and reduce shared memory conflicts.
     Offset,

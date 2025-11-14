@@ -3,14 +3,14 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::{
-        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, WriteEvent,
-        WriteEventExpand, WriteEventListener,
+        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, RoleRuleConfig,
+        WriteEvent, WriteEventExpand, WriteEventListener,
         memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
-    stage::{StageConfig, StageMemoryConfig, StagePartitioner, UnitPartitioner},
+    stage::{StageMemoryConfig, StagePartitioner, UnitPartitioner},
     tile::StridedTile,
 };
 
@@ -27,18 +27,23 @@ pub struct UnitWriter<IP: MatrixPrecision> {
 
 #[cube]
 impl<IP: MatrixPrecision> UnitWriter<IP> {
-    pub fn new<S: StageConfig>(
+    pub fn new(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] global_config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] gmem_config: GlobalMemoryConfig,
+        #[comptime] smem_config: StageMemoryConfig,
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] plane_dim: u32,
+        #[comptime] num_partitions_n: u32,
     ) -> Self {
-        let stage_mem_config = comptime![stage_memory_config(stage_config)];
-        let stage = PartitionedStage::new(tile_pos::<S>(stage_config), stage_mem_config);
+        let stage = PartitionedStage::new(
+            UnitPartitioner::coordinates(role_rule_config, plane_dim, num_partitions_n),
+            smem_config,
+        );
 
         UnitWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(global_config)),
+            global: global.view_mut(TiledLayout::new(gmem_config)),
             stage,
-            config: global_config,
+            config: gmem_config,
         }
     }
 
@@ -66,21 +71,19 @@ pub fn unit_write<ES: Numeric, EG: Numeric>(
     }
 }
 
-#[cube]
-fn tile_pos<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
-    UnitPartitioner::coordinates::<S>(config)
-}
+// #[cube]
+// fn tile_pos(#[comptime] config: S) -> (u32, u32) {}
 
-fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
-    let units = config.num_main_flow_planes() * config.plane_dim();
-    let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
-    let base = config.stage_memory_config(StageIdent::Acc);
-    StageMemoryConfig {
-        tiles_in_stage_row: units / size_n,
-        tiles_in_stage_col: size_n,
-        ..base
-    }
-}
+// fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
+//     let units = config.num_main_flow_planes() * config.plane_dim();
+//     let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
+//     let base = config.stage_memory_config(StageIdent::Acc);
+//     StageMemoryConfig {
+//         tiles_in_stage_row: units / size_n,
+//         tiles_in_stage_col: size_n,
+//         ..base
+//     }
+// }
 
 #[cube]
 impl<IP: MatrixPrecision> WriteEventListener for UnitWriter<IP> {
@@ -97,12 +100,22 @@ impl<IP: MatrixPrecision> WriteEventListener for UnitWriter<IP> {
 impl<IP: MatrixPrecision> GlobalWriter<IP> for UnitWriter<IP> {
     type Stage = PartitionedStage<IP::Stage>;
 
-    fn init<S: StageConfig>(
+    fn init(
         tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] gmem_config: GlobalMemoryConfig,
+        #[comptime] smem_config: StageMemoryConfig,
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] plane_dim: u32,
+        #[comptime] num_partitions_n: u32,
     ) -> Self {
-        Self::new::<S>(tensor, config, stage_config)
+        Self::new(
+            tensor,
+            gmem_config,
+            smem_config,
+            role_rule_config,
+            plane_dim,
+            num_partitions_n,
+        )
     }
 
     fn stage(this: &Self) -> Self::Stage {

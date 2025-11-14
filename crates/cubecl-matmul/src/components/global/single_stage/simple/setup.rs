@@ -6,7 +6,7 @@ use crate::components::{
         read::FullLoadingStrategy,
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
-    stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
+    stage::{FilledStageFamily, NoTilingLayout, StridedStageFamily},
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
