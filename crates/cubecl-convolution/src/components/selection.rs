@@ -1,7 +1,9 @@
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::stage::PartitionBuffering;
 
-use cubecl_matmul::components::{MatmulElems, MatmulSelection, TilingScheme, adjust_dtypes};
+use cubecl_matmul::components::{
+    MatmulAvailabilityError, MatmulElems, MatmulSelection, TilingScheme, adjust_dtypes,
+};
 use cubecl_matmul::{
     components::tile::TileMatmulFamily,
     kernels::layered::{NUM_SM_APPROX, NUM_TENSOR_CORES_APPROX, find_instruction_size},
@@ -79,14 +81,14 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     problem: &ConvolutionProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
-) -> MatmulSelection {
+) -> Result<MatmulSelection, MatmulAvailabilityError> {
     adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
 
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.
     let stage_k = if problem.k >= 4096 { 4 } else { 2 };
 
-    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n)?;
 
     let hardware = &client.properties().hardware;
     let num_sm = hardware
@@ -111,7 +113,7 @@ pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .build()
         .unwrap();
 
-    MatmulSelection::builder(tiling_scheme, plane_dim)
+    Ok(MatmulSelection::builder(tiling_scheme, plane_dim)
         .partition_buffering(PartitionBuffering::Single)
-        .build()
+        .build())
 }
