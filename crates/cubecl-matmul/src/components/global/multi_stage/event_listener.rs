@@ -23,8 +23,8 @@ pub enum EventLoadingMode {
 /// allowing data for the next tile to be loaded while the current tile is being computed.
 pub struct DoubleBufferingEventListener<
     S: SyncStrategy,
-    Lhs: JobExecutor<G::LhsReaderConfig, S>,
-    Rhs: JobExecutor<G::RhsReaderConfig, S>,
+    Lhs: JobExecutor<S>,
+    Rhs: JobExecutor<S>,
     G: GlobalConfig,
 > {
     #[cube(comptime)]
@@ -66,12 +66,8 @@ struct EventAnalysis {
 impl CubeDebug for EventAnalysis {}
 
 #[cube]
-impl<
-    S: SyncStrategy,
-    Lhs: JobExecutor<G::LhsReaderConfig, S>,
-    Rhs: JobExecutor<G::RhsReaderConfig, S>,
-    G: GlobalConfig,
-> DoubleBufferingEventListener<S, Lhs, Rhs, G>
+impl<S: SyncStrategy, Lhs: JobExecutor<S>, Rhs: JobExecutor<S>, G: GlobalConfig>
+    DoubleBufferingEventListener<S, Lhs, Rhs, G>
 {
     /// Create a new DoubleBufferingEventListener
     pub fn new(
@@ -96,12 +92,8 @@ impl<
 }
 
 #[cube]
-impl<
-    S: SyncStrategy,
-    L: JobExecutor<G::LhsReaderConfig, S>,
-    R: JobExecutor<G::RhsReaderConfig, S>,
-    G: GlobalConfig,
-> StageEventListener<G::StageConfig> for DoubleBufferingEventListener<S, L, R, G>
+impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> StageEventListener
+    for DoubleBufferingEventListener<S, L, R, G>
 {
     /// Responds to stage-level events by injecting Lhs/Rhs loading tasks during execution.
     ///
@@ -224,12 +216,8 @@ impl<
 }
 
 #[cube]
-impl<
-    S: SyncStrategy,
-    L: JobExecutor<G::LhsReaderConfig, S>,
-    R: JobExecutor<G::RhsReaderConfig, S>,
-    G: GlobalConfig,
-> DoubleBufferingEventListener<S, L, R, G>
+impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig>
+    DoubleBufferingEventListener<S, L, R, G>
 {
     fn init(&mut self) {
         if comptime!(self.event_loading_side.includes_lhs()) {
@@ -313,7 +301,7 @@ impl<
 
 #[cube]
 /// Something that can execute a job, i.e. a reader
-pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone {
+pub trait JobExecutor<S: SyncStrategy>: CubeType + Clone {
     /// The job to execute
     type JobIterator: JobIterator;
 
@@ -321,7 +309,7 @@ pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone 
     fn create_job_iterator(
         this: &Self,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::JobIterator;
 
     /// Execute the next task
@@ -329,7 +317,7 @@ pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone 
         this: &mut Self,
         job: &mut Self::JobIterator,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Execute all tasks that remain at once
@@ -337,7 +325,7 @@ pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone 
         this: &mut Self,
         job: &mut Self::JobIterator,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Create a job and execute all its tasks at once
@@ -345,7 +333,7 @@ pub trait JobExecutor<G: GlobalReaderConfig, S: SyncStrategy>: CubeType + Clone 
         this: &mut Self,
         barrier: &mut S::Barrier,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 }
 

@@ -131,7 +131,7 @@ impl<
                     problem.lhs_layout,
                     problem.rhs_layout,
                     MatrixLayout::RowMajor,
-                    plane_role_config.rule,
+                    plane_role_config,
                     selection.plane_dim,
                     tiling_scheme.stage_size,
                     PartitionSchedulerScheme::Naive,
@@ -146,7 +146,6 @@ impl<
             dtypes.acc_stage.size() as u32,
             client.properties().hardware.max_shared_memory_size as u32,
             tiling_scheme,
-            plane_role_config.main_flow_count(),
             selection.partition_buffering,
             num_stages,
         )
@@ -160,11 +159,11 @@ fn validate<TC: TileConfig>(
     eo_size: u32,
     smem_limit: u32,
     tiling_scheme: TilingScheme,
-    num_compute_planes: u32,
     partition_buffering: PartitionBuffering,
     num_stages: NumStages,
 ) -> Result<PartitionMatmulConfig<TC>, MatmulSetupError> {
     let num_planes_needed = tiling_scheme.stage_partitions_in_stage_mn();
+    let num_compute_planes = stage_config.shared().plane_role_config.main_flow_count();
 
     if num_compute_planes != num_planes_needed {
         return Err(MatmulSetupError::InvalidConfig(Box::new(format!(

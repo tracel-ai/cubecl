@@ -21,9 +21,9 @@ use super::LoadingValidation;
 pub struct AsyncFullMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
@@ -54,10 +54,10 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(ident);
 
@@ -94,22 +94,22 @@ pub struct AsyncFullMaximizeSliceLengthJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeSliceLengthJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let nth_slice = this.unit_count * task_id + UNIT_POS;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
-            load_nth_slice::<EG, ES, G>(nth_slice, global_iter, stage, barrier, this.ident, config);
+            load_nth_slice::<EG, ES>(nth_slice, global_iter, stage, barrier, this.ident, config);
         } else {
             if nth_slice < this.num_slices {
-                load_nth_slice::<EG, ES, G>(
+                load_nth_slice::<EG, ES>(
                     nth_slice,
                     global_iter,
                     stage,
@@ -127,13 +127,13 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
 }
 
 #[cube]
-fn load_nth_slice<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+fn load_nth_slice<EG: Numeric, ES: Numeric>(
     nth_slice: u32,
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,
     barrier: &Barrier,
     #[comptime] ident: MatmulIdent,
-    #[comptime] config: G,
+    #[comptime] config: GlobalReaderConfig,
 ) {
     let window = load_window_in_stage(
         &global_iter.view(),

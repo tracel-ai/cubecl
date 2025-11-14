@@ -1,7 +1,4 @@
-use crate::components::{
-    stage::{StageConfig, matmul::partition::SharedPartitionMatmulConfig},
-    tile::TileConfig,
-};
+use crate::components::{stage::matmul::partition::SharedPartitionMatmulConfig, tile::TileConfig};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the unit partitioned stage matmul
@@ -15,9 +12,21 @@ impl<TC: TileConfig> UnitPartitionedStageConfig<TC> {
     }
 }
 
-impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
-    type TileConfig = T;
-}
+// impl<T: TileConfig> StageConfig for UnitPartitionedStageConfig<T> {
+//     type TileConfig = T;
+
+//     fn elements_in_stage_m(&self) -> u32 {
+//         self.
+//     }
+
+//     fn elements_in_stage_n(&self) -> u32 {
+//         todo!()
+//     }
+
+//     fn elements_in_stage_k(&self) -> u32 {
+//         todo!()
+//     }
+// }
 
 // pub tile_config: T,
 // pub tiling_scheme: TilingScheme,

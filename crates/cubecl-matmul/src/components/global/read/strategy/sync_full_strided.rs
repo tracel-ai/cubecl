@@ -16,9 +16,9 @@ use super::{LoadingJob, LoadingValidation};
 pub struct SyncFullStridedLoading {}
 
 impl LoadingValidation for SyncFullStridedLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
@@ -57,10 +57,10 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = SyncFullStridedJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
         let unit_count = config.num_loading_planes(ident) * config.plane_dim();
@@ -99,13 +99,13 @@ pub struct SyncFullStridedJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchronous>
     for SyncFullStridedJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, StridedTilingLayout>,
         _barrier: &mut (),
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 

@@ -7,7 +7,6 @@ use cubecl_core::{
 use crate::components::{
     LhsS, MatmulPrecision, RhsS, StageIdent,
     global::{GlobalConfig, read::SyncStrategy},
-    stage::StageConfig,
 };
 
 /// Asynchronous barrier for TMA loads

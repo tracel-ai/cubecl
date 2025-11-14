@@ -21,9 +21,9 @@ pub struct SyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode() {
@@ -64,10 +64,10 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = SyncFullCyclicJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
         let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
@@ -124,28 +124,22 @@ pub struct SyncFullCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullCyclicJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let unit_position = this.unit_position_base + task_id * this.jump_length;
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.reader_mode == ReaderMode::Strict || this.balanced_workload) {
-            load_and_store_line::<EG, ES, TO, G>(this, unit_position, global_iter, stage, config);
+            load_and_store_line::<EG, ES, TO>(this, unit_position, global_iter, stage, config);
         } else {
             if unit_position < this.num_stage_elements {
-                load_and_store_line::<EG, ES, TO, G>(
-                    this,
-                    unit_position,
-                    global_iter,
-                    stage,
-                    config,
-                );
+                load_and_store_line::<EG, ES, TO>(this, unit_position, global_iter, stage, config);
             }
         }
     }
@@ -156,17 +150,12 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<
-    EG: Numeric,
-    ES: Numeric,
-    TO: TilingOrder,
-    G: GlobalReaderConfig,
->(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     job: &SyncFullCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
-    #[comptime] config: G,
+    #[comptime] config: GlobalReaderConfig,
 ) {
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;

@@ -23,9 +23,9 @@ use super::LoadingValidation;
 pub struct AsyncFullCooperativeLoading {}
 
 impl LoadingValidation for AsyncFullCooperativeLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
@@ -56,10 +56,10 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullCooperativeJob {
         let matrix_layout = config.matrix_layout(ident);
 
@@ -84,13 +84,13 @@ pub struct AsyncFullCooperativeJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullCooperativeJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let window = load_window_in_stage(
             &global_iter.view(),

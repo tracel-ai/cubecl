@@ -22,9 +22,9 @@ use super::{LoadingValidation, sync_full_tilewise};
 pub struct SyncFullOrderedLoading {}
 
 impl LoadingValidation for SyncFullOrderedLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         if ident != MatmulIdent::Lhs {
@@ -93,10 +93,10 @@ impl FullLoadingStrategy for SyncFullOrderedLoading {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = sync_full_tilewise::SyncFullTilewiseJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);

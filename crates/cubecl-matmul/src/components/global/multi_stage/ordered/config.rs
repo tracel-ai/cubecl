@@ -1,185 +1,168 @@
-use cubecl_core::{CubeDim, Runtime, client::ComputeClient};
-
 use crate::components::{
-    LoadingPrecomputeStrategy, MatmulIdent, MatrixLayout, TilingScheme,
-    error::MatmulSetupError,
+    LoadingPrecomputeStrategy,
     global::{
-        GlobalConfig, GlobalReaderConfig, PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides,
-        multi_stage::EventLoadingMode,
-        read::{LoadingValidation, ReaderMode},
-        shared::shared_global_config_validation,
+        GlobalConfig, PlaneRoleConfig, SharedGlobalConfig, SpecializedLoadingSides,
+        read::ReaderMode,
     },
-    stage::{self, StageConfig, StageMemoryConfig},
+    stage::{self, StageConfig},
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Configuration for the ordered double buffering global matmul
 pub struct OrderedDoubleBufferingGlobalConfig<S: stage::StageConfig> {
-    pub stage_config: S,
-    num_planes: u32,
+    pub shared: SharedGlobalConfig<S>,
     pub check_m_bounds: bool,
     pub check_n_bounds: bool,
     pub check_k_bounds: bool,
     precompute_job: LoadingPrecomputeStrategy,
     reader_mode: ReaderMode,
-    specialized_loading_sides: SpecializedLoadingSides,
+    pub specialized_loading_sides: SpecializedLoadingSides,
 }
 
 impl<S: stage::StageConfig> GlobalConfig for OrderedDoubleBufferingGlobalConfig<S> {
-    type StageConfig = S;
-    type LhsReaderConfig = Self;
-    type RhsReaderConfig = Self;
+    // type StageConfig = S;
+    // type LhsReaderConfig = Self;
+    // type RhsReaderConfig = Self;
 
-    fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
-        *self
-    }
+    // fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
+    //     *self
+    // }
 
-    fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
-        *self
-    }
+    // fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
+    //     *self
+    // }
 
-    fn stage_config(&self) -> Self::StageConfig {
-        self.stage_config
-    }
+    // fn stage_config(&self) -> Self::StageConfig {
+    //     self.stage_config
+    // }
 
-    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        self.stage_config.global_line_size(ident.into_stage())
-    }
+    // fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+    //     self.stage_config.global_line_size(ident.into_stage())
+    // }
 
-    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        self.stage_config.matrix_layout(ident.into_stage())
-    }
+    // fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+    //     self.stage_config.matrix_layout(ident.into_stage())
+    // }
 
-    fn plane_dim(&self) -> u32 {
-        self.stage_config.plane_dim()
-    }
+    // fn plane_dim(&self) -> u32 {
+    //     self.stage_config.plane_dim()
+    // }
 
-    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        match ident {
-            MatmulIdent::Lhs => self.check_m_bounds,
-            MatmulIdent::Rhs => self.check_k_bounds,
-            MatmulIdent::Out => self.check_m_bounds,
-        }
-    }
+    // fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+    //     match ident {
+    //         MatmulIdent::Lhs => self.check_m_bounds,
+    //         MatmulIdent::Rhs => self.check_k_bounds,
+    //         MatmulIdent::Out => self.check_m_bounds,
+    //     }
+    // }
 
-    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        match ident {
-            MatmulIdent::Lhs => self.check_k_bounds,
-            MatmulIdent::Rhs => self.check_n_bounds,
-            MatmulIdent::Out => self.check_n_bounds,
-        }
-    }
+    // fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+    //     match ident {
+    //         MatmulIdent::Lhs => self.check_k_bounds,
+    //         MatmulIdent::Rhs => self.check_n_bounds,
+    //         MatmulIdent::Out => self.check_n_bounds,
+    //     }
+    // }
 
-    fn check_k_bounds(&self) -> bool {
-        self.check_k_bounds
-    }
+    // fn check_k_bounds(&self) -> bool {
+    //     self.check_k_bounds
+    // }
 
-    fn num_stages(&self, ident: MatmulIdent) -> u32 {
-        match ident {
-            MatmulIdent::Lhs => 1,
-            MatmulIdent::Rhs => 2,
-            MatmulIdent::Out => unreachable!(),
-        }
-    }
+    // fn num_stages(&self, ident: MatmulIdent) -> u32 {
+    //     match ident {
+    //         MatmulIdent::Lhs => 1,
+    //         MatmulIdent::Rhs => 2,
+    //         MatmulIdent::Out => unreachable!(),
+    //     }
+    // }
 
-    fn cube_dim(&self) -> CubeDim {
-        CubeDim::new_2d(<Self as GlobalConfig>::plane_dim(self), self.num_planes)
-    }
+    // fn cube_dim(&self) -> CubeDim {
+    //     CubeDim::new_2d(<Self as GlobalConfig>::plane_dim(self), self.num_planes)
+    // }
 
-    fn role_rule_config(&self) -> RoleRuleConfig {
-        self.plane_role_config().rule
-    }
+    // fn role_rule_config(&self) -> RoleRuleConfig {
+    //     self.plane_role_config().rule
+    // }
 }
 
-impl<S: StageConfig> GlobalReaderConfig for OrderedDoubleBufferingGlobalConfig<S> {
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config().stage_memory_config(ident.into_stage())
-    }
+// impl<S: StageConfig> GlobalReaderConfig for OrderedDoubleBufferingGlobalConfig<S> {
+// fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+//     self.stage_config().stage_memory_config(ident.into_stage())
+// }
 
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.stage_config().tiling_scheme()
-    }
+// fn tiling_scheme(&self) -> TilingScheme {
+//     self.stage_config().tiling_scheme()
+// }
 
-    fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-        <Self as GlobalConfig>::global_line_size(self, ident)
-    }
+// fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+//     <Self as GlobalConfig>::global_line_size(self, ident)
+// }
 
-    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-        <Self as GlobalConfig>::matrix_layout(self, ident)
-    }
+// fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+//     <Self as GlobalConfig>::matrix_layout(self, ident)
+// }
 
-    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
-        self.specialized_loading_sides.num_loading_planes(
-            self.plane_role_config().has_specialization(),
-            ident,
-            self.plane_role_config().plane_roles,
-        )
-    }
+// fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
+//     self.specialized_loading_sides.num_loading_planes(
+//         self.plane_role_config().has_specialization(),
+//         ident,
+//         self.plane_role_config().plane_roles,
+//     )
+// }
 
-    fn plane_role_config(&self) -> PlaneRoleConfig {
-        self.stage_config.plane_role_config()
-    }
+// fn plane_role_config(&self) -> PlaneRoleConfig {
+//     self.stage_config.plane_role_config()
+// }
 
-    fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        self.specialized_loading_sides
-    }
+// fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+//     self.specialized_loading_sides
+// }
 
-    fn plane_dim(&self) -> u32 {
-        <Self as GlobalConfig>::plane_dim(self)
-    }
+// fn plane_dim(&self) -> u32 {
+//     <Self as GlobalConfig>::plane_dim(self)
+// }
 
-    fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_row_bounds(self, ident)
-    }
+// fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+//     <Self as GlobalConfig>::check_row_bounds(self, ident)
+// }
 
-    fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-        <Self as GlobalConfig>::check_col_bounds(self, ident)
-    }
+// fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+//     <Self as GlobalConfig>::check_col_bounds(self, ident)
+// }
 
-    fn precompute_job(&self) -> bool {
-        self.precompute_job.into()
-    }
+// fn precompute_job(&self) -> bool {
+//     self.precompute_job.into()
+// }
 
-    fn reader_mode(&self) -> ReaderMode {
-        self.reader_mode
-    }
+// fn reader_mode(&self) -> ReaderMode {
+//     self.reader_mode
+// }
 
-    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
-        match ident {
-            MatmulIdent::Lhs => EventLoadingMode::Ordered,
-            MatmulIdent::Rhs => EventLoadingMode::Relaxed,
-            MatmulIdent::Out => unreachable!(),
-        }
-    }
+// fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode {
+//     match ident {
+//         MatmulIdent::Lhs => EventLoadingMode::Ordered,
+//         MatmulIdent::Rhs => EventLoadingMode::Relaxed,
+//         MatmulIdent::Out => unreachable!(),
+//     }
+// }
 
-    fn num_stages(&self, ident: MatmulIdent) -> u32 {
-        <Self as GlobalConfig>::num_stages(self, ident)
-    }
-}
+// fn num_stages(&self, ident: MatmulIdent) -> u32 {
+//     <Self as GlobalConfig>::num_stages(self, ident)
+// }
+// }
 
-impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
-    #[allow(clippy::too_many_arguments)]
-    /// Create a new config for double buffering global matmul
-    ///
-    /// May return an error if:
-    /// - a reader is invalid
-    /// - CubeDim is too big
-    /// - There is more than one stage partition in n
-    /// - Lhs is not loaded exclusively by main flow planes
-    pub fn new<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
-        client: &ComputeClient<R::Server>,
-        stage_config: S,
-        num_planes: u32,
+impl<S: StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
+    pub fn from_shared_global_config(
+        shared: SharedGlobalConfig<S>,
         check_m_bounds: bool,
         check_n_bounds: bool,
         check_k_bounds: bool,
         precompute_job: LoadingPrecomputeStrategy,
         reader_mode: ReaderMode,
         specialized_loading_sides: SpecializedLoadingSides,
-    ) -> Result<Self, MatmulSetupError> {
+    ) -> Self {
         Self {
-            stage_config,
-            num_planes,
+            shared,
             check_m_bounds,
             check_n_bounds,
             check_k_bounds,
@@ -187,28 +170,9 @@ impl<S: stage::StageConfig> OrderedDoubleBufferingGlobalConfig<S> {
             reader_mode,
             specialized_loading_sides,
         }
-        .validate::<LL, RL, R>(client)
     }
 
-    fn validate<LL: LoadingValidation, RL: LoadingValidation, R: Runtime>(
-        self,
-        client: &ComputeClient<R::Server>,
-    ) -> Result<Self, MatmulSetupError> {
-        LL::check::<Self, R>(client, &self, MatmulIdent::Lhs)?;
-        RL::check::<Self, R>(client, &self, MatmulIdent::Rhs)?;
-        shared_global_config_validation(self)?;
-        if <Self as GlobalConfig>::tiling_scheme(&self).stage_partitions_in_stage_n() > 1 {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(
-                "Ordered does not support number of stage partitions > 1 in n",
-            )));
-        }
-
-        if self.specialized_loading_sides.load_only.includes_lhs() {
-            return Err(MatmulSetupError::InvalidConfig(Box::new(
-                "Error: In Ordered lhs loading cannot be outside of main flow",
-            )));
-        }
-
-        Ok(self)
+    pub fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.shared.stage_config.plane_role_config()
     }
 }

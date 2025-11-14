@@ -1,7 +1,4 @@
-use crate::components::global::{
-    WriteTiling,
-    multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
-};
+use crate::components::global::{SharedGlobalConfig, cube_dim_validation};
 use crate::components::stage::StageConfig;
 use crate::components::{
     MatmulElems,
@@ -10,8 +7,16 @@ use crate::components::{
         read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
     },
 };
-use crate::components::{MatmulLineSizes, MatmulSelection};
+use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
+use crate::components::{
+    TilingScheme,
+    global::{
+        WriteTiling,
+        multi_stage::ordered::{LL, OrderedDoubleBufferingMatmul},
+        read::LoadingValidation,
+    },
+};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
 use crate::components::{global::MaxGlobalReaderPlanes, stage::NoTilingLayout};
@@ -85,22 +90,49 @@ where
             dtypes,
         )?;
 
-        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
+        let stage_shape_m = stage_config.elements_in_stage_m();
+        let stage_shape_n = stage_config.elements_in_stage_n();
+        let stage_shape_k = stage_config.elements_in_stage_k();
 
         let num_planes = stage_config.plane_role_config().plane_roles.total_count();
 
-        OrderedDoubleBufferingGlobalConfig::new::<LL, RL, R>(
-            client,
-            stage_config,
-            num_planes,
+        let config = OrderedDoubleBufferingGlobalConfig::from_shared_global_config(
+            SharedGlobalConfig {
+                stage_config,
+                num_planes,
+            },
             !(problem.m as u32).is_multiple_of(stage_shape_m),
             !(problem.n as u32).is_multiple_of(stage_shape_n),
             !(problem.k as u32).is_multiple_of(2 * stage_shape_k),
             selection.loading_precompute_strategy,
             selection.reader_mode,
             selection.load_specialization_config.into(),
-        )
+        );
+
+        validate::<LL, RL, SMM::Config, R>(config, client, selection.tiling_scheme)
     }
+}
+
+fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
+    config: OrderedDoubleBufferingGlobalConfig<S>,
+    client: &ComputeClient<R::Server>,
+    tiling_scheme: TilingScheme,
+) -> Result<OrderedDoubleBufferingGlobalConfig<S>, MatmulSetupError> {
+    LL::check::<OrderedDoubleBufferingGlobalConfig<S>, R>(client, &config, MatmulIdent::Lhs)?;
+    RL::check::<OrderedDoubleBufferingGlobalConfig<S>, R>(client, &config, MatmulIdent::Rhs)?;
+    cube_dim_validation(config.shared.cube_dim())?;
+
+    if tiling_scheme.stage_partitions_in_stage_n() > 1 {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "Ordered does not support number of stage partitions > 1 in n",
+        )));
+    }
+
+    if config.specialized_loading_sides.load_only.includes_lhs() {
+        return Err(MatmulSetupError::InvalidConfig(Box::new(
+            "Error: In Ordered lhs loading cannot be outside of main flow",
+        )));
+    }
+
+    Ok(config)
 }

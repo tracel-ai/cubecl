@@ -1,12 +1,12 @@
 use crate::components::{
-    MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
-        GlobalWriterFamily, WriteTiling,
-        read::FullLoadingStrategy,
+        GlobalWriterFamily, SharedGlobalConfig, WriteTiling, cube_dim_validation,
+        read::{FullLoadingStrategy, LoadingValidation},
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
-    stage::{FilledStageFamily, NoTilingLayout, StridedStageFamily},
+    stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -69,9 +69,9 @@ where
             dtypes,
         )?;
 
-        let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-        let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-        let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
+        let stage_shape_m = stage_config.elements_in_stage_m();
+        let stage_shape_n = stage_config.elements_in_stage_n();
+        let stage_shape_k = stage_config.elements_in_stage_k();
 
         let num_planes = if !selection.load_specialization_config.has_specialization() {
             stage_config.num_main_flow_planes()
@@ -81,16 +81,29 @@ where
             )));
         };
 
-        SimpleConfig::new::<LL, RL, R>(
-            client,
-            stage_config,
-            num_planes,
+        let config = SimpleConfig::from_shared_global_config(
+            SharedGlobalConfig {
+                stage_config,
+                num_planes,
+            },
             !(problem.m as u32).is_multiple_of(stage_shape_m),
             !(problem.n as u32).is_multiple_of(stage_shape_n),
             !(problem.k as u32).is_multiple_of(stage_shape_k),
             stage_shape_k,
             selection.loading_precompute_strategy,
             selection.reader_mode,
-        )
+        );
+
+        validate::<LL, RL, SMM::Config, R>(config, client)
     }
+}
+
+fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
+    config: SimpleConfig<S>,
+    client: &ComputeClient<R::Server>,
+) -> Result<SimpleConfig<S>, MatmulSetupError> {
+    LL::check::<SimpleConfig<S>, R>(client, &config, MatmulIdent::Lhs)?;
+    RL::check::<SimpleConfig<S>, R>(client, &config, MatmulIdent::Rhs)?;
+    cube_dim_validation(config.shared.cube_dim())?;
+    Ok(config)
 }

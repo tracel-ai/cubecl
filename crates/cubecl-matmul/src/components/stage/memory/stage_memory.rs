@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{GlobalReaderConfig, RoleRule};
+use crate::components::global::{
+    GlobalReaderConfig, RoleRule, RoleRuleConfig, SpecializedLoadingSides,
+};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
 use crate::components::{MatmulIdent, MatrixLayout};
@@ -121,22 +123,25 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
 
     /// Zero out the shared memory
     /// Available for matmul only
-    pub fn clear_all<G: GlobalReaderConfig>(
+    pub fn clear_all(
         &mut self,
         #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] num_loading_planes: u32,
+        #[comptime] plane_dim: u32,
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
     ) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(
             self.config.num_stages * self.config.elements_in_stage() / self.config.stage_line_size
         );
 
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
+        let unit_count = num_loading_planes * plane_dim;
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
-        let unit_base_position = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_base_position = RoleRule::new(role_rule_config)
+            .load_index(ident, specialized_loading_sides)
+            * plane_dim
             + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
@@ -159,24 +164,27 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] matrix_layout: MatrixLayout,
+        #[comptime] num_loading_planes: u32,
+        #[comptime] plane_dim: u32,
+        #[comptime] role_rule_config: RoleRuleConfig,
+        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
+        #[comptime] elements_in_tile_k: u32,
     ) {
         // TODO: this assumes the stage was created with new
         // Also assumes two buffers
-        let tiling_scheme = config.tiling_scheme();
+        // let tiling_scheme = config.tiling_scheme();
         let line_size = comptime![self.config.stage_line_size];
         let smem_length =
             comptime!(self.config.num_stages * self.config.elements_in_stage() / line_size);
         let buffer_length = smem_length / 2;
 
-        let matrix_layout = config.matrix_layout(ident);
-
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
+        let unit_count = num_loading_planes * plane_dim;
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
 
-        let unit_base_position = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_base_position = RoleRule::new(role_rule_config)
+            .load_index(ident, specialized_loading_sides)
+            * plane_dim
             + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
@@ -187,17 +195,12 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
                 | (MatmulIdent::Rhs, MatrixLayout::RowMajor) => {
                     stage_buffer.to_index() * buffer_length + unit_position
                 }
-                (MatmulIdent::Lhs, MatrixLayout::RowMajor) => {
-                    let buffer_width = tiling_scheme.elements_in_tile_col(ident) / line_size;
+                (MatmulIdent::Lhs, MatrixLayout::RowMajor)
+                | (MatmulIdent::Rhs, MatrixLayout::ColMajor) => {
+                    let buffer_width = elements_in_tile_k / line_size;
                     stage_buffer.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width
-                }
-                (MatmulIdent::Rhs, MatrixLayout::ColMajor) => {
-                    let buffer_height = tiling_scheme.elements_in_tile_row(ident) / line_size;
-                    stage_buffer.to_index() * buffer_height
-                        + unit_position
-                        + (unit_position / buffer_height) * buffer_height
                 }
                 (MatmulIdent::Out, _) => comptime!(unreachable!()),
             };

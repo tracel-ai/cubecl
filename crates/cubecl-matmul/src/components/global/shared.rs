@@ -1,15 +1,13 @@
+use cubecl_core::CubeDim;
+
 use crate::components::{
-    MatmulIdent, MatmulLineSizes, TilingScheme,
-    error::MatmulSetupError,
-    global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
+    MatmulIdent, MatmulLineSizes, TilingScheme, error::MatmulSetupError,
+    global::multi_stage::LoadMaxRoundPlaneCount,
 };
 
-pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
-    config: G,
-) -> Result<G, MatmulSetupError> {
+pub(crate) fn cube_dim_validation(cube_dim: CubeDim) -> Result<(), MatmulSetupError> {
     #[cfg(target_os = "macos")]
     {
-        let cube_dim = config.cube_dim();
         if cube_dim.num_elems() >= 512 {
             use crate::components::error::MatmulAvailabilityError;
 
@@ -19,7 +17,7 @@ pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
         }
     }
 
-    Ok(config)
+    Ok(())
 }
 
 /// Maximal number of planes each reader can handle to divide its workload evenly

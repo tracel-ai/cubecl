@@ -1,3 +1,4 @@
+use crate::components::global::GlobalReaderConfig;
 use crate::components::global::RoleRule;
 use crate::components::global::Specializer;
 use crate::components::global::SpecializerKind;
@@ -19,20 +20,17 @@ pub fn read_first<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     S: SyncStrategy,
-    LJ: JobExecutor<G::LhsReaderConfig, S>,
-    RJ: JobExecutor<G::RhsReaderConfig, S>,
-    G: GlobalConfig<StageConfig = SMM::Config>,
+    LJ: JobExecutor<S>,
+    RJ: JobExecutor<S>,
 >(
     lhs_global_reader: &mut LJ,
     rhs_global_reader: &mut RJ,
     barrier: &mut S::Barrier,
     specializer: &Specializer,
     #[comptime] stage_to_load: StageBuffer,
-    #[comptime] config: G,
+    #[comptime] lhs_config: GlobalReaderConfig,
+    #[comptime] rhs_config: GlobalReaderConfig,
 ) {
-    let lhs_config = config.lhs_reader_config();
-    let rhs_config = config.rhs_reader_config();
-
     match comptime!(specializer.kind) {
         SpecializerKind::Specialized {
             main_flow_loading_side,
@@ -71,8 +69,8 @@ pub fn execute_current_and_read_next<
     MP: MatmulPrecision,
     SMM: stage::StageMatmul<MP>,
     S: SyncStrategy,
-    LJ: JobExecutor<G::LhsReaderConfig, S>,
-    RJ: JobExecutor<G::RhsReaderConfig, S>,
+    LJ: JobExecutor<S>,
+    RJ: JobExecutor<S>,
     G: GlobalConfig<StageConfig = SMM::Config>,
 >(
     lhs_stage: &SMM::LhsStage,
@@ -200,7 +198,6 @@ pub fn execute_last_and_write_results<
                     out_writer,
                     partition_scheduler,
                     config.stage_config(),
-                    config,
                 );
             }
         }
@@ -221,7 +218,6 @@ pub fn execute_last_and_write_results<
                 out_writer,
                 partition_scheduler,
                 config.stage_config(),
-                config,
             );
         }
     }

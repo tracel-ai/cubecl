@@ -16,13 +16,13 @@ pub trait LoadingJob<EG: Numeric, ES: Numeric, TL: TilingLayout, S: SyncStrategy
     CubeType + Copy + Clone
 {
     /// Execute the `task_id`th loading task
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, TL>,
         barrier: &mut S::Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     );
 
     /// Get the number of tasks
@@ -45,9 +45,9 @@ pub trait SyncStrategy {
 /// Allows to verify configs are valid for a reader
 pub trait LoadingValidation {
     /// Verify that configs are valid for a reader, otherwise return an error stating why
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError>;
 }
@@ -91,9 +91,9 @@ pub fn validate_tma<R: Runtime>(
 /// Dummy trait implementation
 pub struct NoLoadingValidation {}
 impl LoadingValidation for NoLoadingValidation {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
-        _config: &C,
+        _config: &GlobalReaderConfig,
         _ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         Ok(())

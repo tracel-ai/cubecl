@@ -19,4 +19,16 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
     fn plane_dim(&self) -> u32 {
         self.shared.plane_dim()
     }
+
+    fn elements_in_tile_m(&self) -> u32 {
+        self.shared.elements_in_tile_m()
+    }
+
+    fn elements_in_tile_n(&self) -> u32 {
+        self.shared.elements_in_tile_n()
+    }
+
+    fn elements_in_tile_k(&self) -> u32 {
+        self.shared.elements_in_tile_k()
+    }
 }

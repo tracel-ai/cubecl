@@ -15,8 +15,6 @@ use cubecl_std::{
 };
 use std::marker::PhantomData;
 
-use crate::components::global::GlobalConfig;
-
 /// Performs matrix multiplication at the global level.
 ///
 /// Fully loads all stages, synchronizes all planes, performs computation,
@@ -49,13 +47,11 @@ where
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
-        Self::Config,
         LL,
     >;
     type RhsGlobalReader = FullStageGlobalReader<
         <MP::Rhs as MatrixPrecision>::Global,
         <MP::Rhs as MatrixPrecision>::Stage,
-        Self::Config,
         RL,
     >;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;
@@ -68,18 +64,18 @@ where
         acc_reader: Self::AccGlobalReader,
         mut out_writer: Self::GlobalWriter,
         k_range: (u32, u32),
-        #[comptime] config: Self::Config,
+        #[comptime] config: SimpleConfig<SMM::Config>,
     ) {
         let k_step = config.k_step;
         let range = k_range.1 - k_range.0;
         let num_loops = range.div_ceil(k_step);
 
-        let mut acc = SMM::init_accumulators(config.stage_config());
+        let mut acc = SMM::init_accumulators(config.shared.stage_config);
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config());
-        let partition_scheduler = SMM::init_scheduler(config.stage_config());
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.shared.stage_config);
+        let partition_scheduler = SMM::init_scheduler(config.shared.stage_config);
 
-        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config());
+        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.shared.stage_config);
 
         let lhs_stage = &lhs_reader.stage();
         let rhs_stage = &rhs_reader.stage();
@@ -90,7 +86,7 @@ where
             sync_cube();
 
             #[allow(clippy::collapsible_if)]
-            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds()] {
+            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds] {
                 if i == num_loops - 1 {
                     lhs_reader.clear_stage(config);
                     rhs_reader.clear_stage(config);
@@ -108,7 +104,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 &mut acc,
-                config.stage_config(),
+                config.shared.stage_config,
                 &partition_scheduler,
             );
 
@@ -129,13 +125,12 @@ where
 
         let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
-        SMM::write_results::<Self::GlobalWriter, Self::Config>(
+        SMM::write_results::<Self::GlobalWriter>(
             &acc,
             &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
-            config.stage_config(),
-            config,
+            config.shared.stage_config,
         );
     }
 
@@ -167,11 +162,17 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        let conf = config.global_memory_config(MatmulIdent::Out);
-        Self::GlobalWriter::init(out, conf, config.stage_config())
+        // let conf = config.global_memory_config(MatmulIdent::Out);
+        // Self::GlobalWriter::init(out, todo!(), todo!(), todo!(), todo!(), todo!())
+
+        // #[comptime] gmem_config: GlobalMemoryConfig,
+        // #[comptime] smem_config: StageMemoryConfig,
+        // #[comptime] role_rule_config: RoleRuleConfig,
+        // #[comptime] plane_dim: u32,
+        // #[comptime] num_partitions_n: u32,
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
-        SMM::init_accumulators(config.stage_config())
+        SMM::init_accumulators(config.shared.stage_config)
     }
 }

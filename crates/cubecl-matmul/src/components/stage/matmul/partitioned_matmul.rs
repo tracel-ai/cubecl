@@ -50,6 +50,36 @@ impl<TC: TileConfig> PartitionMatmulConfig<TC> {
 
 impl<TC: TileConfig> StageConfig for PartitionMatmulConfig<TC> {
     type TileConfig = TC;
+
+    fn elements_in_stage_m(&self) -> u32 {
+        self.shared().stage_size.m()
+            * self.shared().partition_size.m()
+            * self.shared().tile_config.elements_in_tile_m()
+    }
+
+    fn elements_in_stage_n(&self) -> u32 {
+        self.shared().stage_size.n()
+            * self.shared().partition_size.n()
+            * self.shared().tile_config.elements_in_tile_n()
+    }
+
+    fn elements_in_stage_k(&self) -> u32 {
+        self.shared().stage_size.k()
+            * self.shared().partition_size.k()
+            * self.shared().tile_config.elements_in_tile_k()
+    }
+
+    fn num_main_flow_planes(&self) -> u32 {
+        self.shared().plane_role_config.main_flow_count()
+    }
+
+    fn plane_dim(&self) -> u32 {
+        self.shared().plane_dim
+    }
+
+    fn plane_role_config(&self) -> global::PlaneRoleConfig {
+        self.shared().plane_role_config
+    }
 }
 
 /// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.
@@ -194,16 +224,15 @@ where
         );
     }
 
-    fn write_results<W: WriteEventListener, G: global::GlobalConfig>(
+    fn write_results<W: WriteEventListener>(
         acc: &Self::Accumulators,
         stage: &mut Self::OutStage,
         listener: &mut W,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
     ) {
-        let m_iterations = global_config.tiling_scheme().tiles_in_stage_partition_m();
-        let n_iterations = global_config.tiling_scheme().tiles_in_stage_partition_n();
+        let m_iterations = stage_config.shared().partition_size.m();
+        let n_iterations = stage_config.shared().partition_size.n();
 
         W::on_event(listener, global::WriteEvent::new_Begin());
 
@@ -242,7 +271,7 @@ where
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler {
         let (partition_row, partition_col) = SP::coordinates(
-            config.shared().role_rule_config,
+            config.shared().plane_role_config.rule,
             config.shared().plane_dim,
             config.shared().stage_size.n(),
         );

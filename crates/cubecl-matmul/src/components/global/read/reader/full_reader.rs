@@ -37,10 +37,10 @@ pub trait FullLoadingStrategy:
     const SHOULD_CLEAR: bool = false;
 
     /// Returns the job with preliminary calculations done.
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES>;
 }
 
@@ -49,31 +49,24 @@ pub trait FullLoadingStrategy:
 ///
 /// A complete load is referred to as a `Job`, which is divided into `Tasks`—
 /// each Task represents a single data transfer for a specific unit
-pub struct FullStageGlobalReader<
-    EG: Numeric,
-    ES: Numeric,
-    G: GlobalReaderConfig,
-    L: FullLoadingStrategy,
-> {
+pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> {
     global_iter: GlobalIterator<Line<EG>>,
     stage: StridedStage<ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<EG, ES>>,
     #[cube(comptime)]
     ident: MatmulIdent,
     #[cube(comptime)]
-    _phantom: PhantomData<(G, L)>,
+    _phantom: PhantomData<L>,
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
-    FullStageGlobalReader<EG, ES, G, L>
-{
+impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG, ES, L> {
     /// Create a new SyncFullStageGlobalReader
     pub fn new(
         view: View<Line<EG>, Coords2d>,
         k_step: u32,
         #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
@@ -82,7 +75,11 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
         let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
         let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<EG, ES, G>(ident, view.line_size(), config)),
+            true => CubeOption::new_Some(L::new_job::<EG, ES, GlobalReaderConfig>(
+                ident,
+                view.line_size(),
+                config,
+            )),
             false => CubeOption::new_None(),
         };
 
@@ -95,7 +92,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
                     #[allow(clippy::collapsible_if)]
                     if config.check_row_bounds(ident) {
                         if shape_row < config.tiling_scheme().elements_in_stage_m() {
-                            stage.clear_all::<G>(ident, config);
+                            stage.clear_all(ident, config);
                         }
                     }
                 }
@@ -104,7 +101,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
                     #[allow(clippy::collapsible_if)]
                     if config.check_col_bounds(ident) {
                         if shape_col < config.tiling_scheme().elements_in_stage_n() {
-                            stage.clear_all::<G>(ident, config);
+                            stage.clear_all(ident, config);
                         }
                     }
                 }
@@ -112,12 +109,12 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
             }
         }
 
-        FullStageGlobalReader::<EG, ES, G, L> {
+        FullStageGlobalReader::<EG, ES, L> {
             global_iter,
             stage,
             loading_job,
             ident,
-            _phantom: PhantomData::<(G, L)>,
+            _phantom: PhantomData::<L>,
         }
     }
 
@@ -126,8 +123,8 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
         self.stage
     }
 
-    pub fn clear_stage(&mut self, #[comptime] config: G) {
-        self.stage.clear_all::<G>(self.ident, config);
+    pub fn clear_stage(&mut self, #[comptime] config: GlobalReaderConfig) {
+        self.stage.clear_all(self.ident, config);
     }
 
     pub fn free_stage(self) {
@@ -143,12 +140,12 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
     pub fn load_stage(
         &mut self,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
             CubeOption::None => {
-                L::new_job::<EG, ES, G>(self.ident, self.global_iter.line_size(), config)
+                L::new_job::<EG, ES>(self.ident, self.global_iter.line_size(), config)
             }
         };
 
@@ -156,7 +153,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
 
         #[unroll]
         for task_id in 0..len {
-            L::Job::<EG, ES>::execute_task::<G>(
+            L::Job::<EG, ES>::execute_task(
                 &mut loading_job,
                 task_id,
                 &self.global_iter,
@@ -169,20 +166,20 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
 }
 
 #[cube]
-impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
-    JobExecutor<G, L::SyncStrategy> for FullStageGlobalReader<EG, ES, G, L>
+impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> JobExecutor<L::SyncStrategy>
+    for FullStageGlobalReader<EG, ES, L>
 {
     type JobIterator = FullStageJobIterator<EG, ES, L>;
 
     fn create_job_iterator(
         this: &Self,
         #[comptime] _stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::JobIterator {
         let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<EG, ES, G>(this.ident, view.line_size(), config),
+            CubeOption::None => L::new_job::<EG, ES>(this.ident, view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);
@@ -198,11 +195,11 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
         this: &mut Self,
         job_iterator: &mut FullStageJobIterator<EG, ES, L>,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let task_id = job_iterator.current.read().counter;
 
-        L::Job::<EG, ES>::execute_task::<G>(
+        L::Job::<EG, ES>::execute_task(
             &mut job_iterator.job,
             task_id,
             &this.global_iter,
@@ -220,13 +217,13 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
         this: &mut Self,
         job_iterator: &mut Self::JobIterator,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let task_counter = job_iterator.current.read().counter;
 
         #[unroll]
         for task_id in task_counter..job_iterator.num_tasks {
-            L::Job::<EG, ES>::execute_task::<G>(
+            L::Job::<EG, ES>::execute_task::<GlobalReaderConfig>(
                 &mut job_iterator.job,
                 task_id,
                 &this.global_iter,
@@ -245,7 +242,7 @@ impl<EG: Numeric, ES: Numeric, G: GlobalReaderConfig, L: FullLoadingStrategy>
         this: &mut Self,
         barrier: &mut SyncBarrier<L::SyncStrategy>,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         Self::execute_all_remaining_tasks(
             this,

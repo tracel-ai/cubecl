@@ -5,6 +5,12 @@ use std::{fmt::Debug, hash::Hash};
 pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {
     /// Returns the line size for the given ident
     fn plane_dim(&self) -> u32;
+
+    fn elements_in_tile_m(&self) -> u32;
+
+    fn elements_in_tile_n(&self) -> u32;
+
+    fn elements_in_tile_k(&self) -> u32;
 }
 
 /// Configuration for the Tile Matmul level
@@ -17,6 +23,18 @@ pub struct SharedTileConfig {
 impl TileConfig for SharedTileConfig {
     fn plane_dim(&self) -> u32 {
         self.plane_dim
+    }
+
+    fn elements_in_tile_m(&self) -> u32 {
+        self.tile_size.m()
+    }
+
+    fn elements_in_tile_n(&self) -> u32 {
+        self.tile_size.n()
+    }
+
+    fn elements_in_tile_k(&self) -> u32 {
+        self.tile_size.k()
     }
 }
 

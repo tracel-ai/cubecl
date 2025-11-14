@@ -2,15 +2,11 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
-use crate::components::global::MaxGlobalReaderPlanes;
+use crate::components::global::{MaxGlobalReaderPlanes, PlaneRoleConfig};
 use crate::components::{
     AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS,
 };
-use crate::components::{
-    MatmulPrecision, MatmulProblem,
-    global::{self},
-    tile::TileConfig,
-};
+use crate::components::{MatmulPrecision, MatmulProblem, tile::TileConfig};
 use crate::components::{error::MatmulSetupError, global::WriteEventListener};
 use crate::components::{
     stage::{NumStages, PartitionScheduler},
@@ -145,13 +141,12 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn write_results<W: WriteEventListener, G: global::GlobalConfig>(
+    fn write_results<W: WriteEventListener>(
         acc: &Self::Accumulators,
         stage: &mut Self::OutStage,
         listener: &mut W,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
     );
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler;
@@ -172,6 +167,13 @@ pub trait StageConfig:
 {
     // /// Underlying Tile matmul config
     type TileConfig: TileConfig;
+
+    fn elements_in_stage_m(&self) -> u32;
+    fn elements_in_stage_n(&self) -> u32;
+    fn elements_in_stage_k(&self) -> u32;
+    fn num_main_flow_planes(&self) -> u32;
+    fn plane_dim(&self) -> u32;
+    fn plane_role_config(&self) -> PlaneRoleConfig;
 
     // /// Converts itself to the underlying Tile Matmul config
     // fn tile_config(self) -> Self::TileConfig;

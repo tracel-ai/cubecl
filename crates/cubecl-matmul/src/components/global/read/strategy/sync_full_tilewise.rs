@@ -41,9 +41,9 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
 }
 
 impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.global_line_size(ident);
@@ -84,10 +84,10 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullTilewiseLoading<TO> {
     type SyncStrategy = Synchronous;
     type Job<EG: Numeric, ES: Numeric> = SyncFullTilewiseJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let num_planes = config.num_loading_planes(ident);
         let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
@@ -137,13 +137,13 @@ pub struct SyncFullTilewiseJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncFullTilewiseJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let pos_across_tiles = task_id * this.plane_dim + UNIT_POS_X;
         let nth_tile_for_this_plane = pos_across_tiles / this.num_lines_per_tile;
@@ -155,7 +155,7 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
             comptime!(config.stage_memory_config(this.ident)),
         );
 
-        SyncFullTilewiseJob::load_and_store_line::<EG, ES, TO, G>(
+        SyncFullTilewiseJob::load_and_store_line::<EG, ES, TO>(
             this,
             tile,
             line_index_within_tile,
@@ -174,14 +174,14 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 #[cube]
 impl SyncFullTilewiseJob {
     #[allow(clippy::too_many_arguments)]
-    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder, G: GlobalReaderConfig>(
+    fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
         this: &Self,
         tile: Coords2d,
         line_index_within_tile: u32,
         num_lines_to_skip_local: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
         let view = global_iter.view().view(layout);

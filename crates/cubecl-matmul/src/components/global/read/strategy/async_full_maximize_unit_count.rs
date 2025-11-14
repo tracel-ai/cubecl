@@ -21,9 +21,9 @@ use super::LoadingValidation;
 pub struct AsyncFullMaximizeUnitCountLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.matrix_layout(ident);
@@ -80,10 +80,10 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeUnitCountJob {
         let matrix_layout = config.matrix_layout(ident);
 
@@ -129,13 +129,13 @@ pub struct AsyncFullMaximizeUnitCountJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncFullMaximizeUnitCountJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] _task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             stage,

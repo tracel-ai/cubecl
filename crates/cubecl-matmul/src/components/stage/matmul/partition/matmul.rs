@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
-use crate::components::global::{RoleRuleConfig, TodoGRC};
+use crate::components::global::{PlaneRoleConfig, TodoGRC};
 use crate::components::stage::PartitionSchedulerScheme;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
@@ -23,7 +23,7 @@ pub struct SharedPartitionMatmulConfig<TC: TileConfig> {
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
     pub acc_layout: MatrixLayout,
-    pub role_rule_config: RoleRuleConfig,
+    pub plane_role_config: PlaneRoleConfig,
     pub plane_dim: u32,
     pub stage_size: StageSize,
     pub partition_schedule_scheme: PartitionSchedulerScheme,
@@ -40,7 +40,7 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
         acc_layout: MatrixLayout,
-        role_rule_config: RoleRuleConfig,
+        plane_role_config: PlaneRoleConfig,
         plane_dim: u32,
         stage_size: StageSize,
         partition_schedule_scheme: PartitionSchedulerScheme,
@@ -55,7 +55,7 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
             lhs_layout,
             rhs_layout,
             acc_layout,
-            role_rule_config,
+            plane_role_config,
             plane_dim,
             stage_size,
             partition_schedule_scheme,

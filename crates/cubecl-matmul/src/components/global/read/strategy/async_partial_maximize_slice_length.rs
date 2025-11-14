@@ -21,9 +21,9 @@ use super::LoadingValidation;
 pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
-    fn check<C: GlobalReaderConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
+        config: &GlobalReaderConfig,
         ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.global_memory_config(ident))?;
@@ -52,11 +52,11 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
     type SyncStrategy = AsyncBarrier;
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialMaximizeSliceLengthJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalReaderConfig>(
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
         #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncPartialMaximizeSliceLengthJob {
         let matrix_layout = config.matrix_layout(ident);
         let num_stages = config.num_stages(ident);
@@ -131,13 +131,13 @@ pub struct AsyncPartialMaximizeSliceLengthJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarrier>
     for AsyncPartialMaximizeSliceLengthJob
 {
-    fn execute_task<G: GlobalReaderConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStage<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let mut stage = stage.with_buffer_index(this.buffer_idx);
         let nth_slice_in_stage = this.unit_count * task_id + UNIT_POS;
