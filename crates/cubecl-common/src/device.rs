@@ -184,6 +184,7 @@ mod context {
     /// Handle for accessing a [DeviceState] associated with a specific device.
     pub struct DeviceContext<S: DeviceState> {
         lock: DeviceStateLock,
+        lock_kind: Arc<ReentrantMutex<()>>,
         device_id: DeviceId,
         _phantom: PhantomData<S>,
     }
@@ -195,6 +196,7 @@ mod context {
         fn clone(&self) -> Self {
             Self {
                 lock: self.lock.clone(),
+                lock_kind: self.lock_kind.clone(),
                 _phantom: self._phantom,
                 device_id: self.device_id,
             }
@@ -295,6 +297,14 @@ mod context {
             Ok(lock)
         }
 
+        /// Locks all devices under the same kind.
+        ///
+        /// This is useful when you need mutable access to multiple devices at once, which can lead
+        /// to deadlocks.
+        pub fn lock_device_kind(&self) -> ReentrantMutexGuard<'_, ()> {
+            self.lock_kind.lock()
+        }
+
         /// Locks the current device making sure this device can be used.
         pub fn lock_device(&self) -> DeviceGuard<'_> {
             let state = self.lock.lock.lock();
@@ -367,8 +377,14 @@ mod context {
 
     static GLOBAL: spin::Mutex<DeviceLocator> = spin::Mutex::new(DeviceLocator { state: None });
 
+    #[derive(Default)]
+    struct DeviceLocatorState {
+        device: HashMap<Key, DeviceStateLock>,
+        device_kind: HashMap<TypeId, Arc<ReentrantMutex<()>>>,
+    }
+
     struct DeviceLocator {
-        state: Option<HashMap<Key, DeviceStateLock>>,
+        state: Option<DeviceLocatorState>,
     }
 
     #[derive(Clone)]
@@ -383,18 +399,19 @@ mod context {
     impl DeviceStateLock {
         fn locate<D: Device + 'static, S: DeviceState>(device: &D) -> DeviceContext<S> {
             let id = device.to_id();
+            let kind = TypeId::of::<D>();
             let key = (id, TypeId::of::<D>());
             let mut global = GLOBAL.lock();
 
-            let map = match &mut global.state {
+            let locator_state = match &mut global.state {
                 Some(state) => state,
                 None => {
-                    global.state = Some(HashMap::default());
+                    global.state = Some(Default::default());
                     global.state.as_mut().expect("Just created Option::Some")
                 }
             };
 
-            let lock = match map.get(&key) {
+            let lock = match locator_state.device.get(&key) {
                 Some(value) => value.clone(),
                 None => {
                     let state = DeviceStateMap::new();
@@ -403,13 +420,31 @@ mod context {
                         lock: Arc::new(ReentrantMutex::new(state)),
                     };
 
-                    map.insert(key, value);
-                    map.get(&key).expect("Just inserted the key/value").clone()
+                    locator_state.device.insert(key, value);
+                    locator_state
+                        .device
+                        .get(&key)
+                        .expect("Just inserted the key/value")
+                        .clone()
+                }
+            };
+            let lock_kind = match locator_state.device_kind.get(&kind) {
+                Some(value) => value.clone(),
+                None => {
+                    locator_state
+                        .device_kind
+                        .insert(kind, Arc::new(ReentrantMutex::new(())));
+                    locator_state
+                        .device_kind
+                        .get(&kind)
+                        .expect("Just inserted the key/value")
+                        .clone()
                 }
             };
 
             DeviceContext {
                 lock,
+                lock_kind,
                 device_id: id,
                 _phantom: PhantomData,
             }
