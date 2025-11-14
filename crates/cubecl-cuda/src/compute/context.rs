@@ -174,18 +174,21 @@ impl CudaContext {
         let repr = kernel_compiled.repr.unwrap();
 
         if let Some(cache) = &mut self.ptx_cache {
-            cache
-                .insert(
-                    name.unwrap(),
-                    PtxCacheEntry {
-                        entrypoint_name: kernel_compiled.entrypoint_name.clone(),
-                        cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
-                        shared_mem_bytes: repr.shared_memory_size(),
-                        cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
-                        ptx: ptx.clone(),
-                    },
-                )
-                .unwrap();
+            match cache.insert(
+                name.unwrap(),
+                PtxCacheEntry {
+                    entrypoint_name: kernel_compiled.entrypoint_name.clone(),
+                    cube_dim: (cube_dim.x, cube_dim.y, cube_dim.z),
+                    shared_mem_bytes: repr.shared_memory_size(),
+                    cluster_dim: cluster_dim.map(|cluster| (cluster.x, cluster.y, cluster.z)),
+                    ptx: ptx.clone(),
+                },
+            ) {
+                Ok(_) => {}
+                Err(err) => {
+                    log::warn!("Can't cache kernel {err:?}");
+                }
+            }
         }
 
         self.load_ptx(
