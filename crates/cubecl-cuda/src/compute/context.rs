@@ -36,13 +36,25 @@ pub struct CompiledKernel {
     func: *mut CUfunc_st,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Eq, Clone)]
 pub struct PtxCacheEntry {
     entrypoint_name: String,
     cube_dim: (u32, u32, u32),
     shared_mem_bytes: usize,
     cluster_dim: Option<(u32, u32, u32)>,
     ptx: Vec<std::ffi::c_char>,
+}
+
+impl core::fmt::Debug for PtxCacheEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PtxCacheEntry")
+            .field("entrypoint_name", &self.entrypoint_name)
+            .field("cube_dim", &self.cube_dim)
+            .field("shared_mem_bytes", &self.shared_mem_bytes)
+            .field("cluster_dim", &self.cluster_dim)
+            .field("ptx", &self.ptx.len())
+            .finish()
+    }
 }
 
 impl CudaContext {
