@@ -6,7 +6,6 @@ use crate::{
 use cubecl_common::{
     device::{Device, DeviceState},
     profile::TimingMethod,
-    stub::Mutex,
 };
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
@@ -28,11 +27,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-use std::{
-    ffi::CStr,
-    mem::MaybeUninit,
-    sync::{Arc, OnceLock},
-};
+use std::{ffi::CStr, mem::MaybeUninit, sync::Arc};
 
 /// The values that control how a HIP Runtime will perform its calculations.
 #[derive(Default)]
@@ -45,8 +40,6 @@ pub struct RuntimeOptions {
 pub struct HipRuntime;
 
 pub type HipCompiler = CppCompiler<HipDialect<HipWmmaCompiler>>;
-
-static SERVER_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
 impl DeviceState for HipServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -171,12 +164,7 @@ impl DeviceState for HipServer {
         };
         let hip_ctx = HipContext::new(comp_opts);
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(
-            device_props,
-            logger,
-            SERVER_LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone(),
-            (),
-        );
+        let utilities = ServerUtilities::new(device_props, logger, ());
         let options = RuntimeOptions::default();
 
         HipServer::new(

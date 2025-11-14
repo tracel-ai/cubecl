@@ -485,7 +485,7 @@ where
         dst_server: &Self,
     ) -> Allocation {
         if Server::SERVER_COMM_ENABLED {
-            let guard = self.utilities.server_lock.lock();
+            let guard = self.context.lock_device_kind();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
 

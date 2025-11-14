@@ -46,18 +46,11 @@ pub struct ServerUtilities<Server: ComputeServer> {
     pub info: Server::Info,
     /// The logger based on global cubecl configs.
     pub logger: Arc<ServerLogger>,
-    /// A way to lock a whole server kind for all devices.
-    pub server_lock: Arc<cubecl_common::stub::Mutex<()>>,
 }
 
 impl<S: ComputeServer> ServerUtilities<S> {
     /// Creates a new server utilities.
-    pub fn new(
-        properties: DeviceProperties,
-        logger: Arc<ServerLogger>,
-        server_lock: Arc<cubecl_common::stub::Mutex<()>>,
-        info: S::Info,
-    ) -> Self {
+    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
         // Start a tracy client if needed.
         #[cfg(feature = "profile-tracy")]
         let client = tracy_client::Client::start();
@@ -65,7 +58,6 @@ impl<S: ComputeServer> ServerUtilities<S> {
         Self {
             properties,
             logger,
-            server_lock,
             // Create the GPU client if needed.
             #[cfg(feature = "profile-tracy")]
             gpu_client: client
