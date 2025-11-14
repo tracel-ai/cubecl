@@ -106,7 +106,21 @@ impl<T: SpirvTarget> SpirvCompiler<T> {
                 self.compile_binary_op(op, out, uniform, |b, out_ty, ty, lhs, rhs, out| {
                     match out_ty.elem() {
                         Elem::Int(_, false) => b.u_mod(ty, Some(out), lhs, rhs).unwrap(),
-                        Elem::Int(_, true) => b.s_mod(ty, Some(out), lhs, rhs).unwrap(),
+                        Elem::Int(_, true) => {
+                            // Convert to float and use `f_mod` (floored division) instead of `s_mod`
+                            // (truncated division) to match remainder semantics across dtypes
+                            // e.g. remainder(-2, 3) = 1, not 2
+                            let f_ty = match out_ty {
+                                Item::Scalar(_elem) => Item::Scalar(Elem::Relaxed),
+                                Item::Vector(_elem, factor) => Item::Vector(Elem::Relaxed, factor),
+                                _ => unreachable!(),
+                            };
+                            let f_ty = f_ty.id(b);
+                            let lhs_f = b.convert_s_to_f(f_ty, None, lhs).unwrap();
+                            let rhs_f = b.convert_s_to_f(f_ty, None, rhs).unwrap();
+                            let rem = b.f_mod(f_ty, None, lhs_f, rhs_f).unwrap();
+                            b.convert_f_to_s(ty, Some(out), rem).unwrap()
+                        }
                         Elem::Float(..) => {
                             b.declare_math_mode(modes, out);
                             b.f_mod(ty, Some(out), lhs, rhs).unwrap()
