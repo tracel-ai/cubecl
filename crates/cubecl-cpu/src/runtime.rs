@@ -1,4 +1,6 @@
-use cubecl_common::{device::DeviceState, profile::TimingMethod};
+use std::sync::{Arc, OnceLock};
+
+use cubecl_common::{device::DeviceState, profile::TimingMethod, stub::Mutex};
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     client::ComputeClient,
@@ -34,6 +36,8 @@ pub struct RuntimeOptions {
 pub struct CpuRuntime;
 
 pub type CpuCompiler = MlirCompiler;
+
+static SERVER_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
 impl DeviceState for CpuServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
@@ -90,7 +94,12 @@ impl DeviceState for CpuServer {
         register_supported_types(&mut device_props);
 
         let ctx = CpuContext::new(memory_management, memory_management_shared_memory);
-        let utilities = ServerUtilities::new(device_props, logger, ());
+        let utilities = ServerUtilities::new(
+            device_props,
+            logger,
+            SERVER_LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone(),
+            (),
+        );
         CpuServer::new(ctx, utilities)
     }
 }

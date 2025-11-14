@@ -1,8 +1,11 @@
+use std::sync::{Arc, OnceLock};
+
 use crate::{
     AutoCompiler, AutoGraphicsApi, GraphicsApi, WgpuDevice, backend, compute::WgpuServer,
     contiguous_strides,
 };
 use cubecl_common::device::{Device, DeviceState};
+use cubecl_common::stub::Mutex;
 use cubecl_common::{future, profile::TimingMethod};
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::{CubeCount, CubeDim, Runtime, ir::TargetProperties};
@@ -198,6 +201,8 @@ pub async fn init_setup_async<G: GraphicsApi>(
     return_setup
 }
 
+static SERVER_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+
 pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuServer {
     let limits = setup.device.limits();
     let mut adapter_limits = setup.adapter.limits();
@@ -289,7 +294,12 @@ pub(crate) fn create_server(setup: WgpuSetup, options: RuntimeOptions) -> WgpuSe
         options.tasks_max,
         setup.backend,
         time_measurement,
-        ServerUtilities::new(device_props, logger, setup.backend),
+        ServerUtilities::new(
+            device_props,
+            logger,
+            SERVER_LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone(),
+            setup.backend,
+        ),
     )
 }
 

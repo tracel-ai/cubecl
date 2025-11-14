@@ -2,6 +2,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
+use cubecl_common::stub::Mutex;
 use cubecl_common::{CubeDim, ExecutionMode};
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::server::{
@@ -14,7 +15,7 @@ use cubecl_runtime::{
     kernel::KernelMetadata,
     server::{Allocation, AllocationDescriptor},
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use super::DummyKernel;
 use cubecl_runtime::memory_management::{
@@ -231,6 +232,8 @@ impl ComputeServer for DummyServer {
     }
 }
 
+static SERVER_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
+
 impl DummyServer {
     pub fn new(
         memory_management: MemoryManagement<BytesStorage>,
@@ -253,7 +256,12 @@ impl DummyServer {
         let props = DeviceProperties::new(features, mem_props, hardware, timing_method);
         let logger = Arc::new(ServerLogger::default());
 
-        let utilities = Arc::new(ServerUtilities::new(props, logger, ()));
+        let utilities = Arc::new(ServerUtilities::new(
+            props,
+            logger,
+            SERVER_LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone(),
+            (),
+        ));
         Self {
             memory_management,
             utilities,

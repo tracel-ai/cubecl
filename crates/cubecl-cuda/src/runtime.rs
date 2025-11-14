@@ -6,6 +6,7 @@ use crate::{
 use cubecl_common::{
     device::{Device, DeviceState},
     profile::TimingMethod,
+    stub::Mutex,
 };
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
@@ -31,7 +32,10 @@ use cubecl_runtime::{
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
 use cudarc::driver::sys::cuDeviceTotalMem_v2;
-use std::{mem::MaybeUninit, sync::Arc};
+use std::{
+    mem::MaybeUninit,
+    sync::{Arc, OnceLock},
+};
 
 /// Options configuring the CUDA runtime.
 #[derive(Default)]
@@ -42,6 +46,8 @@ pub struct RuntimeOptions {
 
 #[derive(Debug)]
 pub struct CudaRuntime;
+
+static SERVER_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
 impl DeviceState for CudaServer {
     fn init(device_id: cubecl_common::device::DeviceId) -> Self {
@@ -261,7 +267,13 @@ impl DeviceState for CudaServer {
 
         let cuda_ctx = CudaContext::new(comp_opts, ctx, arch);
         let logger = Arc::new(ServerLogger::default());
-        let utilities = ServerUtilities::new(device_props, logger, ());
+
+        let utilities = ServerUtilities::new(
+            device_props,
+            logger,
+            SERVER_LOCK.get_or_init(|| Arc::new(Mutex::new(()))).clone(),
+            (),
+        );
 
         CudaServer::new(
             cuda_ctx,

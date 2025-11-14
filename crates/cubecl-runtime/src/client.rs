@@ -485,17 +485,22 @@ where
         dst_server: &Self,
     ) -> Allocation {
         if Server::SERVER_COMM_ENABLED {
+            let guard = self.utilities.server_lock.lock();
             let mut server_src = self.context.lock();
             let mut server_dst = dst_server.context.lock();
 
-            Server::copy(
+            let copied = Server::copy(
                 server_src.deref_mut(),
                 server_dst.deref_mut(),
                 src_descriptor,
                 self.stream_id(),
                 dst_server.stream_id(),
             )
-            .unwrap()
+            .unwrap();
+            core::mem::drop(server_src);
+            core::mem::drop(server_dst);
+            core::mem::drop(guard);
+            copied
         } else {
             let alloc_desc = AllocationDescriptor::new(
                 AllocationKind::Optimized,
