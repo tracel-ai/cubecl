@@ -373,8 +373,9 @@ fn permute_kernel_generic<F: Float>(
         let out_0 = i / output.shape(1);
         let out_1 = i % output.shape(1);
 
+        // Inverse permutation: find which output dimension corresponds to each input dimension
         let in_0 = if axes_0 == 0 { out_0 } else { out_1 };
-        let in_1 = if axes_1 == 0 { out_0 } else { out_1 };
+        let in_1 = if axes_0 == 1 { out_0 } else { out_1 };
 
         let in_offset = in_0 * input.stride(0) + in_1 * input.stride(1);
         output[i] = input[in_offset];
@@ -384,23 +385,24 @@ fn permute_kernel_generic<F: Float>(
         let out_1 = (i % shape_12) / output.shape(2);
         let out_2 = i % output.shape(2);
 
+        // Inverse permutation: find which output dimension corresponds to each input dimension
         let in_0 = if axes_0 == 0 {
             out_0
-        } else if axes_0 == 1 {
+        } else if axes_1 == 0 {
             out_1
         } else {
             out_2
         };
-        let in_1 = if axes_1 == 0 {
+        let in_1 = if axes_0 == 1 {
             out_0
         } else if axes_1 == 1 {
             out_1
         } else {
             out_2
         };
-        let in_2 = if axes_2 == 0 {
+        let in_2 = if axes_0 == 2 {
             out_0
-        } else if axes_2 == 1 {
+        } else if axes_1 == 2 {
             out_1
         } else {
             out_2
@@ -416,38 +418,39 @@ fn permute_kernel_generic<F: Float>(
         let out_2 = (i % shape_23) / output.shape(3);
         let out_3 = i % output.shape(3);
 
+        // Inverse permutation: find which output dimension corresponds to each input dimension
         let in_0 = if axes_0 == 0 {
             out_0
-        } else if axes_0 == 1 {
+        } else if axes_1 == 0 {
             out_1
-        } else if axes_0 == 2 {
+        } else if axes_2 == 0 {
             out_2
         } else {
             out_3
         };
-        let in_1 = if axes_1 == 0 {
+        let in_1 = if axes_0 == 1 {
             out_0
         } else if axes_1 == 1 {
             out_1
-        } else if axes_1 == 2 {
+        } else if axes_2 == 1 {
             out_2
         } else {
             out_3
         };
-        let in_2 = if axes_2 == 0 {
+        let in_2 = if axes_0 == 2 {
             out_0
-        } else if axes_2 == 1 {
+        } else if axes_1 == 2 {
             out_1
         } else if axes_2 == 2 {
             out_2
         } else {
             out_3
         };
-        let in_3 = if axes_3 == 0 {
+        let in_3 = if axes_0 == 3 {
             out_0
-        } else if axes_3 == 1 {
+        } else if axes_1 == 3 {
             out_1
-        } else if axes_3 == 2 {
+        } else if axes_2 == 3 {
             out_2
         } else {
             out_3
@@ -468,57 +471,58 @@ fn permute_kernel_generic<F: Float>(
         let out_3 = (i % shape_34) / output.shape(4);
         let out_4 = i % output.shape(4);
 
+        // Inverse permutation: find which output dimension corresponds to each input dimension
         let in_0 = if axes_0 == 0 {
             out_0
-        } else if axes_0 == 1 {
+        } else if axes_1 == 0 {
             out_1
-        } else if axes_0 == 2 {
+        } else if axes_2 == 0 {
             out_2
-        } else if axes_0 == 3 {
+        } else if axes_3 == 0 {
             out_3
         } else {
             out_4
         };
-        let in_1 = if axes_1 == 0 {
+        let in_1 = if axes_0 == 1 {
             out_0
         } else if axes_1 == 1 {
             out_1
-        } else if axes_1 == 2 {
+        } else if axes_2 == 1 {
             out_2
-        } else if axes_1 == 3 {
+        } else if axes_3 == 1 {
             out_3
         } else {
             out_4
         };
-        let in_2 = if axes_2 == 0 {
+        let in_2 = if axes_0 == 2 {
             out_0
-        } else if axes_2 == 1 {
+        } else if axes_1 == 2 {
             out_1
         } else if axes_2 == 2 {
             out_2
-        } else if axes_2 == 3 {
+        } else if axes_3 == 2 {
             out_3
         } else {
             out_4
         };
-        let in_3 = if axes_3 == 0 {
+        let in_3 = if axes_0 == 3 {
             out_0
-        } else if axes_3 == 1 {
+        } else if axes_1 == 3 {
             out_1
-        } else if axes_3 == 2 {
+        } else if axes_2 == 3 {
             out_2
         } else if axes_3 == 3 {
             out_3
         } else {
             out_4
         };
-        let in_4 = if axes_4 == 0 {
+        let in_4 = if axes_0 == 4 {
             out_0
-        } else if axes_4 == 1 {
+        } else if axes_1 == 4 {
             out_1
-        } else if axes_4 == 2 {
+        } else if axes_2 == 4 {
             out_2
-        } else if axes_4 == 3 {
+        } else if axes_3 == 4 {
             out_3
         } else {
             out_4
@@ -543,80 +547,81 @@ fn permute_kernel_generic<F: Float>(
         let out_4 = (i % shape_45) / output.shape(5);
         let out_5 = i % output.shape(5);
 
+        // Inverse permutation: find which output dimension corresponds to each input dimension
         let in_0 = if axes_0 == 0 {
             out_0
-        } else if axes_0 == 1 {
+        } else if axes_1 == 0 {
             out_1
-        } else if axes_0 == 2 {
+        } else if axes_2 == 0 {
             out_2
-        } else if axes_0 == 3 {
+        } else if axes_3 == 0 {
             out_3
-        } else if axes_0 == 4 {
+        } else if axes_4 == 0 {
             out_4
         } else {
             out_5
         };
-        let in_1 = if axes_1 == 0 {
+        let in_1 = if axes_0 == 1 {
             out_0
         } else if axes_1 == 1 {
             out_1
-        } else if axes_1 == 2 {
+        } else if axes_2 == 1 {
             out_2
-        } else if axes_1 == 3 {
+        } else if axes_3 == 1 {
             out_3
-        } else if axes_1 == 4 {
+        } else if axes_4 == 1 {
             out_4
         } else {
             out_5
         };
-        let in_2 = if axes_2 == 0 {
+        let in_2 = if axes_0 == 2 {
             out_0
-        } else if axes_2 == 1 {
+        } else if axes_1 == 2 {
             out_1
         } else if axes_2 == 2 {
             out_2
-        } else if axes_2 == 3 {
+        } else if axes_3 == 2 {
             out_3
-        } else if axes_2 == 4 {
+        } else if axes_4 == 2 {
             out_4
         } else {
             out_5
         };
-        let in_3 = if axes_3 == 0 {
+        let in_3 = if axes_0 == 3 {
             out_0
-        } else if axes_3 == 1 {
+        } else if axes_1 == 3 {
             out_1
-        } else if axes_3 == 2 {
+        } else if axes_2 == 3 {
             out_2
         } else if axes_3 == 3 {
             out_3
-        } else if axes_3 == 4 {
+        } else if axes_4 == 3 {
             out_4
         } else {
             out_5
         };
-        let in_4 = if axes_4 == 0 {
+        let in_4 = if axes_0 == 4 {
             out_0
-        } else if axes_4 == 1 {
+        } else if axes_1 == 4 {
             out_1
-        } else if axes_4 == 2 {
+        } else if axes_2 == 4 {
             out_2
-        } else if axes_4 == 3 {
+        } else if axes_3 == 4 {
             out_3
         } else if axes_4 == 4 {
             out_4
         } else {
             out_5
         };
-        let in_5 = if axes_5 == 0 {
+        let in_5 = if axes_0 == 5 {
             out_0
-        } else if axes_5 == 1 {
+        } else if axes_1 == 5 {
             out_1
-        } else if axes_5 == 2 {
+        } else if axes_2 == 5 {
             out_2
-        } else if axes_5 == 3 {
+        } else if axes_3 == 5 {
             out_3
-        } else if axes_5 == 4 {
+        } else if axes_4 == 5 {
             out_4
         } else {
             out_5
