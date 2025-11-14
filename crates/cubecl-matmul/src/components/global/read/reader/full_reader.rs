@@ -38,7 +38,6 @@ pub trait FullLoadingStrategy:
 
     /// Returns the job with preliminary calculations done.
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES>;
@@ -74,12 +73,8 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
         let (shape_row, shape_col) = view.shape();
         let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
 
-        let loading_job = match config.precompute_job() {
-            true => CubeOption::new_Some(L::new_job::<EG, ES, GlobalReaderConfig>(
-                ident,
-                view.line_size(),
-                config,
-            )),
+        let loading_job = match config.precompute_job {
+            true => CubeOption::new_Some(L::new_job::<EG, ES>(view.line_size(), config)),
             false => CubeOption::new_None(),
         };
 
@@ -90,7 +85,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
                 MatmulIdent::Lhs =>
                 {
                     #[allow(clippy::collapsible_if)]
-                    if config.check_row_bounds(ident) {
+                    if config.global_memory_config.check_row_bounds {
                         if shape_row < config.tiling_scheme().elements_in_stage_m() {
                             stage.clear_all(ident, config);
                         }
@@ -99,7 +94,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
                 MatmulIdent::Rhs =>
                 {
                     #[allow(clippy::collapsible_if)]
-                    if config.check_col_bounds(ident) {
+                    if config.global_memory_config.check_col_bounds {
                         if shape_col < config.tiling_scheme().elements_in_stage_n() {
                             stage.clear_all(ident, config);
                         }
@@ -144,9 +139,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
     ) {
         let mut loading_job = match self.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => {
-                L::new_job::<EG, ES>(self.ident, self.global_iter.line_size(), config)
-            }
+            CubeOption::None => L::new_job::<EG, ES>(self.global_iter.line_size(), config),
         };
 
         let len = L::Job::task_count(&loading_job);
@@ -179,7 +172,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> JobExecutor<L::SyncStrate
         let view = this.global_iter.view();
         let job = match this.loading_job {
             CubeOption::Some(loading_job) => loading_job,
-            CubeOption::None => L::new_job::<EG, ES>(this.ident, view.line_size(), config),
+            CubeOption::None => L::new_job::<EG, ES>(view.line_size(), config),
         };
 
         let num_tasks = L::Job::task_count(&job);

@@ -48,7 +48,6 @@ pub trait LoadingValidation {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError>;
 }
 

@@ -6,12 +6,12 @@ use crate::components::MatrixLayout;
 pub struct GlobalMemoryConfig {
     elements_in_tile_row: u32,
     elements_in_tile_col: u32,
-    elements_in_stage_row: u32,
-    elements_in_stage_col: u32,
+    pub elements_in_stage_row: u32,
+    pub elements_in_stage_col: u32,
     global_line_size: u32,
-    check_row_bounds: bool,
-    check_col_bounds: bool,
-    matrix_layout: MatrixLayout,
+    pub check_row_bounds: bool,
+    pub check_col_bounds: bool,
+    pub matrix_layout: MatrixLayout,
 }
 
 impl GlobalMemoryConfig {

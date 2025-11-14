@@ -7,9 +7,9 @@ use crate::components::MatrixPrecision;
 use crate::components::RhsS;
 use crate::components::TilingScheme;
 use crate::components::error::MatmulSetupError;
+use crate::components::global::GlobalReaderConfig;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
-use crate::components::global::TodoGRC;
 use crate::components::stage::NumStages;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::PartitionSchedulerScheme;
@@ -120,8 +120,6 @@ impl<
                     tile_config,
                     tiling_scheme.partition_size,
                     must_sync_plane_after_execution,
-                    TodoGRC,
-                    TodoGRC,
                     selection.partition_buffering,
                     problem.lhs_layout,
                     problem.rhs_layout,

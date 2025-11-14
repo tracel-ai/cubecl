@@ -88,13 +88,13 @@ where
             #[allow(clippy::collapsible_if)]
             if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds] {
                 if i == num_loops - 1 {
-                    lhs_reader.clear_stage(config);
-                    rhs_reader.clear_stage(config);
+                    lhs_reader.clear_stage(config.shared.lhs_reader_config);
+                    rhs_reader.clear_stage(config.shared.rhs_reader_config);
                 }
             }
 
-            lhs_reader.load_stage(&mut barrier, config);
-            rhs_reader.load_stage(&mut barrier, config);
+            lhs_reader.load_stage(&mut barrier, config.shared.lhs_reader_config);
+            rhs_reader.load_stage(&mut barrier, config.shared.rhs_reader_config);
 
             LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier, config);
 
@@ -138,14 +138,24 @@ where
         lhs: View<Line<LhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
-        Self::LhsGlobalReader::new(lhs, config.k_step, MatmulIdent::Lhs, config)
+        Self::LhsGlobalReader::new(
+            lhs,
+            config.k_step,
+            MatmulIdent::Lhs,
+            config.shared.lhs_reader_config,
+        )
     }
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        Self::RhsGlobalReader::new(rhs, config.k_step, MatmulIdent::Rhs, config)
+        Self::RhsGlobalReader::new(
+            rhs,
+            config.k_step,
+            MatmulIdent::Rhs,
+            config.shared.rhs_reader_config,
+        )
     }
 
     fn init_acc_global_reader(
@@ -162,6 +172,7 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
+        todo!()
         // let conf = config.global_memory_config(MatmulIdent::Out);
         // Self::GlobalWriter::init(out, todo!(), todo!(), todo!(), todo!(), todo!())
 

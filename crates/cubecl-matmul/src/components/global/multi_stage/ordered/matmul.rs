@@ -107,21 +107,14 @@ where
         let specializer =
             Specializer::new(config.plane_role_config(), config.specialized_loading_sides);
 
-        read_first::<
-            MP,
-            SMM,
-            Synchronous,
-            Self::LhsGlobalReader,
-            Self::RhsGlobalReader,
-            Self::Config,
-        >(
+        read_first::<MP, SMM, Synchronous, Self::LhsGlobalReader, Self::RhsGlobalReader>(
             &mut lhs_reader,
             &mut rhs_reader,
             &mut barrier,
             &specializer,
             StageBuffer::A,
-            todo!(),
-            todo!(),
+            config.shared.lhs_reader_config,
+            config.shared.rhs_reader_config,
         );
 
         lhs_reader.advance_view();
@@ -229,9 +222,13 @@ where
         FullStageGlobalReader::<
             <MP::Lhs as MatrixPrecision>::Global,
             <MP::Lhs as MatrixPrecision>::Stage,
-            Self::Config,
             LL,
-        >::new(lhs, k_step, MatmulIdent::Lhs, config)
+        >::new(
+            lhs,
+            k_step,
+            MatmulIdent::Lhs,
+            config.shared.lhs_reader_config,
+        )
     }
 
     fn init_rhs_global_reader(
@@ -243,9 +240,13 @@ where
         PartialStageGlobalReader::<
             <MP::Rhs as MatrixPrecision>::Global,
             <MP::Rhs as MatrixPrecision>::Stage,
-            Self::Config,
             RL,
-        >::new(rhs, k_step, MatmulIdent::Rhs, config)
+        >::new(
+            rhs,
+            k_step,
+            MatmulIdent::Rhs,
+            config.shared.rhs_reader_config,
+        )
     }
 
     fn init_acc_global_reader(

@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::TodoGRC;
+use crate::components::global::GlobalReaderConfig;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Events that occur during the process of loading tiles to
@@ -26,8 +26,6 @@ pub trait StageEventListener: CubeType {
         this: &mut Self,
         #[comptime] event: StageEvent,
         #[comptime] must_sync_plane_after_execution: bool,
-        #[comptime] lhs_reader_config: TodoGRC,
-        #[comptime] rhs_reader_config: TodoGRC,
     );
 }
 
@@ -41,8 +39,6 @@ impl StageEventListener for NoEvent {
         _this: &mut Self,
         #[comptime] _event: StageEvent,
         #[comptime] _must_sync_plane_after_execution: bool,
-        #[comptime] _lhs_reader_config: TodoGRC,
-        #[comptime] _rhs_reader_config: TodoGRC,
     ) {
         // Nothing to do
     }

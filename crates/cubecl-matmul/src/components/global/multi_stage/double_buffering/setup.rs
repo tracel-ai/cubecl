@@ -1,5 +1,5 @@
 use crate::components::global::read::LoadingValidation;
-use crate::components::global::{SharedGlobalConfig, cube_dim_validation};
+use crate::components::global::{GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation};
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::StageConfig;
 use crate::components::{
@@ -90,6 +90,16 @@ where
             SharedGlobalConfig {
                 stage_config,
                 num_planes,
+                lhs_reader_config: GlobalReaderConfig {
+                    global_memory_config: todo!(),
+                    stage_memory_config: todo!(),
+                    precompute_job: selection.loading_precompute_strategy.into(),
+                },
+                rhs_reader_config: GlobalReaderConfig {
+                    global_memory_config: todo!(),
+                    stage_memory_config: todo!(),
+                    precompute_job: selection.loading_precompute_strategy.into(),
+                },
             },
             !(problem.m as u32).is_multiple_of(stage_shape_m),
             !(problem.n as u32).is_multiple_of(stage_shape_n),
@@ -107,8 +117,8 @@ fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Run
     config: DoubleBufferingGlobalConfig<S>,
     client: &ComputeClient<R::Server>,
 ) -> Result<DoubleBufferingGlobalConfig<S>, MatmulSetupError> {
-    LL::check::<DoubleBufferingGlobalConfig<S>, R>(client, &config, MatmulIdent::Lhs)?;
-    RL::check::<DoubleBufferingGlobalConfig<S>, R>(client, &config, MatmulIdent::Rhs)?;
+    LL::check::<R>(client, &config.shared.lhs_reader_config, MatmulIdent::Lhs)?;
+    RL::check::<R>(client, &config.shared.rhs_reader_config, MatmulIdent::Rhs)?;
     cube_dim_validation(config.shared.cube_dim())?;
 
     Ok(config)

@@ -1,7 +1,8 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::stage::StageConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
 use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
@@ -120,6 +121,8 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 pub struct SharedGlobalConfig<S: StageConfig> {
     pub stage_config: S,
     pub num_planes: u32,
+    pub lhs_reader_config: GlobalReaderConfig,
+    pub rhs_reader_config: GlobalReaderConfig,
 }
 
 impl<S: StageConfig> SharedGlobalConfig<S> {
@@ -191,7 +194,11 @@ pub trait GlobalConfig:
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct GlobalReaderConfig;
+pub struct GlobalReaderConfig {
+    pub global_memory_config: GlobalMemoryConfig,
+    pub stage_memory_config: StageMemoryConfig,
+    pub precompute_job: bool
+}
 
 // pub trait GlobalReaderConfig:
 //     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static

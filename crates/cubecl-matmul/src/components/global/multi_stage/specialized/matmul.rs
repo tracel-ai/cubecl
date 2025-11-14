@@ -63,13 +63,11 @@ where
     type LhsGlobalReader = PartialStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
-        Self::Config,
         LL,
     >;
     type RhsGlobalReader = PartialStageGlobalReader<
         <MP::Rhs as MatrixPrecision>::Global,
         <MP::Rhs as MatrixPrecision>::Stage,
-        Self::Config,
         RL,
     >;
     type AccGlobalReader = ZeroGlobalReader<MP::Acc>;

@@ -1,6 +1,6 @@
 use crate::components::{
     LoadingPrecomputeStrategy,
-    global::{GlobalConfig, SharedGlobalConfig, read::ReaderMode},
+    global::{GlobalConfig, GlobalReaderConfig, SharedGlobalConfig, read::ReaderMode},
     stage::{self, StageConfig},
 };
 

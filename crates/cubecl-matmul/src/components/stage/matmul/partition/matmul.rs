@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
-use crate::components::global::{PlaneRoleConfig, TodoGRC};
+use crate::components::global::{GlobalReaderConfig, PlaneRoleConfig};
 use crate::components::stage::PartitionSchedulerScheme;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
@@ -17,8 +17,6 @@ pub struct SharedPartitionMatmulConfig<TC: TileConfig> {
     pub tile_config: TC,
     pub partition_size: PartitionSize,
     pub must_sync_plane_after_execution: bool,
-    pub lhs_reader_config: TodoGRC,
-    pub rhs_reader_config: TodoGRC,
     pub partition_buffering: PartitionBuffering,
     pub lhs_layout: MatrixLayout,
     pub rhs_layout: MatrixLayout,
@@ -34,8 +32,6 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
         tile_config: TC,
         partition_size: PartitionSize,
         must_sync_plane_after_execution: bool,
-        lhs_reader_config: TodoGRC,
-        rhs_reader_config: TodoGRC,
         partition_buffering: PartitionBuffering,
         lhs_layout: MatrixLayout,
         rhs_layout: MatrixLayout,
@@ -49,8 +45,6 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
             tile_config,
             partition_size,
             must_sync_plane_after_execution,
-            lhs_reader_config,
-            rhs_reader_config,
             partition_buffering,
             lhs_layout,
             rhs_layout,

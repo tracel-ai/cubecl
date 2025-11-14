@@ -2,7 +2,8 @@ use crate::components::{
     MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
-        GlobalWriterFamily, SharedGlobalConfig, WriteTiling, cube_dim_validation,
+        GlobalReaderConfig, GlobalWriterFamily, SharedGlobalConfig, WriteTiling,
+        cube_dim_validation,
         read::{FullLoadingStrategy, LoadingValidation},
         single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
     },
@@ -85,6 +86,14 @@ where
             SharedGlobalConfig {
                 stage_config,
                 num_planes,
+                lhs_reader_config: GlobalReaderConfig {
+                    global_memory_config: todo!(),
+                    stage_memory_config: todo!(),
+                },
+                rhs_reader_config: GlobalReaderConfig {
+                    global_memory_config: todo!(),
+                    stage_memory_config: todo!(),
+                },
             },
             !(problem.m as u32).is_multiple_of(stage_shape_m),
             !(problem.n as u32).is_multiple_of(stage_shape_n),
@@ -102,8 +111,8 @@ fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Run
     config: SimpleConfig<S>,
     client: &ComputeClient<R::Server>,
 ) -> Result<SimpleConfig<S>, MatmulSetupError> {
-    LL::check::<SimpleConfig<S>, R>(client, &config, MatmulIdent::Lhs)?;
-    RL::check::<SimpleConfig<S>, R>(client, &config, MatmulIdent::Rhs)?;
+    LL::check::<R>(client, &config.shared.lhs_reader_config, MatmulIdent::Lhs)?;
+    RL::check::<R>(client, &config.shared.rhs_reader_config, MatmulIdent::Rhs)?;
     cube_dim_validation(config.shared.cube_dim())?;
     Ok(config)
 }
