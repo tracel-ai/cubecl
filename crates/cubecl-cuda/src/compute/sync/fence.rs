@@ -38,7 +38,6 @@ impl Fence {
     /// Wait for the [Fence] to be reached, ensuring that all previous tasks enqueued to the
     /// [stream](CUstream_st) are completed.
     pub fn wait_sync(self) {
-        log::info!("Wait sync");
         unsafe {
             cudarc::driver::result::event::synchronize(self.event).unwrap();
             cudarc::driver::result::event::destroy(self.event).unwrap();
