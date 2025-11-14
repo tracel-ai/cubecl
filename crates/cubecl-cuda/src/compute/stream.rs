@@ -78,8 +78,6 @@ impl EventStreamBackend for CudaStreamBackend {
     }
 
     fn wait_event_sync(event: Self::Event) {
-        log::info!("Wait event sync ...");
         event.wait_sync();
-        log::info!("Wait event sync done.");
     }
 }

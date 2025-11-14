@@ -447,7 +447,7 @@ impl ComputeServer for CudaServer {
 }
 
 impl ServerCommunication for CudaServer {
-    const SERVER_COMM_ENABLED: bool = false;
+    const SERVER_COMM_ENABLED: bool = true;
 
     fn copy(
         server_src: &mut Self,

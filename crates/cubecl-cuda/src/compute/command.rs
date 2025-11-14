@@ -170,9 +170,7 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         async move {
-            log::info!("Read async...");
             fence.wait_sync();
-            log::info!("Read async done.");
             // Release memory handle.
             core::mem::drop(descriptors_moved);
             result
@@ -191,9 +189,7 @@ impl<'a> Command<'a> {
             let (bytes, fences) = results?;
 
             for fence in fences {
-                log::info!("Read async origin ...");
                 fence.wait_sync();
-                log::info!("Read async origin done.");
             }
             Ok(bytes)
         }
@@ -381,9 +377,7 @@ impl<'a> Command<'a> {
         let fence = Fence::new(self.streams.current().sys);
 
         Box::pin(async {
-            log::info!("Sync...");
             fence.wait_sync();
-            log::info!("Sync done.");
         })
     }
 
