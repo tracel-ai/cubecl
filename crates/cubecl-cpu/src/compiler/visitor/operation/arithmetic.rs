@@ -446,6 +446,102 @@ impl<'a> Visitor<'a> {
                     self.append_operation_with_result(arith::mulf(value, f, self.location));
                 self.insert_variable(out, result);
             }
+            Arithmetic::Hypot(hypot) => {
+                let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
+                let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
+                let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
+
+                let max =
+                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
+                let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
+                let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
+                let is_zero = self.append_operation_with_result(arith::cmpf(
+                    self.context,
+                    arith::CmpfPredicate::Oeq,
+                    max,
+                    zero,
+                    self.location,
+                ));
+                let scale = self.append_operation_with_result(arith::select(
+                    is_zero,
+                    one,
+                    max,
+                    self.location,
+                ));
+                let a_scale =
+                    self.append_operation_with_result(arith::divf(abs_a, scale, self.location));
+                let b_scale =
+                    self.append_operation_with_result(arith::divf(abs_b, scale, self.location));
+                let a_scale_squared =
+                    self.append_operation_with_result(arith::mulf(a_scale, a_scale, self.location));
+                let b_scale_squared =
+                    self.append_operation_with_result(arith::mulf(b_scale, b_scale, self.location));
+                let sum = self.append_operation_with_result(arith::addf(
+                    a_scale_squared,
+                    b_scale_squared,
+                    self.location,
+                ));
+                let square_root = self.append_operation_with_result(llvm_ods::intr_sqrt(
+                    self.context,
+                    sum,
+                    self.location,
+                ));
+                let result = self.append_operation_with_result(arith::mulf(
+                    square_root,
+                    scale,
+                    self.location,
+                ));
+
+                self.insert_variable(out, result);
+            }
+            Arithmetic::Rhypot(hypot) => {
+                let (a, b) = self.get_binary_op_variable(hypot.lhs, hypot.rhs);
+                let abs_a = self.get_absolute_val(hypot.lhs.ty, a);
+                let abs_b = self.get_absolute_val(hypot.rhs.ty, b);
+
+                let max =
+                    self.append_operation_with_result(arith::maxnumf(abs_a, abs_b, self.location));
+                let zero = self.create_float_constant_from_item(hypot.lhs.ty, 0.0);
+                let one = self.create_float_constant_from_item(hypot.lhs.ty, 1.0);
+                let is_zero = self.append_operation_with_result(arith::cmpf(
+                    self.context,
+                    arith::CmpfPredicate::Oeq,
+                    max,
+                    zero,
+                    self.location,
+                ));
+                let scale = self.append_operation_with_result(arith::select(
+                    is_zero,
+                    one,
+                    max,
+                    self.location,
+                ));
+                let a_scale =
+                    self.append_operation_with_result(arith::divf(abs_a, scale, self.location));
+                let b_scale =
+                    self.append_operation_with_result(arith::divf(abs_b, scale, self.location));
+                let a_scale_squared =
+                    self.append_operation_with_result(arith::mulf(a_scale, a_scale, self.location));
+                let b_scale_squared =
+                    self.append_operation_with_result(arith::mulf(b_scale, b_scale, self.location));
+                let sum = self.append_operation_with_result(arith::addf(
+                    a_scale_squared,
+                    b_scale_squared,
+                    self.location,
+                ));
+                let rsquare_root = self.append_operation_with_result(math_ods::rsqrt(
+                    self.context,
+                    sum,
+                    self.location,
+                ));
+                let result = self.append_operation_with_result(arith::divf(
+                    rsquare_root,
+                    scale,
+                    self.location,
+                ));
+
+                self.insert_variable(out, result);
+            }
             Arithmetic::Recip(recip) => {
                 let value = self.get_variable(recip.input);
                 let one = self.create_float_constant_from_item(recip.input.ty, 1.0);
@@ -506,17 +602,14 @@ impl<'a> Visitor<'a> {
                 ));
                 self.insert_variable(out, result);
             }
-            Arithmetic::InverseSqrt(sqrt) => {
-                let input = self.get_variable(sqrt.input);
-                let value = self.append_operation_with_result(llvm_ods::intr_sqrt(
+            Arithmetic::InverseSqrt(rsqrt) => {
+                let input = self.get_variable(rsqrt.input);
+                let output = self.append_operation_with_result(math_ods::rsqrt(
                     self.context,
                     input,
                     self.location,
                 ));
-                let one = self.create_float_constant_from_item(sqrt.input.ty, 1.0);
-                let recip =
-                    self.append_operation_with_result(arith::divf(one, value, self.location));
-                self.insert_variable(out, recip);
+                self.insert_variable(out, output);
             }
             Arithmetic::Sqrt(sqrt) => {
                 let input = self.get_variable(sqrt.input);

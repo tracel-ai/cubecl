@@ -155,7 +155,6 @@ function!(Cos, "cos");
 function!(Tan, "tan", false);
 function!(Sinh, "sinh", false);
 function!(Cosh, "cosh", false);
-// Tanh is separete below, idk why
 function!(ArcCos, "acos", false);
 function!(ArcSin, "asin", false);
 function!(ArcTan, "atan", false);

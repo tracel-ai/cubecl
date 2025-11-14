@@ -843,6 +843,16 @@ impl WgslCompiler {
                     out: self.compile_variable(out),
                 })
             }
+            cube::Arithmetic::Hypot(op) => instructions.push(wgsl::Instruction::Hypot {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Rhypot(op) => instructions.push(wgsl::Instruction::Rhypot {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Sqrt(op) => instructions.push(wgsl::Instruction::Sqrt {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -1195,6 +1205,22 @@ fn register_extensions(instructions: &[wgsl::Instruction]) -> Vec<wgsl::Extensio
             wgsl::Instruction::Powf { lhs: _, rhs, out } => {
                 register_extension(wgsl::Extension::PowfPrimitive(out.elem()));
                 register_extension(wgsl::powf_extension(rhs, out));
+            }
+            wgsl::Instruction::Hypot {
+                lhs: _,
+                rhs: _,
+                out,
+            } => {
+                register_extension(wgsl::Extension::HypotPrimitive(out.elem()));
+                register_extension(wgsl::Extension::Hypot(out.item()));
+            }
+            wgsl::Instruction::Rhypot {
+                lhs: _,
+                rhs: _,
+                out,
+            } => {
+                register_extension(wgsl::Extension::RhypotPrimitive(out.elem()));
+                register_extension(wgsl::Extension::Rhypot(out.item()));
             }
             #[cfg(target_os = "macos")]
             wgsl::Instruction::Tanh { input, out: _ } => {

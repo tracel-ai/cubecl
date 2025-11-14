@@ -1176,6 +1176,12 @@ impl<D: Dialect> CppCompiler<D> {
             gpu::Arithmetic::Powi(op) => {
                 instructions.push(Instruction::Powi(self.compile_binary(op, out)))
             }
+            gpu::Arithmetic::Hypot(op) => {
+                instructions.push(Instruction::Hypot(self.compile_binary(op, out)))
+            }
+            gpu::Arithmetic::Rhypot(op) => {
+                instructions.push(Instruction::Rhypot(self.compile_binary(op, out)))
+            }
             gpu::Arithmetic::Sqrt(op) => {
                 let op = self.compile_unary(op, out);
                 instructions.push(self.select_fast_float(

@@ -28,7 +28,7 @@ use crate::ReduceError;
 /// let size_f32 = std::mem::size_of::<f32>();
 ///
 /// // Create input and output handles.
-/// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
+/// let input_handle = client.create_from_slice(f32::as_bytes(&[0, 1, 2, 3]));
 /// let output_handle = client.empty(size_of::<F>());
 /// let input = unsafe {
 ///     TensorHandleRef::<R>::from_raw_parts(

@@ -66,7 +66,7 @@ use cubecl_core::prelude::*;
 /// let axis = 0; // 0 for rows, 1 for columns in the case of a matrix.
 ///
 /// // Create input and output handles.
-/// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
+/// let input_handle = client.create_from_slice(f32::as_bytes(&[0, 1, 2, 3]));
 /// let input = unsafe {
 ///     TensorHandleRef::<R>::from_raw_parts(
 ///         &input_handle,

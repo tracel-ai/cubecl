@@ -20,7 +20,7 @@ fn identity_kernel<C: Numeric>(
         let mut offset = 0;
         while offset < output.line_size() {
             let remainder = (start_pos + offset) % gap;
-            if remainder.is_multiple_of(gap) {
+            if remainder == 0 {
                 line[offset] = C::from_int(1);
                 offset += gap;
             } else {

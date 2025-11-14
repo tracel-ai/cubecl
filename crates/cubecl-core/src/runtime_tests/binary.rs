@@ -1,3 +1,4 @@
+use core::f32;
 use std::{fmt::Display, sync::LazyLock};
 
 use crate::{self as cubecl, as_type};
@@ -30,7 +31,11 @@ pub(crate) fn assert_equals_approx<
         // account for lower precision at higher values
         let allowed_error = F::new((epsilon * e.to_f32().unwrap().abs()).max(epsilon));
         assert!(
-            (*a - *e).abs() < allowed_error || (a.is_nan() && e.is_nan()),
+            (*a - *e).abs() < allowed_error
+                || (a.is_nan() && e.is_nan())
+                || (a.is_infinite()
+                    && e.is_infinite()
+                    && a.is_sign_positive() == e.is_sign_positive()),
             "Values differ more than epsilon: actual={}, expected={}, difference={}, epsilon={}
 index: {}
 actual: {:?}
@@ -180,6 +185,64 @@ test_binary_impl!(
             lhs: as_type![F: 0., 1., -1., 1.],
             rhs: as_type![F: 1., 0., 0., 1.],
             expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339]
+        }
+    ]
+);
+
+test_binary_impl!(
+    test_hypot,
+    F,
+    F::hypot,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 3., 0., 5., 0.],
+            rhs: as_type![F: 4., 5., 0., 0.],
+            expected: as_type![F: 5., 5., 5., 0.]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 3., 0., 5., 8.],
+            rhs: as_type![F: 4., 5., 0., 15.],
+            expected: as_type![F: 5., 5., 5., 17.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: -3., 0., -5., -8.],
+            rhs: as_type![F: -4., -5., 0., 15.],
+            expected: as_type![F: 5., 5., 5., 17.]
+        }
+    ]
+);
+
+test_binary_impl!(
+    test_rhypot,
+    F,
+    F::rhypot,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 3., 0., 5., 0.],
+            rhs: as_type![F: 4., 5., 0., 0.],
+            expected: &[F::new(0.2), F::new(0.2), F::new(0.2), F::INFINITY]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 3., 0., 5., 0.3],
+            rhs: as_type![F: 4., 5., 0., 0.4],
+            expected: as_type![F: 0.2, 0.2, 0.2, 2.]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 0., 0., -5., -0.3],
+            rhs: as_type![F: -1., -5., 0., -0.4],
+            expected: as_type![F: 1., 0.2, 0.2, 2.]
         }
     ]
 );
@@ -354,6 +417,8 @@ macro_rules! testgen_binary {
 
             add_test!(test_dot);
             add_test!(test_powf);
+            add_test!(test_hypot);
+            add_test!(test_rhypot);
             add_test!(test_powi);
             add_test!(test_atan2);
         }
