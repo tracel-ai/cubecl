@@ -485,8 +485,12 @@ where
         dst_server: &Self,
     ) -> Allocation {
         if Server::SERVER_COMM_ENABLED {
+            println!("Locking src ...");
             let mut server_src = self.context.lock();
+            println!("Locked src.");
+            println!("Locking dst ...");
             let mut server_dst = dst_server.context.lock();
+            println!("Locked dst.");
 
             Server::copy(
                 server_src.deref_mut(),
