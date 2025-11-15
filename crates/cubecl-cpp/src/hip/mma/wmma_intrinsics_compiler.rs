@@ -324,59 +324,12 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         if flags.elem_bf16 {
             f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
-            if flags.inst_mma {
-                writeln!(
-                    f,
-                    "union {{
-                        bhalf8_t v;
-                        {} s;
-                    }} bhalf8_t_union;",
-                    Item::<HipDialect<Self>>::new(Elem::BF16, 8, false)
-                )?;
-                writeln!(
-                    f,
-                    "union {{
-                        bhalf16_t v;
-                        {} s;
-                    }} bhalf16_t_union;",
-                    Item::<HipDialect<Self>>::new(Elem::BF16, 16, false)
-                )?;
-            }
         }
         if flags.elem_f16 {
             f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
-            if flags.inst_mma {
-                writeln!(
-                    f,
-                    "union half8_t_union {{
-                        half8_t v;
-                        {} s;
-                    }};",
-                    Item::<HipDialect<Self>>::new(Elem::F16, 8, false)
-                )?;
-                writeln!(
-                    f,
-                    "union half16_t_union {{
-                        half16_t v;
-                        {} s;
-                    }};",
-                    Item::<HipDialect<Self>>::new(Elem::F16, 16, false)
-                )?;
-            }
         }
-        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")?;
-        if flags.inst_mma {
-            writeln!(
-                f,
-                "union float8_t_union {{
-                        float8_t v;
-                        {} s;
-                    }};",
-                Item::<HipDialect<Self>>::new(Elem::F32, 8, false)
-            )?;
-        }
-        Ok(())
+        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
     }
 
     fn compile_wmma_fragment_declaration(
