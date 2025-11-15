@@ -552,6 +552,10 @@ pub(super) fn compile_manual_mma<D: Dialect>(
     let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
+    // Need to reconstruct the fragments from an array of lines to a single vector type.
+    // This requires double indexing over both the array index and the line index.
+    // Will generate something like
+    // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
     let frag = |var: &Variable<D>, len: usize| {
         let vec = var.item().vectorization;
         let frag: Vec<_> = if vec > 1 {
@@ -566,6 +570,8 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 
     let frag_a = frag(frag_a, 16);
     let frag_b = frag(frag_b, 16);
+    // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is
+    // to just replicate the same f16 in both halves of the register.
     let frag_c = {
         let vec = frag_c.item().vectorization;
         let frag: Vec<_> = if vec > 1 {

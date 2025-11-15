@@ -575,6 +575,9 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 
     let frag_a = (0..a_regs).map(|i| as_const_ty(format!("{frag_a}[{i}]"), ab_ty));
     let frag_b = (0..b_regs).map(|i| as_const_ty(format!("{frag_b}[{i}]"), ab_ty));
+
+    // C and D fragments are always vectorized for optimal stores and casts, but are taken as separate
+    // registers for f32 so we need to unpack it. f16 is taken in packed registers, so use as is.
     let frag_c = match cd_elem.size() {
         4 | 8 => (0..cd_regs)
             .map(|i| as_ty(format!("{frag_c}[{}].i_{}", i / 2, i % 2), cd_ty))
