@@ -50,7 +50,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         ));
     }
 
-    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n);
+    let tile_size = find_instruction_size::<R, TMM>(client, dtypes, problem.m, problem.n)?;
 
     if options.tiny_selection_enabled && is_tiny(problem, &tile_size) {
         return Ok(selection_tiny::<R>(client, problem, tile_size, plane_dim));
@@ -258,7 +258,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
     elems: &MatmulElems,
     m: usize,
     n: usize,
-) -> TileSize {
+) -> Result<TileSize, MatmulAvailabilityError> {
     let supported = |m: u32, n: u32, k: u32| {
         TMM::is_supported::<R>(
             client,
@@ -273,7 +273,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
         )
     };
 
-    if m >= 4 * n && supported(32, 8, 16) {
+    let val = if m >= 4 * n && supported(32, 8, 16) {
         (32, 8, 16).into()
     } else if n >= 4 * n && supported(8, 32, 16) {
         (8, 32, 16).into()
@@ -282,7 +282,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
     } else if supported(8, 8, 8) {
         (8, 8, 8).into()
     } else {
-        TMM::supported_sizes::<R>(
+        match TMM::supported_sizes::<R>(
             client,
             elems.lhs_register,
             elems.rhs_register,
@@ -290,8 +290,13 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
         )
         .first()
         .copied()
-        .unwrap_or_else(|| (16, 16, 8).into())
-    }
+        {
+            Some(val) => val,
+            None => return Err(MatmulAvailabilityError::TileSizeNotFound),
+        }
+    };
+
+    Ok(val)
 }
 
 fn selection_tiny<R: Runtime>(
