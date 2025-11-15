@@ -222,9 +222,9 @@ impl Runtime for HipRuntime {
             mma: MmaProperties {
                 register_size_bits: 32,
                 const_plane_size: 32,
-                register_layout_a: MatrixLayout::ColMajor,
-                register_layout_b: MatrixLayout::RowMajor,
-                register_layout_acc: MatrixLayout::RowMajor,
+                register_layout_a: MatrixLayout::RowMajor,
+                register_layout_b: MatrixLayout::ColMajor,
+                register_layout_acc: MatrixLayout::ColMajor,
                 register_duplication_a: 2,
                 register_duplication_b: 2,
                 register_duplication_acc: 1,

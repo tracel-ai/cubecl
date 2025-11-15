@@ -324,12 +324,59 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
         if flags.elem_bf16 {
             f.write_str("typedef __bf16 bhalf8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef __bf16 bhalf16_t __attribute__((ext_vector_type(16)));\n")?;
+            if flags.inst_mma {
+                writeln!(
+                    f,
+                    "union {{
+                        bhalf8_t v;
+                        {} s;
+                    }} bhalf8_t_union;",
+                    Item::<HipDialect<Self>>::new(Elem::BF16, 8, false)
+                )?;
+                writeln!(
+                    f,
+                    "union {{
+                        bhalf16_t v;
+                        {} s;
+                    }} bhalf16_t_union;",
+                    Item::<HipDialect<Self>>::new(Elem::BF16, 16, false)
+                )?;
+            }
         }
         if flags.elem_f16 {
             f.write_str("typedef _Float16 half8_t __attribute__((ext_vector_type(8)));\n")?;
             f.write_str("typedef _Float16 half16_t __attribute__((ext_vector_type(16)));\n")?;
+            if flags.inst_mma {
+                writeln!(
+                    f,
+                    "union half8_t_union {{
+                        half8_t v;
+                        {} s;
+                    }};",
+                    Item::<HipDialect<Self>>::new(Elem::F16, 8, false)
+                )?;
+                writeln!(
+                    f,
+                    "union half16_t_union {{
+                        half16_t v;
+                        {} s;
+                    }};",
+                    Item::<HipDialect<Self>>::new(Elem::F16, 16, false)
+                )?;
+            }
         }
-        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")
+        f.write_str("typedef float float8_t __attribute__((ext_vector_type(8)));\n")?;
+        if flags.inst_mma {
+            writeln!(
+                f,
+                "union float8_t_union {{
+                        float8_t v;
+                        {} s;
+                    }};",
+                Item::<HipDialect<Self>>::new(Elem::F32, 8, false)
+            )?;
+        }
+        Ok(())
     }
 
     fn compile_wmma_fragment_declaration(
@@ -547,24 +594,66 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 ) -> std::fmt::Result {
     let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
-    let d_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
-    let frag_d_len = d_elems as usize / (32 / frag_d.elem().unpacked().size_bits());
-
-    // Item is irrelevant
-    let frag_a_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
-    let frag_b_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
-    let frag_c_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+    let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+
+    let frag = |var: &Variable<D>, len: usize| {
+        let vec = var.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..len)
+                .map(|i| format!("{var}[{}].i_{}", i / vec, i % vec))
+                .collect()
+        } else {
+            (0..len).map(|i| format!("{var}[{}]", i)).collect()
+        };
+        frag.join(", ")
+    };
+
+    let frag_a = frag(frag_a, 16);
+    let frag_b = frag(frag_b, 16);
+    let frag_c = {
+        let vec = frag_c.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..cd_elems as usize)
+                .flat_map(|i| {
+                    (0..frag_cd_step).map(move |_| format!("{frag_c}[{}].i_{}", i / vec, i % vec))
+                })
+                .collect()
+        } else {
+            (0..cd_elems as usize)
+                .flat_map(|i| (0..frag_cd_step).map(move |_| format!("{frag_c}[{}]", i)))
+                .collect()
+        };
+        frag.join(", ")
+    };
 
     // Should optimize out
     let name = extension.fn_name();
 
+    // Item is irrelevant
+    writeln!(f, "{} {frag_d_tmp} = {{}};", extension.frag_d)?;
+
     writeln!(
         f,
-        "{name}(reinterpret_cast<{}>({frag_a}[0]), reinterpret_cast<{}>({frag_b}[0]), reinterpret_cast<{}>({frag_c}), reinterpret_cast<{}>({frag_d}[0]));",
-        extension.frag_a, extension.frag_b, extension.frag_c, extension.frag_d
+        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
+        extension.frag_a, extension.frag_b, extension.frag_c
     )?;
+
+    for i in 0..cd_elems as usize {
+        let vec = frag_d.item().vectorization;
+        if vec > 1 {
+            writeln!(
+                f,
+                "{frag_d}[{}].i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
+                i / vec,
+                i % vec
+            )?;
+        } else {
+            writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i} * {frag_cd_step}];")?;
+        }
+    }
 
     Ok(())
 }
@@ -605,8 +694,13 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
     result
 }
 
-pub fn contiguous_elements_rdna3(_ident: MatrixIdent, _matrix: Matrix) -> u32 {
-    16
+pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> u32 {
+    // Don't exceed swizzle atom and load width
+    let max_line_size = 16 / matrix.storage.size();
+    match ident {
+        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size) as u32,
+        MatrixIdent::Accumulator => 8.min(max_line_size) as u32,
+    }
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

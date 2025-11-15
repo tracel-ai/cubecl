@@ -87,6 +87,7 @@ pub struct Flags {
     pub inst_tma: bool,
     pub inst_tma_im2col: bool,
     pub inst_wmma: bool,
+    pub inst_mma: bool,
     pub inst_ptx_wrappers: bool,
     pub use_grid_constants: bool,
     pub static_meta_length: usize,
@@ -170,6 +171,7 @@ impl<D: Dialect> CppCompiler<D> {
         let flags = Flags {
             indexes: D::builtin_rules(&self.flags.indexes),
             inst_wmma: self.flags.inst_wmma,
+            inst_mma: self.flags.inst_mma,
             op_pipeline: self.flags.op_pipeline,
             op_barrier: self.flags.op_barrier,
             elem_fp4: self.flags.elem_fp4,
@@ -763,13 +765,21 @@ impl<D: Dialect> CppCompiler<D> {
                 registers_a,
                 registers_b,
                 registers_c,
-            } => WmmaInstruction::ExecuteManual {
-                shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: self.compile_variable(registers_a),
-                frag_b: self.compile_variable(registers_b),
-                frag_c: self.compile_variable(registers_c),
-                frag_d: out,
-            },
+            } => {
+                self.flags.inst_mma = true;
+                self.compile_type(gpu::Type::Line(registers_a.storage_type(), 16));
+                self.compile_type(gpu::Type::Line(registers_a.storage_type(), 8));
+                self.compile_type(gpu::Type::Line(registers_b.storage_type(), 16));
+                self.compile_type(gpu::Type::Line(registers_b.storage_type(), 8));
+                self.compile_type(gpu::Type::Line(registers_c.storage_type(), 8));
+                WmmaInstruction::ExecuteManual {
+                    shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
+                    frag_a: self.compile_variable(registers_a),
+                    frag_b: self.compile_variable(registers_b),
+                    frag_c: self.compile_variable(registers_c),
+                    frag_d: out,
+                }
+            }
             gpu::CoopMma::ExecuteScaled {
                 matrix,
                 registers_a,
