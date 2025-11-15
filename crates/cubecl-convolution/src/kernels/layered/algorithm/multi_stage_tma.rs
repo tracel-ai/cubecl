@@ -70,6 +70,6 @@ impl<
             problem,
             plane_dim,
             matmul_elems,
-        ))
+        )?)
     }
 }

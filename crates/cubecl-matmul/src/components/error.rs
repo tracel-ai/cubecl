@@ -41,6 +41,9 @@ pub enum MatmulAvailabilityError {
         size: Option<TileSize>,
     },
 
+    /// Impossible to find a supported tile size for the problem.
+    TileSizeNotFound,
+
     /// The layout of the matmul is unsupported
     LayoutUnsupported {
         lhs: MatrixLayout,
@@ -171,6 +174,9 @@ impl Debug for MatmulAvailabilityError {
             }
             MatmulAvailabilityError::PlaneOpsUnavailable => {
                 writeln!(f, "Plane-wide operations like plane_sum are not available.")
+            }
+            MatmulAvailabilityError::TileSizeNotFound => {
+                writeln!(f, "No tile size is available for the problem.")
             }
         }
     }
