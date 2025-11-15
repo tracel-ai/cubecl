@@ -699,7 +699,7 @@ pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> u32 {
     let max_line_size = 16 / matrix.storage.size();
     match ident {
         MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size) as u32,
-        MatrixIdent::Accumulator => 8.min(max_line_size) as u32,
+        MatrixIdent::Accumulator => 1,
     }
 }
 
