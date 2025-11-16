@@ -218,7 +218,6 @@ impl<'a> Visitor<'a> {
             return;
         }
         let operation = if index_assign.value.ty.is_vectorized() {
-            // dbg!(out);
             let indices = self.get_index(
                 index_assign.index,
                 index_assign.value.ty,
