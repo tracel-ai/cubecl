@@ -242,7 +242,7 @@ impl<'a> Visitor<'a> {
         self.block.append_operation(operation);
     }
 
-    pub(crate) fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
+    fn visit_cast(&mut self, to_cast: Variable, out: Variable) {
         let mut value = self.get_variable(to_cast);
         let target = out.ty.to_type(self.context);
 
