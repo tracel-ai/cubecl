@@ -328,14 +328,19 @@ impl<'a> Visitor<'a> {
         }
     }
 
-    pub fn get_index(&self, variable: Variable, target_item: ir::Type) -> Value<'a, 'a> {
+    pub fn get_index(
+        &self,
+        variable: Variable,
+        target_item: ir::Type,
+        list_is_vectorized: bool,
+    ) -> Value<'a, 'a> {
         let index = self.get_variable(variable);
         let mut index = self.append_operation_with_result(index::casts(
             index,
             Type::index(self.context),
             self.location,
         ));
-        if target_item.is_vectorized() {
+        if target_item.is_vectorized() && list_is_vectorized {
             let vectorization = target_item.line_size() as i64;
             let shift = vectorization.ilog2() as i64;
             let constant = self.append_operation_with_result(arith::constant(

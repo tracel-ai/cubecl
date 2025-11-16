@@ -25,6 +25,7 @@ pub mod compiler;
 pub mod compute;
 pub mod device;
 pub mod runtime;
+pub mod frontend;
 
 pub use device::CpuDevice;
 pub use runtime::*;
