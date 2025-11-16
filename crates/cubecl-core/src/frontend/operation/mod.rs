@@ -5,7 +5,7 @@ mod branch;
 mod clamp;
 mod cmp;
 mod copy;
-#[path="fma.rs"]
+#[path = "fma.rs"]
 mod fma_internal;
 mod unary;
 

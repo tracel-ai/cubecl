@@ -25,4 +25,3 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
         output.into()
     })
 }
-
