@@ -29,11 +29,8 @@ impl<'a> Visitor<'a> {
                     copy_memory.input.ty.is_vectorized(),
                 );
                 let out_memref = self.get_memory(out);
-                let out_index = self.get_index(
-                    copy_memory.out_index,
-                    out.ty,
-                    out.ty.is_vectorized(),
-                );
+                let out_index =
+                    self.get_index(copy_memory.out_index, out.ty, out.ty.is_vectorized());
                 if out.ty.is_vectorized() {
                     let result = out.ty.to_type(self.context);
                     let value = self.append_operation_with_result(vector::load(
@@ -154,11 +151,7 @@ impl<'a> Visitor<'a> {
 
     fn visit_index(&mut self, index: &IndexOperator, out: Variable) -> Value<'a, 'a> {
         assert!(index.line_size == 0);
-        let mut index_value = self.get_index(
-            index.index,
-            out.ty,
-            index.list.ty.is_vectorized(),
-        );
+        let mut index_value = self.get_index(index.index, out.ty, index.list.ty.is_vectorized());
         if !self.is_memory(index.list) {
             let to_extract = self.get_variable(index.list);
             // Item of size 1
