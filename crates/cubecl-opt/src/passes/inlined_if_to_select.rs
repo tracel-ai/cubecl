@@ -82,6 +82,9 @@ impl OptimizerPass for EmptyBranchToSelect {
                         for merge_successor in merge_successors {
                             opt.program.add_edge(block, merge_successor, 0);
                         }
+                        if opt.ret == merge{
+                            opt.ret = block;
+                        }
                         *opt.program[block].control_flow.borrow_mut() = merge_control;
                         opt.invalidate_structure();
                         update_references(opt, merge, block);
