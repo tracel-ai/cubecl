@@ -5,7 +5,8 @@ mod branch;
 mod clamp;
 mod cmp;
 mod copy;
-mod fma;
+#[path = "fma.rs"]
+mod fma_internal;
 mod unary;
 
 pub use assignation::*;
@@ -15,5 +16,5 @@ pub use branch::*;
 pub use clamp::*;
 pub use cmp::*;
 pub use copy::*;
-pub use fma::*;
+pub use fma_internal::*;
 pub use unary::*;
