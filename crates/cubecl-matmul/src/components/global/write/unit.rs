@@ -7,7 +7,7 @@ use crate::components::{
     global::{
         GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
         PartitionedStageFamily, RoleRuleConfig, WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryReadConfig,
+        memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{StageMemoryConfig, StagePartitioner, UnitPartitioner},

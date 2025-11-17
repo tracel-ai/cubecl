@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_matmul::components::{
     MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryReadConfig},
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
 };
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
@@ -37,7 +37,7 @@ pub struct Im2colLayout {
     pub params: ConvolutionParams,
     /// Global memory config for the backing tensor
     #[cube(comptime)]
-    pub config: GlobalMemoryReadConfig,
+    pub config: GlobalMemoryConfig,
 }
 
 #[cube]
@@ -122,7 +122,7 @@ impl<'a, R: Runtime> Im2colLayoutLaunch<'a, R> {
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
-        config: GlobalMemoryReadConfig,
+        config: GlobalMemoryConfig,
     ) -> Self {
         let shape_out = problem
             .out_shape

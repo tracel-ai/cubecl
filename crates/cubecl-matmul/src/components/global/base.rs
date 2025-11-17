@@ -1,12 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::global::memory::GlobalMemoryReadConfig;
+use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::ReaderMode;
 use crate::components::global::{
-    GlobalMemoryWriteConfig, GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig,
-    SpecializationTensorConfig, SpecializedLoadingSides,
+    GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig,
+    SpecializedLoadingSides,
 };
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
@@ -253,7 +253,7 @@ pub trait GlobalConfig:
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalReaderConfig {
-    pub gmem_config: GlobalMemoryReadConfig,
+    pub gmem_config: GlobalMemoryConfig,
     pub smem_config: StageMemoryConfig,
     pub precompute_job: bool,
     pub plane_dim: u32,

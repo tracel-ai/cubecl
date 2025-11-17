@@ -1,6 +1,6 @@
 use crate::components::{
     MatrixLayout, MatrixPrecision,
-    global::{RoleRuleConfig, WriteEventListener, WriteTiling},
+    global::{RoleRuleConfig, WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
     stage::{Stage, StageFamily, StageMemoryConfig},
 };
 use cubecl_core as cubecl;
@@ -36,15 +36,15 @@ pub trait GlobalWriter<IP: MatrixPrecision>:
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalWriterConfig {
-    pub gmem_config: GlobalMemoryWriteConfig,
+    pub gmem_config: GlobalMemoryConfig,
     pub smem_config: StageMemoryConfig,
     pub role_rule_config: RoleRuleConfig,
     pub plane_dim: u32,
     pub num_partitions_n: u32,
 }
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct GlobalMemoryWriteConfig {
-    pub line_size: u32,
-    pub matrix_layout: MatrixLayout,
-}
+// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// pub struct GlobalMemoryWriteConfig {
+//     pub line_size: u32,
+//     pub matrix_layout: MatrixLayout,
+// }

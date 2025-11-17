@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use cubecl_matmul::components::global::{
-    PartitionedStage, WriteEventListener, memory::GlobalMemoryReadConfig,
+    PartitionedStage, WriteEventListener, memory::GlobalMemoryConfig,
 };
 
 mod plane;
@@ -18,7 +18,7 @@ use crate::components::stage::StageAttentionConfig;
 pub trait AttentionWriter<ES: Numeric, EG: Numeric>: WriteEventListener {
     fn new<S: StageAttentionConfig>(
         global: View<Line<EG>, Coords2d, ReadWrite>,
-        #[comptime] global_config: GlobalMemoryReadConfig,
+        #[comptime] global_config: GlobalMemoryConfig,
         #[comptime] stage_config: S,
     ) -> Self;
 

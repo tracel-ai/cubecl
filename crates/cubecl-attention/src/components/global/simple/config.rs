@@ -1,6 +1,6 @@
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatrixLayout, global::memory::GlobalMemoryReadConfig, stage::StageMemoryConfig,
+    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
 };
 
 use crate::components::{
@@ -60,7 +60,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
         self.stage_config.plane_dim()
     }
 
-    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryReadConfig {
+    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig {
         let tiling_scheme = self.stage_config.tiling_scheme();
 
         let elements_in_tile_row = tiling_scheme.tile_size.num_rows(ident);
@@ -70,7 +70,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
         let elements_in_stage_col =
             tiling_scheme.partition_size.num_cols(ident) * elements_in_tile_col;
 
-        GlobalMemoryReadConfig::new(
+        GlobalMemoryConfig::new(
             elements_in_tile_row,
             elements_in_tile_col,
             elements_in_stage_row,

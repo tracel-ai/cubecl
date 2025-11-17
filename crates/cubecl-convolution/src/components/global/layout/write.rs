@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::global::memory::GlobalMemoryReadConfig;
+use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},
@@ -31,12 +31,12 @@ pub struct OutLayout {
 
     /// Global memory config for the backing tensor
     #[cube(comptime)]
-    pub config: GlobalMemoryReadConfig,
+    pub config: GlobalMemoryConfig,
 }
 
 #[cube]
 impl OutLayout {
-    pub fn new(args: &RuntimeArgs, #[comptime] config: GlobalMemoryReadConfig) -> OutLayout {
+    pub fn new(args: &RuntimeArgs, #[comptime] config: GlobalMemoryConfig) -> OutLayout {
         OutLayout {
             shape_out: args.shape_out.clone(),
             shape_m: args.shape_m,
@@ -82,7 +82,7 @@ impl<'a, R: Runtime> OutLayoutLaunch<'a, R> {
     pub fn from_args(
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
-        config: GlobalMemoryReadConfig,
+        config: GlobalMemoryConfig,
     ) -> Self {
         let shape_out = problem
             .out_shape

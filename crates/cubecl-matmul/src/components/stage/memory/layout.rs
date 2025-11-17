@@ -7,7 +7,7 @@ use cubecl_std::tensor::layout::Coords2d;
 use crate::components::MatrixLayout;
 use crate::components::tile::StridedTile;
 use crate::components::{
-    InvalidConfigError, global::memory::GlobalMemoryReadConfig, stage::StageMemoryConfig,
+    InvalidConfigError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
 };
 
 use super::StridedStage;

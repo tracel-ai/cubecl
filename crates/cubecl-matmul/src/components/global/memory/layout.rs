@@ -8,10 +8,7 @@ use cubecl_std::{
     },
 };
 
-use crate::components::{
-    MatmulProblem, MatrixLayout,
-    global::{GlobalMemoryWriteConfig, memory::GlobalMemoryReadConfig},
-};
+use crate::components::{MatmulProblem, MatrixLayout, global::memory::GlobalMemoryConfig};
 
 /// Global layout that uses the last two dimensions and ignores all others.
 #[derive(CubeType, CubeLaunch, Clone, Copy)]
@@ -67,22 +64,12 @@ pub struct GlobalLayoutConfig {
     pub check_col_bounds: bool,
 }
 
-impl From<GlobalMemoryReadConfig> for GlobalLayoutConfig {
-    fn from(gmem_config: GlobalMemoryReadConfig) -> Self {
+impl From<GlobalMemoryConfig> for GlobalLayoutConfig {
+    fn from(gmem_config: GlobalMemoryConfig) -> Self {
         GlobalLayoutConfig {
             matrix_layout: gmem_config.matrix_layout,
             check_row_bounds: gmem_config.check_row_bounds,
             check_col_bounds: gmem_config.check_col_bounds,
-        }
-    }
-}
-
-impl From<GlobalMemoryWriteConfig> for GlobalLayoutConfig {
-    fn from(gmem_config: GlobalMemoryWriteConfig) -> Self {
-        GlobalLayoutConfig {
-            matrix_layout: gmem_config.matrix_layout,
-            check_row_bounds: false,
-            check_col_bounds: false,
         }
     }
 }

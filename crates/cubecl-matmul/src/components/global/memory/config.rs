@@ -3,7 +3,7 @@ use std::{fmt::Debug, hash::Hash};
 use crate::components::{MatrixLayout, global::memory::ViewDirection};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct GlobalMemoryReadConfig {
+pub struct GlobalMemoryConfig {
     // pub elements_in_tile_row: u32,
     // pub elements_in_tile_col: u32,
     // pub elements_in_stage_row: u32,
@@ -15,7 +15,7 @@ pub struct GlobalMemoryReadConfig {
     pub view_direction: ViewDirection,
 }
 
-impl GlobalMemoryReadConfig {
+impl GlobalMemoryConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         // elements_in_tile_row: u32,
@@ -28,7 +28,7 @@ impl GlobalMemoryReadConfig {
         matrix_layout: MatrixLayout,
         view_direction: ViewDirection,
     ) -> Self {
-        GlobalMemoryReadConfig {
+        GlobalMemoryConfig {
             // elements_in_tile_row,
             // elements_in_tile_col,
             // elements_in_stage_row,

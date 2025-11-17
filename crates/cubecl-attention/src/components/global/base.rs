@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{AttentionElems, global::simple::AttentionWriter};
-use cubecl_matmul::components::{global::memory::GlobalMemoryReadConfig, stage::StageMemoryConfig};
+use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
@@ -112,7 +112,7 @@ pub trait GlobalAttentionConfig:
 
     fn cube_dim(&self) -> CubeDim;
     fn plane_dim(&self) -> u32;
-    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryReadConfig;
+    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig;
 
     fn tiling_scheme(&self) -> AttentionTilingScheme;
 
