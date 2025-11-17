@@ -143,7 +143,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
         for tr in [true, false] {
             for (b, m, n, k) in [
                 // entry(8192, 8192, 8192),
-                // entry(6144, 6144, 6144),
+                entry(6144, 6144, 6144),
                 // entry(4096, 4096, 4096),
                 // entry(2048, 2048, 2048),
                 // (2, 1024, 1024, 1024),
@@ -162,7 +162,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device, strategy: matmul::Str
                 // (16, 1, 512, 4096),
                 // (2, 8192, 8192, 1), // Outer
                 // (2, 8192, 1, 8192), // MatVec
-                (2, 1, 8192, 8192), // VecMat
+                // (2, 1, 8192, 8192), // VecMat
             ] {
                 println!("-------------------");
                 let _ = run_one::<R, MP>(device.clone(), strategy.clone(), (b, m, n, k), (tl, tr));
@@ -405,7 +405,7 @@ fn run_algos_wmma<R: Runtime, MP: MatmulPrecision>() {
 #[allow(unused)]
 fn run_benches<R: Runtime, MP: MatmulPrecision>() {
     // run_grid_search::<R, MP>();
-    run_algos_unit::<R, MP>();
+    // run_algos_unit::<R, MP>();
     run_algos_wmma::<R, MP>();
     // run_algos_vecmat::<R, MP>();
 }
