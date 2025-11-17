@@ -47,9 +47,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.global_memory_config.line_size();
+        let line_size = config.gmem_config.line_size();
         let num_planes = config.loading_planes_count;
-        let num_tiles = config.stage_memory_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_in_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
@@ -58,8 +58,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.stage_memory_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.plane_dim;
 
@@ -89,7 +88,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
             _ => unreachable!(),
         }
 
-        ContiguousTilingLayout::<T>::check(config.global_memory_config)?;
+        ContiguousTilingLayout::<T>::check(config.smem_config)?;
 
         Ok(())
     }
@@ -107,23 +106,22 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialTilewiseJob {
         let num_planes = config.loading_planes_count;
-        let num_tiles = config.stage_memory_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_in_stage();
         let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.stage_memory_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
         let stage_width = comptime!(match config.stage_ident {
-            StageIdent::Lhs => config.stage_memory_config.tiles_in_stage_col,
-            StageIdent::Rhs => config.stage_memory_config.tiles_in_stage_row,
+            StageIdent::Lhs => config.smem_config.tiles_in_stage_col,
+            StageIdent::Rhs => config.smem_config.tiles_in_stage_row,
             _ => unreachable!(),
         });
 
         let num_tiles_to_skip = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides)
+            .load_index(config.specialization_tensor_config)
             * num_tiles_per_plane;
 
         SyncPartialTilewiseJob {
@@ -176,9 +174,9 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 
         let tile = TO::to_row_col(
             nth_tile_global,
-            config.stage_memory_config.tiles_in_stage_row,
-            config.stage_memory_config.tiles_in_stage_col,
-            config.stage_memory_config,
+            config.smem_config.tiles_in_stage_row,
+            config.smem_config.tiles_in_stage_col,
+            config.smem_config,
         );
 
         let tile = match comptime![config.stage_ident] {
@@ -217,7 +215,7 @@ impl SyncPartialTilewiseJob {
         stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: GlobalReaderConfig,
     ) {
-        let layout = TiledLayout::new(comptime!(config.global_memory_config));
+        let layout = TiledLayout::new(comptime!(config.smem_config));
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));

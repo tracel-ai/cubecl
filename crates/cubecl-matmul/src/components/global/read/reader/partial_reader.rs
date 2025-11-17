@@ -58,11 +58,11 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
         k_step: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self {
-        let stage_memory = StridedStage::new_aligned(128u32, config.stage_memory_config);
+        let stage_memory = StridedStage::new_aligned(128u32, config.smem_config);
         let global_iter = GlobalIterator::new(
             tensor,
             k_step,
-            config.global_memory_config.view_direction,
+            config.gmem_config.view_direction,
             false,
         );
 

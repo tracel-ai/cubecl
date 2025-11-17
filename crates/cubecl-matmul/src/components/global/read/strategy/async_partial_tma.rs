@@ -25,7 +25,7 @@ impl LoadingValidation for AsyncPartialTmaLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        TmaTilingLayout::check(config.global_memory_config)?;
+        TmaTilingLayout::check(config.smem_config)?;
         validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
@@ -56,7 +56,7 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let role_rule_config = config.plane_role_config.rule;
-        let config = config.stage_memory_config;
+        let config = config.smem_config;
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
@@ -96,22 +96,22 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
     ) {
         let mut stage = stage.with_buffer_index(this.stage_index);
         if this.is_elected {
-            let size_row = match config.stage_memory_config.matrix_layout {
-                MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
-                MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
+            let size_row = match config.smem_config.matrix_layout {
+                MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
+                MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
             };
-            let size_col = match config.stage_memory_config.matrix_layout {
-                MatrixLayout::RowMajor => config.stage_memory_config.elements_in_tile_col,
-                MatrixLayout::ColMajor => config.stage_memory_config.elements_in_tile_row,
+            let size_col = match config.smem_config.matrix_layout {
+                MatrixLayout::RowMajor => config.smem_config.elements_in_tile_col,
+                MatrixLayout::ColMajor => config.smem_config.elements_in_tile_row,
             };
 
             let (offs_row, offs_col) = comptime![match config.stage_ident {
                 StageIdent::Lhs => (
                     0,
-                    this.stage_index * config.stage_memory_config.elements_in_stage_col()
+                    this.stage_index * config.smem_config.elements_in_stage_col()
                 ),
                 StageIdent::Rhs => (
-                    this.stage_index * config.stage_memory_config.elements_in_stage_row(),
+                    this.stage_index * config.smem_config.elements_in_stage_row(),
                     0
                 ),
                 _ => (0, 0),
@@ -127,7 +127,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
             // "column" to be loaded, may be a row for col-major (can't think of a better name)
             let load_col = task_id * size_col;
 
-            let pos = match config.stage_memory_config.matrix_layout {
+            let pos = match config.smem_config.matrix_layout {
                 MatrixLayout::RowMajor => (offs_row, load_col + offs_col),
                 MatrixLayout::ColMajor => (load_col + offs_row, offs_col),
             };

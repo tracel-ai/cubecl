@@ -22,7 +22,9 @@ pub struct UnitWriter<IP: MatrixPrecision> {
     stage: PartitionedStage<IP::Stage>,
 
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    smem_config: StageMemoryConfig,
+    #[cube(comptime)]
+    gmem_config: GlobalMemoryConfig,
 }
 
 #[cube]
@@ -41,14 +43,20 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
         );
 
         UnitWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(gmem_config)),
+            global: global.view_mut(TiledLayout::new(smem_config)),
             stage,
-            config: gmem_config,
+            smem_config,
+            gmem_config,
         }
     }
 
     fn write(&mut self, tile: Coords2d) {
-        unit_write(&mut self.global, &self.stage.unit_tile, tile, self.config)
+        unit_write(
+            &mut self.global,
+            &self.stage.unit_tile,
+            tile,
+            comptime!(self.smem_config.elements_in_tile()),
+        )
     }
 }
 
@@ -57,13 +65,12 @@ pub fn unit_write<ES: Numeric, EG: Numeric>(
     global: &mut View<Line<EG>, TiledCoords, ReadWrite>,
     smem_tile: &StridedTile<ES, ReadWrite>,
     tile_pos: Coords2d,
-    #[comptime] config: GlobalMemoryConfig,
+    #[comptime] elements_in_tile: u32,
 ) {
-    let tile_size = config.elements_in_tile();
     let output_line_size = global.line_size();
     let out_smem_slice = smem_tile.slice.with_line_size(output_line_size);
 
-    let num_lines = tile_size / output_line_size;
+    let num_lines = elements_in_tile / output_line_size;
 
     for i in 0..num_lines {
         let value = out_smem_slice[i];

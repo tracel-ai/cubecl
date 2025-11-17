@@ -1,11 +1,10 @@
 use crate::components::{
     AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
     global::{
-        GlobalMatmul, GlobalWriter,
+        GlobalMatmul, GlobalWriter, SharedGlobalConfig,
         read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},
-        single_stage::simple::SimpleConfig,
     },
-    stage::{FilledStage, StageMatmul, StridedStage},
+    stage::{FilledStage, StageConfig, StageMatmul, StridedStage},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -43,7 +42,7 @@ where
     RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = SimpleConfig<SMM::Config>;
+    type Config = SharedGlobalConfig<SMM::Config>;
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
@@ -64,18 +63,18 @@ where
         acc_reader: Self::AccGlobalReader,
         mut out_writer: Self::GlobalWriter,
         k_range: (u32, u32),
-        #[comptime] config: SimpleConfig<SMM::Config>,
+        #[comptime] config: Self::Config,
     ) {
-        let k_step = config.k_step;
+        let k_step = config.stage_config.elements_in_stage_k();
         let range = k_range.1 - k_range.0;
         let num_loops = range.div_ceil(k_step);
 
-        let mut acc = SMM::init_accumulators(config.shared.stage_config);
+        let mut acc = SMM::init_accumulators(config.stage_config);
 
-        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.shared.stage_config);
-        let partition_scheduler = SMM::init_scheduler(config.shared.stage_config);
+        let (mut lhs_tile, mut rhs_tile) = SMM::init_tile_inputs(config.stage_config);
+        let partition_scheduler = SMM::init_scheduler(config.stage_config);
 
-        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.shared.stage_config);
+        SMM::load_accumulators(&acc_reader.stage(), &mut acc, config.stage_config);
 
         let lhs_stage = &lhs_reader.stage();
         let rhs_stage = &rhs_reader.stage();
@@ -86,15 +85,15 @@ where
             sync_cube();
 
             #[allow(clippy::collapsible_if)]
-            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds] {
+            if comptime![(LL::SHOULD_CLEAR || RL::SHOULD_CLEAR) && config.check_k_bounds()] {
                 if i == num_loops - 1 {
-                    lhs_reader.clear_stage(config.shared.lhs_reader_config);
-                    rhs_reader.clear_stage(config.shared.rhs_reader_config);
+                    lhs_reader.clear_stage(config.lhs_reader_config);
+                    rhs_reader.clear_stage(config.rhs_reader_config);
                 }
             }
 
-            lhs_reader.load_stage(&mut barrier, config.shared.lhs_reader_config);
-            rhs_reader.load_stage(&mut barrier, config.shared.rhs_reader_config);
+            lhs_reader.load_stage(&mut barrier, config.lhs_reader_config);
+            rhs_reader.load_stage(&mut barrier, config.rhs_reader_config);
 
             LL::SyncStrategy::sync::<MP, Self::Config>(&mut barrier, config);
 
@@ -104,7 +103,7 @@ where
                 &mut lhs_tile,
                 &mut rhs_tile,
                 &mut acc,
-                config.shared.stage_config,
+                config.stage_config,
                 &partition_scheduler,
             );
 
@@ -130,7 +129,7 @@ where
             &mut out_stage,
             &mut out_writer,
             &partition_scheduler,
-            config.shared.stage_config,
+            config.stage_config,
         );
     }
 
@@ -140,9 +139,8 @@ where
     ) -> Self::LhsGlobalReader {
         Self::LhsGlobalReader::new(
             lhs,
-            config.k_step,
-            MatmulIdent::Lhs,
-            config.shared.lhs_reader_config,
+            config.stage_config.elements_in_stage_k(),
+            config.lhs_reader_config,
         )
     }
 
@@ -152,9 +150,8 @@ where
     ) -> Self::RhsGlobalReader {
         Self::RhsGlobalReader::new(
             rhs,
-            config.k_step,
-            MatmulIdent::Rhs,
-            config.shared.rhs_reader_config,
+            config.stage_config.elements_in_stage_k(),
+            config.rhs_reader_config,
         )
     }
 
@@ -184,6 +181,6 @@ where
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
-        SMM::init_accumulators(config.shared.stage_config)
+        SMM::init_accumulators(config.stage_config)
     }
 }

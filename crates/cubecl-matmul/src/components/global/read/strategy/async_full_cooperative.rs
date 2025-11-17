@@ -27,7 +27,7 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config)?;
+        StridedTilingLayout::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -59,11 +59,11 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullCooperativeJob {
-        let matrix_layout = config.global_memory_config.matrix_layout;
+        let matrix_layout = config.gmem_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
-            MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
+            MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
+            MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
         };
 
         AsyncFullCooperativeJob { num_slices }
@@ -91,14 +91,12 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
         let window = load_window_in_stage(
             &global_iter.view(),
             task_id,
-            comptime!(config.global_memory_config),
+            config.smem_config,
+            config.gmem_config,
         );
 
-        let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
-            stage,
-            task_id,
-            comptime!(config.stage_memory_config),
-        );
+        let mut destination: SliceMut<Line<ES>> =
+            StridedTilingLayout::nth_slice::<ES>(stage, task_id, comptime!(config.smem_config));
 
         barrier.memcpy_async_cooperative(&window.try_cast_unchecked(), &mut destination);
     }

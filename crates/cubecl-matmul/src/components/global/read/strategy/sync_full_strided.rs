@@ -20,9 +20,9 @@ impl LoadingValidation for SyncFullStridedLoading {
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.global_memory_config.line_size();
+        let line_size = config.gmem_config.line_size();
 
-        let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
         let total_units = config.loading_units_count();
 
         if !num_stage_lines.is_multiple_of(total_units) {
@@ -32,7 +32,7 @@ impl LoadingValidation for SyncFullStridedLoading {
             ));
         }
 
-        StridedTilingLayout::check(config.global_memory_config)?;
+        StridedTilingLayout::check(config.smem_config)?;
 
         Ok(())
     }
@@ -60,12 +60,12 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
         let unit_count = config.loading_planes_count * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
         let unit_position_base = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides)
+            .load_index(config.specialization_tensor_config)
             * config.plane_dim
             + UNIT_POS_X;
 
@@ -104,7 +104,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchrono
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let layout = FullStageLayout::new(comptime![config.global_memory_config]);
+        let layout = FullStageLayout::new(comptime![config.smem_config]);
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked(unit_position * this.line_size);

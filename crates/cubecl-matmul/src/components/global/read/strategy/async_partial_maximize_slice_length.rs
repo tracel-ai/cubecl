@@ -25,7 +25,7 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config)?;
+        StridedTilingLayout::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -56,11 +56,11 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncPartialMaximizeSliceLengthJob {
-        let matrix_layout = config.global_memory_config.matrix_layout;
-        let num_stages = config.stage_memory_config.num_stages;
+        let matrix_layout = config.gmem_config.matrix_layout;
+        let num_stages = config.smem_config.num_stages;
 
-        let total_row = config.stage_memory_config.elements_in_stage_row();
-        let total_col = config.stage_memory_config.elements_in_stage_col();
+        let total_row = config.smem_config.elements_in_stage_row();
+        let total_col = config.smem_config.elements_in_stage_col();
 
         // If stage is parallel to slices, slices are as long as in full stage memory, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage memory
@@ -142,12 +142,13 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
         let window = load_window_in_stage(
             &global_iter.view(),
             nth_slice,
-            comptime!(config.global_memory_config),
+            config.smem_config,
+            config.gmem_config,
         );
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             &mut stage,
             nth_slice_in_stage,
-            comptime!(config.stage_memory_config),
+            comptime!(config.smem_config),
         );
 
         let start = this.slice_stage_offset;

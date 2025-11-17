@@ -23,7 +23,7 @@ impl LoadingValidation for AsyncFullTmaLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        TmaTilingLayout::check(config.global_memory_config)?;
+        TmaTilingLayout::check(config.smem_config)?;
         validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
@@ -55,7 +55,7 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let role_rule_config = config.plane_role_config.rule;
-        let config = config.stage_memory_config;
+        let config = config.smem_config;
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
@@ -89,7 +89,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for
         #[comptime] config: GlobalReaderConfig,
     ) {
         if this.is_elected {
-            let config = comptime![config.stage_memory_config];
+            let config = comptime![config.smem_config];
 
             let size_row = match config.matrix_layout {
                 MatrixLayout::RowMajor => config.elements_in_stage_row(),

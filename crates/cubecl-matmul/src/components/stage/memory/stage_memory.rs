@@ -133,7 +133,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
         let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
         let unit_base_position = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides)
+            .load_index(config.specialization_tensor_config)
             * config.plane_dim
             + UNIT_POS_X;
 
@@ -177,14 +177,14 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
         let num_writes_per_unit = buffer_length.div_ceil(unit_count);
 
         let unit_base_position = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides)
+            .load_index(config.specialization_tensor_config)
             * config.plane_dim
             + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;
 
-            let smem_position = match (config.stage_ident, config.stage_memory_config.matrix_layout)
+            let smem_position = match (config.stage_ident, config.smem_config.matrix_layout)
             {
                 (StageIdent::Lhs, MatrixLayout::ColMajor)
                 | (StageIdent::Rhs, MatrixLayout::RowMajor) => {
@@ -192,8 +192,8 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
                 }
                 (StageIdent::Lhs, MatrixLayout::RowMajor)
                 | (StageIdent::Rhs, MatrixLayout::ColMajor) => {
-                    let buffer_width = config.stage_memory_config.elements_in_tile_contiguous_dim()
-                        / config.stage_memory_config.line_size;
+                    let buffer_width = config.smem_config.elements_in_tile_contiguous_dim()
+                        / config.smem_config.line_size;
                     stage_buffer.to_index() * buffer_width
                         + unit_position
                         + (unit_position / buffer_width) * buffer_width

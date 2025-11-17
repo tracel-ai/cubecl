@@ -26,9 +26,9 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
-            let line_size = config.global_memory_config.line_size();
+            let line_size = config.gmem_config.line_size();
 
-            let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+            let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
             let total_units = config.loading_units_count();
 
             if !num_stage_lines.is_multiple_of(total_units) {
@@ -39,7 +39,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
-        ContiguousTilingLayout::<TO>::check(config.global_memory_config)?;
+        ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 
         Ok(())
     }
@@ -67,8 +67,8 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let tile_num_elements = config.stage_memory_config.elements_in_tile();
-        let num_stage_elements = config.stage_memory_config.elements_in_stage();
+        let tile_num_elements = config.smem_config.elements_in_tile();
+        let num_stage_elements = config.smem_config.elements_in_stage();
 
         let num_stage_lines = num_stage_elements.div_ceil(line_size);
         let total_units = config.loading_units_count();
@@ -77,7 +77,7 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
         let jump_length = comptime!(total_units * line_size);
 
         let unit_id = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides)
+            .load_index(config.specialization_tensor_config)
             * config.plane_dim
             + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
@@ -155,11 +155,10 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let layout = TiledLayout::new(comptime![config.global_memory_config]);
+    let layout = TiledLayout::new(comptime![config.smem_config]);
     let view = global_iter.view().view(layout);
 
-    let tile =
-        ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.stage_memory_config));
+    let tile = ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.smem_config));
 
     let line_read = view.read_checked((tile, pos_within_tile));
 

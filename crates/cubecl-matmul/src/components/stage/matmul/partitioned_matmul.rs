@@ -80,6 +80,11 @@ impl<TC: TileConfig> StageConfig for PartitionMatmulConfig<TC> {
     fn plane_role_config(&self) -> global::PlaneRoleConfig {
         self.shared().plane_role_config
     }
+
+    fn tiles_in_partition_mn(&self) -> u32 {
+        let partition_size = self.shared().partition_size;
+        partition_size.m() * partition_size.n()
+    }
 }
 
 /// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.

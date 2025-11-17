@@ -17,9 +17,9 @@ use crate::{
         global::{
             GlobalConfig,
             memory::{
-                BatchLayout, BatchLayoutLaunch, GlobalLayout, GlobalLayoutLaunch,
-                GlobalScaleLayout, NoopLayout, NoopLayoutLaunch, SimpleTmaGlobalLayout,
-                SimpleTmaGlobalLayoutLaunch,
+                BatchLayout, BatchLayoutLaunch, GlobalLayout, GlobalLayoutConfig,
+                GlobalLayoutLaunch, GlobalScaleLayout, NoopLayout, NoopLayoutLaunch,
+                SimpleTmaGlobalLayout, SimpleTmaGlobalLayoutLaunch,
             },
         },
     },
@@ -162,14 +162,11 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         config: impl BatchConfig,
         _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
-        let config = config.global_config();
-        let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
+        let view = |handle: &'a MatmulInputHandleRef<'a, R>,
+                    config: GlobalLayoutConfig,
+                    line_size| match handle {
             MatmulInputHandleRef::Normal(handle, _dtype) => {
-                let layout = GlobalLayoutLaunch::from_handle(
-                    handle,
-                    line_size,
-                    config.global_memory_config(ident).into(),
-                );
+                let layout = GlobalLayoutLaunch::from_handle(handle, line_size, config);
                 ViewArg::new::<GlobalLayout>(handle.as_array_arg(line_size), layout)
             }
             MatmulInputHandleRef::Quantized {
@@ -180,14 +177,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                 ..
             } => {
                 let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
-                    client,
-                    data,
-                    scale,
-                    shape,
-                    problem,
-                    **scheme,
-                    line_size,
-                    config.global_memory_config(ident).into(),
+                    client, data, scale, shape, problem, **scheme, line_size, config,
                 );
                 let data_view =
                     ViewArg::new::<GlobalLayout>(data.as_array_arg(line_size), data_layout);
@@ -206,10 +196,19 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
             }
         };
 
+        let config = config.global_config();
         TensorInputsLaunch::new(
-            view(lhs, MatmulIdent::Lhs, line_sizes.lhs),
+            view(
+                lhs,
+                config.lhs_reader_config().gmem_config.into(),
+                line_sizes.lhs,
+            ),
             batch_layout(lhs),
-            view(rhs, MatmulIdent::Rhs, line_sizes.rhs),
+            view(
+                rhs,
+                config.rhs_reader_config().gmem_config.into(),
+                line_sizes.rhs,
+            ),
             batch_layout(rhs),
             CubeOptionArgs::None,
             CubeOptionArgs::None,
@@ -237,7 +236,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         let layout = GlobalLayoutLaunch::from_handle(
             out,
             line_sizes.out,
-            config.global_memory_config(MatmulIdent::Out).into(),
+            todo!(), // config.global_memory_config(MatmulIdent::Out).into(),
         );
         let batch = BatchLayoutLaunch::from_handle(client, out, problem);
         let view = ViewArg::new::<GlobalLayout>(out.as_array_arg(line_sizes.out), layout);

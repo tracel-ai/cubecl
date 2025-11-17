@@ -25,7 +25,7 @@ impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config)?;
+        StridedTilingLayout::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -57,11 +57,11 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeSliceLengthJob {
-        let matrix_layout = config.global_memory_config.matrix_layout;
+        let matrix_layout = config.gmem_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
-            MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
+            MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
+            MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
         };
         let unit_count = config.loading_units_count();
 
@@ -125,13 +125,11 @@ fn load_nth_slice<EG: Numeric, ES: Numeric>(
     let window = load_window_in_stage(
         &global_iter.view(),
         nth_slice,
-        comptime!(config.global_memory_config),
+        config.smem_config,
+        config.gmem_config,
     );
-    let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
-        stage,
-        nth_slice,
-        comptime!(config.stage_memory_config),
-    );
+    let mut destination: SliceMut<Line<ES>> =
+        StridedTilingLayout::nth_slice::<ES>(stage, nth_slice, comptime!(config.smem_config));
 
     barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);
 }

@@ -2,6 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::StageIdent;
 use crate::components::global::GlobalReaderConfig;
+use crate::components::global::RoleRule;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
@@ -67,9 +68,10 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
-        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config);
+        let mut stage = StridedStage::new_aligned(128u32, config.smem_config);
         let (shape_row, shape_col) = view.shape();
-        let global_iter = GlobalIterator::new(view, k_step, config.view_direction, false);
+        let global_iter =
+            GlobalIterator::new(view, k_step, config.gmem_config.view_direction, false);
 
         let loading_job = match config.precompute_job {
             true => CubeOption::new_Some(L::new_job::<EG, ES>(view.line_size(), config)),
@@ -83,18 +85,18 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
                 StageIdent::Lhs =>
                 {
                     #[allow(clippy::collapsible_if)]
-                    if config.global_memory_config.check_row_bounds {
-                        if shape_row < config.stage_memory_config.elements_in_stage_row() {
-                            stage.clear_all(ident, config);
+                    if config.gmem_config.check_row_bounds {
+                        if shape_row < config.smem_config.elements_in_stage_row() {
+                            stage.clear_all(config);
                         }
                     }
                 }
                 StageIdent::Rhs =>
                 {
                     #[allow(clippy::collapsible_if)]
-                    if config.global_memory_config.check_col_bounds {
-                        if shape_col < config.stage_memory_config.elements_in_stage_col() {
-                            stage.clear_all(ident, config);
+                    if config.gmem_config.check_col_bounds {
+                        if shape_col < config.smem_config.elements_in_stage_col() {
+                            stage.clear_all(config);
                         }
                     }
                 }
@@ -116,7 +118,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
     }
 
     pub fn clear_stage(&mut self, #[comptime] config: GlobalReaderConfig) {
-        self.stage.clear_all(self.ident, config);
+        self.stage.clear_all(config);
     }
 
     pub fn free_stage(self) {

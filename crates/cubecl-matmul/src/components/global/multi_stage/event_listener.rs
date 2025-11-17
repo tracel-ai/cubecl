@@ -3,10 +3,10 @@ use cubecl_core::prelude::*;
 
 use crate::components::global::read::{StageBuffer, SyncStrategy};
 use crate::components::global::{GlobalConfig, GlobalReaderConfig, LoadingSides};
-use crate::components::stage::{StageEvent, StageEventListener};
+use crate::components::stage::{StageConfig, StageEvent, StageEventListener};
 use crate::components::{MatmulIdent, TilingScheme};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// For a tensor, whether it is constrained to be loaded respecting order
 pub enum EventLoadingMode {
     // Load without constraints
@@ -38,11 +38,6 @@ pub struct DoubleBufferingEventListener<
     state_rhs: Sequence<Rhs::JobIterator>,
     #[cube(comptime)]
     event_loading_side: LoadingSides,
-    // maybe overlap with config: G
-    #[cube(comptime)]
-    lhs_reader_config: GlobalReaderConfig,
-    #[cube(comptime)]
-    rhs_reader_config: GlobalReaderConfig,
 }
 
 #[derive(Clone)]
@@ -82,8 +77,6 @@ impl<S: SyncStrategy, Lhs: JobExecutor<S>, Rhs: JobExecutor<S>, G: GlobalConfig>
         barrier: &mut S::Barrier,
         #[comptime] config: G,
         #[comptime] event_loading_side: LoadingSides,
-        #[comptime] lhs_reader_config: GlobalReaderConfig,
-        #[comptime] rhs_reader_config: GlobalReaderConfig,
     ) -> DoubleBufferingEventListener<S, Lhs, Rhs, G> {
         DoubleBufferingEventListener::<S, Lhs, Rhs, G> {
             stage_buffer,
@@ -94,8 +87,6 @@ impl<S: SyncStrategy, Lhs: JobExecutor<S>, Rhs: JobExecutor<S>, G: GlobalConfig>
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
             event_loading_side,
-            lhs_reader_config,
-            rhs_reader_config,
         }
     }
 }
@@ -140,7 +131,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
                     &mut this.reader_lhs,
                     lhs_job,
                     &mut this.barrier,
-                    this.lhs_reader_config,
+                    comptime!(this.config.lhs_reader_config()),
                 );
             }
 
@@ -155,7 +146,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
                     &mut this.reader_rhs,
                     rhs_job,
                     &mut this.barrier,
-                    this.rhs_reader_config,
+                    comptime!(this.config.rhs_reader_config()),
                 );
             }
         }
@@ -202,7 +193,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
                         &mut this.reader_lhs,
                         lhs_job,
                         &mut this.barrier,
-                        comptime!(this.lhs_reader_config),
+                        comptime!(this.config.lhs_reader_config()),
                     );
                 }
             }
@@ -215,7 +206,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
                         &mut this.reader_rhs,
                         rhs_job,
                         &mut this.barrier,
-                        comptime!(this.rhs_reader_config),
+                        comptime!(this.config.rhs_reader_config()),
                     );
                 }
             }
@@ -232,7 +223,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig>
             self.state_lhs.push(L::create_job_iterator(
                 &self.reader_lhs,
                 self.stage_buffer,
-                self.lhs_reader_config,
+                comptime!(self.config.lhs_reader_config()),
             ));
         }
 
@@ -240,7 +231,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig>
             self.state_rhs.push(R::create_job_iterator(
                 &self.reader_rhs,
                 self.stage_buffer,
-                self.rhs_reader_config,
+                comptime!(self.config.rhs_reader_config()),
             ));
         }
     }
@@ -280,13 +271,13 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig>
             // When ordered, we cannot start loading before all were loaded in fragments
             // Eventually, Lhs loads for k = i could start as soon as k_iterations_done = i, but probably overkill
             let can_start = |event_loading_mode: EventLoadingMode| if let EventLoadingMode::Ordered = event_loading_mode {
-                current_event >= event_count_total - self.config.tiling_scheme().tiles_in_stage_partition_mn()
+                current_event >= event_count_total - self.config.stage_config().tiles_in_partition_mn()
             } else {
                 true
             };
 
-            let lhs_can_start = lhs_len > 0 && can_start(self.lhs_reader_config.event_loading_mode(MatmulIdent::Lhs));
-            let rhs_can_start = rhs_len > 0 && can_start(self.rhs_reader_config.event_loading_mode(MatmulIdent::Rhs));
+            let lhs_can_start = lhs_len > 0 && can_start(comptime!(self.config.lhs_reader_config().event_loading_mode));
+            let rhs_can_start = rhs_len > 0 && can_start(comptime!(self.config.rhs_reader_config().event_loading_mode));
 
             let step = 1u32;
             let start = event_count_total.saturating_sub(step * num_tasks_total);

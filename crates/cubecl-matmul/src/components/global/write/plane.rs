@@ -24,7 +24,9 @@ pub struct PlaneWriter<IP: MatrixPrecision> {
     #[cube(comptime)]
     plane_dim: u32,
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    gmem_config: GlobalMemoryConfig,
+    #[cube(comptime)]
+    smem_config: StageMemoryConfig,
 }
 
 #[cube]
@@ -43,10 +45,11 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
         );
 
         PlaneWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(gmem_config)),
+            global: global.view_mut(TiledLayout::new(smem_config)),
             stage,
             plane_dim,
-            config: gmem_config,
+            gmem_config,
+            smem_config,
         }
     }
 
@@ -55,8 +58,8 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
             &mut self.global,
             &self.stage.unit_tile,
             tile_pos,
-            comptime![self.plane_dim],
-            comptime![self.config],
+            comptime!(self.plane_dim),
+            comptime!(self.smem_config.elements_in_tile()),
         )
     }
 }
@@ -118,14 +121,13 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
     smem_tile: &StridedTile<ES, ReadWrite>,
     tile_pos: Coords2d,
     #[comptime] plane_dim: u32,
-    #[comptime] config: GlobalMemoryConfig,
+    #[comptime] elements_in_tile: u32,
 ) {
-    let tile_size = config.elements_in_tile();
     let output_line_size = global.line_size();
 
     let unit_step = comptime![plane_dim * output_line_size];
-    let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
-    let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
+    let num_unit_writes = comptime!(elements_in_tile.div_ceil(unit_step));
+    let balanced_workload = comptime!(elements_in_tile.is_multiple_of(unit_step));
 
     #[unroll(num_unit_writes == 1)]
     for i in 0..num_unit_writes {
@@ -135,7 +137,7 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
         if comptime!(balanced_workload) {
             write_line(global, &smem_tile.slice, unit_write, tile_pos);
         } else {
-            if unit_write < tile_size {
+            if unit_write < elements_in_tile {
                 write_line(global, &smem_tile.slice, unit_write, tile_pos);
             }
         }

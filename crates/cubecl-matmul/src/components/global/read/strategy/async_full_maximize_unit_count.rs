@@ -25,17 +25,17 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let matrix_layout = config.global_memory_config.matrix_layout;
-        let line_size = config.global_memory_config.line_size();
+        let matrix_layout = config.gmem_config.matrix_layout;
+        let line_size = config.gmem_config.line_size();
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.stage_memory_config.elements_in_stage_row(),
-                config.stage_memory_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_in_stage_row(),
+                config.smem_config.elements_in_stage_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.stage_memory_config.elements_in_stage_col(),
-                config.stage_memory_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_in_stage_col(),
+                config.smem_config.elements_in_stage_row() / line_size,
             ),
         };
         let unit_count = config.plane_dim * config.loading_planes_count;
@@ -51,7 +51,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
             ));
         }
 
-        StridedTilingLayout::check(config.global_memory_config)?;
+        StridedTilingLayout::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -83,16 +83,16 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeUnitCountJob {
-        let matrix_layout = config.global_memory_config.matrix_layout;
+        let matrix_layout = config.gmem_config.matrix_layout;
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.stage_memory_config.elements_in_stage_row(),
-                config.stage_memory_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_in_stage_row(),
+                config.smem_config.elements_in_stage_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.stage_memory_config.elements_in_stage_col(),
-                config.stage_memory_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_in_stage_col(),
+                config.smem_config.elements_in_stage_row() / line_size,
             ),
         };
 
@@ -135,13 +135,14 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             stage,
             this.nth_slice,
-            comptime!(config.stage_memory_config),
+            comptime!(config.smem_config),
         );
 
         let window = load_window_in_stage(
             &global_iter.view(),
             this.nth_slice,
-            comptime!(config.global_memory_config),
+            config.smem_config,
+            config.gmem_config,
         );
         let seg_start = Min::min(this.nth_segment * this.segment_length, window.len());
         let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.len());

@@ -5,7 +5,7 @@ use crate::components::{
         GlobalReaderConfig, GlobalWriterFamily, SharedGlobalConfig, WriteTiling,
         cube_dim_validation,
         read::{FullLoadingStrategy, LoadingValidation},
-        single_stage::simple::{SimpleConfig, matmul::SimpleMatmul},
+        single_stage::simple::matmul::SimpleMatmul,
     },
     stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
 };
@@ -50,7 +50,7 @@ where
         RL,
         GW::Writer<MP::Acc>,
     >;
-    type Config = SimpleConfig<SMM::Config>;
+    type Config = SharedGlobalConfig<SMM::Config>;
 
     fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
@@ -82,45 +82,50 @@ where
             )));
         };
 
-        let config = SimpleConfig::from_shared_global_config(
-            SharedGlobalConfig {
-                stage_config,
-                num_planes,
-                lhs_reader_config: GlobalReaderConfig {
-                    global_memory_config: todo!(),
-                    stage_memory_config: todo!(),
-                    precompute_job: todo!(),
-                    plane_dim: todo!(),
-                    loading_planes_count: todo!(),
-                    plane_role_config: todo!(),
-                },
-                rhs_reader_config: GlobalReaderConfig {
-                    global_memory_config: todo!(),
-                    stage_memory_config: todo!(),
-                    precompute_job: todo!(),
-                    plane_dim: todo!(),
-                    loading_planes_count: todo!(),
-                    plane_role_config: todo!(),
-                },
+        let config = SharedGlobalConfig {
+            stage_config,
+            num_planes,
+            lhs_reader_config: GlobalReaderConfig {
+                gmem_config: todo!(),
+                smem_config: todo!(),
+                precompute_job: todo!(),
+                plane_dim: todo!(),
+                loading_planes_count: todo!(),
+                plane_role_config: todo!(),
+                reader_mode: todo!(),
+                stage_ident: todo!(),
+                event_loading_mode: todo!(),
+                specialization_tensor_config: todo!(),
             },
-            !(problem.m as u32).is_multiple_of(stage_shape_m),
-            !(problem.n as u32).is_multiple_of(stage_shape_n),
-            !(problem.k as u32).is_multiple_of(stage_shape_k),
-            stage_shape_k,
-            selection.loading_precompute_strategy,
-            selection.reader_mode,
-        );
+            rhs_reader_config: GlobalReaderConfig {
+                gmem_config: todo!(),
+                smem_config: todo!(),
+                precompute_job: todo!(),
+                plane_dim: todo!(),
+                loading_planes_count: todo!(),
+                plane_role_config: todo!(),
+                reader_mode: todo!(),
+                stage_ident: todo!(),
+                event_loading_mode: todo!(),
+                specialization_tensor_config: todo!(),
+            },
+        };
+        // !(problem.k as u32).is_multiple_of(stage_shape_k),
+        // !(problem.m as u32).is_multiple_of(stage_shape_m),
+        // !(problem.n as u32).is_multiple_of(stage_shape_n),
+        // selection.loading_precompute_strategy,
+        // selection.reader_mode,
 
         validate::<LL, RL, SMM::Config, R>(config, client)
     }
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
-    config: SimpleConfig<S>,
+    config: SharedGlobalConfig<S>,
     client: &ComputeClient<R::Server>,
-) -> Result<SimpleConfig<S>, MatmulSetupError> {
-    LL::check::<R>(client, &config.shared.lhs_reader_config, MatmulIdent::Lhs)?;
-    RL::check::<R>(client, &config.shared.rhs_reader_config, MatmulIdent::Rhs)?;
-    cube_dim_validation(config.shared.cube_dim())?;
+) -> Result<SharedGlobalConfig<S>, MatmulSetupError> {
+    LL::check::<R>(client, &config.lhs_reader_config)?;
+    RL::check::<R>(client, &config.rhs_reader_config)?;
+    cube_dim_validation(config.cube_dim())?;
     Ok(config)
 }

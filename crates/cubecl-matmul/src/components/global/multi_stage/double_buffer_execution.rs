@@ -192,7 +192,7 @@ pub fn execute_last_and_write_results<
                     partition_scheduler,
                 );
 
-                SMM::write_results::<GW, G>(
+                SMM::write_results::<GW>(
                     acc,
                     &mut out_stage,
                     out_writer,
@@ -212,7 +212,7 @@ pub fn execute_last_and_write_results<
                 partition_scheduler,
             );
 
-            SMM::write_results::<GW, G>(
+            SMM::write_results::<GW>(
                 acc,
                 &mut out_stage,
                 out_writer,

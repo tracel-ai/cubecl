@@ -25,9 +25,9 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
-            let line_size = config.global_memory_config.line_size();
-            let num_lines_per_tile = config.stage_memory_config.elements_in_tile() / line_size;
-            let num_tiles_in_stage = config.stage_memory_config.tiles_in_stage();
+            let line_size = config.gmem_config.line_size();
+            let num_lines_per_tile = config.smem_config.elements_in_tile() / line_size;
+            let num_tiles_in_stage = config.smem_config.tiles_in_stage();
             let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
 
             let total_units = config.loading_units_count();
@@ -38,7 +38,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             let max_task_id = num_tasks_per_unit - 1;
             let max_position_base = max_id * line_size;
             let max_position = max_position_base + max_task_id * jump_length;
-            let num_stage_elements = config.stage_memory_config.elements_in_stage();
+            let num_stage_elements = config.smem_config.elements_in_stage();
 
             if max_position > num_stage_elements {
                 return Err(Box::new(
@@ -47,7 +47,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             }
         }
 
-        ContiguousTilingLayout::<TO>::check(config.global_memory_config)?;
+        ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 
         Ok(())
     }
@@ -78,11 +78,11 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialCyclicJob {
-        let num_stage_elements = config.stage_memory_config.elements_in_stage();
+        let num_stage_elements = config.smem_config.elements_in_stage();
 
-        let tile_size = config.stage_memory_config.elements_in_tile();
-        let tile_count_row = config.stage_memory_config.tiles_in_stage_row;
-        let tile_count_col = config.stage_memory_config.tiles_in_stage_col;
+        let tile_size = config.smem_config.elements_in_tile();
+        let tile_count_row = config.smem_config.tiles_in_stage_row;
+        let tile_count_col = config.smem_config.tiles_in_stage_col;
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.loading_units_count();
@@ -94,7 +94,7 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
         let jump_length = total_units * line_size;
 
         let plane_id = RoleRule::new(config.plane_role_config.rule)
-            .load_index(config.stage_ident, config.specialized_loading_sides);
+            .load_index(config.specialization_tensor_config);
         let unit_id = plane_id * config.plane_dim + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
@@ -175,14 +175,14 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: GlobalReaderConfig,
 ) {
-    let layout = TiledLayout::new(comptime!(config.global_memory_config));
+    let layout = TiledLayout::new(comptime!(config.smem_config));
     let view = global_iter.view().view(layout);
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.stage_memory_config.elements_in_tile(),
-            config.stage_memory_config.tiles_in_stage_row,
-            config.stage_memory_config.tiles_in_stage_col,
+            config.smem_config.elements_in_tile(),
+            config.smem_config.tiles_in_stage_row,
+            config.smem_config.tiles_in_stage_col,
         )
     };
     let line_size = view.line_size();
@@ -194,7 +194,7 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
         tile_index,
         tile_count_row,
         tile_count_col,
-        comptime!(config.stage_memory_config),
+        comptime!(config.smem_config),
     );
 
     let tile = match comptime!(config.stage_ident) {

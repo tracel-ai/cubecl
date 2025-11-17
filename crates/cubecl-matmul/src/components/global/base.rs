@@ -2,8 +2,11 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::ReaderMode;
-use crate::components::global::{PlaneRoleConfig, SpecializedLoadingSides};
+use crate::components::global::{
+    LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig, SpecializedLoadingSides,
+};
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
 use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem, StageIdent};
@@ -131,22 +134,62 @@ impl<S: StageConfig> SharedGlobalConfig<S> {
     pub fn cube_dim(&self) -> CubeDim {
         CubeDim::new_2d(self.stage_config.plane_dim(), self.num_planes)
     }
+
+    pub fn check_k_bounds(&self) -> bool {
+        let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds();
+        let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds();
+        assert!(from_lhs == from_rhs);
+        from_lhs
+    }
+
+    pub fn plane_dim(&self) -> u32 {
+        let from_lhs = self.lhs_reader_config.plane_dim;
+        let from_rhs = self.rhs_reader_config.plane_dim;
+        assert!(from_lhs == from_rhs);
+        from_lhs
+    }
+
+    pub fn plane_role_config(&self) -> PlaneRoleConfig {
+        let from_lhs = self.lhs_reader_config.plane_role_config;
+        let from_rhs = self.rhs_reader_config.plane_role_config;
+        assert!(from_lhs == from_rhs);
+        from_lhs
+    }
+
+    pub fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+        let lhs = self.lhs_reader_config.specialization_tensor_config;
+        let rhs = self.rhs_reader_config.specialization_tensor_config;
+
+        LoadSpecializationConfig { lhs, rhs }.into()
+    }
+}
+
+impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
+    type StageConfig = S;
+
+    fn stage_config(&self) -> Self::StageConfig {
+        self.stage_config
+    }
+
+    fn lhs_reader_config(&self) -> GlobalReaderConfig {
+        self.lhs_reader_config
+    }
+
+    fn rhs_reader_config(&self) -> GlobalReaderConfig {
+        self.rhs_reader_config
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
 pub trait GlobalConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    // /// Underlying Stage matmul config
-    // type StageConfig: StageConfig;
-    // type LhsReaderConfig: GlobalReaderConfig;
-    // type RhsReaderConfig: GlobalReaderConfig;
+    type StageConfig: StageConfig;
 
-    // /// Convert itself to the underlying stage matmul config
-    // fn stage_config(&self) -> Self::StageConfig;
-
-    // fn lhs_reader_config(&self) -> Self::LhsReaderConfig;
-    // fn rhs_reader_config(&self) -> Self::RhsReaderConfig;
+    /// Convert itself to the underlying stage matmul config
+    fn stage_config(&self) -> Self::StageConfig;
+    fn lhs_reader_config(&self) -> GlobalReaderConfig;
+    fn rhs_reader_config(&self) -> GlobalReaderConfig;
 
     // fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
     //     GlobalMemoryConfig::new(
@@ -197,14 +240,17 @@ pub trait GlobalConfig:
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalReaderConfig {
-    pub global_memory_config: GlobalMemoryConfig,
-    pub stage_memory_config: StageMemoryConfig,
+    pub gmem_config: GlobalMemoryConfig,
+    pub smem_config: StageMemoryConfig,
     pub precompute_job: bool,
     pub plane_dim: u32,
     pub loading_planes_count: u32,
-    pub plane_role_config: PlaneRoleConfig,
     pub reader_mode: ReaderMode,
-    pub specialized_loading_sides: SpecializedLoadingSides,
+    pub event_loading_mode: EventLoadingMode,
+    pub specialization_tensor_config: SpecializationTensorConfig,
+
+    // Not ideal because duplicated from global config
+    pub plane_role_config: PlaneRoleConfig,
 
     // ideally remove because doesn't apply to any problem
     // perhaps in favor of orientation or something

@@ -208,8 +208,6 @@ where
             &mut listener,
             StageEvent::Begin,
             shared_config.must_sync_plane_after_execution,
-            shared_config.lhs_reader_config,
-            shared_config.rhs_reader_config,
         );
 
         let m_iterations = shared_config.partition_size.m();
@@ -244,8 +242,6 @@ where
                         total: lhs_load_total
                     }],
                     shared_config.must_sync_plane_after_execution,
-                    shared_config.lhs_reader_config,
-                    shared_config.rhs_reader_config,
                 );
                 comptime!(lhs_load_counter += 1);
             }
@@ -263,8 +259,6 @@ where
                         total: rhs_load_total
                     }],
                     shared_config.must_sync_plane_after_execution,
-                    shared_config.lhs_reader_config,
-                    shared_config.rhs_reader_config,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -285,8 +279,6 @@ where
                             total: execute_total
                         }],
                         shared_config.must_sync_plane_after_execution,
-                        shared_config.lhs_reader_config,
-                        shared_config.rhs_reader_config,
                     );
                     comptime!(execute_counter += 1);
                 }
@@ -300,8 +292,6 @@ where
             &mut listener,
             comptime!(StageEvent::Finish),
             shared_config.must_sync_plane_after_execution,
-            shared_config.lhs_reader_config,
-            shared_config.rhs_reader_config,
         );
     }
 
@@ -328,8 +318,6 @@ where
             &mut listener,
             StageEvent::Begin,
             shared_config.must_sync_plane_after_execution,
-            shared_config.lhs_reader_config,
-            shared_config.rhs_reader_config,
         );
 
         let m_iterations = shared_config.partition_size.m();
@@ -364,8 +352,6 @@ where
                         total: lhs_load_total
                     }],
                     shared_config.must_sync_plane_after_execution,
-                    shared_config.lhs_reader_config,
-                    shared_config.rhs_reader_config,
                 );
                 comptime!(lhs_load_counter += 1);
             }
@@ -386,8 +372,6 @@ where
                     total: rhs_load_total
                 }),
                 shared_config.must_sync_plane_after_execution,
-                shared_config.lhs_reader_config,
-                shared_config.rhs_reader_config,
             );
             comptime!(rhs_load_counter += 1);
 
@@ -410,8 +394,6 @@ where
                         total: rhs_load_total
                     }),
                     shared_config.must_sync_plane_after_execution,
-                    shared_config.lhs_reader_config,
-                    shared_config.rhs_reader_config,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -433,8 +415,6 @@ where
                             total: execute_total
                         }),
                         shared_config.must_sync_plane_after_execution,
-                        shared_config.lhs_reader_config,
-                        shared_config.rhs_reader_config,
                     );
                     comptime!(execute_counter += 1);
                 }
@@ -465,8 +445,6 @@ where
                         total: execute_total
                     }),
                     shared_config.must_sync_plane_after_execution,
-                    shared_config.lhs_reader_config,
-                    shared_config.rhs_reader_config,
                 );
                 comptime!(execute_counter += 1);
             }
@@ -479,8 +457,6 @@ where
             &mut listener,
             comptime!(StageEvent::Finish),
             shared_config.must_sync_plane_after_execution,
-            shared_config.lhs_reader_config,
-            shared_config.rhs_reader_config,
         );
     }
 }

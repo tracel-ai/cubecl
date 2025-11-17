@@ -1,170 +1,148 @@
-use crate::components::{
-    LoadingPrecomputeStrategy,
-    global::{
-        GlobalConfig, PlaneRoleConfig, SharedGlobalConfig, SpecializedLoadingSides,
-        read::ReaderMode,
-    },
-    stage::StageConfig,
-};
+// use crate::components::{
+//     LoadingPrecomputeStrategy,
+//     global::{
+//         GlobalConfig, PlaneRoleConfig, SharedGlobalConfig, SpecializedLoadingSides,
+//         read::ReaderMode,
+//     },
+//     stage::StageConfig,
+// };
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-/// Configuration for the double buffering global matmul
-pub struct DoubleBufferingGlobalConfig<S: StageConfig> {
-    pub shared: SharedGlobalConfig<S>,
-    pub check_m_bounds: bool,
-    pub check_n_bounds: bool,
-    pub check_k_bounds: bool,
-    precompute_job: LoadingPrecomputeStrategy,
-    reader_mode: ReaderMode,
-    pub specialized_loading_sides: SpecializedLoadingSides,
-}
-
-impl<S: StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
-    // type StageConfig = S;
-    // type LhsReaderConfig = Self;
-    // type RhsReaderConfig = Self;
-
-    // fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
-    //     *self
-    // }
-
-    // fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
-    //     *self
-    // }
-
-    // fn stage_config(&self) -> Self::StageConfig {
-    //     self.stage_config
-    // }
-
-    // fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-    //     self.stage_config.global_line_size(ident.into_stage())
-    // }
-
-    // fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-    //     self.stage_config.matrix_layout(ident.into_stage())
-    // }
-
-    // fn plane_dim(&self) -> u32 {
-    //     self.stage_config.plane_dim()
-    // }
-
-    // fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-    //     match ident {
-    //         MatmulIdent::Lhs => self.check_m_bounds,
-    //         MatmulIdent::Rhs => self.check_k_bounds,
-    //         MatmulIdent::Out => self.check_m_bounds,
-    //     }
-    // }
-
-    // fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-    //     match ident {
-    //         MatmulIdent::Lhs => self.check_k_bounds,
-    //         MatmulIdent::Rhs => self.check_n_bounds,
-    //         MatmulIdent::Out => self.check_n_bounds,
-    //     }
-    // }
-
-    // fn check_k_bounds(&self) -> bool {
-    //     self.check_k_bounds
-    // }
-
-    // fn num_stages(&self, _ident: MatmulIdent) -> u32 {
-    //     2
-    // }
-
-    // fn cube_dim(&self) -> CubeDim {
-    //     CubeDim::new_2d(<Self as GlobalConfig>::plane_dim(self), self.num_planes)
-    // }
-
-    // fn role_rule_config(&self) -> RoleRuleConfig {
-    //     self.plane_role_config().rule
-    // }
-}
-
-// impl<S: StageConfig> GlobalReaderConfig for DoubleBufferingGlobalConfig<S> {
-// fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-//     self.stage_config().stage_memory_config(ident.into_stage())
+// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+// /// Configuration for the double buffering global matmul
+// pub struct DoubleBufferingGlobalConfig<S: StageConfig> {
+//     pub shared: SharedGlobalConfig<S>,
 // }
 
-// fn tiling_scheme(&self) -> TilingScheme {
-//     self.stage_config().tiling_scheme()
+// impl<S: StageConfig> GlobalConfig for DoubleBufferingGlobalConfig<S> {
+//     // type StageConfig = S;
+//     // type LhsReaderConfig = Self;
+//     // type RhsReaderConfig = Self;
+
+//     // fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
+//     //     *self
+//     // }
+
+//     // fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
+//     //     *self
+//     // }
+
+//     // fn stage_config(&self) -> Self::StageConfig {
+//     //     self.stage_config
+//     // }
+
+//     // fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+//     //     self.stage_config.global_line_size(ident.into_stage())
+//     // }
+
+//     // fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+//     //     self.stage_config.matrix_layout(ident.into_stage())
+//     // }
+
+//     // fn plane_dim(&self) -> u32 {
+//     //     self.stage_config.plane_dim()
+//     // }
+
+//     // fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+//     //     match ident {
+//     //         MatmulIdent::Lhs => self.check_m_bounds,
+//     //         MatmulIdent::Rhs => self.check_k_bounds,
+//     //         MatmulIdent::Out => self.check_m_bounds,
+//     //     }
+//     // }
+
+//     // fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+//     //     match ident {
+//     //         MatmulIdent::Lhs => self.check_k_bounds,
+//     //         MatmulIdent::Rhs => self.check_n_bounds,
+//     //         MatmulIdent::Out => self.check_n_bounds,
+//     //     }
+//     // }
+
+//     // fn check_k_bounds(&self) -> bool {
+//     //     self.check_k_bounds
+//     // }
+
+//     // fn num_stages(&self, _ident: MatmulIdent) -> u32 {
+//     //     2
+//     // }
+
+//     // fn cube_dim(&self) -> CubeDim {
+//     //     CubeDim::new_2d(<Self as GlobalConfig>::plane_dim(self), self.num_planes)
+//     // }
+
+//     // fn role_rule_config(&self) -> RoleRuleConfig {
+//     //     self.plane_role_config().rule
+//     // }
 // }
 
-// fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-//     <Self as GlobalConfig>::global_line_size(self, ident)
-// }
+// // impl<S: StageConfig> GlobalReaderConfig for DoubleBufferingGlobalConfig<S> {
+// // fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
+// //     self.stage_config().stage_memory_config(ident.into_stage())
+// // }
 
-// fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-//     <Self as GlobalConfig>::matrix_layout(self, ident)
-// }
+// // fn tiling_scheme(&self) -> TilingScheme {
+// //     self.stage_config().tiling_scheme()
+// // }
 
-// fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
-//     self.specialized_loading_sides.num_loading_planes(
-//         self.plane_role_config().has_specialization(),
-//         ident,
-//         self.plane_role_config().plane_roles,
-//     )
-// }
+// // fn global_line_size(&self, ident: MatmulIdent) -> u32 {
+// //     <Self as GlobalConfig>::global_line_size(self, ident)
+// // }
 
-// fn plane_role_config(&self) -> PlaneRoleConfig {
-//     self.plane_role_config()
-// }
+// // fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
+// //     <Self as GlobalConfig>::matrix_layout(self, ident)
+// // }
 
-// fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-//     self.specialized_loading_sides
-// }
+// // fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
+// //     self.specialized_loading_sides.num_loading_planes(
+// //         self.plane_role_config().has_specialization(),
+// //         ident,
+// //         self.plane_role_config().plane_roles,
+// //     )
+// // }
 
-// fn plane_dim(&self) -> u32 {
-//     <Self as GlobalConfig>::plane_dim(&self)
-// }
+// // fn plane_role_config(&self) -> PlaneRoleConfig {
+// //     self.plane_role_config()
+// // }
 
-// fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-//     <Self as GlobalConfig>::check_row_bounds(self, ident)
-// }
+// // fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+// //     self.specialized_loading_sides
+// // }
 
-// fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-//     <Self as GlobalConfig>::check_col_bounds(self, ident)
-// }
+// // fn plane_dim(&self) -> u32 {
+// //     <Self as GlobalConfig>::plane_dim(&self)
+// // }
 
-// fn precompute_job(&self) -> bool {
-//     self.precompute_job.into()
-// }
+// // fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
+// //     <Self as GlobalConfig>::check_row_bounds(self, ident)
+// // }
 
-// fn num_stages(&self, ident: MatmulIdent) -> u32 {
-//     <Self as GlobalConfig>::num_stages(self, ident)
-// }
+// // fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
+// //     <Self as GlobalConfig>::check_col_bounds(self, ident)
+// // }
 
-// fn reader_mode(&self) -> ReaderMode {
-//     self.reader_mode
-// }
+// // fn precompute_job(&self) -> bool {
+// //     self.precompute_job.into()
+// // }
 
-// fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
-//     EventLoadingMode::Relaxed
-// }
-// }
+// // fn num_stages(&self, ident: MatmulIdent) -> u32 {
+// //     <Self as GlobalConfig>::num_stages(self, ident)
+// // }
 
-impl<S: StageConfig> DoubleBufferingGlobalConfig<S> {
-    pub fn from_shared_global_config(
-        shared: SharedGlobalConfig<S>,
-        check_m_bounds: bool,
-        check_n_bounds: bool,
-        check_k_bounds: bool,
-        precompute_job: LoadingPrecomputeStrategy,
-        reader_mode: ReaderMode,
-        specialized_loading_sides: SpecializedLoadingSides,
-    ) -> Self {
-        Self {
-            shared,
-            check_m_bounds,
-            check_n_bounds,
-            check_k_bounds,
-            precompute_job,
-            reader_mode,
-            specialized_loading_sides,
-        }
-    }
+// // fn reader_mode(&self) -> ReaderMode {
+// //     self.reader_mode
+// // }
 
-    pub fn plane_role_config(&self) -> PlaneRoleConfig {
-        self.shared.stage_config.plane_role_config()
-    }
-}
+// // fn event_loading_mode(&self, _ident: MatmulIdent) -> EventLoadingMode {
+// //     EventLoadingMode::Relaxed
+// // }
+// // }
+
+// impl<S: StageConfig> DoubleBufferingGlobalConfig<S> {
+//     pub fn from_shared_global_config(shared: SharedGlobalConfig<S>) -> Self {
+//         Self { shared }
+//     }
+
+//     pub fn plane_role_config(&self) -> PlaneRoleConfig {
+//         self.shared.stage_config.plane_role_config()
+//     }
+// }

@@ -171,6 +171,7 @@ pub trait StageConfig:
     fn elements_in_stage_m(&self) -> u32;
     fn elements_in_stage_n(&self) -> u32;
     fn elements_in_stage_k(&self) -> u32;
+    fn tiles_in_partition_mn(&self) -> u32;
     fn num_main_flow_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;

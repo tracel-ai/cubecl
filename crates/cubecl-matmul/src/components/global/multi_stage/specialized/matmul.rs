@@ -1,6 +1,6 @@
-use crate::components::global::RoleRule;
 use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
+use crate::components::global::{RoleRule, SharedGlobalConfig};
 use crate::components::stage::StageConfig as _;
 use crate::components::{
     AccG,
@@ -13,7 +13,6 @@ use crate::components::{
 };
 use crate::components::{MatmulPrecision, stage};
 use crate::components::{
-    global::multi_stage::double_buffering::DoubleBufferingGlobalConfig,
     stage::{FilledStage, StridedStage},
 };
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
@@ -58,7 +57,7 @@ where
     RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = DoubleBufferingGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalConfig<SMM::Config>;
 
     type LhsGlobalReader = PartialStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
@@ -83,7 +82,8 @@ where
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     ) {
-        let stage_step = config.tiling_scheme().elements_in_stage_k();
+        let stage_step = config.stage_config.elements_in_stage_k();
+
         let range = k_range.1 - k_range.0;
         let needed_stage_matmuls = range.div_ceil(stage_step);
 
@@ -94,8 +94,8 @@ where
         let lhs_elem_size = LhsS::<MP>::elem_size();
         let rhs_elem_size = RhsS::<MP>::elem_size();
         let stage_bytes = comptime! {
-            let lhs_bytes = config.stage_config().stage_memory_config(StageIdent::Lhs).elements_in_stage() * lhs_elem_size;
-            let rhs_bytes = config.stage_config().stage_memory_config(StageIdent::Rhs).elements_in_stage() * rhs_elem_size;
+            let lhs_bytes = config.lhs_reader_config.smem_config.elements_in_stage() * lhs_elem_size;
+            let rhs_bytes = config.rhs_reader_config.smem_config.elements_in_stage() * rhs_elem_size;
             lhs_bytes + rhs_bytes
         };
 
@@ -108,7 +108,7 @@ where
 
         let compute_units = config.plane_role_config().plane_roles.main_flow * config.plane_dim();
 
-        let role_rule = RoleRule::new(config.role_rule_config());
+        let role_rule = RoleRule::new(config.plane_role_config().rule);
 
         // Barrier for writing out
         let barrier_done = Barrier::new(BarrierLevel::cube_manual());
@@ -138,13 +138,29 @@ where
         if role_rule.elect_load_leader() {
             for _ in 0..num_loops {
                 barrier_empty_a.wait_parity(phase ^ 1);
-                lhs_reader.load_stage(&mut barrier_full_a, StageBuffer::A, config);
-                rhs_reader.load_stage(&mut barrier_full_a, StageBuffer::A, config);
+                lhs_reader.load_stage(
+                    &mut barrier_full_a,
+                    StageBuffer::A,
+                    config.lhs_reader_config,
+                );
+                rhs_reader.load_stage(
+                    &mut barrier_full_a,
+                    StageBuffer::A,
+                    config.rhs_reader_config,
+                );
                 barrier_full_a.arrive_and_expect_tx(1, stage_bytes);
 
                 barrier_empty_b.wait_parity(phase ^ 1);
-                lhs_reader.load_stage(&mut barrier_full_b, StageBuffer::B, config);
-                rhs_reader.load_stage(&mut barrier_full_b, StageBuffer::B, config);
+                lhs_reader.load_stage(
+                    &mut barrier_full_b,
+                    StageBuffer::B,
+                    config.lhs_reader_config,
+                );
+                rhs_reader.load_stage(
+                    &mut barrier_full_b,
+                    StageBuffer::B,
+                    config.rhs_reader_config,
+                );
                 barrier_full_b.arrive_and_expect_tx(1, stage_bytes);
 
                 lhs_reader.advance_view();
@@ -191,13 +207,12 @@ where
 
             let mut out_stage = Self::GlobalWriter::stage(&out_writer);
 
-            SMM::write_results::<Self::GlobalWriter, Self::Config>(
+            SMM::write_results::<Self::GlobalWriter>(
                 &acc,
                 &mut out_stage,
                 &mut out_writer,
                 &partition_scheduler,
                 config.stage_config(),
-                config,
             );
         }
     }
@@ -206,26 +221,28 @@ where
         lhs: View<Line<LhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader {
-        let k_step = k_step::<Self::Config>(config);
+        // We always advance by 2 * k because stage B shares the same global memory state as stage A,
+        // but it is implicitly offset by one stage's worth (k elements) when reading.
+        let k_step = config.stage_config.elements_in_stage_k() * 2;
         PartialStageGlobalReader::<
             <MP::Lhs as MatrixPrecision>::Global,
             <MP::Lhs as MatrixPrecision>::Stage,
-            Self::Config,
             LL,
-        >::new(lhs, k_step, MatmulIdent::Lhs, config)
+        >::new(lhs, k_step, config.lhs_reader_config)
     }
 
     fn init_rhs_global_reader(
         rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        let k_step = k_step::<Self::Config>(config);
+        // We always advance by 2 * k because stage B shares the same global memory state as stage A,
+        // but it is implicitly offset by one stage's worth (k elements) when reading.
+        let k_step = config.stage_config.elements_in_stage_k() * 2;
         PartialStageGlobalReader::<
             <MP::Rhs as MatrixPrecision>::Global,
             <MP::Rhs as MatrixPrecision>::Stage,
-            Self::Config,
             RL,
-        >::new(rhs, k_step, MatmulIdent::Rhs, config)
+        >::new(rhs, k_step, config.rhs_reader_config)
     }
 
     fn init_acc_global_reader(
@@ -242,19 +259,12 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        let conf = config.global_memory_config(MatmulIdent::Out);
-        Self::GlobalWriter::init::<SMM::Config>(out, conf, config.stage_config())
+        todo!()
+        // let conf = config.global_memory_config(MatmulIdent::Out);
+        // Self::GlobalWriter::init::<SMM::Config>(out, conf, config.stage_config())
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {
         SMM::init_accumulators(config.stage_config())
     }
-}
-
-/// We always advance by 2 * k because stage B shares the same global memory state as stage A,
-/// but it is implicitly offset by one stage's worth (k elements) when reading.
-#[cube]
-fn k_step<C: GlobalConfig>(#[comptime] config: C) -> u32 {
-    let step = config.tiling_scheme().elements_in_stage_k() * 2;
-    step.runtime()
 }

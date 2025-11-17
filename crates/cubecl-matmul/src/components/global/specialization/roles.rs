@@ -2,10 +2,10 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::error::MatmulSetupError;
-use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::specialization::config::{
     LoadSpecializationConfig, SpecializedLoadingSides,
 };
+use crate::components::global::{MaxGlobalReaderPlanes, SpecializationTensorConfig};
 use crate::components::{MatmulIdent, StageIdent};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -138,27 +138,44 @@ impl RoleRule {
 
     /// The index of the current plane among planes that perform loading,
     /// ignoring any plane that does not participate for this `ident`.
+    // pub fn load_index(
+    //     self,
+    //     #[comptime] ident: StageIdent,
+    //     #[comptime] specialized_loading_sides: SpecializedLoadingSides,
+    // ) -> u32 {
+    //     match self {
+    //         RoleRule::MainFlowOnly => UNIT_POS_Y,
+    //         RoleRule::LoadOnlyFirst(load_only) => {
+    //             if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
+    //                 UNIT_POS_Y - load_only.threshold
+    //             } else {
+    //                 UNIT_POS_Y
+    //             }
+    //         }
+    //         RoleRule::LoadOnlyLast(main_flow) => {
+    //             if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
+    //                 UNIT_POS_Y - main_flow.threshold
+    //             } else {
+    //                 UNIT_POS_Y
+    //             }
+    //         }
+    //     }
+    // }
+
     pub fn load_index(
         self,
-        #[comptime] ident: StageIdent,
-        #[comptime] specialized_loading_sides: SpecializedLoadingSides,
+        #[comptime] specialization_tensor_config: SpecializationTensorConfig,
     ) -> u32 {
         match self {
             RoleRule::MainFlowOnly => UNIT_POS_Y,
-            RoleRule::LoadOnlyFirst(load_only) => {
-                if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
-                    UNIT_POS_Y - load_only.threshold
-                } else {
-                    UNIT_POS_Y
-                }
-            }
-            RoleRule::LoadOnlyLast(main_flow) => {
-                if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
-                    UNIT_POS_Y - main_flow.threshold
-                } else {
-                    UNIT_POS_Y
-                }
-            }
+            RoleRule::LoadOnlyFirst(load_only) => match specialization_tensor_config {
+                SpecializationTensorConfig::MainFlowOnly => UNIT_POS_Y - load_only.threshold,
+                SpecializationTensorConfig::LoadFlowOnly => UNIT_POS_Y,
+            },
+            RoleRule::LoadOnlyLast(main_flow) => match specialization_tensor_config {
+                SpecializationTensorConfig::LoadFlowOnly => UNIT_POS_Y - main_flow.threshold,
+                SpecializationTensorConfig::MainFlowOnly => UNIT_POS_Y,
+            },
         }
     }
 
