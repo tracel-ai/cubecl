@@ -1,6 +1,6 @@
+use crate::components::InvalidConfigError;
 use crate::components::global::{GlobalConfig, GlobalReaderConfig};
 use crate::components::stage::{StridedStage, TilingLayout};
-use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatmulPrecision, global::memory::GlobalIterator};
 use cubecl_core::ir::SemanticType;
 use cubecl_core::prelude::*;
@@ -93,7 +93,6 @@ impl LoadingValidation for NoLoadingValidation {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         _config: &GlobalReaderConfig,
-        _ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
         Ok(())
     }

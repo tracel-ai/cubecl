@@ -89,10 +89,18 @@ where
                 lhs_reader_config: GlobalReaderConfig {
                     global_memory_config: todo!(),
                     stage_memory_config: todo!(),
+                    precompute_job: todo!(),
+                    plane_dim: todo!(),
+                    loading_planes_count: todo!(),
+                    plane_role_config: todo!(),
                 },
                 rhs_reader_config: GlobalReaderConfig {
                     global_memory_config: todo!(),
                     stage_memory_config: todo!(),
+                    precompute_job: todo!(),
+                    plane_dim: todo!(),
+                    loading_planes_count: todo!(),
+                    plane_role_config: todo!(),
                 },
             },
             !(problem.m as u32).is_multiple_of(stage_shape_m),

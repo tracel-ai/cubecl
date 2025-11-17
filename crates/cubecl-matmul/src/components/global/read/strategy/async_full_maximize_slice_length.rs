@@ -24,9 +24,8 @@ impl LoadingValidation for AsyncFullMaximizeSliceLengthLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config(ident))?;
+        StridedTilingLayout::check(config.global_memory_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -55,17 +54,16 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
     const SHOULD_CLEAR: bool = true;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeSliceLengthJob {
-        let matrix_layout = config.matrix_layout(ident);
+        let matrix_layout = config.global_memory_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
-            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
+            MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
+            MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
         };
-        let unit_count = config.plane_dim() * config.num_loading_planes(ident);
+        let unit_count = config.loading_units_count();
 
         let num_tasks_per_unit = comptime!(div_ceil(num_slices, unit_count));
 
@@ -73,7 +71,6 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
             num_tasks_per_unit,
             unit_count,
             num_slices,
-            ident,
         }
     }
 }
@@ -86,8 +83,6 @@ pub struct AsyncFullMaximizeSliceLengthJob {
     unit_count: u32,
     #[cube(comptime)]
     num_slices: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -106,17 +101,10 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(this.num_slices.is_multiple_of(this.unit_count)) {
-            load_nth_slice::<EG, ES>(nth_slice, global_iter, stage, barrier, this.ident, config);
+            load_nth_slice::<EG, ES>(nth_slice, global_iter, stage, barrier, config);
         } else {
             if nth_slice < this.num_slices {
-                load_nth_slice::<EG, ES>(
-                    nth_slice,
-                    global_iter,
-                    stage,
-                    barrier,
-                    this.ident,
-                    config,
-                );
+                load_nth_slice::<EG, ES>(nth_slice, global_iter, stage, barrier, config);
             }
         };
     }
@@ -132,18 +120,17 @@ fn load_nth_slice<EG: Numeric, ES: Numeric>(
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, StridedTilingLayout>,
     barrier: &Barrier,
-    #[comptime] ident: MatmulIdent,
     #[comptime] config: GlobalReaderConfig,
 ) {
     let window = load_window_in_stage(
         &global_iter.view(),
         nth_slice,
-        comptime!(config.global_memory_config(ident)),
+        comptime!(config.global_memory_config),
     );
     let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
         stage,
         nth_slice,
-        comptime!(config.stage_memory_config(ident)),
+        comptime!(config.stage_memory_config),
     );
 
     barrier.memcpy_async(&window.try_cast_unchecked(), &mut destination);

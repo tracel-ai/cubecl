@@ -4,7 +4,7 @@ use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout
 use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -23,15 +23,14 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        if let ReaderMode::Strict = config.reader_mode() {
-            let line_size = config.global_line_size(ident);
-            let num_lines_per_tile = config.tiling_scheme().elements_in_tile(ident) / line_size;
-            let num_tiles_in_stage = config.tiling_scheme().tiles_in_stage(ident);
+        if let ReaderMode::Strict = config.reader_mode {
+            let line_size = config.global_memory_config.line_size();
+            let num_lines_per_tile = config.stage_memory_config.elements_in_tile() / line_size;
+            let num_tiles_in_stage = config.stage_memory_config.tiles_in_stage();
             let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
 
-            let total_units = config.plane_dim() * config.num_loading_planes(ident);
+            let total_units = config.loading_units_count();
             let jump_length = total_units * line_size;
             let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
 
@@ -39,7 +38,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             let max_task_id = num_tasks_per_unit - 1;
             let max_position_base = max_id * line_size;
             let max_position = max_position_base + max_task_id * jump_length;
-            let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
+            let num_stage_elements = config.stage_memory_config.elements_in_stage();
 
             if max_position > num_stage_elements {
                 return Err(Box::new(
@@ -48,7 +47,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             }
         }
 
-        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config)?;
 
         Ok(())
     }
@@ -76,18 +75,17 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
 
     fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialCyclicJob {
-        let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
+        let num_stage_elements = config.stage_memory_config.elements_in_stage();
 
-        let tile_size = config.tiling_scheme().elements_in_tile(ident);
-        let tile_count_row = config.tiling_scheme().tiles_in_stage_row(ident);
-        let tile_count_col = config.tiling_scheme().tiles_in_stage_col(ident);
+        let tile_size = config.stage_memory_config.elements_in_tile();
+        let tile_count_row = config.stage_memory_config.tiles_in_stage_row;
+        let tile_count_col = config.stage_memory_config.tiles_in_stage_col;
 
         let num_lines_per_tile = tile_size / line_size;
-        let total_units = config.plane_dim() * config.num_loading_planes(ident);
+        let total_units = config.loading_units_count();
 
         let num_tiles_in_stage = tile_count_row * tile_count_col;
         let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
@@ -95,9 +93,9 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
         let num_tasks_per_unit = total_num_lines.div_ceil(total_units);
         let jump_length = total_units * line_size;
 
-        let plane_id = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides());
-        let unit_id = plane_id * config.plane_dim() + UNIT_POS_X;
+        let plane_id = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.stage_ident, config.specialized_loading_sides);
+        let unit_id = plane_id * config.plane_dim + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
         SyncPartialCyclicJob {
@@ -106,10 +104,9 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
             stage_index,
             jump_length,
             num_lines_per_tile,
-            ident,
             balanced_workload,
             num_stage_elements,
-            reader_mode: comptime!(config.reader_mode()),
+            reader_mode: config.reader_mode,
         }
     }
 }
@@ -126,8 +123,6 @@ pub struct SyncPartialCyclicJob {
     jump_length: u32,
     #[cube(comptime)]
     num_lines_per_tile: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
     #[cube(comptime)]
     balanced_workload: bool,
     #[cube(comptime)]
@@ -173,25 +168,21 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 }
 
 #[cube]
-pub(crate) fn load_and_store_line<
-    EG: Numeric,
-    ES: Numeric,
-    TO: TilingOrder,
->(
+pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,
     stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: GlobalReaderConfig,
 ) {
-    let layout = TiledLayout::new(comptime!(config.global_memory_config(job.ident)));
+    let layout = TiledLayout::new(comptime!(config.global_memory_config));
     let view = global_iter.view().view(layout);
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.tiling_scheme().elements_in_tile(job.ident),
-            config.tiling_scheme().tiles_in_stage_row(job.ident),
-            config.tiling_scheme().tiles_in_stage_col(job.ident),
+            config.stage_memory_config.elements_in_tile(),
+            config.stage_memory_config.tiles_in_stage_row,
+            config.stage_memory_config.tiles_in_stage_col,
         )
     };
     let line_size = view.line_size();
@@ -203,19 +194,19 @@ pub(crate) fn load_and_store_line<
         tile_index,
         tile_count_row,
         tile_count_col,
-        comptime!(config.stage_memory_config(job.ident)),
+        comptime!(config.stage_memory_config),
     );
 
-    let tile = match comptime!(job.ident) {
-        MatmulIdent::Lhs => (
+    let tile = match comptime!(config.stage_ident) {
+        StageIdent::Lhs => (
             tile_x_within_stage,
             job.stage_index * tile_count_col + tile_y_within_stage,
         ),
-        MatmulIdent::Rhs => (
+        StageIdent::Rhs => (
             job.stage_index * tile_count_row + tile_x_within_stage,
             tile_y_within_stage,
         ),
-        MatmulIdent::Out => comptime!(unreachable!()),
+        _ => comptime!(unreachable!()),
     };
 
     let line_read = view.read_checked((tile, pos_within_tile));

@@ -3,7 +3,7 @@ use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStage;
 use crate::components::stage::TmaTilingLayout;
-use crate::components::{InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
@@ -24,9 +24,8 @@ impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        TmaTilingLayout::check(config.global_memory_config(ident))?;
+        TmaTilingLayout::check(config.global_memory_config)?;
         validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
@@ -53,12 +52,11 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
 
     fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let role_rule_config = config.role_rule_config();
-        let config = config.stage_memory_config(ident);
+        let role_rule_config = config.plane_role_config.rule;
+        let config = config.stage_memory_config;
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
@@ -70,7 +68,6 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
             is_elected,
             num_tasks: tile_count_col,
             stage_index,
-            ident,
         }
     }
 }
@@ -83,8 +80,6 @@ pub struct AsyncPartialTmaJob {
     num_tasks: u32,
     #[cube(comptime)]
     stage_index: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -101,20 +96,24 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
     ) {
         let mut stage = stage.with_buffer_index(this.stage_index);
         if this.is_elected {
-            let config = comptime![config.stage_memory_config(this.ident)];
-
-            let size_row = match config.matrix_layout {
-                MatrixLayout::RowMajor => config.elements_in_stage_row(),
-                MatrixLayout::ColMajor => config.elements_in_stage_col(),
+            let size_row = match config.stage_memory_config.matrix_layout {
+                MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
+                MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
             };
-            let size_col = match config.matrix_layout {
-                MatrixLayout::RowMajor => config.elements_in_tile_col,
-                MatrixLayout::ColMajor => config.elements_in_tile_row,
+            let size_col = match config.stage_memory_config.matrix_layout {
+                MatrixLayout::RowMajor => config.stage_memory_config.elements_in_tile_col,
+                MatrixLayout::ColMajor => config.stage_memory_config.elements_in_tile_row,
             };
 
-            let (offs_row, offs_col) = comptime![match this.ident {
-                MatmulIdent::Lhs => (0, this.stage_index * config.elements_in_stage_col()),
-                MatmulIdent::Rhs => (this.stage_index * config.elements_in_stage_row(), 0),
+            let (offs_row, offs_col) = comptime![match config.stage_ident {
+                StageIdent::Lhs => (
+                    0,
+                    this.stage_index * config.stage_memory_config.elements_in_stage_col()
+                ),
+                StageIdent::Rhs => (
+                    this.stage_index * config.stage_memory_config.elements_in_stage_row(),
+                    0
+                ),
                 _ => (0, 0),
             }]
             .runtime();
@@ -128,7 +127,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
             // "column" to be loaded, may be a row for col-major (can't think of a better name)
             let load_col = task_id * size_col;
 
-            let pos = match config.matrix_layout {
+            let pos = match config.stage_memory_config.matrix_layout {
                 MatrixLayout::RowMajor => (offs_row, load_col + offs_col),
                 MatrixLayout::ColMajor => (load_col + offs_row, offs_col),
             };

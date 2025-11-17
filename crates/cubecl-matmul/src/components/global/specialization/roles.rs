@@ -1,12 +1,12 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::MatmulIdent;
 use crate::components::error::MatmulSetupError;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::specialization::config::{
     LoadSpecializationConfig, SpecializedLoadingSides,
 };
+use crate::components::{MatmulIdent, StageIdent};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// Represents how many planes are used for main matmul computation and for loading-only tasks.
@@ -140,7 +140,7 @@ impl RoleRule {
     /// ignoring any plane that does not participate for this `ident`.
     pub fn load_index(
         self,
-        #[comptime] ident: MatmulIdent,
+        #[comptime] ident: StageIdent,
         #[comptime] specialized_loading_sides: SpecializedLoadingSides,
     ) -> u32 {
         match self {

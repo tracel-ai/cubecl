@@ -34,7 +34,6 @@ pub trait PartialLoadingStrategy:
     /// Returns the job with preliminary calculations done.
     fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES>;

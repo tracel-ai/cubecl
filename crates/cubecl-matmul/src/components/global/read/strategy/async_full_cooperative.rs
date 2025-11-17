@@ -62,8 +62,8 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
         let matrix_layout = config.global_memory_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.global_memory_config.elements_in_stage_row,
-            MatrixLayout::ColMajor => config.global_memory_config.elements_in_stage_col,
+            MatrixLayout::RowMajor => config.stage_memory_config.elements_in_stage_row(),
+            MatrixLayout::ColMajor => config.stage_memory_config.elements_in_stage_col(),
         };
 
         AsyncFullCooperativeJob { num_slices }

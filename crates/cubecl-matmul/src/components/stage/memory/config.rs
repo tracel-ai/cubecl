@@ -24,7 +24,15 @@ impl StageMemoryConfig {
         self.tiles_in_stage_col * self.elements_in_tile_col
     }
 
+    pub fn elements_in_tile(&self) -> u32 {
+        self.elements_in_tile_row * self.elements_in_tile_col
+    }
+
     pub fn elements_in_stage(&self) -> u32 {
         self.elements_in_stage_row() * self.elements_in_stage_col()
+    }
+
+    pub fn tiles_in_stage(&self) -> u32 {
+        self.tiles_in_stage_row * self.tiles_in_stage_col
     }
 }

@@ -1,5 +1,5 @@
 use crate::components::{
-    MatmulIdent,
+    MatmulIdent, StageIdent,
     global::{MaxGlobalReaderPlanes, specialization::roles::PlaneRoles},
 };
 
@@ -110,21 +110,21 @@ pub enum LoadingSides {
 impl LoadingSides {
     /// Returns `true` if Lhs is included.
     pub fn includes_lhs(&self) -> bool {
-        self.includes(MatmulIdent::Lhs)
+        self.includes(StageIdent::Lhs)
     }
 
     /// Returns `true` if Rhs is included.
     pub fn includes_rhs(&self) -> bool {
-        self.includes(MatmulIdent::Rhs)
+        self.includes(StageIdent::Rhs)
     }
 
     /// Returns `true` if the given input is included.
-    pub fn includes(&self, ident: MatmulIdent) -> bool {
+    pub fn includes(&self, ident: StageIdent) -> bool {
         matches!(
             (self, ident),
             (LoadingSides::Both, _)
-                | (LoadingSides::Lhs, MatmulIdent::Lhs)
-                | (LoadingSides::Rhs, MatmulIdent::Rhs)
+                | (LoadingSides::Lhs, StageIdent::Lhs)
+                | (LoadingSides::Rhs, StageIdent::Rhs)
         )
     }
 }
@@ -141,7 +141,7 @@ impl SpecializedLoadingSides {
     pub fn num_loading_planes(
         &self,
         specialized: bool,
-        ident: MatmulIdent,
+        ident: StageIdent,
         plane_roles: PlaneRoles,
     ) -> u32 {
         if specialized {

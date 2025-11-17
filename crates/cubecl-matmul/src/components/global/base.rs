@@ -2,9 +2,11 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::global::read::ReaderMode;
+use crate::components::global::{PlaneRoleConfig, SpecializedLoadingSides};
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
-use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
+use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem, StageIdent};
 use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
 use cubecl_std::{
     CubeOption,
@@ -197,7 +199,21 @@ pub trait GlobalConfig:
 pub struct GlobalReaderConfig {
     pub global_memory_config: GlobalMemoryConfig,
     pub stage_memory_config: StageMemoryConfig,
-    pub precompute_job: bool
+    pub precompute_job: bool,
+    pub plane_dim: u32,
+    pub loading_planes_count: u32,
+    pub plane_role_config: PlaneRoleConfig,
+    pub reader_mode: ReaderMode,
+
+    // ideally remove because doesn't apply to any problem
+    pub stage_ident: StageIdent,
+    pub specialized_loading_sides: SpecializedLoadingSides,
+}
+
+impl GlobalReaderConfig {
+    pub fn loading_units_count(&self) -> u32 {
+        self.plane_dim * self.loading_planes_count
+    }
 }
 
 // pub trait GlobalReaderConfig:

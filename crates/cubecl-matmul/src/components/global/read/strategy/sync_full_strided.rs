@@ -19,12 +19,11 @@ impl LoadingValidation for SyncFullStridedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.global_line_size(ident);
+        let line_size = config.global_memory_config.line_size();
 
-        let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-        let total_units = config.num_loading_planes(ident) * config.plane_dim();
+        let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+        let total_units = config.loading_units_count();
 
         if !num_stage_lines.is_multiple_of(total_units) {
             return Err(Box::new(
@@ -33,7 +32,7 @@ impl LoadingValidation for SyncFullStridedLoading {
             ));
         }
 
-        StridedTilingLayout::check(config.global_memory_config(ident))?;
+        StridedTilingLayout::check(config.global_memory_config)?;
 
         Ok(())
     }
@@ -58,17 +57,16 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
     type Job<EG: Numeric, ES: Numeric> = SyncFullStridedJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
+        let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+        let unit_count = config.loading_planes_count * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
-        let unit_position_base = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_position_base = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.stage_ident, config.specialized_loading_sides)
+            * config.plane_dim
             + UNIT_POS_X;
 
         SyncFullStridedJob {
@@ -76,7 +74,6 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
             num_tasks_per_unit,
             unit_count,
             line_size,
-            ident,
         }
     }
 }
@@ -91,8 +88,6 @@ pub struct SyncFullStridedJob {
     unit_count: u32,
     #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -109,7 +104,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchrono
     ) {
         let unit_position = this.unit_position_base + task_id * this.unit_count;
 
-        let layout = FullStageLayout::new(comptime![config.global_memory_config(this.ident)]);
+        let layout = FullStageLayout::new(comptime![config.global_memory_config]);
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked(unit_position * this.line_size);

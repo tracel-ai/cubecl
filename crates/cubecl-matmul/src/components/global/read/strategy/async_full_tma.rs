@@ -22,9 +22,8 @@ impl LoadingValidation for AsyncFullTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        TmaTilingLayout::check(config.global_memory_config(ident))?;
+        TmaTilingLayout::check(config.global_memory_config)?;
         validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
@@ -52,12 +51,11 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
     type Job<EG: Numeric, ES: Numeric> = AsyncFullTmaJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] _line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let role_rule_config = config.role_rule_config();
-        let config = config.stage_memory_config(ident);
+        let role_rule_config = config.plane_role_config.rule;
+        let config = config.stage_memory_config;
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
@@ -68,7 +66,6 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
         AsyncFullTmaJob {
             is_elected,
             num_tasks: tile_count_col,
-            ident,
         }
     }
 }
@@ -79,8 +76,6 @@ pub struct AsyncFullTmaJob {
 
     #[cube(comptime)]
     num_tasks: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -94,7 +89,7 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for
         #[comptime] config: GlobalReaderConfig,
     ) {
         if this.is_elected {
-            let config = comptime![config.stage_memory_config(this.ident)];
+            let config = comptime![config.stage_memory_config];
 
             let size_row = match config.matrix_layout {
                 MatrixLayout::RowMajor => config.elements_in_stage_row(),

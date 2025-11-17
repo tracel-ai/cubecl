@@ -4,7 +4,9 @@ use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::{PartialLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::TilingOrderEnum;
-use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{
+    FormattedConfigError, InvalidConfigError, MatmulIdent, StageIdent, TilingScheme,
+};
 use crate::components::{
     global::memory::GlobalIterator,
     stage::{ContiguousTilingLayout, StridedStage, TilingOrder},
@@ -44,11 +46,10 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.global_line_size(ident);
-        let num_planes = config.num_loading_planes(ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
+        let line_size = config.global_memory_config.line_size();
+        let num_planes = config.loading_planes_count;
+        let num_tiles = config.stage_memory_config.tiles_in_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
@@ -58,9 +59,9 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
         let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
+            comptime!(config.stage_memory_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
-        let num_planes = config.plane_dim();
+        let num_planes = config.plane_dim;
 
         if num_lines_per_plane % num_planes != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -68,8 +69,8 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
             }));
         }
 
-        match ident {
-            MatmulIdent::Lhs => {
+        match config.stage_ident {
+            StageIdent::Lhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::RowMajor) {
                     return Err(FormattedConfigError::new(move || {
                         "Sync partial tilewise on Lhs is only supported with RowMajor tiling order"
@@ -77,7 +78,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
                     }));
                 }
             }
-            MatmulIdent::Rhs => {
+            StageIdent::Rhs => {
                 if !matches!(T::to_enum(), TilingOrderEnum::ColMajor) {
                     return Err(FormattedConfigError::new(move || {
                         "Sync partial tilewise on Rhs is only supported with ColMajor tiling order"
@@ -85,10 +86,10 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
                     }));
                 }
             }
-            MatmulIdent::Out => unreachable!(),
+            _ => unreachable!(),
         }
 
-        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+        ContiguousTilingLayout::<T>::check(config.global_memory_config)?;
 
         Ok(())
     }
@@ -102,28 +103,27 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
 
     fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] stage_index: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialTilewiseJob {
-        let num_planes = config.num_loading_planes(ident);
-        let num_tiles = config.tiling_scheme().tiles_in_stage(ident);
-        let plane_dim = config.plane_dim();
+        let num_planes = config.loading_planes_count;
+        let num_tiles = config.stage_memory_config.tiles_in_stage();
+        let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
         let num_lines_per_tile =
-            comptime!(config.tiling_scheme().elements_in_tile(ident) / line_size);
+            comptime!(config.stage_memory_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
-        let stage_width = comptime!(match ident {
-            MatmulIdent::Lhs => config.tiling_scheme().tiles_in_stage_col(ident),
-            MatmulIdent::Rhs => config.tiling_scheme().tiles_in_stage_row(ident),
-            MatmulIdent::Out => unreachable!(),
+        let stage_width = comptime!(match config.stage_ident {
+            StageIdent::Lhs => config.stage_memory_config.tiles_in_stage_col,
+            StageIdent::Rhs => config.stage_memory_config.tiles_in_stage_row,
+            _ => unreachable!(),
         });
 
-        let num_tiles_to_skip = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
+        let num_tiles_to_skip = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.stage_ident, config.specialized_loading_sides)
             * num_tiles_per_plane;
 
         SyncPartialTilewiseJob {
@@ -132,9 +132,8 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
             stage_width,
             num_lines_per_tile,
             num_lines_per_unit,
-            plane_dim: config.plane_dim(),
+            plane_dim,
             line_size,
-            ident,
         }
     }
 }
@@ -154,8 +153,6 @@ pub struct SyncPartialTilewiseJob {
     plane_dim: u32,
     #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -177,19 +174,17 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 
         let nth_tile_global = this.num_tiles_to_skip + nth_tile_for_this_plane;
 
-        let stage_config = comptime![config.stage_memory_config(this.ident)];
-
         let tile = TO::to_row_col(
             nth_tile_global,
-            stage_config.tiles_in_stage_row,
-            stage_config.tiles_in_stage_col,
-            stage_config,
+            config.stage_memory_config.tiles_in_stage_row,
+            config.stage_memory_config.tiles_in_stage_col,
+            config.stage_memory_config,
         );
 
-        let tile = match comptime![this.ident] {
-            MatmulIdent::Lhs => (tile.0, tile.1 + this.stage_index * this.stage_width),
-            MatmulIdent::Rhs => (tile.0 + this.stage_index * this.stage_width, tile.1),
-            MatmulIdent::Out => tile,
+        let tile = match comptime![config.stage_ident] {
+            StageIdent::Lhs => (tile.0, tile.1 + this.stage_index * this.stage_width),
+            StageIdent::Rhs => (tile.0 + this.stage_index * this.stage_width, tile.1),
+            _ => tile,
         };
 
         let num_lines_to_skip_global = nth_tile_global * this.num_lines_per_tile;
@@ -222,7 +217,7 @@ impl SyncPartialTilewiseJob {
         stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
         #[comptime] config: GlobalReaderConfig,
     ) {
-        let layout = TiledLayout::new(comptime!(config.global_memory_config(this.ident)));
+        let layout = TiledLayout::new(comptime!(config.global_memory_config));
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked((tile, line_index_within_tile * this.line_size));

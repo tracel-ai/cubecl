@@ -24,13 +24,12 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        if let ReaderMode::Strict = config.reader_mode() {
-            let line_size = config.global_line_size(ident);
+        if let ReaderMode::Strict = config.reader_mode {
+            let line_size = config.global_memory_config.line_size();
 
-            let num_stage_lines = config.tiling_scheme().elements_in_stage(ident) / line_size;
-            let total_units = config.num_loading_planes(ident) * config.plane_dim();
+            let num_stage_lines = config.stage_memory_config.elements_in_stage() / line_size;
+            let total_units = config.loading_units_count();
 
             if !num_stage_lines.is_multiple_of(total_units) {
                 return Err(Box::new(
@@ -40,7 +39,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
             }
         }
 
-        ContiguousTilingLayout::<TO>::check(config.global_memory_config(ident))?;
+        ContiguousTilingLayout::<TO>::check(config.global_memory_config)?;
 
         Ok(())
     }
@@ -65,22 +64,21 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
     type Job<EG: Numeric, ES: Numeric> = SyncFullCyclicJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let tile_num_elements = config.tiling_scheme().elements_in_tile(ident);
-        let num_stage_elements = config.tiling_scheme().elements_in_stage(ident);
+        let tile_num_elements = config.stage_memory_config.elements_in_tile();
+        let num_stage_elements = config.stage_memory_config.elements_in_stage();
 
         let num_stage_lines = num_stage_elements.div_ceil(line_size);
-        let total_units = comptime!(config.num_loading_planes(ident) * config.plane_dim());
+        let total_units = config.loading_units_count();
         let num_tasks_per_unit = comptime!(num_stage_lines.div_ceil(total_units));
         let balanced_workload = comptime!(num_stage_lines.is_multiple_of(total_units));
         let jump_length = comptime!(total_units * line_size);
 
-        let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_id = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.stage_ident, config.specialized_loading_sides)
+            * config.plane_dim
             + UNIT_POS_X;
         let unit_position_base = unit_id * line_size;
 
@@ -90,10 +88,9 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullCyclicLoading<TO> {
             tile_num_elements,
             jump_length,
             line_size,
-            ident,
             balanced_workload,
             num_stage_elements,
-            reader_mode: comptime!(config.reader_mode()),
+            reader_mode: config.reader_mode,
         }
     }
 }
@@ -110,8 +107,6 @@ pub struct SyncFullCyclicJob {
     jump_length: u32,
     #[cube(comptime)]
     line_size: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
     #[cube(comptime)]
     balanced_workload: bool,
     #[cube(comptime)]
@@ -160,13 +155,11 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     let nth_tile = unit_position / job.tile_num_elements;
     let pos_within_tile = unit_position % job.tile_num_elements;
 
-    let layout = TiledLayout::new(comptime![config.global_memory_config(job.ident)]);
+    let layout = TiledLayout::new(comptime![config.global_memory_config]);
     let view = global_iter.view().view(layout);
 
-    let tile = ContiguousTilingLayout::<TO>::to_x_y(
-        nth_tile,
-        comptime!(config.stage_memory_config(job.ident)),
-    );
+    let tile =
+        ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.stage_memory_config));
 
     let line_read = view.read_checked((tile, pos_within_tile));
 

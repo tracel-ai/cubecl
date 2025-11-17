@@ -24,22 +24,21 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
-        ident: MatmulIdent,
     ) -> Result<(), InvalidConfigError> {
-        let matrix_layout = config.matrix_layout(ident);
-        let line_size = config.global_line_size(ident);
+        let matrix_layout = config.global_memory_config.matrix_layout;
+        let line_size = config.global_memory_config.line_size();
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.tiling_scheme().elements_in_stage_row(ident),
-                config.tiling_scheme().elements_in_stage_col(ident) / line_size,
+                config.stage_memory_config.elements_in_stage_row(),
+                config.stage_memory_config.elements_in_stage_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.tiling_scheme().elements_in_stage_col(ident),
-                config.tiling_scheme().elements_in_stage_row(ident) / line_size,
+                config.stage_memory_config.elements_in_stage_col(),
+                config.stage_memory_config.elements_in_stage_row() / line_size,
             ),
         };
-        let unit_count = config.plane_dim() * config.num_loading_planes(ident);
+        let unit_count = config.plane_dim * config.loading_planes_count;
 
         if !unit_count.is_multiple_of(num_slices) {
             return Err(Box::new(
@@ -52,7 +51,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
             ));
         }
 
-        StridedTilingLayout::check(config.global_memory_config(ident))?;
+        StridedTilingLayout::check(config.global_memory_config)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -81,24 +80,23 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
     const SHOULD_CLEAR: bool = true;
 
     fn new_job<EG: Numeric, ES: Numeric>(
-        #[comptime] ident: MatmulIdent,
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullMaximizeUnitCountJob {
-        let matrix_layout = config.matrix_layout(ident);
+        let matrix_layout = config.global_memory_config.matrix_layout;
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.tiling_scheme().elements_in_stage_row(ident),
-                config.tiling_scheme().elements_in_stage_col(ident) / line_size,
+                config.stage_memory_config.elements_in_stage_row(),
+                config.stage_memory_config.elements_in_stage_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.tiling_scheme().elements_in_stage_col(ident),
-                config.tiling_scheme().elements_in_stage_row(ident) / line_size,
+                config.stage_memory_config.elements_in_stage_col(),
+                config.stage_memory_config.elements_in_stage_row() / line_size,
             ),
         };
 
-        let unit_count = config.plane_dim() * config.num_loading_planes(ident);
+        let unit_count = config.loading_units_count();
 
         let units_per_slice = comptime!(unit_count / num_slices);
         let nth_slice = UNIT_POS / units_per_slice;
@@ -110,7 +108,6 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
             nth_slice,
             nth_segment,
             segment_length,
-            ident,
         }
     }
 }
@@ -121,8 +118,6 @@ pub struct AsyncFullMaximizeUnitCountJob {
     nth_segment: u32,
     #[cube(comptime)]
     segment_length: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -140,13 +135,13 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
         let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
             stage,
             this.nth_slice,
-            comptime!(config.stage_memory_config(this.ident)),
+            comptime!(config.stage_memory_config),
         );
 
         let window = load_window_in_stage(
             &global_iter.view(),
             this.nth_slice,
-            comptime!(config.global_memory_config(this.ident)),
+            comptime!(config.global_memory_config),
         );
         let seg_start = Min::min(this.nth_segment * this.segment_length, window.len());
         let seg_end = Min::min((this.nth_segment + 1) * this.segment_length, window.len());
