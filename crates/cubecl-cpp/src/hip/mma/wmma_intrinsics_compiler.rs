@@ -10,7 +10,7 @@ use crate::{
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
+use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent};
 use cubecl_runtime::MmaConfig;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -547,32 +547,71 @@ pub(super) fn compile_manual_mma<D: Dialect>(
 ) -> std::fmt::Result {
     let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
-    let d_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
+    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
-    let frag_d_len = d_elems as usize / (32 / frag_d.elem().unpacked().size_bits());
-
-    // Item is irrelevant
-    let frag_a_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
-    let frag_b_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
-    let frag_c_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+    let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
+
+    // Need to reconstruct the fragments from an array of lines to a single vector type.
+    // This requires double indexing over both the array index and the line index.
+    // Will generate something like
+    // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
+    let frag = |var: &Variable<D>, len: usize| {
+        let vec = var.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..len)
+                .map(|i| format!("{var}[{}].i_{}", i / vec, i % vec))
+                .collect()
+        } else {
+            (0..len).map(|i| format!("{var}[{}]", i)).collect()
+        };
+        frag.join(", ")
+    };
+
+    let frag_a = frag(frag_a, 16);
+    let frag_b = frag(frag_b, 16);
+    // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is
+    // to just replicate the same f16 in both halves of the register.
+    let frag_c = {
+        let vec = frag_c.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..cd_elems as usize)
+                .flat_map(|i| {
+                    (0..frag_cd_step).map(move |_| format!("{frag_c}[{}].i_{}", i / vec, i % vec))
+                })
+                .collect()
+        } else {
+            (0..cd_elems as usize)
+                .flat_map(|i| (0..frag_cd_step).map(move |_| format!("{frag_c}[{}]", i)))
+                .collect()
+        };
+        frag.join(", ")
+    };
 
     // Should optimize out
     let name = extension.fn_name();
-    writeln!(f, "{ty} {frag_a_tmp};", ty = extension.frag_a)?;
-    writeln!(f, "memcpy(&{frag_a_tmp}, {frag_a}, sizeof({frag_a_tmp}));")?;
-    writeln!(f, "{ty} {frag_b_tmp};", ty = extension.frag_b)?;
-    writeln!(f, "memcpy(&{frag_b_tmp}, {frag_b}, sizeof({frag_b_tmp}));")?;
-    writeln!(f, "{ty} {frag_c_tmp};", ty = extension.frag_c)?;
-    writeln!(f, "memcpy(&{frag_c_tmp}, {frag_c}, sizeof({frag_c_tmp}));")?;
-    writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
+
+    // Item is irrelevant
+    writeln!(f, "{} {frag_d_tmp} = {{}};", extension.frag_d)?;
+
     writeln!(
         f,
-        "{name}({frag_a_tmp}, {frag_b_tmp}, {frag_c_tmp}, {frag_d_tmp});"
+        "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
+        extension.frag_a, extension.frag_b, extension.frag_c
     )?;
 
-    for _ in 0..frag_d_len {
-        writeln!(f, "memcpy({frag_d}, &{frag_d_tmp}, sizeof({frag_d_tmp}));")?;
+    for i in 0..cd_elems as usize {
+        let vec = frag_d.item().vectorization;
+        if vec > 1 {
+            writeln!(
+                f,
+                "{frag_d}[{}].i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
+                i / vec,
+                i % vec
+            )?;
+        } else {
+            writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i} * {frag_cd_step}];")?;
+        }
     }
 
     Ok(())
@@ -612,6 +651,15 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         result.extend(combinations);
     }
     result
+}
+
+pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> u32 {
+    // Don't exceed swizzle atom and load width
+    let max_line_size = 16 / matrix.storage.size();
+    match ident {
+        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size) as u32,
+        MatrixIdent::Accumulator => 1,
+    }
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

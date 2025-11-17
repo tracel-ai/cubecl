@@ -13,7 +13,7 @@ fn kernel_to_degrees(input: &Array<f32>, output: &mut Array<f32>) {
 
 pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R::Server>) {
     let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
-    let expected = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
+    let expected = [0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
 
     let input = client.create_from_slice(f32::as_bytes(&input_data));
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
@@ -51,7 +51,7 @@ fn kernel_to_radians(input: &Array<f32>, output: &mut Array<f32>) {
 
 pub fn test_to_radians<R: Runtime>(client: ComputeClient<R::Server>) {
     let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
-    let expected = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
+    let expected = [0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
 
     let input = client.create_from_slice(f32::as_bytes(&input_data));
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
@@ -87,10 +87,11 @@ fn kernel_hypot(x: &Array<f32>, y: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
+#[allow(clippy::approx_constant)]
 pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server>) {
     let x_data = vec![3.0, 0.0, 1.0, 5.0, 0.0];
     let y_data = vec![4.0, 1.0, 1.0, 12.0, 0.0];
-    let expected = vec![5.0, 1.0, 1.4142135623730951, 13.0, 0.0];
+    let expected = [5.0, 1.0, 1.414_213_5, 13.0, 0.0];
 
     let x = client.create_from_slice(f32::as_bytes(&x_data));
     let y = client.create_from_slice(f32::as_bytes(&y_data));
