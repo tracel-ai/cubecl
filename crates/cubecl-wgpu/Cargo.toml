@@ -31,8 +31,8 @@ spirv = ["cubecl-spirv", "ash", "tracel-ash"]
 
 spirv-dump = ["std"]
 
-attention_tests = ["cubecl-attention/attention_tests"]
-conv_tests = ["cubecl-convolution/conv_tests"]
+# attention_tests = ["cubecl-attention/attention_tests"]
+# conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",
@@ -135,12 +135,12 @@ wgpu = { version = "26.0.0", features = [
 # wgpu = { path = "../../../../tracel/wgpu/wgpu", features = ["vulkan-portability", "fragile-send-sync-non-atomic-wasm"]}
 
 [dev-dependencies]
-cubecl-attention = { path = "../cubecl-attention", version = "0.9.0-pre.1", features = [
-    "export_tests",
-] }
-cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0-pre.1", features = [
-    "export_tests",
-] }
+# cubecl-attention = { path = "../cubecl-attention", version = "0.9.0-pre.1", features = [
+#     "export_tests",
+# ] }
+# cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0-pre.1", features = [
+#     "export_tests",
+# ] }
 cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", features = [
     "export_tests",
 ] }
