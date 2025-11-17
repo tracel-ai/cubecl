@@ -68,7 +68,7 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<
                 tiles_in_stage_row: planes,
                 // Each plane needs only one slot
                 tiles_in_stage_col: 1,
-                stage_line_size: 1,
+                line_size: 1,
                 matrix_layout: MatrixLayout::RowMajor,
                 num_stages: 1,
             }

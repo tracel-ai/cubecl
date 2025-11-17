@@ -27,7 +27,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             elements_in_tile_col: tiling_scheme.elements_in_tile_head_dim(),
             tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),
             tiles_in_stage_col: tiling_scheme.tiles_in_stage_head_dim(),
-            stage_line_size: 1,
+            line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
             num_stages: 1,
         }
@@ -42,7 +42,7 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
             elements_in_tile_col: tiling_scheme.elements_in_tile_val_dim(),
             tiles_in_stage_row: tiling_scheme.tiles_in_stage_seq_kv(),
             tiles_in_stage_col: tiling_scheme.tiles_in_stage_val_dim(),
-            stage_line_size: 1,
+            line_size: 1,
             matrix_layout: MatrixLayout::RowMajor,
             num_stages: 1,
         }

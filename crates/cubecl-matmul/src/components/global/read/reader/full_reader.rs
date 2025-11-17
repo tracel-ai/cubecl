@@ -1,5 +1,6 @@
 use std::marker::PhantomData;
 
+use crate::components::StageIdent;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -53,8 +54,6 @@ pub struct FullStageGlobalReader<EG: Numeric, ES: Numeric, L: FullLoadingStrateg
     stage: StridedStage<ES, L::TilingLayout>,
     loading_job: CubeOption<L::Job<EG, ES>>,
     #[cube(comptime)]
-    ident: MatmulIdent,
-    #[cube(comptime)]
     _phantom: PhantomData<L>,
 }
 
@@ -64,14 +63,13 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
     pub fn new(
         view: View<Line<EG>, Coords2d>,
         k_step: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self {
         // Maybe make align a property on the strategy, but it's fine to over-align so this works
         // for now. Swizzling will require more though.
-        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
+        let mut stage = StridedStage::new_aligned(128u32, config.stage_memory_config);
         let (shape_row, shape_col) = view.shape();
-        let global_iter = GlobalIterator::new(view, k_step, ident.view_direction(), false);
+        let global_iter = GlobalIterator::new(view, k_step, config.view_direction, false);
 
         let loading_job = match config.precompute_job {
             true => CubeOption::new_Some(L::new_job::<EG, ES>(view.line_size(), config)),
@@ -81,26 +79,26 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
         if L::SHOULD_CLEAR {
             // Slices are clamped to the shape, so if the slice size is smaller than the stage size
             // we are partially out of bounds.
-            match ident {
-                MatmulIdent::Lhs =>
+            match config.stage_ident {
+                StageIdent::Lhs =>
                 {
                     #[allow(clippy::collapsible_if)]
                     if config.global_memory_config.check_row_bounds {
-                        if shape_row < config.tiling_scheme().elements_in_stage_m() {
+                        if shape_row < config.stage_memory_config.elements_in_stage_row() {
                             stage.clear_all(ident, config);
                         }
                     }
                 }
-                MatmulIdent::Rhs =>
+                StageIdent::Rhs =>
                 {
                     #[allow(clippy::collapsible_if)]
                     if config.global_memory_config.check_col_bounds {
-                        if shape_col < config.tiling_scheme().elements_in_stage_n() {
+                        if shape_col < config.stage_memory_config.elements_in_stage_col() {
                             stage.clear_all(ident, config);
                         }
                     }
                 }
-                MatmulIdent::Out => comptime!(unreachable!()),
+                _ => comptime!(unreachable!()),
             }
         }
 
@@ -108,7 +106,6 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
             global_iter,
             stage,
             loading_job,
-            ident,
             _phantom: PhantomData::<L>,
         }
     }
@@ -216,7 +213,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> JobExecutor<L::SyncStrate
 
         #[unroll]
         for task_id in task_counter..job_iterator.num_tasks {
-            L::Job::<EG, ES>::execute_task::<GlobalReaderConfig>(
+            L::Job::<EG, ES>::execute_task(
                 &mut job_iterator.job,
                 task_id,
                 &this.global_iter,

@@ -25,7 +25,7 @@ impl TilingLayout for BiasTilingLayout {
 
         let (_, col) = tile;
 
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
         let tile_size_col = config.elements_in_tile_col / stage_line_size;
 
         let length = tile_size_col;

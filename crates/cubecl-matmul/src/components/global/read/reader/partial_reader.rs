@@ -1,6 +1,5 @@
 use super::StageBuffer;
 use super::TaskCounter;
-use crate::components::MatmulIdent;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
@@ -49,8 +48,6 @@ pub struct PartialStageGlobalReader<EG: Numeric, ES: Numeric, L: PartialLoadingS
     global_iter: GlobalIterator<Line<EG>>,
     stage_memory: StridedStage<ES, L::TilingLayout>,
     loading_job: CubeOption<(L::Job<EG, ES>, L::Job<EG, ES>)>,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -59,16 +56,20 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
     pub fn new(
         tensor: View<Line<EG>, Coords2d>,
         k_step: u32,
-        #[comptime] ident: MatmulIdent,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self {
-        let stage_memory = StridedStage::new_aligned(128u32, config.stage_memory_config(ident));
-        let global_iter = GlobalIterator::new(tensor, k_step, ident.view_direction(), false);
+        let stage_memory = StridedStage::new_aligned(128u32, config.stage_memory_config);
+        let global_iter = GlobalIterator::new(
+            tensor,
+            k_step,
+            config.global_memory_config.view_direction,
+            false,
+        );
 
-        let loading_job = match config.precompute_job() {
+        let loading_job = match config.precompute_job {
             true => CubeOption::new_Some((
-                L::new_job::<EG, ES>(0u32, ident, tensor.line_size(), config),
-                L::new_job::<EG, ES>(1u32, ident, tensor.line_size(), config),
+                L::new_job::<EG, ES>(0u32, tensor.line_size(), config),
+                L::new_job::<EG, ES>(1u32, tensor.line_size(), config),
             )),
             false => CubeOption::new_None(),
         };
@@ -77,7 +78,6 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
             global_iter,
             stage_memory,
             loading_job,
-            ident,
         }
     }
 
@@ -112,12 +112,8 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
-                StageBuffer::A => {
-                    L::new_job::<EG, ES>(0u32, self.ident, self.global_iter.line_size(), config)
-                }
-                StageBuffer::B => {
-                    L::new_job::<EG, ES>(1u32, self.ident, self.global_iter.line_size(), config)
-                }
+                StageBuffer::A => L::new_job::<EG, ES>(0u32, self.global_iter.line_size(), config),
+                StageBuffer::B => L::new_job::<EG, ES>(1u32, self.global_iter.line_size(), config),
             },
         };
 
@@ -155,8 +151,8 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> JobExecutor<L::SyncStr
                 StageBuffer::B => job.1,
             },
             CubeOption::None => match stage_buffer {
-                StageBuffer::A => L::new_job::<EG, ES>(0u32, this.ident, view.line_size(), config),
-                StageBuffer::B => L::new_job::<EG, ES>(1u32, this.ident, view.line_size(), config),
+                StageBuffer::A => L::new_job::<EG, ES>(0u32, view.line_size(), config),
+                StageBuffer::B => L::new_job::<EG, ES>(1u32, view.line_size(), config),
             },
         };
 

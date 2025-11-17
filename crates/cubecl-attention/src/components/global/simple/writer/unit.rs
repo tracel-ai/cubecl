@@ -62,7 +62,7 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
                 tiles_in_stage_row: planes,
                 // Each unit needs only one slot
                 tiles_in_stage_col: 1,
-                stage_line_size: 1,
+                line_size: 1,
                 matrix_layout: MatrixLayout::RowMajor,
                 num_stages: 1,
             }

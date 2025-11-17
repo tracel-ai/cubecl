@@ -204,10 +204,11 @@ pub struct GlobalReaderConfig {
     pub loading_planes_count: u32,
     pub plane_role_config: PlaneRoleConfig,
     pub reader_mode: ReaderMode,
+    pub specialized_loading_sides: SpecializedLoadingSides,
 
     // ideally remove because doesn't apply to any problem
+    // perhaps in favor of orientation or something
     pub stage_ident: StageIdent,
-    pub specialized_loading_sides: SpecializedLoadingSides,
 }
 
 impl GlobalReaderConfig {

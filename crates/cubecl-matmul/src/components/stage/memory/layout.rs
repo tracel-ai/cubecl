@@ -270,7 +270,7 @@ pub trait TilingLayout: 'static + Send + Sync + Clone + Copy + TilingValidation 
 }
 
 pub trait TilingValidation {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError>;
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError>;
 }
 
 #[derive(Clone, Copy)]
@@ -308,7 +308,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     ) -> StridedTile<ES> {
         let (row, col) = tile;
 
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
         let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
@@ -349,12 +349,9 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 }
 
 impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let tile_width = match config.matrix_layout() {
-            MatrixLayout::RowMajor => config.elements_in_tile_col(),
-            MatrixLayout::ColMajor => config.elements_in_tile_row(),
-        };
-        if config.line_size() > tile_width {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        let tile_width = config.elements_in_tile_contiguous_dim();
+        if config.line_size > tile_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())
@@ -370,7 +367,7 @@ impl StridedTilingLayout {
         #[comptime] config: StageMemoryConfig,
     ) -> SliceMut<Line<ES>> {
         let matrix_layout = config.matrix_layout;
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
 
         let slice_length = match comptime!(matrix_layout) {
             MatrixLayout::RowMajor => config.elements_in_stage_col(),
@@ -396,7 +393,7 @@ impl TilingLayout for StridedTilingLayout {
         }
         let (x, y) = tile;
 
-        let stage_line_size = config.stage_line_size;
+        let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
         let tile_count_x = config.tiles_in_stage_row;
@@ -438,12 +435,9 @@ impl TilingLayout for StridedTilingLayout {
 }
 
 impl TilingValidation for StridedTilingLayout {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = match config.matrix_layout() {
-            MatrixLayout::RowMajor => config.elements_in_stage_col(),
-            MatrixLayout::ColMajor => config.elements_in_stage_row(),
-        };
-        if config.line_size() > stage_width {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        let stage_width = config.elements_in_stage_contiguous_dim();
+        if config.line_size> stage_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())
@@ -467,7 +461,7 @@ impl TilingLayout for NoTilingLayout {
 }
 
 impl TilingValidation for NoTilingLayout {
-    fn check(_config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+    fn check(_config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
         Ok(())
     }
 }

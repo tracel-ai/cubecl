@@ -34,13 +34,13 @@ impl<ES: Numeric> StridedTile<ES> {
             MatrixLayout::ColMajor => config.elements_in_tile_row,
         };
 
-        let stride = comptime![stride / config.stage_line_size];
+        let stride = comptime![stride / config.line_size];
 
         StridedTile::<ES> {
             slice,
             stride,
             layout,
-            line_size: config.stage_line_size,
+            line_size: config.line_size,
         }
     }
 
@@ -57,13 +57,13 @@ impl<ES: Numeric> StridedTile<ES> {
             MatrixLayout::ColMajor => config.elements_in_tile_row,
         };
 
-        let stride = comptime![stride / config.stage_line_size];
+        let stride = comptime![stride / config.line_size];
 
         StridedTile::<ES, ReadWrite> {
             slice,
             stride,
             layout,
-            line_size: config.stage_line_size,
+            line_size: config.line_size,
         }
     }
 
