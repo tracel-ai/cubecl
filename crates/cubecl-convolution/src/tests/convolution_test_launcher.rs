@@ -116,7 +116,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         None,
         &selection,
         &problem,
-        &config.line_sizes(),
+        &config.global_line_sizes(),
         config,
         &dtypes,
     );
@@ -125,7 +125,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         &out_handle,
         &selection,
         &problem,
-        &config.line_sizes(),
+        &config.global_line_sizes(),
         config,
         &dtypes,
     );

@@ -2,7 +2,7 @@ use crate::components::{
     MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     error::MatmulSetupError,
     global::{
-        GlobalReaderConfig, GlobalWriterFamily, SharedGlobalConfig, WriteTiling,
+        GlobalConfig as _, GlobalReaderConfig, GlobalWriterFamily, SharedGlobalConfig, WriteTiling,
         cube_dim_validation,
         read::{FullLoadingStrategy, LoadingValidation},
         single_stage::simple::matmul::SimpleMatmul,

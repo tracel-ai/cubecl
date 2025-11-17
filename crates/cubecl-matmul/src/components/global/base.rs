@@ -131,10 +131,6 @@ pub struct SharedGlobalConfig<S: StageConfig> {
 }
 
 impl<S: StageConfig> SharedGlobalConfig<S> {
-    pub fn cube_dim(&self) -> CubeDim {
-        CubeDim::new_2d(self.stage_config.plane_dim(), self.num_planes)
-    }
-
     pub fn check_k_bounds(&self) -> bool {
         let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds();
         let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds();
@@ -143,10 +139,7 @@ impl<S: StageConfig> SharedGlobalConfig<S> {
     }
 
     pub fn plane_dim(&self) -> u32 {
-        let from_lhs = self.lhs_reader_config.plane_dim;
-        let from_rhs = self.rhs_reader_config.plane_dim;
-        assert!(from_lhs == from_rhs);
-        from_lhs
+        self.stage_config.plane_dim()
     }
 
     pub fn plane_role_config(&self) -> PlaneRoleConfig {
@@ -157,10 +150,11 @@ impl<S: StageConfig> SharedGlobalConfig<S> {
     }
 
     pub fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
-        let lhs = self.lhs_reader_config.specialization_tensor_config;
-        let rhs = self.rhs_reader_config.specialization_tensor_config;
-
-        LoadSpecializationConfig { lhs, rhs }.into()
+        LoadSpecializationConfig {
+            lhs: self.lhs_reader_config.specialization_tensor_config,
+            rhs: self.rhs_reader_config.specialization_tensor_config,
+        }
+        .into()
     }
 }
 
@@ -178,6 +172,19 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
     fn rhs_reader_config(&self) -> GlobalReaderConfig {
         self.rhs_reader_config
     }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
+
+    fn global_line_sizes(&self) -> MatmulLineSizes {
+        todo!()
+        // MatmulLineSizes {
+        //     lhs: self.lhs_reader_config.gmem_config.line_size,
+        //     rhs: self.rhs_reader_config.gmem_config.line_size,
+        //     out: todo!(),
+        // }
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -190,6 +197,8 @@ pub trait GlobalConfig:
     fn stage_config(&self) -> Self::StageConfig;
     fn lhs_reader_config(&self) -> GlobalReaderConfig;
     fn rhs_reader_config(&self) -> GlobalReaderConfig;
+    fn cube_dim(&self) -> CubeDim;
+    fn global_line_sizes(&self) -> MatmulLineSizes;
 
     // fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
     //     GlobalMemoryConfig::new(

@@ -1,4 +1,6 @@
-use crate::components::global::{GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation};
+use crate::components::global::{
+    GlobalConfig as _, GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation,
+};
 use crate::components::stage::StageConfig;
 use crate::components::{
     MatmulElems,

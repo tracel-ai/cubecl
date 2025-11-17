@@ -17,7 +17,7 @@ pub struct CmmaMatmul<Acc: TileKind> {
 }
 
 #[derive(CubeType)]
-struct Fragment<E: Numeric> {
+pub struct Fragment<E: Numeric> {
     fragment: cmma::Matrix<E>,
     #[cube(comptime)]
     layout: MatrixLayout,

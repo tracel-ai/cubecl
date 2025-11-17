@@ -1,7 +1,7 @@
 use cubecl_core::CubeDim;
 
 use crate::components::{
-    MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSetupError,
+    GlobalPartitionSize, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSetupError,
     batch::{BatchConfig, HypercubeConfig},
     global::GlobalConfig,
 };
@@ -11,6 +11,7 @@ use crate::components::{
 pub struct PartitionedBatchConfig<G: GlobalConfig> {
     global_config: G,
     hypercube_config: HypercubeConfig,
+    pub global_partition_size: GlobalPartitionSize,
 }
 
 impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
@@ -25,11 +26,7 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
     }
 
     fn line_sizes(&self) -> MatmulLineSizes {
-        MatmulLineSizes {
-            lhs: self.global_config.global_line_size(MatmulIdent::Lhs) as u8,
-            rhs: self.global_config.global_line_size(MatmulIdent::Rhs) as u8,
-            out: self.global_config.global_line_size(MatmulIdent::Out) as u8,
-        }
+        self.global_config.global_line_sizes()
     }
 
     fn hypercube_config(&self) -> HypercubeConfig {
@@ -45,10 +42,15 @@ impl<G: GlobalConfig> BatchConfig for PartitionedBatchConfig<G> {
 
 impl<G: GlobalConfig> PartitionedBatchConfig<G> {
     /// Create a new config for partitioned batch matmul
-    pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
+    pub fn new(
+        global_config: G,
+        hypercube_config: HypercubeConfig,
+        global_partition_size: GlobalPartitionSize,
+    ) -> Self {
         Self {
             global_config,
             hypercube_config,
+            global_partition_size,
         }
     }
 

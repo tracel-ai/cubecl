@@ -1,5 +1,7 @@
 use crate::components::global::read::LoadingValidation;
-use crate::components::global::{GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation};
+use crate::components::global::{
+    GlobalConfig as _, GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation,
+};
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::StageConfig;
 use crate::components::{
