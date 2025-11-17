@@ -30,7 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
@@ -191,6 +191,7 @@ impl DeviceState for CudaServer {
                 .features
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
+            comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
