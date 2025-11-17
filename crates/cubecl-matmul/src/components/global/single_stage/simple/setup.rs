@@ -1,13 +1,20 @@
 use crate::components::{
-    MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatrixLayout,
+    StageIdent,
     error::MatmulSetupError,
     global::{
-        GlobalConfig as _, GlobalReaderConfig, GlobalWriterFamily, SharedGlobalConfig, WriteTiling,
+        GlobalConfig as _, GlobalMemoryWriteConfig, GlobalReaderConfig, GlobalWriterConfig,
+        GlobalWriterFamily, SharedGlobalConfig, SpecializationTensorConfig, WriteTiling,
         cube_dim_validation,
+        memory::{GlobalMemoryReadConfig, ViewDirection},
+        multi_stage::EventLoadingMode,
         read::{FullLoadingStrategy, LoadingValidation},
         single_stage::simple::matmul::SimpleMatmul,
     },
-    stage::{FilledStageFamily, NoTilingLayout, StageConfig, StridedStageFamily},
+    stage::{
+        FilledStageFamily, NoTilingLayout, StageConfig, StageMemoryConfig, StridedStageFamily,
+    },
+    tiling_scheme,
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;
@@ -74,6 +81,10 @@ where
         let stage_shape_n = stage_config.elements_in_stage_n();
         let stage_shape_k = stage_config.elements_in_stage_k();
 
+        let check_k_bounds = !(problem.k as u32).is_multiple_of(stage_shape_k);
+        let check_m_bounds = !(problem.m as u32).is_multiple_of(stage_shape_m);
+        let check_n_bounds = !(problem.n as u32).is_multiple_of(stage_shape_n);
+
         let num_planes = if !selection.load_specialization_config.has_specialization() {
             stage_config.num_main_flow_planes()
         } else {
@@ -82,39 +93,83 @@ where
             )));
         };
 
+        let plane_role_config = stage_config.plane_role_config();
+
         let config = SharedGlobalConfig {
             stage_config,
             num_planes,
             lhs_reader_config: GlobalReaderConfig {
-                gmem_config: todo!(),
-                smem_config: todo!(),
-                precompute_job: todo!(),
-                plane_dim: todo!(),
-                loading_planes_count: todo!(),
-                plane_role_config: todo!(),
-                reader_mode: todo!(),
-                stage_ident: todo!(),
-                event_loading_mode: todo!(),
-                specialization_tensor_config: todo!(),
+                gmem_config: GlobalMemoryReadConfig {
+                    line_size: line_sizes.lhs as u32,
+                    check_row_bounds: check_m_bounds,
+                    check_col_bounds: check_k_bounds,
+                    matrix_layout: problem.lhs_layout,
+                    view_direction: ViewDirection::Col,
+                },
+                smem_config: StageMemoryConfig {
+                    num_reading_planes: stage_config.num_main_flow_planes(),
+                    elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+                    elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
+                    tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
+                    tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
+                    line_size: line_sizes.lhs as u32,
+                    matrix_layout: problem.lhs_layout,
+                    num_stages: 1,
+                },
+                precompute_job: selection.loading_precompute_strategy.into(),
+                plane_dim: selection.plane_dim,
+                plane_role_config,
+                reader_mode: selection.reader_mode,
+                stage_ident: StageIdent::Lhs,
+                event_loading_mode: EventLoadingMode::Relaxed,
+                specialization_tensor_config: SpecializationTensorConfig::MainFlowOnly,
             },
             rhs_reader_config: GlobalReaderConfig {
-                gmem_config: todo!(),
-                smem_config: todo!(),
-                precompute_job: todo!(),
-                plane_dim: todo!(),
-                loading_planes_count: todo!(),
-                plane_role_config: todo!(),
-                reader_mode: todo!(),
-                stage_ident: todo!(),
-                event_loading_mode: todo!(),
-                specialization_tensor_config: todo!(),
+                gmem_config: GlobalMemoryReadConfig {
+                    line_size: line_sizes.rhs as u32,
+                    check_row_bounds: check_k_bounds,
+                    check_col_bounds: check_n_bounds,
+                    matrix_layout: problem.rhs_layout,
+                    view_direction: ViewDirection::Row,
+                },
+                smem_config: StageMemoryConfig {
+                    num_reading_planes: stage_config.num_main_flow_planes(),
+                    elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
+                    elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+                    tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
+                    tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+                    line_size: line_sizes.rhs as u32,
+                    matrix_layout: problem.rhs_layout,
+                    num_stages: 1,
+                },
+                precompute_job: selection.loading_precompute_strategy.into(),
+                plane_dim: selection.plane_dim,
+                plane_role_config,
+                reader_mode: selection.reader_mode,
+                stage_ident: StageIdent::Rhs,
+                event_loading_mode: EventLoadingMode::Relaxed,
+                specialization_tensor_config: SpecializationTensorConfig::MainFlowOnly,
+            },
+            writer_config: GlobalWriterConfig {
+                gmem_config: GlobalMemoryWriteConfig {
+                    line_size: line_sizes.out as u32,
+                    matrix_layout: MatrixLayout::RowMajor,
+                },
+                smem_config: StageMemoryConfig {
+                    num_reading_planes: stage_config.num_main_flow_planes(),
+                    elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+                    elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+                    tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
+                    tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+                    line_size: line_sizes.out as u32,
+                    matrix_layout: MatrixLayout::RowMajor,
+                    num_stages: 1,
+                },
+                role_rule_config: plane_role_config.rule,
+                plane_dim: selection.plane_dim,
+                num_partitions_n: selection.tiling_scheme.stage_partitions_in_stage_n(),
             },
         };
-        // !(problem.k as u32).is_multiple_of(stage_shape_k),
-        // !(problem.m as u32).is_multiple_of(stage_shape_m),
-        // !(problem.n as u32).is_multiple_of(stage_shape_n),
-        // selection.loading_precompute_strategy,
-        // selection.reader_mode,
 
         validate::<LL, RL, SMM::Config, R>(config, client)
     }

@@ -47,8 +47,8 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.gmem_config.line_size();
-        let num_planes = config.loading_planes_count;
+        let line_size = config.gmem_config.line_size;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
@@ -105,7 +105,7 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialTilewiseJob {
-        let num_planes = config.loading_planes_count;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
         let plane_dim = config.plane_dim;
 

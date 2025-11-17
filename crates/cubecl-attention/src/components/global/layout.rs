@@ -1,6 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::global::memory::GlobalMemoryConfig;
+use cubecl_matmul::components::global::memory::GlobalMemoryReadConfig;
 use cubecl_std::tensor::{
     layout::{Coords1d, Coords2d, Layout, LayoutExpand},
     r#virtual::VirtualTensor,
@@ -15,7 +15,7 @@ pub struct AttentionGlobalLayout {
     stride_col: u32,
     batch_offset: u32,
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    config: GlobalMemoryReadConfig,
 }
 
 #[cube]
@@ -24,7 +24,7 @@ impl AttentionGlobalLayout {
     pub fn new<T: Numeric, IO: Clone>(
         tensor: &VirtualTensor<T, IO>,
         batch_index: u32,
-        #[comptime] config: GlobalMemoryConfig,
+        #[comptime] config: GlobalMemoryReadConfig,
     ) -> Self {
         let stride_batch = tensor.stride(1);
         AttentionGlobalLayout {

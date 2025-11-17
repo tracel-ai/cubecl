@@ -4,7 +4,7 @@ use cubecl_matmul::components::{
     MatrixLayout,
     global::{
         PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
+        memory::GlobalMemoryReadConfig,
         plane_write,
         read::tiled::{TiledCoords, TiledLayout},
     },
@@ -25,7 +25,7 @@ pub struct PlaneAttentionWriter<ES: Numeric, EO: Numeric> {
     #[cube(comptime)]
     plane_dim: u32,
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    config: GlobalMemoryReadConfig,
 }
 
 #[cube]
@@ -52,7 +52,7 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for PlaneAttentionWriter<ES, E
 impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<ES, EG> {
     fn new<S: StageAttentionConfig>(
         global: View<Line<EG>, Coords2d, ReadWrite>,
-        #[comptime] global_config: GlobalMemoryConfig,
+        #[comptime] global_config: GlobalMemoryReadConfig,
         #[comptime] stage_config: S,
     ) -> Self {
         let stage_mem_config = comptime! {

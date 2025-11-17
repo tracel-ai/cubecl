@@ -184,8 +184,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
         for i in 0..num_writes_per_unit {
             let unit_position = unit_base_position + i * unit_count;
 
-            let smem_position = match (config.stage_ident, config.smem_config.matrix_layout)
-            {
+            let smem_position = match (config.stage_ident, config.smem_config.matrix_layout) {
                 (StageIdent::Lhs, MatrixLayout::ColMajor)
                 | (StageIdent::Rhs, MatrixLayout::RowMajor) => {
                     stage_buffer.to_index() * buffer_length + unit_position

@@ -34,8 +34,8 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
-        let line_size = config.gmem_config.line_size();
-        let num_planes = config.loading_planes_count;
+        let line_size = config.gmem_config.line_size;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
@@ -47,10 +47,9 @@ impl LoadingValidation for SyncFullOrderedLoading {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
-        let num_planes = config.loading_planes_count;
+        let num_planes = config.loading_planes_count();
         let plane_dim = config.plane_dim;
         let rows_per_plane = config.smem_config.tiles_in_stage_row / num_planes;
 
@@ -98,13 +97,12 @@ impl FullLoadingStrategy for SyncFullOrderedLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_planes = config.loading_planes_count;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
         let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile =
-            comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 

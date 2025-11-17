@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
     InvalidConfigError, MatrixLayout,
-    global::memory::GlobalMemoryConfig,
+    global::memory::GlobalMemoryReadConfig,
     stage::{StageMemoryConfig, StridedStage, TilingLayout, TilingValidation},
     tile::StridedTile,
 };
@@ -40,7 +40,7 @@ impl TilingLayout for BiasTilingLayout {
 }
 
 impl TilingValidation for BiasTilingLayout {
-    fn check(config: GlobalMemoryConfig) -> Result<(), InvalidConfigError> {
+    fn check(config: GlobalMemoryReadConfig) -> Result<(), InvalidConfigError> {
         let stage_width = config.elements_in_stage_col();
         if config.line_size() > stage_width {
             return Err(Box::new("Invalid line size"));

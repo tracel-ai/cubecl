@@ -5,9 +5,9 @@ use cubecl_std::tensor::{View, layout::Coords2d};
 use crate::components::{
     MatrixPrecision,
     global::{
-        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, RoleRuleConfig,
-        WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
+        GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
+        PartitionedStageFamily, RoleRuleConfig, WriteEvent, WriteEventExpand, WriteEventListener,
+        memory::GlobalMemoryReadConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{StageMemoryConfig, StagePartitioner, UnitPartitioner},
@@ -23,22 +23,21 @@ pub struct UnitWriter<IP: MatrixPrecision> {
 
     #[cube(comptime)]
     smem_config: StageMemoryConfig,
-    #[cube(comptime)]
-    gmem_config: GlobalMemoryConfig,
 }
 
 #[cube]
 impl<IP: MatrixPrecision> UnitWriter<IP> {
     pub fn new(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] gmem_config: GlobalMemoryConfig,
-        #[comptime] smem_config: StageMemoryConfig,
-        #[comptime] role_rule_config: RoleRuleConfig,
-        #[comptime] plane_dim: u32,
-        #[comptime] num_partitions_n: u32,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
+        let smem_config = config.smem_config;
         let stage = PartitionedStage::new(
-            UnitPartitioner::coordinates(role_rule_config, plane_dim, num_partitions_n),
+            UnitPartitioner::coordinates(
+                config.role_rule_config,
+                config.plane_dim,
+                config.num_partitions_n,
+            ),
             smem_config,
         );
 
@@ -46,7 +45,6 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
             global: global.view_mut(TiledLayout::new(smem_config)),
             stage,
             smem_config,
-            gmem_config,
         }
     }
 
@@ -109,20 +107,9 @@ impl<IP: MatrixPrecision> GlobalWriter<IP> for UnitWriter<IP> {
 
     fn init(
         tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] gmem_config: GlobalMemoryConfig,
-        #[comptime] smem_config: StageMemoryConfig,
-        #[comptime] role_rule_config: RoleRuleConfig,
-        #[comptime] plane_dim: u32,
-        #[comptime] num_partitions_n: u32,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        Self::new(
-            tensor,
-            gmem_config,
-            smem_config,
-            role_rule_config,
-            plane_dim,
-            num_partitions_n,
-        )
+        Self::new(tensor, config)
     }
 
     fn stage(this: &Self) -> Self::Stage {

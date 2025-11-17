@@ -20,7 +20,7 @@ impl LoadingValidation for SyncFullStridedLoading {
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.gmem_config.line_size();
+        let line_size = config.gmem_config.line_size;
 
         let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
         let total_units = config.loading_units_count();
@@ -61,7 +61,7 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
-        let unit_count = config.loading_planes_count * config.plane_dim;
+        let unit_count = config.loading_planes_count() * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 
         let unit_position_base = RoleRule::new(config.plane_role_config.rule)

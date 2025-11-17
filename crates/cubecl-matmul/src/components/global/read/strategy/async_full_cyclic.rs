@@ -30,7 +30,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let total_units = config.loading_planes_count * config.plane_dim;
+        let total_units = config.loading_planes_count() * config.plane_dim;
         let num_slices =
             config.smem_config.elements_in_tile_row * config.smem_config.tiles_in_stage();
 

@@ -2,7 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_matmul::components::{
     MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
+    global::{GlobalConfig, memory::GlobalMemoryReadConfig},
 };
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
@@ -34,7 +34,7 @@ pub struct WeightLayout {
     pub params: ConvolutionParams,
     /// Global memory config for the backing tensor
     #[cube(comptime)]
-    pub config: GlobalMemoryConfig,
+    pub config: GlobalMemoryReadConfig,
 }
 
 #[cube]
@@ -107,7 +107,7 @@ impl<'a, R: Runtime> WeightLayoutLaunch<'a, R> {
         client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         params: ConvolutionParams,
-        config: GlobalMemoryConfig,
+        config: GlobalMemoryReadConfig,
     ) -> Self {
         let channels = FastDivmodArgs::new(client, problem.channels as u32);
         let shape_k = ScalarArg::new(problem.k as u32);

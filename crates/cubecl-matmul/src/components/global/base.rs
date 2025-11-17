@@ -1,11 +1,12 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
-use crate::components::global::memory::GlobalMemoryConfig;
+use crate::components::global::memory::GlobalMemoryReadConfig;
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::ReaderMode;
 use crate::components::global::{
-    LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig, SpecializedLoadingSides,
+    GlobalMemoryWriteConfig, GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig,
+    SpecializationTensorConfig, SpecializedLoadingSides,
 };
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
@@ -128,12 +129,13 @@ pub struct SharedGlobalConfig<S: StageConfig> {
     pub num_planes: u32,
     pub lhs_reader_config: GlobalReaderConfig,
     pub rhs_reader_config: GlobalReaderConfig,
+    pub writer_config: GlobalWriterConfig,
 }
 
 impl<S: StageConfig> SharedGlobalConfig<S> {
     pub fn check_k_bounds(&self) -> bool {
-        let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds();
-        let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds();
+        let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds;
+        let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds;
         assert!(from_lhs == from_rhs);
         from_lhs
     }
@@ -143,10 +145,7 @@ impl<S: StageConfig> SharedGlobalConfig<S> {
     }
 
     pub fn plane_role_config(&self) -> PlaneRoleConfig {
-        let from_lhs = self.lhs_reader_config.plane_role_config;
-        let from_rhs = self.rhs_reader_config.plane_role_config;
-        assert!(from_lhs == from_rhs);
-        from_lhs
+        self.stage_config.plane_role_config()
     }
 
     pub fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
@@ -185,6 +184,10 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
         //     out: todo!(),
         // }
     }
+
+    fn writer_config(&self) -> GlobalWriterConfig {
+        self.writer_config
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -197,6 +200,7 @@ pub trait GlobalConfig:
     fn stage_config(&self) -> Self::StageConfig;
     fn lhs_reader_config(&self) -> GlobalReaderConfig;
     fn rhs_reader_config(&self) -> GlobalReaderConfig;
+    fn writer_config(&self) -> GlobalWriterConfig;
     fn cube_dim(&self) -> CubeDim;
     fn global_line_sizes(&self) -> MatmulLineSizes;
 
@@ -249,11 +253,10 @@ pub trait GlobalConfig:
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalReaderConfig {
-    pub gmem_config: GlobalMemoryConfig,
+    pub gmem_config: GlobalMemoryReadConfig,
     pub smem_config: StageMemoryConfig,
     pub precompute_job: bool,
     pub plane_dim: u32,
-    pub loading_planes_count: u32,
     pub reader_mode: ReaderMode,
     pub event_loading_mode: EventLoadingMode,
     pub specialization_tensor_config: SpecializationTensorConfig,
@@ -267,8 +270,12 @@ pub struct GlobalReaderConfig {
 }
 
 impl GlobalReaderConfig {
+    pub fn loading_planes_count(&self) -> u32 {
+        self.smem_config.num_reading_planes
+    }
+
     pub fn loading_units_count(&self) -> u32 {
-        self.plane_dim * self.loading_planes_count
+        self.plane_dim * self.loading_planes_count()
     }
 }
 

@@ -169,15 +169,7 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        todo!()
-        // let conf = config.global_memory_config(MatmulIdent::Out);
-        // Self::GlobalWriter::init(out, todo!(), todo!(), todo!(), todo!(), todo!())
-
-        // #[comptime] gmem_config: GlobalMemoryConfig,
-        // #[comptime] smem_config: StageMemoryConfig,
-        // #[comptime] role_rule_config: RoleRuleConfig,
-        // #[comptime] plane_dim: u32,
-        // #[comptime] num_partitions_n: u32,
+        Self::GlobalWriter::init(out, config.writer_config)
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

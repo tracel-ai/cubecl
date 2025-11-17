@@ -1,9 +1,9 @@
 use crate::components::{
     MatrixPrecision,
     global::{
-        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, RoleRuleConfig,
-        WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
+        GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
+        PartitionedStageFamily, RoleRuleConfig, WriteEvent, WriteEventExpand, WriteEventListener,
+        memory::GlobalMemoryReadConfig,
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{PlanePartitioner, StageMemoryConfig, StagePartitioner},
@@ -24,8 +24,6 @@ pub struct PlaneWriter<IP: MatrixPrecision> {
     #[cube(comptime)]
     plane_dim: u32,
     #[cube(comptime)]
-    gmem_config: GlobalMemoryConfig,
-    #[cube(comptime)]
     smem_config: StageMemoryConfig,
 }
 
@@ -33,23 +31,22 @@ pub struct PlaneWriter<IP: MatrixPrecision> {
 impl<IP: MatrixPrecision> PlaneWriter<IP> {
     pub fn new(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] gmem_config: GlobalMemoryConfig,
-        #[comptime] smem_config: StageMemoryConfig,
-        #[comptime] role_rule_config: RoleRuleConfig,
-        #[comptime] plane_dim: u32,
-        #[comptime] num_partitions_n: u32,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
         let stage = PartitionedStage::new(
-            PlanePartitioner::coordinates(role_rule_config, plane_dim, num_partitions_n),
-            smem_config,
+            PlanePartitioner::coordinates(
+                config.role_rule_config,
+                config.plane_dim,
+                config.num_partitions_n,
+            ),
+            config.smem_config,
         );
 
         PlaneWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(smem_config)),
+            global: global.view_mut(TiledLayout::new(config.smem_config)),
             stage,
-            plane_dim,
-            gmem_config,
-            smem_config,
+            plane_dim: config.plane_dim,
+            smem_config: config.smem_config,
         }
     }
 
@@ -94,20 +91,9 @@ impl<IP: MatrixPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
 
     fn init(
         tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] gmem_config: GlobalMemoryConfig,
-        #[comptime] smem_config: StageMemoryConfig,
-        #[comptime] role_rule_config: RoleRuleConfig,
-        #[comptime] plane_dim: u32,
-        #[comptime] num_partitions_n: u32,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        Self::new(
-            tensor,
-            gmem_config,
-            smem_config,
-            role_rule_config,
-            plane_dim,
-            num_partitions_n,
-        )
+        Self::new(tensor, config)
     }
 
     fn stage(this: &Self) -> Self::Stage {

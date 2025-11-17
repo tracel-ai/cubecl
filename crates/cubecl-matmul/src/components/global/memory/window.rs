@@ -3,7 +3,7 @@ use cubecl_core::prelude::*;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::{
-    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
+    MatrixLayout, global::memory::GlobalMemoryReadConfig, stage::StageMemoryConfig,
 };
 
 /// Reads data from the tensor view as a window, i.e. a slice of global memory
@@ -21,7 +21,7 @@ pub fn load_window_in_tile<EG: Numeric>(
     tile: Coords2d,
     nth_window: u32,
     #[comptime] smem_config: StageMemoryConfig,
-    #[comptime] gmem_config: GlobalMemoryConfig,
+    #[comptime] gmem_config: GlobalMemoryReadConfig,
 ) -> Slice<Line<EG>> {
     let (tile_row, tile_col) = tile;
     let tile_size_row = smem_config.elements_in_tile_row;
@@ -56,7 +56,7 @@ pub fn load_window_in_stage<EG: Numeric>(
     view: &View<Line<EG>, Coords2d>,
     nth_window: u32,
     #[comptime] smem_config: StageMemoryConfig,
-    #[comptime] gmem_config: GlobalMemoryConfig,
+    #[comptime] gmem_config: GlobalMemoryReadConfig,
 ) -> Slice<Line<EG>> {
     let size = match smem_config.matrix_layout {
         MatrixLayout::RowMajor => (1u32, smem_config.elements_in_stage_col()).runtime(),
@@ -71,14 +71,14 @@ fn load_window<EG: Numeric>(
     view: &View<Line<EG>, Coords2d>,
     nth_window: u32,
     size: Coords2d,
-    #[comptime] gmem_config: GlobalMemoryConfig,
+    #[comptime] gmem_config: GlobalMemoryReadConfig,
 ) -> Slice<Line<EG>> {
-    let offset = match gmem_config.matrix_layout() {
+    let offset = match gmem_config.matrix_layout {
         MatrixLayout::RowMajor => (nth_window, 0),
         MatrixLayout::ColMajor => (0, nth_window),
     };
 
-    if comptime![gmem_config.check_row_bounds() || gmem_config.check_col_bounds()] {
+    if comptime![gmem_config.check_row_bounds || gmem_config.check_col_bounds] {
         view.slice(offset, size).to_linear_slice()
     } else {
         view.slice_unchecked(offset, size).to_linear_slice()

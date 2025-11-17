@@ -1,5 +1,6 @@
 use crate::components::global::{
-    GlobalConfig as _, GlobalReaderConfig, SharedGlobalConfig, cube_dim_validation,
+    GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, SharedGlobalConfig,
+    cube_dim_validation,
 };
 use crate::components::stage::StageConfig;
 use crate::components::{
@@ -104,7 +105,6 @@ where
                 smem_config: todo!(),
                 precompute_job: selection.loading_precompute_strategy.into(),
                 plane_dim: todo!(),
-                loading_planes_count: todo!(),
                 plane_role_config: todo!(),
                 reader_mode: todo!(),
                 stage_ident: todo!(),
@@ -116,12 +116,18 @@ where
                 smem_config: todo!(),
                 precompute_job: selection.loading_precompute_strategy.into(),
                 plane_dim: todo!(),
-                loading_planes_count: todo!(),
                 plane_role_config: todo!(),
                 reader_mode: todo!(),
                 stage_ident: todo!(),
                 event_loading_mode: todo!(),
                 specialization_tensor_config: todo!(),
+            },
+            writer_config: GlobalWriterConfig {
+                gmem_config: todo!(),
+                smem_config: todo!(),
+                role_rule_config: todo!(),
+                plane_dim: todo!(),
+                num_partitions_n: todo!(),
             },
         };
         // !(problem.m as u32).is_multiple_of(stage_shape_m),

@@ -233,11 +233,8 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
-        let layout = GlobalLayoutLaunch::from_handle(
-            out,
-            line_sizes.out,
-            todo!(), // config.global_memory_config(MatmulIdent::Out).into(),
-        );
+        let layout =
+            GlobalLayoutLaunch::from_handle(out, line_sizes.out, config.writer_config().gmem_config.into());
         let batch = BatchLayoutLaunch::from_handle(client, out, problem);
         let view = ViewArg::new::<GlobalLayout>(out.as_array_arg(line_sizes.out), layout);
         TensorOutputLaunch::new(view, VirtualLayoutLaunch::new::<BatchLayout>(batch))

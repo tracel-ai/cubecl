@@ -26,7 +26,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncFullCyclicLoading<TO> {
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
-            let line_size = config.gmem_config.line_size();
+            let line_size = config.gmem_config.line_size;
 
             let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
             let total_units = config.loading_units_count();

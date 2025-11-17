@@ -45,8 +45,8 @@ impl<T: TilingOrder> LoadingValidation for SyncFullTilewiseLoading<T> {
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
-        let line_size = config.gmem_config.line_size();
-        let num_planes = config.loading_planes_count;
+        let line_size = config.gmem_config.line_size;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
@@ -86,7 +86,7 @@ impl<TO: TilingOrder> FullLoadingStrategy for SyncFullTilewiseLoading<TO> {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_planes = config.loading_planes_count;
+        let num_planes = config.loading_planes_count();
         let num_tiles = config.smem_config.tiles_in_stage();
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);

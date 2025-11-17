@@ -26,7 +26,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         config: &GlobalReaderConfig,
     ) -> Result<(), InvalidConfigError> {
         let matrix_layout = config.gmem_config.matrix_layout;
-        let line_size = config.gmem_config.line_size();
+        let line_size = config.gmem_config.line_size;
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
@@ -38,7 +38,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
                 config.smem_config.elements_in_stage_row() / line_size,
             ),
         };
-        let unit_count = config.plane_dim * config.loading_planes_count;
+        let unit_count = config.plane_dim * config.loading_planes_count();
 
         if !unit_count.is_multiple_of(num_slices) {
             return Err(Box::new(

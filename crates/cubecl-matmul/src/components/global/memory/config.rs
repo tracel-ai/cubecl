@@ -3,7 +3,7 @@ use std::{fmt::Debug, hash::Hash};
 use crate::components::{MatrixLayout, global::memory::ViewDirection};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct GlobalMemoryConfig {
+pub struct GlobalMemoryReadConfig {
     // pub elements_in_tile_row: u32,
     // pub elements_in_tile_col: u32,
     // pub elements_in_stage_row: u32,
@@ -15,7 +15,7 @@ pub struct GlobalMemoryConfig {
     pub view_direction: ViewDirection,
 }
 
-impl GlobalMemoryConfig {
+impl GlobalMemoryReadConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         // elements_in_tile_row: u32,
@@ -28,7 +28,7 @@ impl GlobalMemoryConfig {
         matrix_layout: MatrixLayout,
         view_direction: ViewDirection,
     ) -> Self {
-        GlobalMemoryConfig {
+        GlobalMemoryReadConfig {
             // elements_in_tile_row,
             // elements_in_tile_col,
             // elements_in_stage_row,
@@ -41,9 +41,9 @@ impl GlobalMemoryConfig {
         }
     }
 
-    pub fn matrix_layout(&self) -> MatrixLayout {
-        self.matrix_layout
-    }
+    // pub fn matrix_layout(&self) -> MatrixLayout {
+    //     self.matrix_layout
+    // }
 
     // pub fn elements_in_tile(&self) -> u32 {
     //     self.elements_in_tile_row() * self.elements_in_tile_col()
@@ -69,15 +69,15 @@ impl GlobalMemoryConfig {
     //     self.elements_in_stage_col
     // }
 
-    pub fn line_size(&self) -> u32 {
-        self.line_size
-    }
+    //     pub fn line_size(&self) -> u32 {
+    //         self.line_size
+    //     }
 
-    pub fn check_row_bounds(&self) -> bool {
-        self.check_row_bounds
-    }
+    //     pub fn check_row_bounds(&self) -> bool {
+    //         self.check_row_bounds
+    //     }
 
-    pub fn check_col_bounds(&self) -> bool {
-        self.check_col_bounds
-    }
+    //     pub fn check_col_bounds(&self) -> bool {
+    //         self.check_col_bounds
+    //     }
 }
