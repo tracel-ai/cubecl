@@ -8,7 +8,6 @@ use crate::components::{
     AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS,
 };
 use crate::components::{MatmulPrecision, MatmulProblem, tile::TileConfig};
-use crate::components::{StageIdent, stage::SwizzleMode};
 use crate::components::{error::MatmulSetupError, global::WriteEventListener};
 use crate::components::{
     stage::{NumStages, PartitionScheduler},
@@ -154,15 +153,6 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler;
 }
 
-// let stage_shape_m = stage_config.tiling_scheme().elements_in_stage_m();
-// let stage_shape_n = stage_config.tiling_scheme().elements_in_stage_n();
-// let stage_shape_k = stage_config.tiling_scheme().elements_in_stage_k();
-
-// let num_planes = if !selection.load_specialization_config.has_specialization() {
-//     stage_config.num_main_flow_planes()
-// let lhs_bytes = config.stage_config().stage_memory_config(StageIdent::Lhs).elements_in_stage() * lhs_elem_size;
-// let rhs_bytes = config.stage_config().stage_memory_config(StageIdent::Rhs).elements_in_stage() * rhs_elem_size;
-
 /// Configuration for the Stage matmul (SMM) level
 pub trait StageConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
@@ -177,63 +167,6 @@ pub trait StageConfig:
     fn num_main_flow_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;
-
-    // /// Converts itself to the underlying Tile Matmul config
-    // fn tile_config(self) -> Self::TileConfig;
-
-    // /// Converts itself to the underlying Stage Memory config
-    // fn stage_memory_config(self, ident: StageIdent) -> StageMemoryConfig {
-    //     let tiling = self.tiling_scheme();
-    //     StageMemoryConfig {
-    //         num_reading_planes: self.num_main_flow_planes(),
-    //         elements_in_tile_row: tiling.elements_in_tile_row(ident),
-    //         elements_in_tile_col: tiling.elements_in_tile_col(ident),
-    //         tiles_in_stage_row: tiling.tiles_in_stage_row(ident),
-    //         tiles_in_stage_col: tiling.tiles_in_stage_col(ident),
-    //         stage_line_size: self.stage_line_size(ident),
-    //         matrix_layout: self.matrix_layout(ident),
-    //         num_stages: self.num_stages(ident),
-    //     }
-    // }
-
-    // /// Returns the line size for the given ident
-    // fn stage_line_size(&self, ident: StageIdent) -> u32;
-
-    // /// Returns the line size for the given ident
-    // fn global_line_size(&self, ident: StageIdent) -> u32;
-
-    // /// Returns the [MatrixLayout] for the given ident
-    // fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
-
-    // /// Returns how many units are in a plane
-    // fn plane_dim(&self) -> u32;
-
-    // /// Returns whether we must perform partition buffering
-    // fn partition_buffering(&self) -> PartitionBuffering;
-
-    // /// Returns the [TilingScheme]
-    // fn tiling_scheme(&self) -> TilingScheme;
-
-    // /// Indicates the specialization roles for the planes
-    // fn plane_role_config(&self) -> PlaneRoleConfig;
-
-    // /// How to identify the role of the plane depending on its index
-    // fn role_rule_config(&self) -> RoleRuleConfig;
-
-    // /// Number of planes participating in the main computation flow
-    // fn num_main_flow_planes(&self) -> u32;
-
-    // /// Whether the Matmul is quantized
-    // fn quantized(&self) -> bool;
-
-    // /// Whether we must sync planes after execution because the execution
-    // /// is not sync by itself (depends on the runtime/compiler)
-    // fn must_sync_plane_after_execution(&self) -> bool;
-
-    // fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme;
-
-    // /// Number of stages in the stage
-    // fn num_stages(&self, ident: StageIdent) -> u32;
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]

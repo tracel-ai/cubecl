@@ -3,7 +3,7 @@ use crate::components::{
     MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, GlobalConfig, args::MatmulArgs},
+    global::{GlobalConfig, args::MatmulArgs},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

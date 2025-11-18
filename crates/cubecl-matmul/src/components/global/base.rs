@@ -9,14 +9,10 @@ use crate::components::global::{
     GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig,
     SpecializedLoadingSides,
 };
-use crate::components::stage::SwizzleMode;
-use crate::components::stage::TilingLayoutEnum;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
-use crate::components::{
-    AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-};
-use crate::components::{LhsG, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
+use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
 use cubecl_std::{
     CubeOption,
     tensor::{View, layout::Coords2d},
@@ -182,12 +178,11 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
     }
 
     fn global_line_sizes(&self) -> MatmulLineSizes {
-        todo!()
-        // MatmulLineSizes {
-        //     lhs: self.lhs_reader_config.gmem_config.line_size,
-        //     rhs: self.rhs_reader_config.gmem_config.line_size,
-        //     out: todo!(),
-        // }
+        MatmulLineSizes {
+            lhs: self.lhs_reader_config.gmem_config.line_size as u8,
+            rhs: self.rhs_reader_config.gmem_config.line_size as u8,
+            out: self.writer_config.gmem_config.line_size as u8,
+        }
     }
 
     fn writer_config(&self) -> GlobalWriterConfig {
@@ -208,52 +203,6 @@ pub trait GlobalConfig:
     fn writer_config(&self) -> GlobalWriterConfig;
     fn cube_dim(&self) -> CubeDim;
     fn global_line_sizes(&self) -> MatmulLineSizes;
-
-    // fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
-    //     GlobalMemoryConfig::new(
-    //         self.tiling_scheme().elements_in_tile_row(ident),
-    //         self.tiling_scheme().elements_in_tile_col(ident),
-    //         self.tiling_scheme().elements_in_stage_row(ident),
-    //         self.tiling_scheme().elements_in_stage_col(ident),
-    //         self.global_line_size(ident),
-    //         self.check_row_bounds(ident),
-    //         self.check_col_bounds(ident),
-    //         self.matrix_layout(ident),
-    //     )
-    // }
-
-    // /// Returns the line size for the global memory corresponding to the given ident
-    // fn global_line_size(&self, ident: MatmulIdent) -> u32;
-
-    // /// Returns the [TilingScheme]
-    // fn tiling_scheme(&self) -> TilingScheme {
-    //     todo!()
-    //     // self.stage_config().tiling_scheme()
-    // }
-
-    // /// Returns the [MatrixLayout] for the given ident
-    // fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
-
-    // /// How to identify the role of the plane depending on its index
-    // fn role_rule_config(&self) -> RoleRuleConfig;
-
-    // /// Returns the size of the plane dimension
-    // fn plane_dim(&self) -> u32;
-
-    // /// Whether to check if accessing a row would exceed bounds.
-    // fn check_row_bounds(&self, ident: MatmulIdent) -> bool;
-
-    // /// Whether to check if accessing a col would exceed bounds.
-    // fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
-
-    // /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
-    // fn check_k_bounds(&self) -> bool;
-
-    // /// The number of stages in stage memory
-    // fn num_stages(&self, ident: MatmulIdent) -> u32;
-
-    // /// The [CubeDim] arising from the [TilingScheme]
-    // fn cube_dim(&self) -> CubeDim;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -283,68 +232,3 @@ impl GlobalReaderConfig {
         self.plane_dim * self.loading_planes_count()
     }
 }
-
-// pub trait GlobalReaderConfig:
-//     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
-// {
-// fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig;
-
-// fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
-//     GlobalMemoryConfig::new(
-//         self.tiling_scheme().elements_in_tile_row(ident),
-//         self.tiling_scheme().elements_in_tile_col(ident),
-//         self.tiling_scheme().elements_in_stage_row(ident),
-//         self.tiling_scheme().elements_in_stage_col(ident),
-//         self.global_line_size(ident),
-//         self.check_row_bounds(ident),
-//         self.check_col_bounds(ident),
-//         self.matrix_layout(ident),
-//     )
-// }
-
-// /// Returns the line size for the global memory corresponding to the given ident
-// fn global_line_size(&self, ident: MatmulIdent) -> u32;
-
-// /// Returns the [TilingScheme]
-// fn tiling_scheme(&self) -> TilingScheme;
-
-// /// Returns the [MatrixLayout] for the given ident
-// fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
-
-// /// Returns the number of planes participating in loading `ident`
-// fn num_loading_planes(&self, ident: MatmulIdent) -> u32;
-
-// /// Indicates the specialization roles for the planes
-// fn plane_role_config(&self) -> PlaneRoleConfig;
-
-// /// Indicates plane roles are associated to loading which tensor input
-// fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
-
-// /// How to identify the role of the plane depending on its index
-// fn role_rule_config(&self) -> RoleRuleConfig {
-//     self.plane_role_config().rule
-// }
-
-// /// Returns the size of the plane dimension
-// fn plane_dim(&self) -> u32;
-
-// /// Whether to check if accessing a row would exceed bounds.
-// fn check_row_bounds(&self, ident: MatmulIdent) -> bool;
-
-// /// Whether to check if accessing a col would exceed bounds.
-// fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
-
-// /// Whether to put common computations for loading tasks once before loop
-// fn precompute_job(&self) -> bool;
-
-// /// The number of stages in stage memory
-// fn num_stages(&self, ident: MatmulIdent) -> u32;
-
-// /// Whether to check reader is balanced in comptime or runtime.
-// ///
-// /// Not supported by all loading strategies
-// fn reader_mode(&self) -> ReaderMode;
-
-// /// Whether event loading is constrained to be ordered
-// fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode;
-// }

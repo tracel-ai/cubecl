@@ -1,6 +1,5 @@
 use std::{fmt::Debug, hash::Hash};
 
-use crate::components::stage::SwizzleMode;
 use crate::components::{MatrixLayout, global::memory::ViewDirection};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -29,47 +28,4 @@ impl GlobalMemoryConfig {
             view_direction,
         }
     }
-
-    // pub fn matrix_layout(&self) -> MatrixLayout {
-    //     self.matrix_layout
-    // }
-
-    // pub fn elements_in_tile(&self) -> u32 {
-    //     self.elements_in_tile_row() * self.elements_in_tile_col()
-    // }
-    // pub fn stage_swizzle(&self) -> SwizzleMode {
-    //     self.stage_swizzle
-    // }
-
-    // pub fn elements_in_tile_row(&self) -> u32 {
-    //     self.elements_in_tile_row
-    // }
-
-    // pub fn elements_in_tile_col(&self) -> u32 {
-    //     self.elements_in_tile_col
-    // }
-
-    // pub fn elements_in_stage(&self) -> u32 {
-    //     self.elements_in_stage_row() * self.elements_in_stage_col()
-    // }
-
-    // pub fn elements_in_stage_row(&self) -> u32 {
-    //     self.elements_in_stage_row
-    // }
-
-    // pub fn elements_in_stage_col(&self) -> u32 {
-    //     self.elements_in_stage_col
-    // }
-
-    //     pub fn line_size(&self) -> u32 {
-    //         self.line_size
-    //     }
-
-    //     pub fn check_row_bounds(&self) -> bool {
-    //         self.check_row_bounds
-    //     }
-
-    //     pub fn check_col_bounds(&self) -> bool {
-    //         self.check_col_bounds
-    //     }
 }

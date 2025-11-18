@@ -12,7 +12,6 @@ use crate::components::{
     stage::{
         FilledStageFamily, NoTilingLayout, StageConfig, StageMemoryConfig, StridedStageFamily,
     },
-    stage::{TilingLayout, TilingLayoutConfig, TilingLayoutEnum},
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

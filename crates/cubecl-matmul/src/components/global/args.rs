@@ -12,7 +12,7 @@ use cubecl_std::{
 use crate::{
     MatmulInputHandleRef,
     components::{
-        self, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection, StageIdent,
+        self, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
         batch::BatchConfig,
         global::{
             GlobalConfig,

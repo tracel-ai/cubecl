@@ -1,9 +1,7 @@
 use crate::components::MatmulPrecision;
-use crate::components::StageIdent;
 use crate::components::global;
 use crate::components::global::RoleRuleConfig;
 use crate::components::stage::StageConfig;
-use crate::components::stage::SwizzleMode;
 use crate::components::stage::matmul::partition::SharedPartitionMatmulConfig;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageConfig;

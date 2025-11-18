@@ -4,9 +4,7 @@ use crate::components::global::{
     GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts,
     SharedGlobalConfig, cube_dim_validation,
 };
-use crate::components::stage::TilingLayout;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
-use crate::components::stage::{TilingLayoutConfig, TilingLayoutEnum};
 use crate::components::{
     MatmulElems,
     global::{

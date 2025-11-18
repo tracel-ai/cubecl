@@ -9,10 +9,6 @@ use crate::components::global::{
     GlobalWriterFamily, multi_stage::specialized::SpecializedMatmul, read::SyncStrategy,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
-use crate::components::stage::StridedStageFamily;
-use crate::components::stage::TilingLayout;
-use crate::components::stage::TilingLayoutConfig;
-use crate::components::stage::TilingLayoutEnum;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{MatmulElems, error::MatmulSetupError};
 use crate::components::{MatmulLineSizes, MatmulSelection};
