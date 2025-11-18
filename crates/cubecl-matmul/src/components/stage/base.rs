@@ -8,10 +8,7 @@ use crate::components::{
     AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS,
 };
 use crate::components::{MatmulPrecision, MatmulProblem, tile::TileConfig};
-use crate::components::{
-    StageIdent,
-    stage::{SwizzleMode, TilingLayoutConfig},
-};
+use crate::components::{StageIdent, stage::SwizzleMode};
 use crate::components::{error::MatmulSetupError, global::WriteEventListener};
 use crate::components::{
     stage::{NumStages, PartitionScheduler},
@@ -178,9 +175,6 @@ pub trait StageConfig:
     fn elements_in_stage_k(&self) -> u32;
     fn tiles_in_partition_mn(&self) -> u32;
     fn num_main_flow_planes(&self) -> u32;
-    /// Returns the [SwizzleMode] for the given ident
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
-
     fn plane_dim(&self) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;
 

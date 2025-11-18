@@ -193,10 +193,6 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
     fn writer_config(&self) -> GlobalWriterConfig {
         self.writer_config
     }
-
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
-        todo!()
-    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -210,8 +206,6 @@ pub trait GlobalConfig:
     fn lhs_reader_config(&self) -> GlobalReaderConfig;
     fn rhs_reader_config(&self) -> GlobalReaderConfig;
     fn writer_config(&self) -> GlobalWriterConfig;
-    /// Returns the [SwizzleMode] for the given ident
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
     fn cube_dim(&self) -> CubeDim;
     fn global_line_sizes(&self) -> MatmulLineSizes;
 

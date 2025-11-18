@@ -115,7 +115,6 @@ where
             check_col_bounds: check_k_bounds,
             matrix_layout: problem.lhs_layout,
             view_direction: ViewDirection::Col,
-            stage_swizzle: selection.shared_swizzle.lhs,
         };
 
         let rhs_gmem_config = GlobalMemoryConfig {
@@ -124,7 +123,6 @@ where
             check_col_bounds: check_n_bounds,
             matrix_layout: problem.rhs_layout,
             view_direction: ViewDirection::Row,
-            stage_swizzle: selection.shared_swizzle.rhs,
         };
 
         let out_gmem_config = GlobalMemoryConfig {
@@ -133,7 +131,6 @@ where
             check_row_bounds: check_m_bounds,
             check_col_bounds: check_n_bounds,
             view_direction: ViewDirection::None,
-            stage_swizzle: selection.shared_swizzle.out,
         };
 
         let lhs_smem_config = StageMemoryConfig {

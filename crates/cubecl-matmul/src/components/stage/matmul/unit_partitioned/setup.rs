@@ -1,3 +1,4 @@
+use crate::components::MatmulElems;
 use crate::components::MatmulPrecision;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
@@ -22,7 +23,6 @@ use crate::components::tile::TileMatmulFamily;
 use crate::components::tile::io::Strided;
 use crate::components::{AccS, ComputeResources};
 use crate::components::{LhsS, global::PartitionedStageFamily};
-use crate::components::{MatmulElems, stage::TilingLayoutConfig};
 use crate::components::{MatmulLineSizes, global::PartitionedStage};
 use core::marker::PhantomData;
 use cubecl::prelude::*;

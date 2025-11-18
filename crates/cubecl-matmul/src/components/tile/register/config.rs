@@ -1,16 +1,8 @@
 use crate::components::MatrixLayout;
 use crate::components::tile::{SharedTileConfig, TileConfig};
-use cubecl_core::client::ComputeClient;
-use cubecl_core::ir::{ElemType, FloatKind};
-use cubecl_core::{Runtime, ir::StorageType};
-use cubecl_runtime::TypeUsage;
 
-use crate::components::{MatmulElems, SwizzleConfig};
-use crate::components::{StageIdent, TileSize};
-use crate::components::{
-    error::{MatmulAvailabilityError, MatmulSetupError},
-    stage::SwizzleMode,
-};
+use crate::components::StageIdent;
+use crate::components::stage::SwizzleMode;
 
 /// Execution mode for the RegisterMatmul
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

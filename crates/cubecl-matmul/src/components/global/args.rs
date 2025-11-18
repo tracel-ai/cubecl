@@ -361,7 +361,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         // Loaders use dynamic layout based on swizzle setting. For no swizzle, contiguous tiles are
         // loaded and TMA loads single tile wide columns.
         // For swizzled, bank conflicts aren't an issue so the tile size is the full stage.
-        let stage_size_lhs = match config.swizzle_mode(StageIdent::Lhs) {
+        let stage_size_lhs = match config.lhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.lhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
@@ -379,7 +379,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 }
             },
         };
-        let stage_size_rhs = match config.swizzle_mode(StageIdent::Rhs) {
+        let stage_size_rhs = match config.rhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.rhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
@@ -460,8 +460,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             }
         }
 
-        let swizzle_lhs = swizzle(config.swizzle_mode(StageIdent::Lhs));
-        let swizzle_rhs = swizzle(config.swizzle_mode(StageIdent::Rhs));
+        let swizzle_lhs = swizzle(config.lhs_reader_config().smem_config.swizzle);
+        let swizzle_rhs = swizzle(config.rhs_reader_config().smem_config.swizzle);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.

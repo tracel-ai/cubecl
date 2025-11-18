@@ -3,7 +3,7 @@ use crate::components::{
     MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, args::MatmulArgs},
+    global::{self, GlobalConfig, args::MatmulArgs},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -87,7 +87,7 @@ pub trait BatchConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
     /// Underlying Global matmul config
-    type GlobalConfig: global::GlobalConfig;
+    type GlobalConfig: GlobalConfig;
 
     /// Convert itself to the underlying global matmul config
     fn global_config(&self) -> Self::GlobalConfig;

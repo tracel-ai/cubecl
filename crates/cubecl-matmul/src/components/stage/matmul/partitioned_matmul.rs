@@ -87,10 +87,6 @@ impl<TC: TileConfig> StageConfig for PartitionMatmulConfig<TC> {
         let partition_size = self.shared().partition_size;
         partition_size.m() * partition_size.n()
     }
-
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
-        todo!()
-    }
 }
 
 /// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.

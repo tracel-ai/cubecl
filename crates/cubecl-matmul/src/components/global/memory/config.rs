@@ -10,9 +10,6 @@ pub struct GlobalMemoryConfig {
     pub check_col_bounds: bool,
     pub matrix_layout: MatrixLayout,
     pub view_direction: ViewDirection,
-
-    // TODO rm
-    pub stage_swizzle: SwizzleMode,
 }
 
 impl GlobalMemoryConfig {
@@ -23,7 +20,6 @@ impl GlobalMemoryConfig {
         check_col_bounds: bool,
         matrix_layout: MatrixLayout,
         view_direction: ViewDirection,
-        stage_swizzle: SwizzleMode,
     ) -> Self {
         GlobalMemoryConfig {
             line_size,
@@ -31,7 +27,6 @@ impl GlobalMemoryConfig {
             check_col_bounds,
             matrix_layout,
             view_direction,
-            stage_swizzle,
         }
     }
 

@@ -18,7 +18,6 @@ impl MatrixStageWriter {
         if UNIT_POS_X == 0 {
             let out_line_size = tile.stage.line_size();
             let total_out_lines = comptime![n / out_line_size];
-            let mut out_line_iter = comptime![0];
             #[unroll]
             #[allow(clippy::explicit_counter_loop)]
             for out_line_iter in 0..total_out_lines {
