@@ -2,7 +2,9 @@ use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
 use cubecl_common::{
-    e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, quant::scheme::QuantParam, tf32, ue8m0,
+    e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32,
+    quant::scheme::{QuantParam, QuantValue},
+    tf32, ue8m0,
 };
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -92,6 +94,17 @@ impl ElemType {
             QuantParam::BF16 => Self::Float(FloatKind::BF16),
             QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
             QuantParam::UE4M3 => Self::Float(FloatKind::UE8M0),
+        }
+    }
+
+    /// Creates an elem type that correspond to the given [QuantValue].
+    pub fn from_quant_value(quant_value: QuantValue) -> Self {
+        match quant_value {
+            QuantValue::E5M2 => Self::Float(FloatKind::E5M2),
+            QuantValue::E4M3 => Self::Float(FloatKind::E4M3),
+            QuantValue::E2M1 => Self::Float(FloatKind::E2M1),
+            QuantValue::Q8F => Self::Int(IntKind::I8),
+            other => panic!("Unsupported quant value {other:?}"),
         }
     }
     /// Create a constant scalar from a float.
