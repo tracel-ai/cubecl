@@ -2,8 +2,8 @@ use crate::components::global::memory::{GlobalMemoryConfig, ViewDirection};
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::{
-    GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, LoadSpecializationConfig,
-    SharedGlobalConfig, SpecializedLoadingSides, cube_dim_validation,
+    GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts,
+    SharedGlobalConfig, cube_dim_validation,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::{StageConfig, StageMemoryConfig};
@@ -78,19 +78,10 @@ where
         )?;
 
         let plane_role_config = stage_config.plane_role_config();
-        let lhs_specialized_config = selection.load_specialization_config.lhs;
-        let rhs_specialized_config = selection.load_specialization_config.rhs;
-        let lsc = LoadSpecializationConfig {
-            lhs: lhs_specialized_config,
-            rhs: rhs_specialized_config,
-        };
-        let loading_sides: SpecializedLoadingSides = lsc.into();
-        let lhs_num_planes =
-            loading_sides.num_loading_planes(true, StageIdent::Lhs, plane_role_config.plane_roles);
-        let rhs_num_planes =
-            loading_sides.num_loading_planes(true, StageIdent::Rhs, plane_role_config.plane_roles);
-        let out_num_planes = plane_role_config.plane_roles.main_flow;
-        let total_planes = plane_role_config.plane_roles.total_count();
+        let plane_counts = MatmulPlaneCounts::new(
+            selection.load_specialization_config,
+            plane_role_config.plane_roles,
+        );
 
         let stage_shape_m = stage_config.elements_in_stage_m();
         let stage_shape_n = stage_config.elements_in_stage_n();
@@ -131,7 +122,7 @@ where
         };
 
         let lhs_smem_config = StageMemoryConfig {
-            num_reading_planes: lhs_num_planes,
+            num_reading_planes: plane_counts.lhs,
             elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
             elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
             tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
@@ -142,7 +133,7 @@ where
         };
 
         let rhs_smem_config = StageMemoryConfig {
-            num_reading_planes: rhs_num_planes,
+            num_reading_planes: plane_counts.rhs,
             elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
             elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
             tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
@@ -153,7 +144,7 @@ where
         };
 
         let out_smem_config = StageMemoryConfig {
-            num_reading_planes: out_num_planes,
+            num_reading_planes: plane_counts.out,
             elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
             elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
             tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
@@ -197,7 +188,7 @@ where
 
         let config = SharedGlobalConfig {
             stage_config,
-            num_planes: total_planes,
+            num_planes: plane_counts.total,
             lhs_reader_config,
             rhs_reader_config,
             writer_config,
