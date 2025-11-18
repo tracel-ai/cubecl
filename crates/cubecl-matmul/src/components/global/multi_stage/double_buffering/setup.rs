@@ -90,11 +90,11 @@ where
         let check_n_bounds = !(problem.n as u32).is_multiple_of(stage_shape_n);
         let check_k_bounds = !(problem.k as u32).is_multiple_of(2 * stage_shape_k);
 
-        let num_planes = stage_config.plane_role_config().plane_roles.total_count();
+        let plane_role_config = stage_config.plane_role_config();
+        let num_planes = plane_role_config.plane_roles.total_count();
         let num_stages = 2;
         let precompute_job = selection.loading_precompute_strategy.into();
         let plane_dim = selection.plane_dim;
-        let plane_role_config = stage_config.plane_role_config();
         let event_loading_mode = EventLoadingMode::Relaxed;
         let reader_mode = selection.reader_mode;
 
