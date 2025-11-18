@@ -1,12 +1,16 @@
+use crate::components::MatmulElems;
 use crate::components::TilingScheme;
+use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
-use crate::components::stage::{StridedStage, StridedTilingLayout};
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
 use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::type_size;
 
 use super::{LoadingJob, LoadingValidation};
 
@@ -19,6 +23,7 @@ impl LoadingValidation for SyncFullStridedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.gmem_config.line_size;
 
@@ -32,6 +37,7 @@ impl LoadingValidation for SyncFullStridedLoading {
             ));
         }
 
+        validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         StridedTilingLayout::check(config.smem_config)?;
 
         Ok(())
@@ -94,11 +100,13 @@ pub struct SyncFullStridedJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchronous>
     for SyncFullStridedJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, StridedTilingLayout>,
+        stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         _barrier: &mut (),
         #[comptime] config: GlobalReaderConfig,
     ) {
@@ -108,8 +116,10 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, Synchrono
         let view = global_iter.view().view(layout);
 
         let line_read = view.read_checked(unit_position * this.line_size);
+        let type_size = type_size::<ES>(this.line_size);
+        let stage_offs = stage.swizzle.apply(unit_position, type_size);
 
-        stage.as_slice_mut(this.line_size)[unit_position] = Line::cast_from(line_read);
+        stage.as_slice_mut(this.line_size)[stage_offs] = Line::cast_from(line_read);
     }
 
     fn task_count(this: &Self) -> comptime_type!(u32) {

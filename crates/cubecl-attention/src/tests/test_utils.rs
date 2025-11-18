@@ -108,7 +108,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     epsilon: f32,
 ) -> Result<(), String> {
     let actual =
-        client.read_one_tensor(output.copy_descriptor(shape, strides, F::elem_size() as usize));
+        client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon

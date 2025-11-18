@@ -1,14 +1,13 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
 
-use crate::components::AvailableLineSizes;
 use crate::components::MatmulProblem;
 use crate::components::MatmulSelection;
-use crate::components::MatrixLayout;
 use crate::components::batch::BatchConfig;
 use crate::components::batch::BatchMatmulFamily;
 use crate::components::global::args::TensorMapArgs;
 use crate::components::global::args::{ConcreteInputsFactory, TensorMapInputs};
+use crate::components::{AvailableLineSizes, MatrixLayout};
 use crate::components::{MatmulElems, MatmulIdent};
 use crate::kernels::layered::Algorithm;
 use crate::tests::test_utils::Sample;
@@ -40,26 +39,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
             _ => false,
         },
         Err(_) => false,
-    };
-    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
-    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
-    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
-
-    let elem_size = size_of::<P::EG>();
-    let lhs_handle = MatmulInputHandleRef::Normal(
-        unsafe {
-            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
-        },
-        P::EG::as_type_native_unchecked(),
-    );
-    let rhs_handle = MatmulInputHandleRef::Normal(
-        unsafe {
-            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
-        },
-        P::EG::as_type_native_unchecked(),
-    );
-    let out_handle = unsafe {
-        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
     let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
@@ -98,6 +77,27 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
     };
 
     let line_sizes = config.line_sizes();
+
+    let lhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Lhs);
+    let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
+    let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
+
+    let elem_size = size_of::<P::EG>();
+    let lhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&lhs.handle, &lhs.strides, &lhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = MatmulInputHandleRef::Normal(
+        unsafe {
+            TensorHandleRef::from_raw_parts(&rhs.handle, &rhs.strides, &rhs.shape, elem_size)
+        },
+        P::EG::as_type_native_unchecked(),
+    );
+    let out_handle = unsafe {
+        TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
+    };
 
     let inputs = TensorMapInputs::create(
         &client,
@@ -177,7 +177,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.lhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -214,7 +214,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
             let Allocation {
                 handle,
                 mut strides,
-            } = client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+            } = client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             if matches!(problem.rhs_layout, MatrixLayout::ColMajor) {
                 shape.swap(rank - 1, rank - 2);
@@ -236,7 +236,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let shape = problem.shape(MatmulIdent::Out);
             let Allocation { handle, strides } =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+                client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
             TensorRawParts {
                 handle,
                 scale: None,

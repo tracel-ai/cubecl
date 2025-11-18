@@ -1,4 +1,8 @@
-use crate::components::tile::{SharedTileConfig, TileConfig};
+use crate::components::{
+    StageIdent,
+    stage::SwizzleMode,
+    tile::{SharedTileConfig, TileConfig},
+};
 
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct PlaneVecMatInnerProductConfig {
@@ -30,5 +34,9 @@ impl TileConfig for PlaneVecMatInnerProductConfig {
 
     fn elements_in_tile_k(&self) -> u32 {
         self.shared.elements_in_tile_k()
+    }
+
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        self.shared.swizzle_mode(ident)
     }
 }

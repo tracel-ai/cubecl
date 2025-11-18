@@ -1,8 +1,10 @@
+use crate::components::global::RoleRule;
+use crate::components::global::SharedGlobalConfig;
+use crate::components::global::read::LoaderStage;
 use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
-use crate::components::global::{RoleRule, SharedGlobalConfig};
+use crate::components::stage::FilledStage;
 use crate::components::stage::StageConfig as _;
-use crate::components::stage::{FilledStage, StridedStage};
 use crate::components::{
     AccG,
     global::read::{
@@ -11,6 +13,7 @@ use crate::components::{
 };
 use crate::components::{AccS, LhsG, LhsS, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
+
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
@@ -44,8 +47,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = LoaderStage<LL, LhsS<MP>>,
+            RhsStage = LoaderStage<RL, RhsS<MP>>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
@@ -87,8 +90,8 @@ where
         let num_stage_matmuls = needed_stage_matmuls + (needed_stage_matmuls % 2);
         let num_loops = num_stage_matmuls / 2;
 
-        let lhs_elem_size = LhsS::<MP>::elem_size();
-        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes = comptime! {
             let lhs_bytes = config.lhs_reader_config.smem_config.elements_in_stage() * lhs_elem_size;
             let rhs_bytes = config.rhs_reader_config.smem_config.elements_in_stage() * rhs_elem_size;

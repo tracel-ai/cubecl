@@ -185,7 +185,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 P::EG::as_bytes(&data),
             )];
 
-            let mut tensors = client.create_tensors(descriptors);
+            let mut tensors = client.create_tensors_from_slices(descriptors);
             let Allocation {
                 handle,
                 mut strides,
@@ -231,7 +231,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 P::EG::as_bytes(&data),
             )];
 
-            let mut tensors = client.create_tensors(descriptors);
+            let mut tensors = client.create_tensors_from_slices(descriptors);
             let Allocation {
                 handle,
                 mut strides,
@@ -264,7 +264,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
                 P::EG::as_bytes(&data),
             )];
 
-            let mut tensors = client.create_tensors(descriptors);
+            let mut tensors = client.create_tensors_from_slices(descriptors);
             let Allocation { handle, strides } = tensors.remove(0);
             let _offs = tensors.pop();
             let scale = tensors.pop().map(|it| it.handle);

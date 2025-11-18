@@ -8,7 +8,7 @@ use cubecl_std::{
 use cubecl_matmul::components::{
     MatrixPrecision,
     global::GlobalConfig,
-    stage::{StageMemoryConfig, StridedStage},
+    stage::{StageMemoryConfig, StridedStageMemory},
 };
 
 use crate::components::stage::reader::BiasTilingLayout;
@@ -18,13 +18,13 @@ use crate::components::stage::reader::BiasTilingLayout;
 pub enum BiasGlobalReader<IP: MatrixPrecision> {
     Some {
         view: View<Line<IP::Global>, Coords2d>,
-        stage: StridedStage<IP::Stage, BiasTilingLayout>,
+        stage: StridedStageMemory<IP::Stage, BiasTilingLayout>,
     },
     None,
 }
 
 /// Type of the stage reader for the bias reader
-pub type BiasStage<E> = CubeOption<StridedStage<E, BiasTilingLayout>>;
+pub type BiasStage<E> = CubeOption<StridedStageMemory<E, BiasTilingLayout>>;
 
 #[cube]
 impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
@@ -82,13 +82,11 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
 #[cube]
 fn init_stage<ES: Numeric>(
     #[comptime] config: StageMemoryConfig,
-) -> StridedStage<ES, BiasTilingLayout> {
+) -> StridedStageMemory<ES, BiasTilingLayout> {
     let line_size = config.line_size;
 
-    let smem = SharedMemory::new_lined(
-        comptime!(config.elements_in_stage_col() / line_size),
-        line_size,
-    );
+    let stage_len = comptime!(config.elements_in_stage_col() / line_size);
+    let smem = SharedMemory::new_lined(stage_len, line_size);
 
-    StridedStage::<ES, BiasTilingLayout>::new_with_smem(smem, config)
+    StridedStageMemory::<ES, BiasTilingLayout>::new_with_smem(smem, stage_len, config)
 }

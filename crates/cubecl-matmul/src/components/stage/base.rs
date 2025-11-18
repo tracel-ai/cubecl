@@ -3,10 +3,15 @@ use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
 use crate::components::global::{MaxGlobalReaderPlanes, PlaneRoleConfig};
+use crate::components::stage::StageMemoryConfig;
 use crate::components::{
     AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS,
 };
 use crate::components::{MatmulPrecision, MatmulProblem, tile::TileConfig};
+use crate::components::{
+    StageIdent,
+    stage::{SwizzleMode, TilingLayoutConfig},
+};
 use crate::components::{error::MatmulSetupError, global::WriteEventListener};
 use crate::components::{
     stage::{NumStages, PartitionScheduler},
@@ -50,6 +55,7 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        tiling_layout: TilingLayoutConfig,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
@@ -173,6 +179,9 @@ pub trait StageConfig:
     fn elements_in_stage_k(&self) -> u32;
     fn tiles_in_partition_mn(&self) -> u32;
     fn num_main_flow_planes(&self) -> u32;
+    /// Returns the [SwizzleMode] for the given ident
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
+
     fn plane_dim(&self) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;
 
@@ -245,7 +254,7 @@ pub enum PartitionBuffering {
 /// tile matmul readers.
 #[cube]
 pub trait Stage<ES: Numeric, IO: SliceVisibility = ReadOnly>:
-    CubeType + Send + Sync + 'static
+    CubeType + Clone + Send + Sync + 'static
 {
     /// The kind (or family) of the tiles contained in this stage
     type TileKind: TileKind<IO>;
@@ -262,6 +271,23 @@ pub trait StageFamily<IO: SliceVisibility = ReadOnly>: Send + Sync + 'static {
     type Stage<ES: Numeric, T: TilingLayout>: Stage<ES, IO, TileKind = Self::TileKind>;
 }
 
+/// Stage family that can be used as the target of a loader
+#[cube]
+pub trait LoadStageFamily<IO: SliceVisibility = ReadOnly>: StageFamily {
+    /// Create a new stage from the config and alignment
+    fn create<ES: Numeric, T: TilingLayout>(
+        #[comptime] alignment: u32,
+        #[comptime] config: StageMemoryConfig,
+    ) -> Self::Stage<ES, T>;
+    /// Return the same stage with a different buffer index
+    fn with_buffer_index<ES: Numeric, T: TilingLayout>(
+        stage: &Self::Stage<ES, T>,
+        buffer_index: u32,
+    ) -> Self::Stage<ES, T>;
+    /// Free the stage
+    fn free<ES: Numeric, T: TilingLayout>(stage: &Self::Stage<ES, T>);
+}
+
 #[cube]
 impl<ES: Numeric, IO: SliceVisibility, Inner: Stage<ES, IO>> Stage<ES, IO> for CubeOption<Inner> {
     type TileKind = CubeOption<Inner::TileKind>;
@@ -270,6 +296,35 @@ impl<ES: Numeric, IO: SliceVisibility, Inner: Stage<ES, IO>> Stage<ES, IO> for C
         match this {
             CubeOption::Some(stage) => CubeOption::new_Some(Inner::tile(stage, tile)),
             CubeOption::None => CubeOption::new_None(),
+        }
+    }
+}
+
+#[cube]
+impl<IO: SliceVisibility, Inner: LoadStageFamily<IO>> LoadStageFamily<IO> for Option<Inner> {
+    fn create<ES: Numeric, T: TilingLayout>(
+        #[comptime] alignment: u32,
+        #[comptime] config: StageMemoryConfig,
+    ) -> Self::Stage<ES, T> {
+        CubeOption::new_Some(Inner::create(alignment, config))
+    }
+
+    fn with_buffer_index<ES: Numeric, T: TilingLayout>(
+        stage: &Self::Stage<ES, T>,
+        buffer_index: u32,
+    ) -> Self::Stage<ES, T> {
+        match stage {
+            CubeOption::Some(inner) => {
+                CubeOption::new_Some(Inner::with_buffer_index(inner, buffer_index))
+            }
+            CubeOption::None => CubeOption::new_None(),
+        }
+    }
+
+    fn free<ES: Numeric, T: TilingLayout>(stage: &Self::Stage<ES, T>) {
+        match stage {
+            CubeOption::Some(inner) => Inner::free(inner),
+            CubeOption::None => {}
         }
     }
 }

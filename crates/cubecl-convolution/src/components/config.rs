@@ -3,7 +3,12 @@ use std::ops::Deref;
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
     MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
+    global::{
+        GlobalConfig, PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode,
+        read::ReaderMode,
+    },
     global::{GlobalConfig, RoleRuleConfig},
+    stage::{StageConfig, StageMemoryConfig, SwizzleMode, TilingLayoutEnum},
 };
 
 use super::*;
@@ -63,6 +68,18 @@ impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
 
     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
         self.matmul.matrix_layout(ident)
+    }
+
+    fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode {
+        self.matmul.swizzle_mode(ident)
+    }
+
+    fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum {
+        self.matmul.tiling_layout(ident)
+    }
+
+    fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
+        self.matmul.num_loading_planes(ident)
     }
 
     fn plane_dim(&self) -> u32 {

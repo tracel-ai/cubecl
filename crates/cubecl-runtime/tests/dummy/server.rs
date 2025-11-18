@@ -134,7 +134,7 @@ impl ComputeServer for DummyServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (descriptor, data) in descriptors {
@@ -144,7 +144,7 @@ impl ComputeServer for DummyServer {
                 .unwrap();
 
             let mut bytes = self.memory_management.storage().get(&handle);
-            bytes.write()[..data.len()].copy_from_slice(data);
+            bytes.write()[..data.len()].copy_from_slice(&data);
         }
         Ok(())
     }

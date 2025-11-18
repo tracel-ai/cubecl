@@ -9,7 +9,8 @@ use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::SyncBarrier;
 use crate::components::global::read::SyncStrategy;
-use crate::components::stage::StridedStage;
+use crate::components::stage::LoadStageFamily;
+use crate::components::stage::StageFamily;
 use crate::components::stage::TilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -17,6 +18,11 @@ use cubecl_std::{
     CubeOption, CubeOptionExpand,
     tensor::{View, layout::Coords2d},
 };
+
+pub type LoaderStage<L, IP> = <<L as PartialLoadingStrategy>::Stage as StageFamily>::Stage<
+    IP,
+    <L as PartialLoadingStrategy>::TilingLayout,
+>;
 
 #[cube]
 /// A strategy for loading partial stage memory
@@ -26,9 +32,10 @@ pub trait PartialLoadingStrategy:
     /// The layout describing how data is tiled across the stage.
     type TilingLayout: TilingLayout;
     type SyncStrategy: SyncStrategy;
+    type Stage: LoadStageFamily<ReadOnly>;
 
     /// The [LoadingJob] for this strategy.
-    type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy>;
+    type Job<EG: Numeric, ES: Numeric>: LoadingJob<EG, ES, Self::TilingLayout, Self::SyncStrategy, Stage = Self::Stage>;
 
     /// Returns the job with preliminary calculations done.
     fn new_job<EG: Numeric, ES: Numeric>(
@@ -46,7 +53,7 @@ pub trait PartialLoadingStrategy:
 /// each Task represents a single data transfer for a specific unit
 pub struct PartialStageGlobalReader<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> {
     global_iter: GlobalIterator<Line<EG>>,
-    stage_memory: StridedStage<ES, L::TilingLayout>,
+    stage_memory: LoaderStage<L, ES>,
     loading_job: CubeOption<(L::Job<EG, ES>, L::Job<EG, ES>)>,
 }
 
@@ -58,13 +65,9 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
         k_step: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self {
-        let stage_memory = StridedStage::new_aligned(128u32, config.smem_config);
-        let global_iter = GlobalIterator::new(
-            tensor,
-            k_step,
-            config.gmem_config.view_direction,
-            false,
-        );
+        let stage_memory = L::Stage::create(128u32, config.smem_config);
+        let global_iter =
+            GlobalIterator::new(tensor, k_step, config.gmem_config.view_direction, false);
 
         let loading_job = match config.precompute_job {
             true => CubeOption::new_Some((
@@ -82,16 +85,13 @@ impl<EG: Numeric, ES: Numeric, L: PartialLoadingStrategy> PartialStageGlobalRead
     }
 
     /// Give a reader to the loaded stage memory.
-    pub fn stage(
-        &self,
-        #[comptime] stage_buffer: StageBuffer,
-    ) -> StridedStage<ES, L::TilingLayout> {
-        self.stage_memory.with_buffer_index(stage_buffer.to_index())
+    pub fn stage(&self, #[comptime] stage_buffer: StageBuffer) -> LoaderStage<L, ES> {
+        L::Stage::with_buffer_index(&self.stage_memory, stage_buffer.to_index())
     }
 
     /// Frees the stage memory for reuse
     pub fn free_stage(self) {
-        unsafe { self.stage_memory.free() };
+        L::Stage::free(&self.stage_memory);
     }
 
     /// Advance the view over global memory along the k dimension by a specified offset, `k_offset`.

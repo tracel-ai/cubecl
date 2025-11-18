@@ -6,7 +6,9 @@ use crate::components::global::{
     SharedGlobalConfig, cube_dim_validation,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
+use crate::components::stage::TilingLayout;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
+use crate::components::stage::{TilingLayoutConfig, TilingLayoutEnum};
 use crate::components::{
     MatmulElems,
     global::{GlobalWriterFamily, multi_stage::double_buffering::DoubleBufferingMatmul},
@@ -40,8 +42,8 @@ where
             AccStage = FilledStageFamily,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    LL: PartialLoadingStrategy<Stage = StridedStageFamily>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriterFamily,
 {
     type Matmul<MP: MatmulPrecision> = DoubleBufferingMatmul<
@@ -71,11 +73,18 @@ where
                 )
             });
 
+        let tiling_layout = TilingLayoutConfig {
+            lhs: LL::TilingLayout::to_enum(),
+            rhs: RL::TilingLayout::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
             line_sizes,
+            tiling_layout,
             (2, 2).into(),
             max_global_readers,
             false,
@@ -109,6 +118,7 @@ where
             check_col_bounds: check_k_bounds,
             matrix_layout: problem.lhs_layout,
             view_direction: ViewDirection::Col,
+            stage_swizzle: todo!(),
         };
 
         let rhs_gmem_config = GlobalMemoryConfig {
@@ -117,6 +127,7 @@ where
             check_col_bounds: check_n_bounds,
             matrix_layout: problem.rhs_layout,
             view_direction: ViewDirection::Row,
+            stage_swizzle: todo!(),
         };
 
         let out_gmem_config = GlobalMemoryConfig {
@@ -125,6 +136,7 @@ where
             check_row_bounds: check_m_bounds,
             check_col_bounds: check_n_bounds,
             view_direction: ViewDirection::None,
+            stage_swizzle: todo!(),
         };
 
         let lhs_smem_config = StageMemoryConfig {
@@ -136,6 +148,7 @@ where
             line_size: line_sizes.lhs as u32,
             matrix_layout: problem.lhs_layout,
             num_stages,
+            swizzle: todo!(),
         };
 
         let rhs_smem_config = StageMemoryConfig {
@@ -147,6 +160,7 @@ where
             line_size: line_sizes.rhs as u32,
             matrix_layout: problem.rhs_layout,
             num_stages,
+            swizzle: todo!(),
         };
 
         let out_smem_config = StageMemoryConfig {
@@ -158,6 +172,7 @@ where
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             num_stages,
+            swizzle: todo!(),
         };
 
         let lhs_reader_config = GlobalReaderConfig {
@@ -200,16 +215,17 @@ where
             writer_config,
         };
 
-        validate::<LL, RL, SMM::Config, R>(config, client)
+        validate::<LL, RL, SMM::Config, R>(config, client, dtypes)
     }
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalConfig<S>,
     client: &ComputeClient<R::Server>,
+    dtypes: &MatmulElems,
 ) -> Result<SharedGlobalConfig<S>, MatmulSetupError> {
-    LL::check::<R>(client, &config.lhs_reader_config)?;
-    RL::check::<R>(client, &config.rhs_reader_config)?;
+    LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;
+    RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config.cube_dim())?;
 
     Ok(config)

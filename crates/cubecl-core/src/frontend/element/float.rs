@@ -25,7 +25,19 @@ pub trait Float:
     + Log1p
     + Cos
     + Sin
+    + Tan
     + Tanh
+    + Sinh
+    + Cosh
+    + ArcCos
+    + ArcSin
+    + ArcTan
+    + ArcSinh
+    + ArcCosh
+    + ArcTanh
+    + Degrees
+    + Radians
+    + ArcTan2
     + Powf
     + Powi<i32>
     + Sqrt

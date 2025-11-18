@@ -10,14 +10,14 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
-        TargetProperties,
+        ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType,
+        StorageType, TargetProperties,
     },
     server::ServerUtilities,
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
     register_supported_types,
     shared::{
         CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
@@ -30,7 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
@@ -182,6 +182,18 @@ impl DeviceState for CudaServer {
             comp_opts.supports_features.grid_constants = true;
         }
 
+        if arch_version >= 75 {
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .ldmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
+            comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
+        }
+
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
         // if arch.get_version() >= 80 {
         //     device_props.register_feature(Feature::Type(Elem::AtomicFloat(FloatKind::BF16)));
@@ -203,6 +215,14 @@ impl DeviceState for CudaServer {
             device_props.features.cube_cluster = true;
             comp_opts.supports_features.clusters = true;
             comp_opts.supports_features.elect_sync = true;
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::F16).into());
+            device_props
+                .features
+                .stmatrix
+                .insert(ElemType::Float(FloatKind::BF16).into());
         }
 
         if arch_version >= 100 {
@@ -234,6 +254,7 @@ impl DeviceState for CudaServer {
         }
 
         device_props.features.dynamic_line_size = true;
+        device_props.features.alignment = true;
         device_props.features.plane.insert(Plane::Ops);
 
         register_wmma_features(supported_wmma_combinations, &mut device_props);
@@ -305,6 +326,7 @@ impl Runtime for CudaRuntime {
                 register_duplication_a: 1,
                 register_duplication_b: 1,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
     }

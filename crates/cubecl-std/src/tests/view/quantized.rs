@@ -62,10 +62,10 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
         .collect::<Vec<_>>();
 
     let output = client.empty(16 * size_of::<F>());
-    let values = client.create(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
-    let scales = client.create(f32::as_bytes(&[3.4]));
+    let values = client.create_from_slice(u32::as_bytes(&[0xFEDCBA98, 0x76543210]));
+    let scales = client.create_from_slice(f32::as_bytes(&[3.4]));
 
-    let float_values = client.create(F::as_bytes(&float_data));
+    let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
     let values_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));
@@ -131,10 +131,10 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
         .collect::<Vec<_>>();
 
     let output = client.empty(16 * size_of::<F>());
-    let values = client.create(u32::as_bytes(&[0x76543210, 0xFEDCBA98]));
-    let scales = client.create(f32::as_bytes(&[3.4]));
+    let values = client.create_from_slice(u32::as_bytes(&[0x76543210, 0xFEDCBA98]));
+    let scales = client.create_from_slice(f32::as_bytes(&[3.4]));
 
-    let float_values = client.create(F::as_bytes(&float_data));
+    let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
     let values_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));

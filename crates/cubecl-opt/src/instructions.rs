@@ -84,7 +84,8 @@ impl Optimizer {
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
             | Arithmetic::Dot(binary_operator)
-            | Arithmetic::MulHi(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            | Arithmetic::MulHi(binary_operator)
+            | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)
@@ -92,7 +93,18 @@ impl Optimizer {
             | Arithmetic::Log1p(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
+            | Arithmetic::Tan(unary_operator)
             | Arithmetic::Tanh(unary_operator)
+            | Arithmetic::Sinh(unary_operator)
+            | Arithmetic::Cosh(unary_operator)
+            | Arithmetic::ArcCos(unary_operator)
+            | Arithmetic::ArcSin(unary_operator)
+            | Arithmetic::ArcTan(unary_operator)
+            | Arithmetic::ArcSinh(unary_operator)
+            | Arithmetic::ArcCosh(unary_operator)
+            | Arithmetic::ArcTanh(unary_operator)
+            | Arithmetic::Degrees(unary_operator)
+            | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
             | Arithmetic::InverseSqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
@@ -330,21 +342,25 @@ impl Optimizer {
                 visit_read(self, lane_id);
                 visit_read(self, i);
             }
+            CoopMma::LoadMatrix { buffer, offset, .. } => {
+                visit_read(self, buffer);
+                visit_read(self, offset);
+            }
+            CoopMma::StoreMatrix {
+                offset, registers, ..
+            } => {
+                visit_read(self, offset);
+                visit_read(self, registers);
+            }
             CoopMma::ExecuteManual {
                 registers_a,
                 registers_b,
                 registers_c,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
             }
             CoopMma::ExecuteScaled {
                 registers_a,
@@ -354,15 +370,9 @@ impl Optimizer {
                 scales_b,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
                 visit_read(self, scales_a);
                 visit_read(self, scales_b);
             }

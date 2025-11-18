@@ -45,7 +45,11 @@ where
         let tile_config = RegisterMatmulConfig::from_shared_tile_config(
             problem.lhs_layout,
             problem.rhs_layout,
-            SharedTileConfig::new(selection.tiling_scheme.tile_size, selection.plane_dim),
+            SharedTileConfig::new(
+                selection.tiling_scheme.tile_size,
+                selection.plane_dim,
+                selection.shared_swizzle,
+            ),
         );
 
         validate::<R>(
@@ -56,6 +60,13 @@ where
             client,
             dtypes,
         )
+    }
+
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+        // Selection isn't getting rid of all conflicts with the current load strategy, but does
+        // reduce conflicts significantly (i.e. average 18 vs average 5). Should try to find more
+        // optimal settings in the future.
+        client.properties().features.alignment
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

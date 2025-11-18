@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::components::MatrixLayout;
 use crate::components::tile::register::config::{ProductType, RegisterMatmulConfig};
-use crate::components::tile::{TileMatmul, register::reader::RegisterFragmentReader};
+use crate::components::tile::{TileMatmul, io::Filled, register::reader::RegisterFragmentReader};
 use crate::components::tile::{io::Strided, register::reader::RegisterStageReader};
 use crate::components::tile::{io::TileKind, tile_data::StridedTile};
 use crate::components::{StageIdent, tile::register::writer::RegisterStageWriter};
@@ -10,7 +10,7 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
 /// Uses one unit to perform a small matmul directly in registers
-pub struct RegisterMatmul<Acc: TileKind> {
+pub struct RegisterMatmul<Acc: TileKind = Filled> {
     _ty: PhantomData<Acc>,
 }
 

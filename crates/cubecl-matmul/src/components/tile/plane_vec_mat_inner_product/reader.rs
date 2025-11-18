@@ -46,7 +46,8 @@ impl VectorStageReader {
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::RowMajor));
 
-        frag.line = Line::cast_from(tile.slice[UNIT_POS_X]);
+        let offset = tile.stage_offset(UNIT_POS_X);
+        frag.line = Line::cast_from(tile.stage[offset]);
     }
 }
 
@@ -67,7 +68,8 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
         #[allow(clippy::explicit_counter_loop)]
         for _ in 0..n {
             let line_container = frag.index_mut(n_);
-            line_container.line = Line::cast_from(tile.slice[UNIT_POS_X + n_ * tile.stride]);
+            let offset = tile.stage_offset(UNIT_POS_X + n_ * tile.stride);
+            line_container.line = Line::cast_from(tile.stage[offset]);
 
             comptime![n_ += 1];
         }

@@ -23,7 +23,7 @@ pub fn test_async_copy<R: Runtime, F: Float + CubeElement>(client: ComputeClient
         return;
     }
 
-    let input = client.create(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
+    let input = client.create_from_slice(as_bytes![F: 0.0, 1.0, 2.0, 3.0, 4.0]);
     let output = client.empty(core::mem::size_of::<F>());
 
     unsafe {
@@ -134,7 +134,7 @@ pub fn test_memcpy_one_load<R: Runtime, F: Float + CubeElement>(client: ComputeC
         return;
     }
 
-    let lhs = client.create(as_bytes![F: 10., 11., 12., 13.]);
+    let lhs = client.create_from_slice(as_bytes![F: 10., 11., 12., 13.]);
     let output = client.empty(4 * core::mem::size_of::<F>());
 
     unsafe {
@@ -167,8 +167,8 @@ pub fn test_memcpy_two_loads<R: Runtime, F: Float + CubeElement>(
     let lhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
     let rhs_data: Vec<F> = (0..num_data).map(|i| F::new(i as f32)).collect();
 
-    let lhs = client.create(F::as_bytes(&lhs_data));
-    let rhs = client.create(F::as_bytes(&rhs_data));
+    let lhs = client.create_from_slice(F::as_bytes(&lhs_data));
+    let rhs = client.create_from_slice(F::as_bytes(&rhs_data));
     let output = client.empty(2 * core::mem::size_of::<F>());
 
     if independent {

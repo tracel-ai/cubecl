@@ -8,7 +8,7 @@ use cubecl_matmul::components::{
         read::tiled::{TiledCoords, TiledLayout},
         unit_write,
     },
-    stage::StageMemoryConfig,
+    stage::{StageMemoryConfig, SwizzleMode},
 };
 use cubecl_std::tensor::{View, layout::Coords2d};
 
@@ -64,6 +64,7 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
                 tiles_in_stage_col: 1,
                 line_size: 1,
                 matrix_layout: MatrixLayout::RowMajor,
+                swizzle: SwizzleMode::None,
                 num_stages: 1,
             }
         };

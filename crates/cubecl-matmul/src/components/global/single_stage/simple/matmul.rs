@@ -4,7 +4,8 @@ use crate::components::{
         GlobalMatmul, GlobalWriter, SharedGlobalConfig,
         read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},
     },
-    stage::{FilledStage, StageConfig, StageMatmul, StridedStage},
+    stage::StridedStageMemory,
+    stage::{FilledStage, StageConfig, StageMatmul},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -33,8 +34,8 @@ impl<MP: MatmulPrecision, SMM, LL, RL, GW> GlobalMatmul<MP> for SimpleMatmul<MP,
 where
     SMM: StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,

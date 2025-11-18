@@ -39,6 +39,7 @@ pub struct CppSupportedFeatures {
     pub grid_constants: bool,
     pub clusters: bool,
     pub fast_math: bool,
+    pub fast_tanh: bool,
     pub elect_sync: bool,
 }
 
@@ -765,18 +766,9 @@ impl<D: Dialect> CppCompiler<D> {
                 registers_c,
             } => WmmaInstruction::ExecuteManual {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
             },
             gpu::CoopMma::ExecuteScaled {
@@ -789,18 +781,9 @@ impl<D: Dialect> CppCompiler<D> {
                 scales_factor,
             } => WmmaInstruction::ExecuteScaled {
                 shape: MmaShape::new(matrix.m, matrix.n, matrix.k),
-                frag_a: registers_a
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_b: registers_b
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
-                frag_c: registers_c
-                    .into_iter()
-                    .map(|it| self.compile_variable(it))
-                    .collect(),
+                frag_a: self.compile_variable(registers_a),
+                frag_b: self.compile_variable(registers_b),
+                frag_c: self.compile_variable(registers_c),
                 frag_d: out,
 
                 scales_a: self.compile_variable(scales_a),
@@ -824,6 +807,23 @@ impl<D: Dialect> CppCompiler<D> {
                         .compile_matrix_layout(layout)
                         .expect("Layout required for store instruction"),
                 }
+            }
+            gpu::CoopMma::LoadMatrix {
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => WmmaInstruction::LdMatrix {
+                output: out,
+                buffer: self.compile_variable(buffer),
+                offset: self.compile_variable(offset),
+                line_size,
+                factor,
+                transpose,
+            },
+            gpu::CoopMma::StoreMatrix { .. } => {
+                todo!()
             }
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),
@@ -1094,17 +1094,79 @@ impl<D: Dialect> CppCompiler<D> {
                     Instruction::FastSin(op),
                 ));
             }
+            gpu::Arithmetic::Tan(op) => {
+                instructions.push(Instruction::Tan(self.compile_unary(op, out)))
+            }
             gpu::Arithmetic::Tanh(op) => {
                 let op = self.compile_unary(op, out);
                 let instruction = Instruction::Tanh(op);
                 D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(self.select_fast_float(
-                    out.ty,
-                    modes,
-                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
-                    instruction,
-                    Instruction::FastTanh(op),
-                ))
+                if self.compilation_options.supports_features.fast_tanh {
+                    instructions.push(self.select_fast_float(
+                        out.ty,
+                        modes,
+                        FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                        instruction,
+                        Instruction::FastTanh(op),
+                    ))
+                } else {
+                    instructions.push(instruction);
+                }
+            }
+            gpu::Arithmetic::Sinh(op) => {
+                let instruction = Instruction::Sinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Cosh(op) => {
+                let instruction = Instruction::Cosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcCos(op) => {
+                let instruction = Instruction::ArcCos(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSin(op) => {
+                let instruction = Instruction::ArcSin(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan(op) => {
+                let instruction = Instruction::ArcTan(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcSinh(op) => {
+                let instruction = Instruction::ArcSinh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcCosh(op) => {
+                let instruction = Instruction::ArcCosh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTanh(op) => {
+                let instruction = Instruction::ArcTanh(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Degrees(op) => {
+                let instruction = Instruction::Degrees(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::Radians(op) => {
+                let instruction = Instruction::Radians(self.compile_unary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
+            }
+            gpu::Arithmetic::ArcTan2(op) => {
+                let instruction = Instruction::ArcTan2(self.compile_binary(op, out));
+                D::register_instruction_extension(&mut self.extensions, &instruction);
+                instructions.push(instruction)
             }
             gpu::Arithmetic::Powf(op) => {
                 let op = self.compile_binary(op, out);

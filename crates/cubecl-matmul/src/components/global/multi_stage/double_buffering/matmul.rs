@@ -1,17 +1,17 @@
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_read_next, execute_last_and_write_results, read_first,
 };
-use crate::components::global::{GlobalWriter, SharedGlobalConfig};
+use crate::components::global::{GlobalMatmul, GlobalWriter, SharedGlobalConfig};
 use crate::components::global::{Specializer, read::SyncStrategy};
-use crate::components::stage::StageConfig;
-use crate::components::stage::{FilledStage, StridedStage};
+use crate::components::stage::{FilledStage, StridedStageMemory};
+use crate::components::stage::{StageConfig, StridedStageFamily};
 use crate::components::{
     AccG,
     global::read::{
         PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
-use crate::components::{AccS, LhsG, LhsS,  MatrixPrecision, RhsG, RhsS, global};
+use crate::components::{AccS, LhsG, LhsS, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -39,18 +39,18 @@ pub struct DoubleBufferingMatmul<
 }
 
 #[cube]
-impl<MP: MatmulPrecision, SMM, LL, RL, GW> global::GlobalMatmul<MP>
+impl<MP: MatmulPrecision, SMM, LL, RL, GW> GlobalMatmul<MP>
     for DoubleBufferingMatmul<MP, SMM, LL, RL, GW>
 where
     SMM: stage::StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, LL::TilingLayout>,
-            RhsStage = StridedStage<RhsS<MP>, RL::TilingLayout>,
+            LhsStage = StridedStageMemory<LhsS<MP>, LL::TilingLayout>,
+            RhsStage = StridedStageMemory<RhsS<MP>, RL::TilingLayout>,
             AccStage = FilledStage<AccS<MP>>,
             OutStage = GW::Stage,
         >,
-    LL: PartialLoadingStrategy,
-    RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
+    LL: PartialLoadingStrategy<Stage = StridedStageFamily>,
+    RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
     type Config = SharedGlobalConfig<SMM::Config>;

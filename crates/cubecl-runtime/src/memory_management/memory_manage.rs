@@ -511,7 +511,7 @@ impl<Storage: ComputeStorage> core::fmt::Display for MemoryManagement<Storage> {
             }
         }
         let memory_usage = self.memory_usage();
-        f.write_fmt(format_args!("\n## Summary\n\n{}", memory_usage))?;
+        f.write_fmt(format_args!("\n## Summary\n\n{memory_usage}"))?;
 
         Ok(())
     }

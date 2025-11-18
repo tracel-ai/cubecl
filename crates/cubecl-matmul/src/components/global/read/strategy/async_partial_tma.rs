@@ -1,8 +1,10 @@
+use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
-use crate::components::stage::StridedStage;
+use crate::components::stage::StridedStageFamily;
 use crate::components::stage::TmaTilingLayout;
+use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
 use crate::components::{
     MatrixLayout,
@@ -24,9 +26,11 @@ impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma::<R>(client)?;
+        validate_tma::<R>(client, config.smem_config, config.stage_ident, dtypes)?;
+
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -48,6 +52,8 @@ impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
 impl PartialLoadingStrategy for AsyncPartialTmaLoading {
     type TilingLayout = TmaTilingLayout;
     type SyncStrategy = AsyncTma;
+    type Stage = StridedStageFamily;
+
     type Job<EG: Numeric, ES: Numeric> = AsyncPartialTmaJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
@@ -61,12 +67,18 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
         };
+        // Swizzle renders the column format irrelevant, so we load the whole stage at once
+        // The tiling is set on launch for TMA, so no further change is needed here.
+        let num_tasks = comptime![match config.swizzle {
+            SwizzleMode::None => tile_count_col,
+            _ => 1u32,
+        }];
 
         let is_elected = RoleRule::new(role_rule_config).elect_load_leader();
 
         AsyncPartialTmaJob {
             is_elected,
-            num_tasks: tile_count_col,
+            num_tasks,
             stage_index,
         }
     }
@@ -86,11 +98,13 @@ pub struct AsyncPartialTmaJob {
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
     for AsyncPartialTmaJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, TmaTilingLayout>,
+        stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
         barrier: &mut Barrier,
         #[comptime] config: GlobalReaderConfig,
     ) {

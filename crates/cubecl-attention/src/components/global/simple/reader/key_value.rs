@@ -5,7 +5,7 @@ use cubecl_matmul::components::global::{
     memory::{GlobalIterator, ViewDirection},
     read::tiled::TiledLayout,
 };
-use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStage};
+use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStageMemory};
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
 
@@ -44,13 +44,13 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
     pub fn init_stage(
         &mut self,
         #[comptime] config: StageMemoryConfig,
-    ) -> StridedStage<ES, AttentionTilingLayout> {
-        StridedStage::new(config)
+    ) -> StridedStageMemory<ES, AttentionTilingLayout> {
+        StridedStageMemory::new(config)
     }
 
     pub fn read_global(
         &mut self,
-        stage: &mut StridedStage<ES, AttentionTilingLayout>,
+        stage: &mut StridedStageMemory<ES, AttentionTilingLayout>,
         #[comptime] config: G,
     ) {
         if UNIT_POS_Y == 0 {

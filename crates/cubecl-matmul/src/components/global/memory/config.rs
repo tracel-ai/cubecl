@@ -1,43 +1,36 @@
 use std::{fmt::Debug, hash::Hash};
 
+use crate::components::stage::SwizzleMode;
 use crate::components::{MatrixLayout, global::memory::ViewDirection};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct GlobalMemoryConfig {
-    // pub elements_in_tile_row: u32,
-    // pub elements_in_tile_col: u32,
-    // pub elements_in_stage_row: u32,
-    // pub elements_in_stage_col: u32,
     pub line_size: u32,
     pub check_row_bounds: bool,
     pub check_col_bounds: bool,
     pub matrix_layout: MatrixLayout,
     pub view_direction: ViewDirection,
+
+    pub stage_swizzle: SwizzleMode,
 }
 
 impl GlobalMemoryConfig {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        // elements_in_tile_row: u32,
-        // elements_in_tile_col: u32,
-        // elements_in_stage_row: u32,
-        // elements_in_stage_col: u32,
         line_size: u32,
         check_row_bounds: bool,
         check_col_bounds: bool,
         matrix_layout: MatrixLayout,
         view_direction: ViewDirection,
+        stage_swizzle: SwizzleMode,
     ) -> Self {
         GlobalMemoryConfig {
-            // elements_in_tile_row,
-            // elements_in_tile_col,
-            // elements_in_stage_row,
-            // elements_in_stage_col,
             line_size,
             check_row_bounds,
             check_col_bounds,
             matrix_layout,
             view_direction,
+            stage_swizzle,
         }
     }
 
@@ -47,6 +40,9 @@ impl GlobalMemoryConfig {
 
     // pub fn elements_in_tile(&self) -> u32 {
     //     self.elements_in_tile_row() * self.elements_in_tile_col()
+    // }
+    // pub fn stage_swizzle(&self) -> SwizzleMode {
+    //     self.stage_swizzle
     // }
 
     // pub fn elements_in_tile_row(&self) -> u32 {

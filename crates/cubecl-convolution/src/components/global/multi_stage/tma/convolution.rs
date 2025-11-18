@@ -12,6 +12,7 @@ use cubecl_matmul::components::{
         single_stage::simple::SimpleConfig,
     },
     stage::{StageConfig, StageMatmul, StridedStage},
+    stage::{StageMatmul, StridedStageMemory},
 };
 use cubecl_std::{
     CubeOption,
@@ -59,8 +60,8 @@ impl<MP: MatmulPrecision, SMM> GlobalConvolution<MP> for MultiStageTmaConvolutio
 where
     SMM: StageMatmul<
             MP,
-            LhsStage = StridedStage<LhsS<MP>, TmaIm2colTiling>,
-            RhsStage = StridedStage<RhsS<MP>, TmaWeightTiling>,
+            LhsStage = StridedStageMemory<LhsS<MP>, TmaIm2colTiling>,
+            RhsStage = StridedStageMemory<RhsS<MP>, TmaWeightTiling>,
             AccStage = BiasStage<AccS<MP>>,
             OutStage = PartitionedStage<AccS<MP>>,
         >,
@@ -93,8 +94,8 @@ where
         // so the stage index is comptime. This is needed to make `Sequence` work.
         let num_loops = num_loops.div_ceil(num_stages);
 
-        let lhs_elem_size = LhsS::<MP>::elem_size();
-        let rhs_elem_size = RhsS::<MP>::elem_size();
+        let lhs_elem_size = LhsS::<MP>::type_size();
+        let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes_lhs =
             comptime![config.tiling_scheme().elements_in_stage_mk() * lhs_elem_size];
         let stage_bytes_rhs =

@@ -4,11 +4,12 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::MatrixLayout;
+use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::tile::StridedTile;
 use crate::components::{InvalidConfigError, stage::StageMemoryConfig};
+use crate::components::{MatrixLayout, stage::SwizzleMode};
 
-use super::StridedStage;
+use super::StridedStageMemory;
 
 #[cube]
 /// Determines the order in which tiles are stored in shared memory,
@@ -36,6 +37,7 @@ pub trait TilingOrder: 'static + Send + Sync + Clone + Copy {
 }
 
 /// Enum for the available traits
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TilingOrderEnum {
     /// Tiles of the same row are side by side
     RowMajor,
@@ -47,6 +49,23 @@ pub enum TilingOrderEnum {
     /// If the matrix data layout is row-major, the tiling order is col-major
     /// If the matrix data layout is col-major, the tiling order is row-major
     Tma,
+}
+
+/// Enum for the available traits
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum TilingLayoutEnum {
+    Strided,
+    Contiguous(TilingOrderEnum),
+    Other,
+}
+
+/// Overall config for tiling layout
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct TilingLayoutConfig {
+    pub lhs: TilingLayoutEnum,
+    pub rhs: TilingLayoutEnum,
+    pub acc: TilingLayoutEnum,
+    pub out: TilingLayoutEnum,
 }
 
 #[derive(CubeType, Clone, Copy)]
@@ -261,10 +280,13 @@ impl TilingOrder for TmaTilingOrder {
 pub trait TilingLayout: 'static + Send + Sync + Clone + Copy + TilingValidation {
     /// Returns the tile at shared memory coordinates
     fn get_tile<ES: Numeric>(
-        stage: &StridedStage<ES, Self>,
+        stage: &StridedStageMemory<ES, Self>,
         tile: Coords2d,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES>;
+
+    /// Return the trait value as enum
+    fn to_enum() -> comptime_type!(TilingLayoutEnum);
 }
 
 pub trait TilingValidation {
@@ -278,8 +300,9 @@ pub struct ContiguousTilingLayout<T: TilingOrder> {
     tiling_order: PhantomData<T>,
 }
 
-/// TMA uses contiguous tiling, but with a special tiling order
-pub type TmaTilingLayout = ContiguousTilingLayout<TmaTilingOrder>;
+/// TMA tiling depends on the swizzle settings
+#[derive(Clone, Copy)]
+pub struct TmaTilingLayout {}
 
 #[derive(Clone, Copy)]
 /// Tiles follow a strided layout that often mirrors global memory layout.
@@ -300,7 +323,7 @@ impl<T: TilingOrder> ContiguousTilingLayout<T> {
 #[cube]
 impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
     fn get_tile<ES: Numeric>(
-        stage_memory: &StridedStage<ES, Self>,
+        stage_memory: &StridedStageMemory<ES, Self>,
         tile: Coords2d,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
@@ -309,22 +332,18 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
-        let (tile_size_x, tile_size_y, tile_slice_length) = match matrix_layout {
+        let (tile_size_x, tile_size_y) = match matrix_layout {
             MatrixLayout::RowMajor => {
                 let tile_size_x = config.elements_in_tile_row;
                 let tile_size_y = config.elements_in_tile_col / stage_line_size;
-                let stride_x = tile_size_y * config.tiles_in_stage_col;
-                let length = (tile_size_x - 1) * stride_x + tile_size_y;
 
-                (tile_size_x, tile_size_y, length)
+                (tile_size_x, tile_size_y)
             }
             MatrixLayout::ColMajor => {
                 let tile_size_x = config.elements_in_tile_row / stage_line_size;
                 let tile_size_y = config.elements_in_tile_col;
-                let stride_y = tile_size_x * config.tiles_in_stage_row;
-                let length = (tile_size_y - 1) * stride_y + tile_size_x;
 
-                (tile_size_x, tile_size_y, length)
+                (tile_size_x, tile_size_y)
             }
         };
 
@@ -337,12 +356,11 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 config,
             );
 
-        StridedTile::new_contiguous(
-            stage_memory
-                .as_slice(stage_line_size)
-                .slice(start, start + tile_slice_length),
-            config,
-        )
+        StridedTile::new_contiguous(stage_memory.as_slice(stage_line_size), start, config)
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Contiguous(TO::to_enum())]
     }
 }
 
@@ -360,7 +378,7 @@ impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
 impl StridedTilingLayout {
     /// Returns the nth slice of the stage
     pub fn nth_slice<ES: Numeric>(
-        stage: &mut StridedStage<ES, Self>,
+        stage: &mut StridedStageMemory<ES, Self>,
         nth: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> SliceMut<Line<ES>> {
@@ -382,13 +400,10 @@ impl StridedTilingLayout {
 #[cube]
 impl TilingLayout for StridedTilingLayout {
     fn get_tile<ES: Numeric>(
-        stage: &StridedStage<ES, Self>,
+        stage: &StridedStageMemory<ES, Self>,
         tile: Coords2d,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
-        if comptime!(config.num_stages > 1) {
-            unimplemented!()
-        }
         let (x, y) = tile;
 
         let stage_line_size = config.line_size;
@@ -407,8 +422,11 @@ impl TilingLayout for StridedTilingLayout {
                 let start = x * tile_size_x * stride + y * tile_size_y;
 
                 StridedTile::new_strided(
-                    stage.as_slice(stage_line_size).slice(start, start + length),
+                    stage.as_slice(stage_line_size),
+                    start,
+                    start + length,
                     stride,
+                    stage.swizzle,
                     matrix_layout,
                     stage_line_size,
                 )
@@ -422,13 +440,20 @@ impl TilingLayout for StridedTilingLayout {
                 let start = x * tile_size_x + y * tile_size_y * stride;
 
                 StridedTile::new_strided(
-                    stage.as_slice(stage_line_size).slice(start, start + length),
+                    stage.as_slice(stage_line_size),
+                    start,
+                    start + length,
                     stride,
+                    stage.swizzle,
                     matrix_layout,
                     stage_line_size,
                 )
             }
         }
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Strided]
     }
 }
 
@@ -442,6 +467,38 @@ impl TilingValidation for StridedTilingLayout {
     }
 }
 
+#[cube]
+impl TilingLayout for TmaTilingLayout {
+    fn get_tile<ES: Numeric>(
+        stage: &StridedStageMemory<ES, Self>,
+        tile: Coords2d,
+        #[comptime] config: StageMemoryConfig,
+    ) -> StridedTile<ES> {
+        match config.swizzle {
+            SwizzleMode::None => ContiguousTilingLayout::<TmaTilingOrder>::get_tile(
+                &stage.with_layout(),
+                tile,
+                config,
+            ),
+            _ => StridedTilingLayout::get_tile(&stage.with_layout(), tile, config),
+        }
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Other]
+    }
+}
+
+impl TilingValidation for TmaTilingLayout {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        match config.swizzle {
+            SwizzleMode::None => ContiguousTilingLayout::<TmaTilingOrder>::check(config)?,
+            _ => StridedTilingLayout::check(config)?,
+        };
+        Ok(())
+    }
+}
+
 #[derive(Clone, Copy)]
 /// Dummy tiling layout that panics if it's used. Can be used when the reader is known to be a
 /// `FillReader`
@@ -450,11 +507,15 @@ pub struct NoTilingLayout {}
 #[cube]
 impl TilingLayout for NoTilingLayout {
     fn get_tile<ES: Numeric>(
-        _stage: &StridedStage<ES, Self>,
+        _stage: &StridedStageMemory<ES, Self>,
         _tile: Coords2d,
         #[comptime] _config: StageMemoryConfig,
     ) -> StridedTile<ES> {
         panic!("Can't get tile of layoutless tiling!")
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Other]
     }
 }
 

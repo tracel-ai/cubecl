@@ -76,7 +76,7 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
     }
 
     let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![0.0f32; 64])); // 2 warps
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64])); // 2 warps
 
     unsafe {
         kernel_warp_sum_lanes::launch::<f32, R>(
@@ -96,10 +96,7 @@ pub fn test_warp_sum<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - expected_sum).abs() < 1e-3,
-            "Warp sum failed at position {}: got {}, expected {}",
-            i,
-            value,
-            expected_sum
+            "Warp sum failed at position {i}: got {value}, expected {expected_sum}"
         );
     }
 }
@@ -111,7 +108,7 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
     }
 
     let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![0.0f32; 64]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![0.0f32; 64]));
 
     unsafe {
         kernel_warp_max_lanes::launch::<f32, R>(
@@ -129,9 +126,7 @@ pub fn test_warp_max<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             (value - 31.0).abs() < 1e-3,
-            "Warp max failed at position {}: got {}, expected 31",
-            i,
-            value
+            "Warp max failed at position {i}: got {value}, expected 31"
         );
     }
 }
@@ -143,7 +138,7 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
     }
 
     let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&vec![999.0f32; 64]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&vec![999.0f32; 64]));
 
     unsafe {
         kernel_warp_min_lanes::launch::<f32, R>(
@@ -161,9 +156,7 @@ pub fn test_warp_min<R: Runtime>(device: &R::Device) {
     for (i, &value) in output.iter().enumerate() {
         assert!(
             value.abs() < 1e-3,
-            "Warp min failed at position {}: got {}, expected 0",
-            i,
-            value
+            "Warp min failed at position {i}: got {value}, expected 0"
         );
     }
 }
@@ -175,7 +168,7 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
     }
 
     let client = R::client(device);
-    let output_handle = client.create(f32::as_bytes(&[0.0f32; 32]));
+    let output_handle = client.create_from_slice(f32::as_bytes(&[0.0f32; 32]));
 
     unsafe {
         kernel_warp_prod::launch::<f32, R>(
@@ -199,11 +192,7 @@ pub fn test_warp_prod<R: Runtime>(device: &R::Device) {
         let rel_error = ((value - expected) / expected).abs();
         assert!(
             rel_error < 0.01, // 1% tolerance
-            "Warp prod failed at position {}: got {}, expected {}, rel_error={}",
-            i,
-            value,
-            expected,
-            rel_error
+            "Warp prod failed at position {i}: got {value}, expected {expected}, rel_error={rel_error}"
         );
     }
 }
@@ -218,8 +207,8 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
 
     // Create a 32x32 matrix where matrix[i][j] = i * 32 + j
     let input_data: Vec<f32> = (0..1024).map(|x| x as f32).collect();
-    let input_handle = client.create(f32::as_bytes(&input_data));
-    let output_handle = client.create(f32::as_bytes(&[0.0f32; 32]));
+    let input_handle = client.create_from_slice(f32::as_bytes(&input_data));
+    let output_handle = client.create_from_slice(f32::as_bytes(&[0.0f32; 32]));
 
     unsafe {
         kernel_matrix_row_reduce::launch::<f32, R>(
@@ -239,10 +228,7 @@ pub fn test_matrix_row_reduce<R: Runtime>(device: &R::Device) {
         let expected = (row as f32) * 32.0 * 32.0 + 496.0;
         assert!(
             (value - expected).abs() < 1e-2,
-            "Matrix row reduce failed at row {}: got {}, expected {}",
-            row,
-            value,
-            expected
+            "Matrix row reduce failed at row {row}: got {value}, expected {expected}"
         );
     }
 }

@@ -691,9 +691,9 @@ unsigned int leader = __ffs(mask) - 1;
 #[derive(Debug, Clone, Copy, new)]
 pub struct ManualMma<'a, D: Dialect> {
     pub shape: MmaShape<D>,
-    pub frag_a: &'a [Variable<D>],
-    pub frag_b: &'a [Variable<D>],
-    pub frag_c: &'a [Variable<D>],
+    pub frag_a: &'a Variable<D>,
+    pub frag_b: &'a Variable<D>,
+    pub frag_c: &'a Variable<D>,
     pub frag_d: &'a Variable<D>,
 }
 

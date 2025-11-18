@@ -28,7 +28,7 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::
 
     let len = 4096;
     let input: Vec<u32> = (0..len as u32).collect();
-    let mut input = client_1.create(u32::as_bytes(&input));
+    let mut input = client_1.create_from_slice(u32::as_bytes(&input));
     let mut output = None;
 
     for _ in 0..300 {

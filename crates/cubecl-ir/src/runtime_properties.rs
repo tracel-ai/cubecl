@@ -1,4 +1,4 @@
-use crate::{MatrixLayout, TypeHash};
+use crate::{Matrix, MatrixIdent, MatrixLayout, TypeHash};
 
 /// Hacky solution for getting comptime properties into the scope.
 /// Allows querying certain target-specific properties at compile time, rather than at runtime.
@@ -29,6 +29,52 @@ pub struct MmaProperties {
     pub register_duplication_b: u32,
     /// How many copies of each piece of data exist for matrix C/D
     pub register_duplication_acc: u32,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub contiguous_elements: ContiguousElements,
+}
+
+#[derive(Clone)]
+pub struct ContiguousElements {
+    inner: alloc::rc::Rc<dyn Fn(MatrixIdent, Matrix) -> u32>,
+}
+
+impl ContiguousElements {
+    pub fn new(func: impl Fn(MatrixIdent, Matrix) -> u32 + 'static) -> Self {
+        Self {
+            inner: alloc::rc::Rc::new(func),
+        }
+    }
+
+    pub fn apply(&self, ident: MatrixIdent, matrix: Matrix) -> u32 {
+        (self.inner)(ident, matrix)
+    }
+}
+
+impl Default for ContiguousElements {
+    fn default() -> Self {
+        Self {
+            inner: alloc::rc::Rc::new(|_, _| 2),
+        }
+    }
+}
+
+impl core::fmt::Debug for ContiguousElements {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ContiguousElements").finish()
+    }
+}
+
+impl Eq for ContiguousElements {}
+impl PartialEq for ContiguousElements {
+    fn eq(&self, other: &Self) -> bool {
+        alloc::rc::Rc::ptr_eq(&self.inner, &other.inner)
+    }
+}
+
+impl TypeHash for ContiguousElements {
+    fn write_hash(hasher: &mut impl core::hash::Hasher) {
+        hasher.write_i32(0);
+    }
 }
 
 impl Default for MmaProperties {
@@ -42,6 +88,7 @@ impl Default for MmaProperties {
             register_duplication_a: 1,
             register_duplication_b: 1,
             register_duplication_acc: 1,
+            contiguous_elements: Default::default(),
         }
     }
 }

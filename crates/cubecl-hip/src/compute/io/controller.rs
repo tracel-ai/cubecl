@@ -1,5 +1,5 @@
 use crate::compute::storage::cpu::{PINNED_MEMORY_ALIGNMENT, PinnedMemoryResource};
-use cubecl_common::bytes::AllocationController;
+use cubecl_common::bytes::{AllocationController, AllocationProperty};
 use cubecl_runtime::memory_management::SliceBinding;
 
 /// Controller for managing pinned (page-locked) host memory allocations.
@@ -35,6 +35,10 @@ impl PinnedMemoryManagedAllocController {
 impl AllocationController for PinnedMemoryManagedAllocController {
     fn alloc_align(&self) -> usize {
         PINNED_MEMORY_ALIGNMENT
+    }
+
+    fn property(&self) -> AllocationProperty {
+        AllocationProperty::Pinned
     }
 
     unsafe fn memory_mut(&mut self) -> &mut [std::mem::MaybeUninit<u8>] {

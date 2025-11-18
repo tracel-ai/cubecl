@@ -43,16 +43,15 @@ where
         let tile_config = SharedTileConfig::new(
             selection.tiling_scheme.tile_size,
             selection.plane_dim,
-            // problem.lhs_layout,
-            // problem.rhs_layout,
-            // matmul_line_sizes.lhs as u32,
-            // matmul_line_sizes.rhs as u32,
-            // matmul_line_sizes.out as u32,
-            // matmul_line_sizes.lhs as u32,
-            // matmul_line_sizes.rhs as u32,
+            selection.shared_swizzle,
         );
 
         validate::<R>(tile_config, client, dtypes)
+    }
+
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+        // Unsupported
+        false
     }
 
     fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {

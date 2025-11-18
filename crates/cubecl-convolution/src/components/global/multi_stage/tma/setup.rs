@@ -2,14 +2,17 @@ use std::marker::PhantomData;
 
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
-    AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
-    MatmulSetupError,
+    AvailableLineSizes, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision,
+    MatmulSelection, MatmulSetupError, StageIdent,
     global::{
         PartitionedStageFamily, WriteTiling,
         read::{NoLoadingValidation, validate_async_barrier, validate_tma},
         single_stage::simple::SimpleConfig,
     },
-    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
+    stage::{
+        StageConfig as _, StageMatmulFamily, StridedStageFamily, TilingLayout, TilingLayoutConfig,
+        TilingLayoutEnum,
+    },
 };
 
 use crate::{
@@ -58,7 +61,6 @@ where
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
-        validate_tma::<R>(client)?;
         validate_async_barrier::<R>(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
@@ -66,15 +68,35 @@ where
         assert!(line_sizes.lhs == 1);
         assert!(line_sizes.rhs == 1);
 
+        let tiling_layout = TilingLayoutConfig {
+            lhs: TmaIm2colTiling::to_enum(),
+            rhs: TmaWeightTiling::to_enum(),
+            acc: TilingLayoutEnum::Other,
+            out: WriteTiling::to_enum(),
+        };
         let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
             line_sizes,
+            tiling_layout,
             // Not the same as num_stages
             (1, 1).into(),
             None,
             false,
+            dtypes,
+        )?;
+
+        validate_tma::<R>(
+            client,
+            stage_config.stage_memory_config(StageIdent::Lhs),
+            MatmulIdent::Lhs,
+            dtypes,
+        )?;
+        validate_tma::<R>(
+            client,
+            stage_config.stage_memory_config(StageIdent::Rhs),
+            MatmulIdent::Rhs,
             dtypes,
         )?;
 
@@ -93,13 +115,13 @@ where
                 client,
                 stage_config,
                 stage_config.num_main_flow_planes(),
-                // TODO: Find the correct condition to avoid check bounds.
                 true,
                 true,
                 true,
                 stage_k,
                 selection.loading_precompute_strategy,
                 selection.reader_mode,
+                dtypes,
             )?,
             &problem.kernel_size,
             &problem.stride,

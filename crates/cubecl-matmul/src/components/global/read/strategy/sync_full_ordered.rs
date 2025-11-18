@@ -1,5 +1,7 @@
+use crate::components::MatmulElems;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::FullLoadingStrategy;
+use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::ContiguousTilingLayout;
 use crate::components::stage::OrderedTilingOrder;
@@ -27,6 +29,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if config.stage_ident != StageIdent::Lhs {
             return Err(FormattedConfigError::new(move || {
@@ -70,6 +73,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
+        validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         ContiguousTilingLayout::<OrderedTilingOrder>::check(config.smem_config)?;
 
         Ok(())

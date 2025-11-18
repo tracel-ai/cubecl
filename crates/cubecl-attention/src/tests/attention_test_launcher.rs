@@ -164,8 +164,9 @@ where
     let original_data = data.to_owned();
     let data_bytes = T::as_bytes(&original_data);
     let shape = tensor_shape.as_slice();
-    let elem_size = T::elem_size() as usize;
-    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
+    let elem_size = T::type_size() as usize;
+    let Allocation { handle, strides } =
+        client.create_tensor_from_slice(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,
@@ -184,8 +185,9 @@ fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
     let tensor_shape = problem.shape(AttentionIdent::Out);
     let data_bytes = P::EG::as_bytes(&data);
     let shape = tensor_shape.as_slice();
-    let elem_size = P::EG::elem_size() as usize;
-    let Allocation { handle, strides } = client.create_tensor(data_bytes, shape, elem_size);
+    let elem_size = P::EG::type_size() as usize;
+    let Allocation { handle, strides } =
+        client.create_tensor_from_slice(data_bytes, shape, elem_size);
 
     TensorRawParts {
         handle,

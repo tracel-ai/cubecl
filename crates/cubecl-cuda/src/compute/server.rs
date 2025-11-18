@@ -62,6 +62,15 @@ impl ComputeServer for CudaServer {
         self.streams.logger.clone()
     }
 
+    fn staging(&mut self, sizes: &[usize], stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        let mut command = self.command_no_inputs(stream_id);
+
+        Ok(sizes
+            .iter()
+            .map(|size| command.reserve_cpu(*size, true, None))
+            .collect())
+    }
+
     fn utilities(&self) -> Arc<ServerUtilities<Self>> {
         self.utilities.clone()
     }
@@ -128,7 +137,7 @@ impl ComputeServer for CudaServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         let mut command = self.command(stream_id, descriptors.iter().map(|desc| &desc.0.binding));
@@ -619,7 +628,7 @@ impl CudaServer {
         let stream_dst = command_dst.streams.current().sys;
 
         fence_src.wait_async(stream_dst);
-        command_dst.write_to_gpu(copy_desc, &bytes)?;
+        command_dst.write_to_gpu(copy_desc, bytes)?;
 
         // We drop the last command.
         core::mem::drop(command_dst);
@@ -825,15 +834,15 @@ fn check_tma_tiled(map: &TensorMapMeta, tile_size: &[u32]) {
     );
     let tile_size_0_bytes = tile_size[0] as usize * map.storage_ty.size();
     if matches!(map.interleave, TensorMapInterleave::None) {
-        let align = match map.swizzle {
-            TensorMapSwizzle::None => 16,
+        let max_tile_bytes = match map.swizzle {
+            TensorMapSwizzle::None => usize::MAX,
             TensorMapSwizzle::B32 => 32,
             TensorMapSwizzle::B64 => 64,
             TensorMapSwizzle::B128 => 128,
         };
         assert!(
-            tile_size_0_bytes.is_multiple_of(align),
-            "Innermost tile dimension must be aligned to swizzle size"
+            tile_size_0_bytes <= max_tile_bytes,
+            "Innermost tile dim must be <= swizzle size"
         );
     }
     if matches!(map.interleave, TensorMapInterleave::B32) {

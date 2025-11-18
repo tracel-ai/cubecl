@@ -12,7 +12,45 @@ pub struct StageMemoryConfig {
     pub tiles_in_stage_col: u32,
     pub line_size: u32,
     pub matrix_layout: MatrixLayout,
+    pub swizzle: SwizzleMode,
     pub num_stages: u32,
+}
+
+/// Swizzling mode of the shared memory. Default `None`.
+/// Matches the base TMA functionality, alternative chunk sizes or more complex patterns don't really
+/// apply to matmul.
+#[derive(Default, Hash, PartialEq, Eq, Clone, Debug, Copy)]
+pub enum SwizzleMode {
+    /// No swizzling
+    #[default]
+    None,
+    /// Swizzle 16B chunks within 32B span
+    /// Swizzle<1,4,3>
+    B32,
+    /// Swizzle 16B chunks within 64B span
+    /// Swizzle<2,4,3>
+    B64,
+    /// Swizzle 16B chunks within 128B span
+    /// Swizzle<3,4,3>
+    B128,
+}
+
+impl SwizzleMode {
+    pub fn atom_size(&self) -> usize {
+        match self {
+            SwizzleMode::None => usize::MAX,
+            SwizzleMode::B32 | SwizzleMode::B64 | SwizzleMode::B128 => 16,
+        }
+    }
+
+    pub fn span_size(&self) -> usize {
+        match self {
+            SwizzleMode::None => 1,
+            SwizzleMode::B32 => 32,
+            SwizzleMode::B64 => 64,
+            SwizzleMode::B128 => 128,
+        }
+    }
 }
 
 impl StageMemoryConfig {

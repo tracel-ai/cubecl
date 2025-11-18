@@ -17,7 +17,7 @@ fn tensormap_load<F: Float>(input: &TensorMap<F>, output: &mut Array<Line<F>>) {
     let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(32u32 * 16, 1u32, 128u32);
 
-    let expected = select(UNIT_POS == 0, 32 * 16 * F::elem_size(), 0);
+    let expected = select(UNIT_POS == 0, 32 * 16 * F::type_size(), 0);
     if UNIT_POS == 0 {
         barrier.tma_load_2d(input, &mut stage.to_slice_mut(), 0, 8);
     }
@@ -62,7 +62,7 @@ fn tensormap_im2col_load<F: Float>(
     let barrier = Barrier::new_with_async_proxy_fence(BarrierLevel::cube_full(UNIT_POS == 0));
     let mut stage = SharedMemory::<F>::new_aligned(tile_k * tile_width, 1u32, 128u32);
 
-    let expected = select(UNIT_POS == 0, tile_width * tile_k * F::elem_size(), 0);
+    let expected = select(UNIT_POS == 0, tile_width * tile_k * F::type_size(), 0);
     if UNIT_POS == 0 {
         #[unroll]
         for kernel_y in 0..kernel_h {
@@ -116,7 +116,7 @@ where
     let values = (0..64 * 64).map(|it| F::from_int(it)).collect::<Vec<_>>();
     let shape = vec![64, 64];
     let Allocation { handle, strides } =
-        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out = client.empty(16 * 32 * size_of::<F>());
 
@@ -154,9 +154,9 @@ where
     }
 
     let values = (0..32 * 16).map(|it| F::from_int(it)).collect::<Vec<_>>();
-    let handle = client.create(F::as_bytes(&values));
+    let handle = client.create_from_slice(F::as_bytes(&values));
     let out_shape = &[64, 64];
-    let out = client.create_tensor(
+    let out = client.create_tensor_from_slice(
         &vec![0u8; 64 * 64 * size_of::<F>()],
         out_shape,
         size_of::<F>(),
@@ -232,7 +232,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
         .collect::<Vec<_>>();
     let shape = [n, h, w, c];
     let Allocation { handle, strides } =
-        client.create_tensor(F::as_bytes(&values), &shape, size_of::<F>());
+        client.create_tensor_from_slice(F::as_bytes(&values), &shape, size_of::<F>());
     let input = unsafe { TensorArg::from_raw_parts::<F>(&handle, &strides, &shape, 1) };
     let out_shape = [tile_k, tile_m];
     let out_strides = [tile_m, 1];

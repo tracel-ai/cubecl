@@ -5,7 +5,7 @@ use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmet
 use crate::{
     Dialect,
     cuda::{
-        extension::{Fragment, MmaExecute, MmaExecuteScaled, MmaExtension},
+        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension},
         processors::CudaMmaProcessor,
         ptx::*,
     },
@@ -115,9 +115,9 @@ alignas(64) unsigned long long int opaque[16];
             } => {
                 let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
                     *shape,
-                    vars_to_frag(frag_a),
-                    vars_to_frag(frag_b),
-                    vars_to_frag(frag_c),
+                    Fragment(frag_a.elem()),
+                    Fragment(frag_b.elem()),
+                    Fragment(frag_c.elem()),
                     Fragment(frag_d.elem()),
                 )));
                 if !extensions.contains(&ext) {
@@ -136,9 +136,9 @@ alignas(64) unsigned long long int opaque[16];
             } => {
                 let ext = Extension::Mma(MmaExtension::ExecuteScaled(MmaExecuteScaled::new(
                     *shape,
-                    vars_to_frag(frag_a),
-                    vars_to_frag(frag_b),
-                    vars_to_frag(frag_c),
+                    Fragment(frag_a.elem()),
+                    Fragment(frag_b.elem()),
+                    Fragment(frag_c.elem()),
                     Fragment(frag_d.elem()),
                     scales_a.elem(),
                     *scales_factor,
@@ -147,14 +147,24 @@ alignas(64) unsigned long long int opaque[16];
                     extensions.push(ext);
                 }
             }
+            shared::WmmaInstruction::LdMatrix {
+                output,
+                factor,
+                transpose,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::LdMatrix(LdMatrix::new(
+                    output.elem(),
+                    *factor,
+                    *transpose,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
             _ => {}
         }
     }
-}
-
-fn vars_to_frag<D: Dialect>(vars: &[Variable<D>]) -> Fragment<D> {
-    let elem = vars[0].elem();
-    Fragment(elem)
 }
 
 // Types

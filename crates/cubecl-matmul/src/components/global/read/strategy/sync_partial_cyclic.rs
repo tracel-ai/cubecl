@@ -1,13 +1,18 @@
 use std::marker::PhantomData;
 
+use crate::components::MatmulElems;
+use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{PartialLoadingStrategy, tiled::TiledLayout};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
-use crate::components::stage::{ContiguousTilingLayout, StridedStage, TilingOrder};
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::StridedStageMemory;
+use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
 use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_std::type_size;
 
 use super::{LoadingJob, LoadingValidation, ReaderMode};
 
@@ -23,6 +28,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     fn check<R: Runtime>(
         _client: &ComputeClient<R::Server>,
         config: &GlobalReaderConfig,
+        dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
             let line_size = config.gmem_config.line_size;
@@ -47,6 +53,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             }
         }
 
+        validate_swizzle_atom_size(config.smem_config, config.stage_ident, dtypes)?;
         ContiguousTilingLayout::<TO>::check(config.smem_config)?;
 
         Ok(())
@@ -71,6 +78,8 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
 impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
     type TilingLayout = ContiguousTilingLayout<TO>;
     type SyncStrategy = Synchronous;
+    type Stage = StridedStageFamily;
+
     type Job<EG: Numeric, ES: Numeric> = SyncPartialCyclicJob;
 
     fn new_job<EG: Numeric, ES: Numeric>(
@@ -135,11 +144,13 @@ pub struct SyncPartialCyclicJob {
 impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
     LoadingJob<EG, ES, ContiguousTilingLayout<TO>, Synchronous> for SyncPartialCyclicJob
 {
+    type Stage = StridedStageFamily;
+
     fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
-        stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+        stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         _barrier: &mut (),
         #[comptime] config: GlobalReaderConfig,
     ) {
@@ -172,7 +183,7 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     job: &SyncPartialCyclicJob,
     unit_position: u32,
     global_iter: &GlobalIterator<Line<EG>>,
-    stage: &mut StridedStage<ES, ContiguousTilingLayout<TO>>,
+    stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
     #[comptime] config: GlobalReaderConfig,
 ) {
     let layout = TiledLayout::new(comptime!(config.smem_config));
@@ -212,10 +223,10 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     let line_read = view.read_checked((tile, pos_within_tile));
 
     let tile_start = tile_index * job.num_lines_per_tile;
-    let tile_end = tile_start + job.num_lines_per_tile;
-    let mut tile_slice = stage
-        .as_slice_mut(line_size)
-        .slice_mut(tile_start, tile_end);
+    let mut tile_slice = stage.as_slice_mut(line_size);
+    let offset = tile_start + pos_within_tile / line_size;
+    let type_size = type_size::<ES>(line_size);
+    let offset = stage.swizzle.apply(offset, type_size);
 
-    tile_slice[pos_within_tile / line_size] = Line::cast_from(line_read);
+    tile_slice[offset] = Line::cast_from(line_read);
 }

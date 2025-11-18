@@ -1,6 +1,7 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::components::StageIdent;
 use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::ReaderMode;
@@ -8,10 +9,14 @@ use crate::components::global::{
     GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig,
     SpecializedLoadingSides,
 };
+use crate::components::stage::SwizzleMode;
+use crate::components::stage::TilingLayoutEnum;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
 use crate::components::{AccG, error::MatmulSetupError};
-use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem, StageIdent};
-use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
+use crate::components::{
+    AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
+};
+use crate::components::{LhsG, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
 use cubecl_std::{
     CubeOption,
     tensor::{View, layout::Coords2d},
@@ -188,6 +193,10 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
     fn writer_config(&self) -> GlobalWriterConfig {
         self.writer_config
     }
+
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode {
+        todo!()
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -201,6 +210,8 @@ pub trait GlobalConfig:
     fn lhs_reader_config(&self) -> GlobalReaderConfig;
     fn rhs_reader_config(&self) -> GlobalReaderConfig;
     fn writer_config(&self) -> GlobalWriterConfig;
+    /// Returns the [SwizzleMode] for the given ident
+    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
     fn cube_dim(&self) -> CubeDim;
     fn global_line_sizes(&self) -> MatmulLineSizes;
 

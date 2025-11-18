@@ -167,10 +167,22 @@ pub enum Instruction<D: Dialect> {
     FastLog(UnaryInstruction<D>),
     Log1p(UnaryInstruction<D>),
     Cos(UnaryInstruction<D>),
-    FastCos(UnaryInstruction<D>),
     Sin(UnaryInstruction<D>),
-    FastSin(UnaryInstruction<D>),
+    Tan(UnaryInstruction<D>),
     Tanh(UnaryInstruction<D>),
+    Sinh(UnaryInstruction<D>),
+    Cosh(UnaryInstruction<D>),
+    ArcCos(UnaryInstruction<D>),
+    ArcSin(UnaryInstruction<D>),
+    ArcTan(UnaryInstruction<D>),
+    ArcSinh(UnaryInstruction<D>),
+    ArcCosh(UnaryInstruction<D>),
+    ArcTanh(UnaryInstruction<D>),
+    Degrees(UnaryInstruction<D>),
+    Radians(UnaryInstruction<D>),
+    ArcTan2(BinaryInstruction<D>),
+    FastSin(UnaryInstruction<D>),
+    FastCos(UnaryInstruction<D>),
     FastTanh(UnaryInstruction<D>),
     Powf(BinaryInstruction<D>),
     FastPowf(BinaryInstruction<D>),
@@ -534,8 +546,20 @@ for ({i_ty} {i} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Cos(it) => Cos::format(f, &it.input, &it.out),
             Instruction::FastCos(it) => FastCos::format(f, &it.input, &it.out),
             Instruction::Sin(it) => Sin::format(f, &it.input, &it.out),
-            Instruction::FastSin(it) => FastSin::format(f, &it.input, &it.out),
+            Instruction::Tan(it) => Tan::format(f, &it.input, &it.out),
             Instruction::Tanh(it) => Tanh::format(f, &it.input, &it.out),
+            Instruction::Sinh(it) => Sinh::format(f, &it.input, &it.out),
+            Instruction::Cosh(it) => Cosh::format(f, &it.input, &it.out),
+            Instruction::ArcCos(it) => ArcCos::format(f, &it.input, &it.out),
+            Instruction::ArcSin(it) => ArcSin::format(f, &it.input, &it.out),
+            Instruction::ArcTan(it) => ArcTan::format(f, &it.input, &it.out),
+            Instruction::ArcSinh(it) => ArcSinh::format(f, &it.input, &it.out),
+            Instruction::ArcCosh(it) => ArcCosh::format(f, &it.input, &it.out),
+            Instruction::ArcTanh(it) => ArcTanh::format(f, &it.input, &it.out),
+            Instruction::Degrees(it) => Degrees::format(f, &it.input, &it.out),
+            Instruction::Radians(it) => Radians::format(f, &it.input, &it.out),
+            Instruction::ArcTan2(it) => ArcTan2::format(f, &it.lhs, &it.rhs, &it.out),
+            Instruction::FastSin(it) => FastSin::format(f, &it.input, &it.out),
             Instruction::FastTanh(it) => FastTanh::format(f, &it.input, &it.out),
             Instruction::Powf(it) => Powf::format(f, &it.lhs, &it.rhs, &it.out),
             Instruction::FastPowf(it) => FastPowf::format(f, &it.lhs, &it.rhs, &it.out),
@@ -880,11 +904,24 @@ impl<D: Dialect> Remainder<D> {
             format!("{prefix}floor")
         };
 
+        let is_int = matches!(
+            out.elem(),
+            Elem::I8 | Elem::I16 | Elem::I32 | Elem::U8 | Elem::U16 | Elem::U32 | Elem::U64
+        );
+        let rem_expr = |lhs, rhs, floor| {
+            if is_int {
+                format!("{lhs} - {rhs} * {floor}((float){lhs} / (float){rhs})")
+            } else {
+                format!("{lhs} - {rhs} * {floor}({lhs} / {rhs})")
+            }
+        };
+
         if out.item().vectorization == 1 {
             let floor = floor(out.elem());
 
             let out = out.fmt_left();
-            return writeln!(f, "{out} = {lhs} - {rhs} * {floor}({lhs} / {rhs});");
+            let rem = rem_expr(lhs.to_string(), rhs.to_string(), &floor);
+            return writeln!(f, "{out} = {rem};");
         }
 
         let optimized = Variable::optimized_args([*lhs, *rhs, *out]);
@@ -908,7 +945,8 @@ impl<D: Dialect> Remainder<D> {
                     let lhsi = lhs.index(i);
                     let rhsi = rhs.index(i);
 
-                    writeln!(f, "{lhsi} - {rhsi} * {floor}({lhsi} / {rhsi})")?;
+                    let rem = rem_expr(lhsi.to_string(), rhsi.to_string(), &floor);
+                    writeln!(f, "{rem}")?;
                     f.write_str(", ")?;
                 }
 

@@ -43,7 +43,11 @@ where
         dtypes: &MatmulElems,
     ) -> Result<PlaneVecMatInnerProductConfig, MatmulSetupError> {
         let tile_config = PlaneVecMatInnerProductConfig::new(
-            SharedTileConfig::new(selection.tiling_scheme.tile_size, selection.plane_dim),
+            SharedTileConfig::new(
+                selection.tiling_scheme.tile_size,
+                selection.plane_dim,
+                selection.shared_swizzle,
+            ),
             matmul_line_sizes.lhs as u32,
         );
 
@@ -55,6 +59,12 @@ where
             client,
             dtypes,
         )
+    }
+
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+        // Supported but need to find good settings for this tiling. Currently tuned for `ldmatrix`.
+        // Need to profile at some point
+        false
     }
 }
 

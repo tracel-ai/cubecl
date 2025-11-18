@@ -80,7 +80,7 @@ impl<
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
             client, problem, plane_dim, dtypes,
-        ))
+        )?)
     }
 }
 

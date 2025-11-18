@@ -105,7 +105,7 @@ pub enum PartialReadingStrategy {
     Tma,
 }
 
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 /// Which tile matmul to use for accelerated algorithms
 pub enum AcceleratedTileKind {
     #[default]
@@ -121,7 +121,7 @@ macro_rules! with_tile_kind {
                 ($launch)()
             }
             AcceleratedTileKind::Mma => {
-                type $T = MmaMatmul<Filled>;
+                type $T = MmaMatmul;
                 ($launch)()
             }
         }
