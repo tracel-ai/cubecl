@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_std::tensor::layout::Coords2d;
 
-use crate::components::global::memory::GlobalMemoryConfig;
 use crate::components::tile::StridedTile;
 use crate::components::{InvalidConfigError, stage::StageMemoryConfig};
 use crate::components::{MatrixLayout, stage::SwizzleMode};

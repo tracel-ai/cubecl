@@ -6,9 +6,7 @@ use crate::components::global::{
     SharedGlobalConfig, cube_dim_validation,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
-use crate::components::stage::TilingLayout;
 use crate::components::stage::{StageConfig, StageMemoryConfig};
-use crate::components::stage::{TilingLayoutConfig, TilingLayoutEnum};
 use crate::components::{
     MatmulElems,
     global::{GlobalWriterFamily, multi_stage::double_buffering::DoubleBufferingMatmul},
@@ -73,18 +71,17 @@ where
                 )
             });
 
-        let tiling_layout = TilingLayoutConfig {
-            lhs: LL::TilingLayout::to_enum(),
-            rhs: RL::TilingLayout::to_enum(),
-            acc: TilingLayoutEnum::Other,
-            out: WriteTiling::to_enum(),
-        };
+        // let tiling_layout = TilingLayoutConfig {
+        //     lhs: LL::TilingLayout::to_enum(),
+        //     rhs: RL::TilingLayout::to_enum(),
+        //     acc: TilingLayoutEnum::Other,
+        //     out: WriteTiling::to_enum(),
+        // };
         let stage_config = SMM::setup::<R>(
             client,
             problem,
             selection,
             line_sizes,
-            tiling_layout,
             (2, 2).into(),
             max_global_readers,
             false,
@@ -118,7 +115,7 @@ where
             check_col_bounds: check_k_bounds,
             matrix_layout: problem.lhs_layout,
             view_direction: ViewDirection::Col,
-            stage_swizzle: todo!(),
+            stage_swizzle: selection.shared_swizzle.lhs,
         };
 
         let rhs_gmem_config = GlobalMemoryConfig {
@@ -127,7 +124,7 @@ where
             check_col_bounds: check_n_bounds,
             matrix_layout: problem.rhs_layout,
             view_direction: ViewDirection::Row,
-            stage_swizzle: todo!(),
+            stage_swizzle: selection.shared_swizzle.rhs,
         };
 
         let out_gmem_config = GlobalMemoryConfig {
@@ -136,7 +133,7 @@ where
             check_row_bounds: check_m_bounds,
             check_col_bounds: check_n_bounds,
             view_direction: ViewDirection::None,
-            stage_swizzle: todo!(),
+            stage_swizzle: selection.shared_swizzle.out,
         };
 
         let lhs_smem_config = StageMemoryConfig {
@@ -148,7 +145,7 @@ where
             line_size: line_sizes.lhs as u32,
             matrix_layout: problem.lhs_layout,
             num_stages,
-            swizzle: todo!(),
+            swizzle: selection.shared_swizzle.lhs,
         };
 
         let rhs_smem_config = StageMemoryConfig {
@@ -160,7 +157,7 @@ where
             line_size: line_sizes.rhs as u32,
             matrix_layout: problem.rhs_layout,
             num_stages,
-            swizzle: todo!(),
+            swizzle: selection.shared_swizzle.rhs,
         };
 
         let out_smem_config = StageMemoryConfig {
@@ -172,7 +169,7 @@ where
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             num_stages,
-            swizzle: todo!(),
+            swizzle: selection.shared_swizzle.out,
         };
 
         let lhs_reader_config = GlobalReaderConfig {

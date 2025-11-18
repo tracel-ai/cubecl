@@ -11,6 +11,7 @@ pub struct GlobalMemoryConfig {
     pub matrix_layout: MatrixLayout,
     pub view_direction: ViewDirection,
 
+    // TODO rm
     pub stage_swizzle: SwizzleMode,
 }
 
