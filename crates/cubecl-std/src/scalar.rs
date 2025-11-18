@@ -25,6 +25,41 @@ pub enum InputScalar {
     U8(u8),
 }
 
+impl InputScalar {
+    /// Creates an [InputScalar] from the given element and dtype.
+    ///
+    /// # Panics
+    ///
+    /// If the given numeric element can't be transformed into the passed [ElemType].
+    pub fn new<E: Numeric>(val: E, dtype: impl Into<ElemType>) -> Self {
+        let dtype: ElemType = dtype.into();
+        match dtype {
+            ElemType::Float(float_kind) => match float_kind {
+                FloatKind::F16 => Self::F16(half::f16::from_f32(val.to_f32().unwrap())),
+                FloatKind::BF16 => Self::BF16(half::bf16::from_f32(val.to_f32().unwrap())),
+                FloatKind::Flex32 | FloatKind::F32 | FloatKind::TF32 => {
+                    Self::F32(val.to_f32().unwrap())
+                }
+                FloatKind::F64 => Self::F64(val.to_f64().unwrap()),
+                _ => panic!("Unsupported float element type"),
+            },
+            ElemType::Int(int_kind) => match int_kind {
+                IntKind::I8 => Self::I8(val.to_i8().unwrap()),
+                IntKind::I16 => Self::I16(val.to_i16().unwrap()),
+                IntKind::I32 => Self::I32(val.to_i32().unwrap()),
+                IntKind::I64 => Self::I64(val.to_i64().unwrap()),
+            },
+            ElemType::UInt(uint_kind) => match uint_kind {
+                UIntKind::U8 => Self::U8(val.to_u8().unwrap()),
+                UIntKind::U16 => Self::U16(val.to_u16().unwrap()),
+                UIntKind::U32 => Self::U32(val.to_u32().unwrap()),
+                UIntKind::U64 => Self::U64(val.to_u64().unwrap()),
+            },
+            ElemType::Bool => panic!("Bool isn't a scalar"),
+        }
+    }
+}
+
 #[cube]
 impl InputScalar {
     /// Reads the scalar with the given element type.
