@@ -7,7 +7,6 @@ use crate::components::MatrixPrecision;
 use crate::components::RhsS;
 use crate::components::TilingScheme;
 use crate::components::error::MatmulSetupError;
-use crate::components::global::GlobalReaderConfig;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;

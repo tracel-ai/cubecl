@@ -12,7 +12,7 @@ use crate::components::{
         read::{FullLoadingStrategy, PartialLoadingStrategy, sync::Synchronous},
     },
 };
-use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection, MatrixLayout, StageIdent};
+use crate::components::{MatmulLineSizes, MatmulSelection, MatrixLayout, StageIdent};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{
     TilingScheme,

@@ -12,7 +12,7 @@ use cubecl_std::{
 use crate::{
     MatmulInputHandleRef,
     components::{
-        self, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSelection,
+        self, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
         batch::BatchConfig,
         global::{
             GlobalConfig,
@@ -233,8 +233,11 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let config = config.global_config();
-        let layout =
-            GlobalLayoutLaunch::from_handle(out, line_sizes.out, config.writer_config().gmem_config.into());
+        let layout = GlobalLayoutLaunch::from_handle(
+            out,
+            line_sizes.out,
+            config.writer_config().gmem_config.into(),
+        );
         let batch = BatchLayoutLaunch::from_handle(client, out, problem);
         let view = ViewArg::new::<GlobalLayout>(out.as_array_arg(line_sizes.out), layout);
         TensorOutputLaunch::new(view, VirtualLayoutLaunch::new::<BatchLayout>(batch))

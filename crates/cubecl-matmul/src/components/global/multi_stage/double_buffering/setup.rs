@@ -1,9 +1,9 @@
 use crate::components::global::memory::{GlobalMemoryConfig, ViewDirection};
 use crate::components::global::multi_stage::EventLoadingMode;
-use crate::components::global::read::{LoadingValidation, ReaderMode};
+use crate::components::global::read::LoadingValidation;
 use crate::components::global::{
     GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, SharedGlobalConfig,
-    SpecializationTensorConfig, cube_dim_validation,
+    cube_dim_validation,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
 use crate::components::stage::{StageConfig, StageMemoryConfig};
@@ -11,7 +11,7 @@ use crate::components::{
     MatmulElems,
     global::{GlobalWriterFamily, multi_stage::double_buffering::DoubleBufferingMatmul},
 };
-use crate::components::{MatmulIdent, MatmulLineSizes, MatmulSelection, MatrixLayout, StageIdent};
+use crate::components::{MatmulLineSizes, MatmulSelection, MatrixLayout, StageIdent};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
 use crate::components::{error::MatmulSetupError, stage::StridedStageFamily};
 use crate::components::{global::GlobalMatmulFamily, stage::FilledStageFamily};
@@ -194,44 +194,6 @@ where
             rhs_reader_config,
             writer_config,
         };
-
-        // let config = SharedGlobalConfig {
-        //     stage_config,
-        //     num_planes,
-        //     lhs_reader_config: GlobalReaderConfig {
-        //         gmem_config: todo!(),
-        //         smem_config: todo!(),
-        //         precompute_job: selection.loading_precompute_strategy.into(),
-        //         plane_dim: todo!(),
-        //         plane_role_config: todo!(),
-        //         reader_mode: todo!(),
-        //         stage_ident: todo!(),
-        //         event_loading_mode: todo!(),
-        //         specialization_tensor_config: todo!(),
-        //     },
-        //     rhs_reader_config: GlobalReaderConfig {
-        //         gmem_config: todo!(),
-        //         smem_config: todo!(),
-        //         precompute_job: selection.loading_precompute_strategy.into(),
-        //         plane_dim: todo!(),
-        //         plane_role_config: todo!(),
-        //         reader_mode: todo!(),
-        //         stage_ident: todo!(),
-        //         event_loading_mode: todo!(),
-        //         specialization_tensor_config: todo!(),
-        //     },
-        //     writer_config: GlobalWriterConfig {
-        //         gmem_config: todo!(),
-        //         smem_config: todo!(),
-        //         role_rule_config: todo!(),
-        //         plane_dim: todo!(),
-        //         num_partitions_n: todo!(),
-        //     },
-        // };
-
-        // selection.loading_precompute_strategy,
-        // selection.reader_mode,
-        // selection.load_specialization_config.into(),
 
         validate::<LL, RL, SMM::Config, R>(config, client)
     }

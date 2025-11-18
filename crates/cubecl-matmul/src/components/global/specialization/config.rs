@@ -1,5 +1,5 @@
 use crate::components::{
-    MatmulIdent, StageIdent,
+    StageIdent,
     global::{MaxGlobalReaderPlanes, specialization::roles::PlaneRoles},
 };
 

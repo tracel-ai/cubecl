@@ -2,9 +2,7 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_std::tensor::layout::{Coords1d, Coords2d, Layout, LayoutExpand};
 
-use crate::components::{
-    MatrixLayout, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
-};
+use crate::components::{MatrixLayout, stage::StageMemoryConfig};
 
 /// Full stage mapping on a 2D layout. Stage offset is translated to a 2D offset within the stage.
 #[derive(CubeType)]

@@ -1,11 +1,9 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{
-    GlobalReaderConfig, RoleRule, RoleRuleConfig, SpecializedLoadingSides,
-};
+use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::stage::{StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
-use crate::components::{MatmulIdent, MatrixLayout, StageIdent};
+use crate::components::{MatrixLayout, StageIdent};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
 use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
@@ -157,13 +155,6 @@ impl<ES: Numeric, T: TilingLayout> StridedStage<ES, T> {
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
         #[comptime] config: GlobalReaderConfig,
-        // #[comptime] ident: MatmulIdent,
-        // #[comptime] matrix_layout: MatrixLayout,
-        // #[comptime] num_loading_planes: u32,
-        // #[comptime] plane_dim: u32,
-        // #[comptime] role_rule_config: RoleRuleConfig,
-        // #[comptime] specialized_loading_sides: SpecializedLoadingSides,
-        // #[comptime] elements_in_tile_k: u32,
     ) {
         // TODO: this assumes the stage was created with new
         // Also assumes two buffers

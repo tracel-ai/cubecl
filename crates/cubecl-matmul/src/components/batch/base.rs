@@ -1,9 +1,9 @@
 use crate::components::{
     AccG, AvailableLineSizes, InputRuntimeArg, LhsG, MatmulElems, MatmulLineSizes, MatmulPrecision,
-    MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG, TilingScheme,
+    MatmulProblem, MatmulSelection, OutputRuntimeArg, RhsG,
     batch::{CubeCountInput, CubeCountInputArgs, HypercubeConfig},
     error::MatmulSetupError,
-    global::{self, GlobalConfig as _, args::MatmulArgs},
+    global::{self, args::MatmulArgs},
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;

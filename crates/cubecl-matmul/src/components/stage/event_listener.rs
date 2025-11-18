@@ -1,8 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
-use crate::components::global::GlobalReaderConfig;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Events that occur during the process of loading tiles to
 /// registers and executing inner Tile Matmuls

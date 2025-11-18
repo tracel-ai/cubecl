@@ -1,6 +1,5 @@
 use crate::components::{
-    MatmulElems, MatmulIdent, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatrixLayout,
-    StageIdent,
+    MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection, MatrixLayout, StageIdent,
     error::MatmulSetupError,
     global::{
         GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, GlobalWriterFamily,
@@ -13,7 +12,6 @@ use crate::components::{
     stage::{
         FilledStageFamily, NoTilingLayout, StageConfig, StageMemoryConfig, StridedStageFamily,
     },
-    tiling_scheme,
 };
 use cubecl_core::prelude::*;
 use std::marker::PhantomData;

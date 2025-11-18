@@ -1,7 +1,7 @@
 use cubecl_core::CubeDim;
 
 use crate::components::{
-    GlobalPartitionSize, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSetupError,
+    GlobalPartitionSize, MatmulLineSizes, MatmulProblem, MatmulSetupError,
     batch::{BatchConfig, HypercubeConfig},
     global::GlobalConfig,
 };

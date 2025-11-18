@@ -6,8 +6,7 @@ use crate::components::{
     MatrixPrecision,
     global::{
         GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
-        PartitionedStageFamily, RoleRuleConfig, WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
+        PartitionedStageFamily, WriteEvent, WriteEventExpand, WriteEventListener,
         read::tiled::{TiledCoords, TiledLayout},
     },
     stage::{StageMemoryConfig, StagePartitioner, UnitPartitioner},

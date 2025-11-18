@@ -1,5 +1,5 @@
 use crate::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
+    AccG, AccS, LhsG, LhsS, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
     global::{
         GlobalMatmul, GlobalWriter, SharedGlobalConfig,
         read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},

@@ -2,7 +2,6 @@ use std::marker::PhantomData;
 
 use crate::components::StageIdent;
 use crate::components::global::GlobalReaderConfig;
-use crate::components::global::RoleRule;
 use crate::components::global::memory::GlobalIterator;
 use crate::components::global::multi_stage::JobExecutor;
 use crate::components::global::multi_stage::JobIterator;
@@ -10,10 +9,10 @@ use crate::components::global::multi_stage::LoadMaxRoundPlaneCount;
 use crate::components::global::read::LoadingJob;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::read::StageBuffer;
+use crate::components::global::read::SyncStrategy;
 use crate::components::global::read::TaskCounter;
 use crate::components::stage::StridedStage;
 use crate::components::stage::TilingLayout;
-use crate::components::{MatmulIdent, global::read::SyncStrategy};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{

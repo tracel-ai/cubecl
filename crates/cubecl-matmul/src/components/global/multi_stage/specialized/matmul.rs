@@ -2,19 +2,15 @@ use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
 use crate::components::global::{RoleRule, SharedGlobalConfig};
 use crate::components::stage::StageConfig as _;
+use crate::components::stage::{FilledStage, StridedStage};
 use crate::components::{
     AccG,
     global::read::{
         PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
-use crate::components::{
-    AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, StageIdent, global,
-};
+use crate::components::{AccS, LhsG, LhsS, MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
-use crate::components::{
-    stage::{FilledStage, StridedStage},
-};
 use cubecl_core::prelude::{barrier::BarrierLevel, *};
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 use cubecl_std::{
@@ -259,9 +255,7 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        todo!()
-        // let conf = config.global_memory_config(MatmulIdent::Out);
-        // Self::GlobalWriter::init::<SMM::Config>(out, conf, config.stage_config())
+        Self::GlobalWriter::init(out, config.writer_config)
     }
 
     fn init_accumulators(#[comptime] config: Self::Config) -> Self::Accumulators {

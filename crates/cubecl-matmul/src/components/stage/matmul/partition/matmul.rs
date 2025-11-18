@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
-use crate::components::global::{GlobalReaderConfig, PlaneRoleConfig};
+use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::PartitionSchedulerScheme;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};

@@ -6,9 +6,7 @@ use cubecl_std::tensor::layout::Coords2d;
 
 use crate::components::MatrixLayout;
 use crate::components::tile::StridedTile;
-use crate::components::{
-    InvalidConfigError, global::memory::GlobalMemoryConfig, stage::StageMemoryConfig,
-};
+use crate::components::{InvalidConfigError, stage::StageMemoryConfig};
 
 use super::StridedStage;
 
@@ -437,7 +435,7 @@ impl TilingLayout for StridedTilingLayout {
 impl TilingValidation for StridedTilingLayout {
     fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
         let stage_width = config.elements_in_stage_contiguous_dim();
-        if config.line_size> stage_width {
+        if config.line_size > stage_width {
             return Err(Box::new("Invalid line size"));
         }
         Ok(())

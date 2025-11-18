@@ -1,5 +1,5 @@
 use crate::components::{
-    MatrixLayout, MatrixPrecision,
+    MatrixPrecision,
     global::{RoleRuleConfig, WriteEventListener, WriteTiling, memory::GlobalMemoryConfig},
     stage::{Stage, StageFamily, StageMemoryConfig},
 };

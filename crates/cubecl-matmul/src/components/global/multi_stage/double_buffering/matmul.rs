@@ -11,7 +11,7 @@ use crate::components::{
         PartialLoadingStrategy, PartialStageGlobalReader, StageBuffer, ZeroGlobalReader,
     },
 };
-use crate::components::{AccS, LhsG, LhsS, MatmulIdent, MatrixPrecision, RhsG, RhsS, global};
+use crate::components::{AccS, LhsG, LhsS,  MatrixPrecision, RhsG, RhsS, global};
 use crate::components::{MatmulPrecision, stage};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
