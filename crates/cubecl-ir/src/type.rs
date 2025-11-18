@@ -1,7 +1,9 @@
 use super::{ConstantScalarValue, Variable, VariableKind};
 use crate::TypeHash;
 use core::fmt::Display;
-use cubecl_common::{e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, tf32, ue8m0};
+use cubecl_common::{
+    e2m1, e2m1x2, e2m3, e3m2, e4m3, e5m2, flex32, quant::scheme::QuantParam, tf32, ue8m0,
+};
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, TypeHash, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -82,6 +84,16 @@ pub enum StorageType {
 }
 
 impl ElemType {
+    /// Creates an elem type that correspond to the given [QuantParam].
+    pub fn from_quant_param(quant_param: QuantParam) -> Self {
+        match quant_param {
+            QuantParam::F32 => Self::Float(FloatKind::F32),
+            QuantParam::F16 => Self::Float(FloatKind::F16),
+            QuantParam::BF16 => Self::Float(FloatKind::BF16),
+            QuantParam::UE8M0 => Self::Float(FloatKind::UE8M0),
+            QuantParam::UE4M3 => Self::Float(FloatKind::UE8M0),
+        }
+    }
     /// Create a constant scalar from a float.
     ///
     /// The output will have the same type as the element.
