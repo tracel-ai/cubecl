@@ -8,14 +8,9 @@ use crate::components::{
         BroadcastReducer, partition_attention::PartitionAttention,
         partitioner::AttentionPartitioner,
     },
-    tile::TileAttention,
 };
 
-use crate::components::{
-    AttentionSetupError, AttentionTilingScheme,
-    stage::{SharedPartitionAttentionConfig, StageAttentionConfig},
-    tile::TileAttentionConfig,
-};
+use crate::components::{stage::SharedPartitionAttentionConfig, tile::TileAttentionConfig};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct PlanePartitionStageConfig<TC: TileAttentionConfig> {

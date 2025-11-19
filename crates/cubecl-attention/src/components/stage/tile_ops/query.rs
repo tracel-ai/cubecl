@@ -13,15 +13,15 @@ pub struct QueryTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> QueryTile<AP, FA> {
-    pub fn new(#[comptime] config: FA::Config) -> QueryTile<AP, FA> {
-        QueryTile::<AP, FA> {
-            fragment: FA::allocate_query(config),
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> QueryTile<AP, TA> {
+    pub fn new(#[comptime] config: TA::Config) -> QueryTile<AP, TA> {
+        QueryTile::<AP, TA> {
+            fragment: TA::allocate_query(config),
         }
     }
 
     /// Loads the query data into the fragment
     pub fn update(&mut self, tile: &StridedTile<QG<AP>>) {
-        FA::fill_query(tile, &mut self.fragment)
+        TA::fill_query(tile, &mut self.fragment)
     }
 }

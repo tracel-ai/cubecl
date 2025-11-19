@@ -1,5 +1,3 @@
-use std::marker::PhantomData;
-
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
@@ -17,6 +15,7 @@ pub struct QueryPartition<AP: AttentionPrecision, TA: TileAttention<AP>> {
 impl<AP: AttentionPrecision, TA: TileAttention<AP>> QueryPartition<AP, TA> {
     pub fn new(#[comptime] config: PartitionAttentionConfig<TA::Config>) -> QueryPartition<AP, TA> {
         let p = config.shared().partition_size;
+
         let mut sequence = Sequence::new();
 
         #[unroll]
@@ -44,6 +43,7 @@ impl<AP: AttentionPrecision, TA: TileAttention<AP>> QueryPartition<AP, TA> {
         #[comptime] config: PartitionAttentionConfig<TA::Config>,
     ) -> &mut QueryTile<AP, TA> {
         let partition_head_dim = config.shared().partition_size.head_dim;
-        self.sequence.index_mut(comptime!(q * partition_head_dim + hd))
+        self.sequence
+            .index_mut(comptime!(q * partition_head_dim + hd))
     }
 }

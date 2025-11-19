@@ -1,10 +1,8 @@
-use crate::components::{
-    AttentionTileSize, attention_types::*, global::simple::attention, tile::TileAttentionConfig,
-};
+use crate::components::{AttentionTileSize, attention_types::*};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
+use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
-use cubecl_matmul::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 use cubecl_std::{
     Swizzle,
     tensor::{View, layout::Coords2d},

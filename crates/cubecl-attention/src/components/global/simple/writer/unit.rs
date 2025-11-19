@@ -1,17 +1,13 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 use cubecl_matmul::components::{
-    MatrixLayout,
     global::{
-        GlobalWriter, GlobalWriterConfig, PartitionedStage, WriteEvent, WriteEventExpand,
+         GlobalWriterConfig, PartitionedStage, WriteEvent, WriteEventExpand,
         WriteEventListener,
-        memory::GlobalMemoryConfig,
         read::tiled::{TiledCoords, TiledLayout},
         unit_write,
     },
-    stage::{StageMemoryConfig, SwizzleMode},
 };
-use cubecl_runtime::config;
 use cubecl_std::tensor::{View, layout::Coords2d};
 
 use crate::components::{

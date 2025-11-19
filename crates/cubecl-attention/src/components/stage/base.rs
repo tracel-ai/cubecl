@@ -1,7 +1,6 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    PartitionSize,
     global::{WriteEventListener, WriteTiling},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily},
 };

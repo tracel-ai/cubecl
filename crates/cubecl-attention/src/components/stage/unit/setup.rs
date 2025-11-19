@@ -8,7 +8,7 @@ use crate::components::{
         unit::{UnitPartitionAttention, UnitPartitionStageConfig},
         validate,
     },
-    tile::{TileAttentionConfig, TileAttentionFamily},
+    tile::TileAttentionFamily,
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{ComputeResources, stage::StageFamily, tile::io::Strided};

@@ -1,4 +1,3 @@
-use std::marker::PhantomData;
 
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -24,7 +23,6 @@ impl<AP: AttentionPrecision, TA: TileAttention<AP>> SoftmaxPartition<AP, TA> {
 
         #[unroll]
         for _ in 0..comptime!(p.seq_q) {
-            sequence.push(TA::allocate_softmax(config.tile_config()));
             sequence.push(TA::allocate_softmax(config.tile_config()));
         }
 

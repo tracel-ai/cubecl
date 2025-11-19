@@ -1,19 +1,12 @@
-use crate::components::{
-    global::simple::config::SimpleGlobalAttentionConfig, stage::AttentionTilingLayout,
-};
+use crate::components::stage::AttentionTilingLayout;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::global::{
-    GlobalReaderConfig,
-    memory::{GlobalIterator, ViewDirection},
-    read::tiled::TiledLayout,
+    GlobalReaderConfig, memory::GlobalIterator, read::tiled::TiledLayout,
 };
-use cubecl_matmul::components::stage::{StageMemoryConfig, StridedStageMemory};
+use cubecl_matmul::components::stage::StridedStageMemory;
 use cubecl_std::tensor::{View, layout::Coords2d};
 use std::marker::PhantomData;
-
-use crate::components::AttentionIdent;
-use crate::components::global::base::GlobalAttentionConfig;
 
 #[derive(CubeType)]
 pub struct DummyKeyValueReader<EG: Float, ES: Float> {

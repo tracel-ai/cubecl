@@ -7,13 +7,12 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use std::marker::PhantomData;
 
 use crate::components::attention_types::*;
-use crate::components::global::base::GlobalAttentionConfig;
+use crate::components::global::simple::QueryReader;
 use crate::components::global::simple::{AttentionWriter, AttentionWriterExpand, MaskReader};
 use crate::components::global::{AttentionGlobalLayout, simple::DummyKeyValueReader};
 use crate::components::stage::{
     AttentionPartitioner, AttentionTilingLayout, StageAttention, StageAttentionConfig as _,
 };
-use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,
     global::{GlobalAttention, simple::config::SimpleGlobalAttentionConfig},

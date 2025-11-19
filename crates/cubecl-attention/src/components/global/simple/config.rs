@@ -1,14 +1,9 @@
 use cubecl_core::CubeDim;
-use cubecl_matmul::components::{
-    MatrixLayout,
-    global::{GlobalReaderConfig, GlobalWriterConfig, memory::GlobalMemoryConfig},
-    stage::{StageMemoryConfig, SwizzleMode},
+use cubecl_matmul::components::global::{
+    GlobalReaderConfig, GlobalWriterConfig, memory::GlobalMemoryConfig,
 };
 
-use crate::components::{
-    AttentionIdent, AttentionSetupError, AttentionTilingScheme, global::GlobalAttentionConfig,
-    stage::StageAttentionConfig,
-};
+use crate::components::{global::GlobalAttentionConfig, stage::StageAttentionConfig};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub struct SimpleGlobalAttentionConfig<S: StageAttentionConfig> {
