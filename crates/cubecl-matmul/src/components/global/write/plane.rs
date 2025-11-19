@@ -60,17 +60,6 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
     }
 }
 
-// fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
-//     let planes = config.num_main_flow_planes();
-//     let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
-//     let base = config.stage_memory_config(StageIdent::Acc);
-//     StageMemoryConfig {
-//         tiles_in_stage_row: planes / size_n,
-//         tiles_in_stage_col: size_n,
-//         ..base
-//     }
-// }
-
 #[cube]
 impl<IP: MatrixPrecision> WriteEventListener for PlaneWriter<IP> {
     fn on_event(this: &mut Self, event: super::WriteEvent) {

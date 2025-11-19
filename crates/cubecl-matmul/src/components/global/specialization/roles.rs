@@ -135,30 +135,6 @@ impl RoleRule {
 
     /// The index of the current plane among planes that perform loading,
     /// ignoring any plane that does not participate for this `ident`.
-    // pub fn load_index(
-    //     self,
-    //     #[comptime] ident: StageIdent,
-    //     #[comptime] specialized_loading_sides: SpecializedLoadingSides,
-    // ) -> u32 {
-    //     match self {
-    //         RoleRule::MainFlowOnly => UNIT_POS_Y,
-    //         RoleRule::LoadOnlyFirst(load_only) => {
-    //             if comptime!(!specialized_loading_sides.load_only.includes(ident)) {
-    //                 UNIT_POS_Y - load_only.threshold
-    //             } else {
-    //                 UNIT_POS_Y
-    //             }
-    //         }
-    //         RoleRule::LoadOnlyLast(main_flow) => {
-    //             if comptime!(specialized_loading_sides.main_flow.includes(ident)) {
-    //                 UNIT_POS_Y - main_flow.threshold
-    //             } else {
-    //                 UNIT_POS_Y
-    //             }
-    //         }
-    //     }
-    // }
-
     pub fn load_index(
         self,
         #[comptime] specialization_tensor_config: SpecializationTensorConfig,

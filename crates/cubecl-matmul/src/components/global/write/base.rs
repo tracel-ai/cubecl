@@ -42,9 +42,3 @@ pub struct GlobalWriterConfig {
     pub plane_dim: u32,
     pub num_partitions_n: u32,
 }
-
-// #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-// pub struct GlobalMemoryWriteConfig {
-//     pub line_size: u32,
-//     pub matrix_layout: MatrixLayout,
-// }

@@ -131,10 +131,6 @@ where
     /// Make sure to load inputs before execution.
     pub fn init_tile_inputs(
         #[comptime] shared_config: SharedPartitionMatmulConfig<TM::Config>,
-        // #[comptime] lhs_layout: MatrixLayout,
-        // #[comptime] rhs_layout: MatrixLayout,
-        // #[comptime] partition_buffering: PartitionBuffering,
-        // #[comptime] tile_config: TM::Config,
     ) -> (Sequence<TM::LhsFragment>, RhsTile<TM::RhsFragment>) {
         let mut lhs = Sequence::new();
 
@@ -306,11 +302,6 @@ where
         rhs_fragments: &mut (TM::RhsFragment, TM::RhsFragment),
         acc: &mut Accumulators<MP, TM>,
         #[comptime] shared_config: SharedPartitionMatmulConfig<TM::Config>,
-        // #[comptime] partition_size: PartitionSize,
-        // #[comptime] must_sync_plane_after_execution: bool,
-        // #[comptime] lhs_reader_config: TodoGRC,
-        // #[comptime] rhs_reader_config: TodoGRC,
-        // #[comptime] tile_config: TM::Config,
         mut listener: SEL,
         partition_scheduler: &PartitionScheduler,
     ) {

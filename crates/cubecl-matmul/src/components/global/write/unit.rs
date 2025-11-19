@@ -75,20 +75,6 @@ pub fn unit_write<ES: Numeric, EG: Numeric>(
     }
 }
 
-// #[cube]
-// fn tile_pos(#[comptime] config: S) -> (u32, u32) {}
-
-// fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
-//     let units = config.num_main_flow_planes() * config.plane_dim();
-//     let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
-//     let base = config.stage_memory_config(StageIdent::Acc);
-//     StageMemoryConfig {
-//         tiles_in_stage_row: units / size_n,
-//         tiles_in_stage_col: size_n,
-//         ..base
-//     }
-// }
-
 #[cube]
 impl<IP: MatrixPrecision> WriteEventListener for UnitWriter<IP> {
     fn on_event(this: &mut Self, event: super::WriteEvent) {

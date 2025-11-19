@@ -92,12 +92,6 @@ pub trait BatchConfig:
     /// Convert itself to the underlying global matmul config
     fn global_config(&self) -> Self::GlobalConfig;
 
-    // /// Returns the [TilingScheme]
-    // fn tiling_scheme(&self) -> TilingScheme {
-    //     rt
-    //     // self.global_config().tiling_scheme()
-    // }
-
     /// Returns the [CubeDim]
     fn cube_dim(&self) -> CubeDim;
 

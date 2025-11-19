@@ -65,8 +65,6 @@ fn load_lhs<E: Numeric, V: Numeric>(
     #[comptime] config: RegisterMatmulConfig,
 ) {
     let size = config.shared.tile_size;
-    // let line_size = config.shared.lhs_stage_line_size;
-    // let layout = config.shared.lhs_layout;
 
     match config.product_type {
         ProductType::Inner => match comptime!(frag.layout) {
@@ -95,8 +93,6 @@ fn load_rhs<E: Numeric, V: Numeric>(
     #[comptime] config: RegisterMatmulConfig,
 ) {
     let size = config.shared.tile_size;
-    // let line_size = config.shared.rhs_stage_line_size;
-    // let layout = config.shared.rhs_layout;
 
     match config.product_type {
         ProductType::Inner => match comptime!(frag.layout) {

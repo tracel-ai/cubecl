@@ -66,12 +66,6 @@ where
             selection.plane_dim,
         );
 
-        // let tiling_layout = TilingLayoutConfig {
-        //     lhs: LL::TilingLayout::to_enum(),
-        //     rhs: RL::TilingLayout::to_enum(),
-        //     acc: TilingLayoutEnum::Other,
-        //     out: WriteTiling::to_enum(),
-        // };
         let stage_config = SMM::setup::<R>(
             client,
             problem,

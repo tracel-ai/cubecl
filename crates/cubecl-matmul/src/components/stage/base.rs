@@ -157,7 +157,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 pub trait StageConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    // /// Underlying Tile matmul config
+    /// Underlying Tile matmul config
     type TileConfig: TileConfig;
 
     fn elements_in_stage_m(&self) -> u32;
