@@ -1,4 +1,3 @@
-use crate::MatmulInputHandleRef;
 use crate::components::batch::BatchConfig;
 use crate::components::global::args::MatmulArgs;
 use crate::components::{
@@ -10,6 +9,7 @@ use crate::components::{
 };
 use crate::kernels::layered::base::Selection;
 use crate::kernels::layered::{Algorithm, launch_with_config};
+use crate::{MatmulInputHandleRef, components::tile::TileMatmulFamily};
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 
@@ -39,6 +39,15 @@ where
     }
     if let MatmulInputHandleRef::Quantized { scheme, .. } = rhs {
         view_line_sizes.rhs *= scheme.num_quants() as u8;
+    }
+
+    // Prefer output type for stage because it's the same size at best, but often smaller.
+    // Having stage == global also enables things like TMA, and an f16 stage for output enables
+    // using `stmatrix` on the registers after casting.
+    if A::TileMatmul::can_cast_stage() {
+        dtypes.lhs_stage = dtypes.lhs_global;
+        dtypes.rhs_stage = dtypes.rhs_global;
+        dtypes.acc_stage = dtypes.acc_global;
     }
 
     let selection = match selection {
@@ -94,6 +103,15 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     selection: &Selection<A::SelectionArgs>,
     dtypes: &mut MatmulElems,
 ) -> Result<(), MatmulSetupError> {
+    // Prefer output type for stage because it's the same size at best, but often smaller.
+    // Having stage == global also enables things like TMA, and an f16 stage for output enables
+    // using `stmatrix` on the registers after casting.
+    if A::TileMatmul::can_cast_stage() {
+        dtypes.lhs_stage = dtypes.lhs_global;
+        dtypes.rhs_stage = dtypes.rhs_global;
+        dtypes.acc_stage = dtypes.acc_global;
+    }
+
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {

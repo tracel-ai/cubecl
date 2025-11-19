@@ -22,18 +22,18 @@ pub(crate) fn matmul<
     LhsS: Numeric,
     RhsS: Numeric,
     AccS: Numeric,
+    LhsR: Numeric,
+    RhsR: Numeric,
+    AccR: Numeric,
     BMMF: BatchMatmulFamily,
 >(
     inputs: &Input<Args, LhsG, RhsG, AccG>,
     output: &mut Output<Args, AccG>,
     cube_count_args: CubeCountInput,
     #[comptime] config: BMMF::Config,
-    #[define(LhsG)] _lhs_global: StorageType,
-    #[define(RhsG)] _rhs_global: StorageType,
-    #[define(AccG)] _acc_global: StorageType,
-    #[define(LhsS)] _lhs_stage: StorageType,
-    #[define(RhsS)] _rhs_stage: StorageType,
-    #[define(AccS)] _acc_stage: StorageType,
+    #[define(LhsG, RhsG, AccG)] _global: [StorageType; 3],
+    #[define(LhsS, RhsS, AccS)] _stage: [StorageType; 3],
+    #[define(LhsR, RhsR, AccR)] _register: [StorageType; 3],
 ) {
     #[allow(clippy::collapsible_if)]
     if comptime!(config.can_yield_extra_cubes()) {
@@ -48,7 +48,7 @@ pub(crate) fn matmul<
         config.global_config(),
     );
 
-    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS)>::execute::<Args>(
+    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS, LhsR, RhsR, AccR)>::execute::<Args>(
         &mut state,
         cube_count_args,
         config,

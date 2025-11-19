@@ -128,6 +128,7 @@ where
             mma_definition::<L, R, A>(config),
             MatrixIdent::Accumulator,
             config.matrix_layout(StageIdent::Out),
+            config,
         );
     }
 }

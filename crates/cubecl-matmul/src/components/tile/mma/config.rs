@@ -24,6 +24,7 @@ pub struct MmaMatmulConfig {
     lhs_load_method: LoadMethod,
     rhs_load_method: LoadMethod,
     acc_load_method: LoadMethod,
+    store_method: StoreMethod,
     swizzle: SwizzleConfig,
 }
 
@@ -31,6 +32,12 @@ pub struct MmaMatmulConfig {
 pub enum LoadMethod {
     Manual,
     LoadMatrix,
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum StoreMethod {
+    Manual,
+    StoreMatrix,
 }
 
 impl TileConfig for MmaMatmulConfig {
@@ -113,6 +120,7 @@ impl MmaMatmulConfig {
             lhs_load_method: load_method::<R>(client, dtypes.lhs_stage),
             rhs_load_method: load_method::<R>(client, dtypes.rhs_stage),
             acc_load_method: load_method::<R>(client, dtypes.acc_stage),
+            store_method: store_method::<R>(client, dtypes.acc_stage),
             swizzle,
         }
         .check_availability::<R>(client, dtypes)
@@ -156,6 +164,10 @@ impl MmaMatmulConfig {
             MatrixIdent::Accumulator => self.acc_load_method,
         }
     }
+
+    pub fn store_method(&self) -> StoreMethod {
+        self.store_method
+    }
 }
 
 fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> LoadMethod {
@@ -163,5 +175,13 @@ fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType
         LoadMethod::LoadMatrix
     } else {
         LoadMethod::Manual
+    }
+}
+
+fn store_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> StoreMethod {
+    if client.properties().features.stmatrix.contains(&dtype) {
+        StoreMethod::StoreMatrix
+    } else {
+        StoreMethod::Manual
     }
 }
