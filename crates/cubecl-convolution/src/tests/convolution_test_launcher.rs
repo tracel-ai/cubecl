@@ -9,7 +9,7 @@ use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
 use crate::{
     components::{
-        ConvGemmConfig as _, ConvolutionProblem,
+        ConvolutionProblem,
         global::{
             args::{ConcreteInputsFactory, ConcreteOutputFactory},
             entry_point::ConvolutionLaunch,

@@ -138,9 +138,9 @@ wgpu = { version = "26.0.0", features = [
 # cubecl-attention = { path = "../cubecl-attention", version = "0.9.0-pre.2", features = [
 #     "export_tests",
 # ] }
-# cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0-pre.2", features = [
-#     "export_tests",
-# ] }
+cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0-pre.2", features = [
+    "export_tests",
+] }
 cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", features = [
     "export_tests",
 ] }

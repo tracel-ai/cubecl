@@ -13,7 +13,7 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvGemmConfig, ConvolutionProblem,
+        ConvolutionProblem,
         global::{
             layout::{
                 BiasLayout, BiasLayoutLaunch, Im2colLayout, Im2colLayoutLaunch, NhwcLayout,

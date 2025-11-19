@@ -11,8 +11,7 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
-        global::layout::NhwcCoords,
+        ConvolutionConfig, ConvolutionParams, ConvolutionProblem, global::layout::NhwcCoords,
     },
     kernels::layered::selector::RuntimeArgs,
 };

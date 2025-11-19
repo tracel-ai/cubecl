@@ -12,7 +12,7 @@ use cubecl_std::{
 };
 
 use crate::{
-    components::{ConvGemmConfig, ConvolutionProblem, global::entry_point::ConvolutionLaunch},
+    components::{ConvolutionProblem, global::entry_point::ConvolutionLaunch},
     kernels::layered::selector::RuntimeArgs,
 };
 

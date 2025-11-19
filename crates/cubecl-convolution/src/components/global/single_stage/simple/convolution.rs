@@ -3,13 +3,11 @@ use std::marker::PhantomData;
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AccG, AccS, LhsG, LhsS, MatmulIdent, MatmulPrecision, MatrixPrecision, RhsG, RhsS, StageIdent,
+    AccG, AccS, LhsG, LhsS, MatmulPrecision, MatrixPrecision, RhsG, RhsS, StageIdent,
     global::{
-        GlobalConfig, GlobalWriter, PartitionedStage, PlaneWriter,
+        GlobalConfig, GlobalWriter, PartitionedStage, PlaneWriter, SharedGlobalConfig,
         read::{FullStageGlobalReader, sync_full_cyclic},
-        single_stage::simple::SimpleConfig,
     },
-    stage::{RowMajorTilingOrder, StageConfig, StageMatmul, StridedStage},
     stage::{RowMajorTilingOrder, StageMatmul, StridedStageMemory},
 };
 use cubecl_std::{
@@ -50,14 +48,12 @@ where
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
-        <Self::Config as GlobalConfig>::LhsReaderConfig,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
-    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SharedGlobalConfig<SMM::Config>>;
     type RhsGlobalReader = FullStageGlobalReader<
         <MP::Rhs as MatrixPrecision>::Global,
         <MP::Rhs as MatrixPrecision>::Stage,
-        <Self::Config as GlobalConfig>::RhsReaderConfig,
         sync_full_cyclic::SyncFullCyclicLoading<RowMajorTilingOrder>,
     >;
     type AccGlobalReader = BiasGlobalReader<MP::Acc>;
@@ -120,7 +116,6 @@ where
             &mut out_writer,
             &partition_scheduler,
             config.stage_config(),
-            config,
         );
     }
 
@@ -134,7 +129,6 @@ where
         Self::LhsGlobalReader::new(
             lhs.slice_unchecked(offset, slice_size),
             config.k_step,
-            MatmulIdent::Lhs,
             config.lhs_reader_config(),
         )
     }
@@ -143,12 +137,7 @@ where
         rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader {
-        Self::RhsGlobalReader::new(
-            rhs,
-            config.k_step,
-            MatmulIdent::Rhs,
-            config.rhs_reader_config(),
-        )
+        Self::RhsGlobalReader::new(rhs, config.k_step, config.rhs_reader_config())
     }
 
     fn init_bias_global_reader(
@@ -165,8 +154,7 @@ where
         out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter {
-        let global_conf = config.global_memory_config(MatmulIdent::Out);
-        Self::GlobalWriter::new::<SMM::Config>(out, global_conf, config.stage_config())
+        Self::GlobalWriter::new::<SMM::Config>(out, config.writer_config)
     }
 
     fn init_accumulator(#[comptime] config: Self::Config) -> Self::Accumulators {

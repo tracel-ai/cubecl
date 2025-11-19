@@ -4,10 +4,7 @@ use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     MatmulSetupError,
-    global::{
-        PartitionedStageFamily, WriteTiling, read::NoLoadingValidation,
-        single_stage::simple::SimpleConfig,
-    },
+    global::{PartitionedStageFamily, WriteTiling, read::NoLoadingValidation},
     stage::{
         ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
         StridedStageFamily, TilingLayout, TilingLayoutConfig, TilingLayoutEnum,
