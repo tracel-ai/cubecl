@@ -78,10 +78,6 @@ where
             dtypes,
         )?;
 
-        let stage_shape_m = stage_config.elements_in_stage_m();
-        let stage_shape_n = stage_config.elements_in_stage_n();
-        let stage_shape_k = stage_config.elements_in_stage_k();
-
         // TODO: Find the correct condition to avoid check bounds.
         let check_m_bounds = true;
         let check_n_bounds = true;

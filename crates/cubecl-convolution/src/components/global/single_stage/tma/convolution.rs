@@ -6,7 +6,7 @@ use cubecl_core::{
     prelude::barrier::{Barrier, BarrierLevel},
 };
 use cubecl_matmul::components::{
-    AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS, StageIdent,
+    AccG, AccS, LhsG, LhsS, MatmulPrecision, RhsG, RhsS,
     global::{
         GlobalConfig as _, GlobalWriter, PartitionedStage, PlaneWriter, SharedGlobalMatmulConfig,
         read::async_tma::arrive_tma,

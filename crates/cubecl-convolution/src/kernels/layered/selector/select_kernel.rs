@@ -7,7 +7,6 @@ use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
         InputArg, InputRuntimeArg, MatmulLineSizes, MatmulSelection, OutputArg, OutputRuntimeArg,
-        global::GlobalConfig as _,
     },
 };
 

@@ -2,12 +2,8 @@ use std::ops::Deref;
 
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
-    MatmulIdent, MatmulLineSizes, MatmulSetupError, MatrixLayout, TilingScheme,
-    global::{
-        GlobalConfig, PlaneRoleConfig, RoleRuleConfig, SpecializedLoadingSides,
-        memory::GlobalMemoryConfig, multi_stage::EventLoadingMode, read::ReaderMode,
-    },
-    stage::{StageConfig, StageMemoryConfig, SwizzleMode, TilingLayoutEnum},
+    MatmulLineSizes, MatmulSetupError,
+    global::{GlobalConfig, memory::GlobalMemoryConfig},
 };
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -55,80 +51,6 @@ impl<M: GlobalConfig> Deref for ConvolutionConfig<M> {
         &self.matmul
     }
 }
-
-// impl<M: GlobalConfig> GlobalConfig for ConvolutionConfig<M> {
-//     type StageConfig = M::StageConfig;
-//     type LhsReaderConfig = M::LhsReaderConfig;
-//     type RhsReaderConfig = M::RhsReaderConfig;
-
-//     fn lhs_reader_config(&self) -> Self::LhsReaderConfig {
-//         self.matmul.lhs_reader_config()
-//     }
-
-//     fn rhs_reader_config(&self) -> Self::RhsReaderConfig {
-//         self.matmul.rhs_reader_config()
-//     }
-
-//     fn stage_config(&self) -> Self::StageConfig {
-//         self.matmul.stage_config()
-//     }
-
-//     fn global_line_size(&self, ident: MatmulIdent) -> u32 {
-//         self.matmul.global_line_size(ident)
-//     }
-
-//     fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout {
-//         self.matmul.matrix_layout(ident)
-//     }
-
-//     fn swizzle_mode(&self, ident: MatmulIdent) -> SwizzleMode {
-//         self.matmul.swizzle_mode(ident)
-//     }
-
-//     fn tiling_layout(&self, ident: MatmulIdent) -> TilingLayoutEnum {
-//         self.matmul.tiling_layout(ident)
-//     }
-
-//     fn num_loading_planes(&self, ident: MatmulIdent) -> u32 {
-//         self.matmul.num_loading_planes(ident)
-//     }
-
-//     fn plane_dim(&self) -> u32 {
-//         self.matmul.plane_dim()
-//     }
-
-//     fn check_row_bounds(&self, ident: MatmulIdent) -> bool {
-//         self.matmul.check_row_bounds(ident)
-//     }
-
-//     fn check_col_bounds(&self, ident: MatmulIdent) -> bool {
-//         self.matmul.check_col_bounds(ident)
-//     }
-
-//     fn check_k_bounds(&self) -> bool {
-//         self.matmul.check_k_bounds()
-//     }
-
-//     fn num_stages(&self, _ident: MatmulIdent) -> u32 {
-//         self.num_stages
-//     }
-
-//     fn tiling_scheme(&self) -> TilingScheme {
-//         self.matmul.tiling_scheme()
-//     }
-
-//     fn cube_dim(&self) -> CubeDim {
-//         CubeDim::new(
-//             <Self as GlobalConfig>::plane_dim(self),
-//             <Self as GlobalConfig>::tiling_scheme(self).tiles_in_stage_m(),
-//             1,
-//         )
-//     }
-
-//     fn role_rule_config(&self) -> RoleRuleConfig {
-//         self.matmul.role_rule_config()
-//     }
-// }
 
 impl<M: GlobalConfig> ConvGemmConfig for ConvolutionConfig<M> {
     type GlobalMatmulConfig = M;

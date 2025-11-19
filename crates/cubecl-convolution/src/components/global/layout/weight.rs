@@ -1,9 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatmulIdent,
-    global::{GlobalConfig, memory::GlobalMemoryConfig},
-};
+use cubecl_matmul::components::global::{GlobalConfig, memory::GlobalMemoryConfig};
 use cubecl_std::{
     FastDivmod, FastDivmodArgs,
     tensor::layout::{Coords3d, Layout, LayoutExpand},

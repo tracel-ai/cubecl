@@ -279,6 +279,7 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
+        // Deactivated, too long to run on cpu
         // mod g100x100x100x100 {
         //     use super::*;
         //     $crate::conv2d_standard_tests!(
