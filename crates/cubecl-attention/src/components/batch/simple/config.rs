@@ -10,7 +10,6 @@ use crate::components::{
 pub struct SimpleBatchConfig<G: GlobalAttentionConfig> {
     global_config: G,
     hypercube_config: HypercubeConfig,
-    seq_kv: u32,
 }
 
 impl<G: GlobalAttentionConfig> BatchAttentionConfig for SimpleBatchConfig<G> {
@@ -30,11 +29,10 @@ impl<G: GlobalAttentionConfig> BatchAttentionConfig for SimpleBatchConfig<G> {
 }
 
 impl<G: GlobalAttentionConfig> SimpleBatchConfig<G> {
-    pub fn new(global_config: G, hypercube_config: HypercubeConfig, seq_kv: u32) -> Self {
+    pub fn new(global_config: G, hypercube_config: HypercubeConfig) -> Self {
         Self {
             global_config,
             hypercube_config,
-            seq_kv,
         }
     }
 

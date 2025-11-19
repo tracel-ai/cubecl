@@ -147,7 +147,7 @@ impl<
                     state_q,
                     &mut max_placeholder,
                     &mut sum_placeholder,
-                    p.head_dim,
+                    p.head_dim * config.tile_config().attention_tile_size().head_dim,
                     config.tile_config(),
                 );
 

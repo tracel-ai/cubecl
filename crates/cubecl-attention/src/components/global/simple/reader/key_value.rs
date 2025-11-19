@@ -58,8 +58,8 @@ impl<EG: Float, ES: Float> DummyKeyValueReader<EG, ES> {
             let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
 
             // Assumes row tiling order
-            let num_elements_per_tile = tile_rows * tile_cols;
-            let tile_row_stride = stage_cols * num_elements_per_tile;
+            let num_elements_per_tile = comptime!(tile_rows * tile_cols);
+            let tile_row_stride = comptime!(stage_cols * num_elements_per_tile);
             let tile_col_stride = num_elements_per_tile;
 
             let layout = TiledLayout::new(self.config.smem_config);
