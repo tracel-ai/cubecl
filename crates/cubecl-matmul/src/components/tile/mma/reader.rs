@@ -129,9 +129,9 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
         let elem_idx = i * line_size;
         let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
         let offset = row * stride_row + col * stride_col;
-        let offset = tile.stage_offset(offset / line_size);
+        let stage_offset = tile.stage_offset(offset / line_size);
 
-        fragment[i] = Line::cast_from(tile.stage[offset]);
+        fragment[i] = Line::cast_from(tile.stage[stage_offset]);
     }
 }
 

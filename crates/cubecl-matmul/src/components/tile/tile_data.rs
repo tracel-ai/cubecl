@@ -199,14 +199,18 @@ impl<ES: Numeric, IO: SliceVisibility> StridedTile<ES, IO> {
                 let ratio = line_size / current;
                 let end = cubecl::frontend::div::expand(scope, self.end, ratio.into());
                 let start = cubecl::frontend::div::expand(scope, self.start, ratio.into());
+                let stride = cubecl::frontend::div::expand(scope, self.stride, ratio.into());
                 out.start = start;
                 out.end = end;
+                out.stride = stride;
             } else {
                 let ratio = current / line_size;
                 let start = cubecl::frontend::mul::expand(scope, self.start, ratio.into());
                 let end = cubecl::frontend::mul::expand(scope, self.end, ratio.into());
+                let stride = cubecl::frontend::mul::expand(scope, self.stride, ratio.into());
                 out.start = start;
                 out.end = end;
+                out.stride = stride;
             }
 
             out.stage = out.stage.__expand_with_line_size_method(scope, line_size);
