@@ -36,7 +36,9 @@ impl<GA: GlobalAttention<AP>, AP: AttentionPrecision> BatchAttention<AP>
         let q_index = CUBE_POS_X;
         let batch_index = CUBE_POS_Y;
 
+        comment!("abc");
         let stage_q_offset = q_index * global_config.stage_config().elements_in_stage_seq_q();
+        comment!("def");
 
         // Assume [batch, num_heads, seq_*, head_dim] layout
         let seq_q = query.shape(2);

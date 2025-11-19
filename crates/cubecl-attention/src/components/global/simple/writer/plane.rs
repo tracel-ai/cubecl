@@ -66,10 +66,12 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<
         //         num_stages: 1,
         //     }
         // };
+        comment!("plou");
 
         let stage =
             PartitionedStage::new((PlanePartitioner::seq_q_index(), 0u32), config.smem_config);
 
+        comment!("ploucxc");
         PlaneAttentionWriter::<ES, EG> {
             global: global.view_mut(TiledLayout::new(config.smem_config)),
             stage,

@@ -30,8 +30,11 @@ pub struct PartitionedStage<ES: Numeric> {
 impl<ES: Numeric> PartitionedStage<ES> {
     /// Instantiate a new stage memory for the given identifier
     pub fn new(unit_pos: Coords2d, #[comptime] config: StageMemoryConfig) -> PartitionedStage<ES> {
+        comment!("omg");
         let inner = StridedStageMemory::<ES, WriteTiling>::new(config);
+        comment!("gettingthere");
         let tile = inner.get_tile_mut(unit_pos);
+        comment!("keess");
 
         PartitionedStage::<ES> {
             _smem: inner.smem,

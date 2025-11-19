@@ -42,6 +42,7 @@ pub struct StridedStageMemory<ES: Numeric, T: TilingLayout> {
 impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
     /// Instantiate a new stage memory for the given identifier
     pub fn new(#[comptime] config: StageMemoryConfig) -> StridedStageMemory<ES, T> {
+        comment!("---1");
         Self::new_aligned(type_size::<ES>(config.line_size), config)
     }
 
@@ -50,6 +51,8 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         #[comptime] alignment: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedStageMemory<ES, T> {
+        comment!("---2");
+        comptime!(println!("{:?}", config));
         let line_size = config.line_size;
         let swizzle = as_swizzle_object(config.swizzle);
         let swizzle_align = swizzle.repeats_after();
@@ -60,6 +63,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         // Ensure all stages are aligned properly
         let stage_size =
             comptime![stage_size_bytes.next_multiple_of(align) / type_size / line_size];
+        comptime!(println!("{:?}", stage_size));
 
         let smem =
             SharedMemory::new_aligned(comptime!(config.num_stages * stage_size), line_size, align);
@@ -80,6 +84,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         #[comptime] smem_len: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedStageMemory<ES, T> {
+        comment!("---3");
         StridedStageMemory::<ES, T> {
             smem,
             swizzle: as_swizzle_object(config.swizzle),
@@ -91,6 +96,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
     }
 
     pub fn with_buffer_index(&self, buffer_idx: u32) -> Self {
+        comment!("---4");
         StridedStageMemory::<ES, T> {
             smem: self.smem,
             swizzle: self.swizzle,
@@ -104,6 +110,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
     /// Return the same stage but with a different tiling layout.
     /// Allows comptime switching tiling.
     pub fn with_layout<TNew: TilingLayout>(&self) -> StridedStageMemory<ES, TNew> {
+        comment!("---5");
         StridedStageMemory::<ES, TNew> {
             smem: self.smem,
             swizzle: self.swizzle,
@@ -121,6 +128,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
 
     /// Get the tile at position (row, col)
     pub fn get_tile_mut(&self, tile: Coords2d) -> StridedTile<ES, ReadWrite> {
+        comment!("what is wrong");
         let tile = self.get_tile(tile);
         StridedTile::<ES, ReadWrite> {
             stage: tile.stage.as_mut_unchecked(),
@@ -135,7 +143,9 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
 
     /// Return the whole stage as a slice, for reading
     pub fn as_slice(&self, #[comptime] line_size: u32) -> Slice<Line<ES>> {
+        comment!("then it's here");
         let stage_offset = self.buffer_index * self.stage_size;
+        comment!("or here here");
         self.smem
             .slice(stage_offset, stage_offset + self.stage_size)
             .with_line_size(line_size)
@@ -262,6 +272,7 @@ impl LoadStageFamily<ReadOnly> for StridedStageFamily {
 
 #[cube]
 pub fn as_swizzle_object(#[comptime] mode: SwizzleMode) -> Swizzle {
+    comment!("even here");
     match mode {
         SwizzleMode::None => Swizzle::none(),
         SwizzleMode::B32 => Swizzle::new(1u32, 4u32, 3),

@@ -39,15 +39,18 @@ impl<ES: Numeric> StridedTile<ES> {
         start: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
+        comment!("no more");
         let len = config.elements_in_tile() / config.line_size;
         let layout = config.matrix_layout;
         let stride = match layout {
             MatrixLayout::RowMajor => config.elements_in_tile_col,
             MatrixLayout::ColMajor => config.elements_in_tile_row,
         };
+        comment!("cant stnad");
 
         let stride = comptime![stride / config.line_size];
 
+        comment!("bugs");
         StridedTile::<ES> {
             stage,
             start,

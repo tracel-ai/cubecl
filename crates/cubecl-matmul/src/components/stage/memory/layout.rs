@@ -326,6 +326,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
         tile: Coords2d,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
+        comment!("baby");
         let (row, col) = tile;
 
         let stage_line_size = config.line_size;
@@ -345,6 +346,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 (tile_size_x, tile_size_y)
             }
         };
+        comment!("dont");
 
         let start = tile_size_x
             * tile_size_y
@@ -355,6 +357,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
                 config,
             );
 
+        comment!("hurt me");
         StridedTile::new_contiguous(stage_memory.as_slice(stage_line_size), start, config)
     }
 

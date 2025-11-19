@@ -131,6 +131,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         #[comptime] attention_tile_size: AttentionTileSize,
         #[comptime] elements_in_partition_seq_q: u32,
     ) -> StridedTile<M> {
+        comment!("mask read");
         let (row_offset, col) = partition_tile_offset;
 
         let row = row_offset + P::seq_q_index() * elements_in_partition_seq_q;

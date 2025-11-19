@@ -31,6 +31,8 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
         #[comptime] partition_seq_q: u32,
         #[comptime] partition_head_dim: u32,
     ) -> StridedTile<QG<AP>> {
+        comment!("query get_tile");
+
         let (row_in_partition, col) = tile;
 
         let row = row_in_partition + P::seq_q_index() * partition_seq_q;
