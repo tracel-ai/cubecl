@@ -1,7 +1,7 @@
 use crate::components::global::multi_stage::double_buffer_execution::{
     execute_current_and_read_next, execute_last_and_write_results, read_first,
 };
-use crate::components::global::{GlobalMatmul, GlobalWriter, SharedGlobalConfig};
+use crate::components::global::{GlobalMatmul, GlobalWriter, SharedGlobalMatmulConfig};
 use crate::components::global::{Specializer, read::SyncStrategy};
 use crate::components::stage::{FilledStage, StridedStageMemory};
 use crate::components::stage::{StageConfig, StridedStageFamily};
@@ -53,7 +53,7 @@ where
     RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = SharedGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
     type LhsGlobalReader = PartialStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,

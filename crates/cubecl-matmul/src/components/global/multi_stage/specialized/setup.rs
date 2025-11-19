@@ -2,8 +2,8 @@ use crate::components::global::memory::{GlobalMemoryConfig, ViewDirection};
 use crate::components::global::multi_stage::EventLoadingMode;
 use crate::components::global::read::LoadingValidation;
 use crate::components::global::{
-    GlobalConfig as _, GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts,
-    SharedGlobalConfig, cube_dim_validation,
+    GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, SharedGlobalMatmulConfig,
+    cube_dim_validation,
 };
 use crate::components::global::{
     GlobalWriterFamily, multi_stage::specialized::SpecializedMatmul, read::SyncStrategy,
@@ -51,7 +51,7 @@ where
         RL,
         GW::Writer<MP::Acc>,
     >;
-    type Config = SharedGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
     fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
@@ -189,7 +189,7 @@ where
             num_partitions_n: selection.tiling_scheme.stage_partitions_in_stage_n(),
         };
 
-        let config = SharedGlobalConfig {
+        let config = SharedGlobalMatmulConfig {
             stage_config,
             num_planes: plane_counts.total,
             lhs_reader_config,
@@ -202,13 +202,13 @@ where
 }
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
-    config: SharedGlobalConfig<S>,
+    config: SharedGlobalMatmulConfig<S>,
     client: &ComputeClient<R::Server>,
     dtypes: &MatmulElems,
-) -> Result<SharedGlobalConfig<S>, MatmulSetupError> {
+) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
     LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;
     RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
-    cube_dim_validation(config.cube_dim())?;
+    cube_dim_validation(config)?;
 
     Ok(config)
 }

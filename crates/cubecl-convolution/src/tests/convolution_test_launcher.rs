@@ -1,6 +1,6 @@
+use crate::components::ConvGemmConfig;
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_matmul::components::global::GlobalConfig;
 use cubecl_matmul::components::{InputArg, MatmulSelection, OutputArg};
 use cubecl_matmul::components::{MatmulElems, MatmulIdent};
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
@@ -116,7 +116,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         None,
         &selection,
         &problem,
-        &config.global_line_sizes(),
+        &config.line_sizes(),
         config,
         &dtypes,
     );
@@ -125,7 +125,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         &out_handle,
         &selection,
         &problem,
-        &config.global_line_sizes(),
+        &config.line_sizes(),
         config,
         &dtypes,
     );

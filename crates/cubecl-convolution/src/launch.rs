@@ -1,3 +1,4 @@
+use crate::components::ConvGemmConfig as _;
 use crate::{components::ConvSetupError, kernels::layered::selector::launch_kernel_concrete};
 use crate::{
     components::{

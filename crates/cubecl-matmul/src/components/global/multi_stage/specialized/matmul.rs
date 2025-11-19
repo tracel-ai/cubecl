@@ -1,5 +1,5 @@
 use crate::components::global::RoleRule;
-use crate::components::global::SharedGlobalConfig;
+use crate::components::global::SharedGlobalMatmulConfig;
 use crate::components::global::read::LoaderStage;
 use crate::components::global::read::SyncStrategy;
 use crate::components::global::{GlobalConfig, GlobalWriter};
@@ -56,7 +56,7 @@ where
     RL: PartialLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = SharedGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
     type LhsGlobalReader = PartialStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,

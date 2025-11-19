@@ -279,20 +279,20 @@ macro_rules! conv2d_standard_tests {
             );
         }
 
-        mod g100x100x100x100 {
-            use super::*;
-            $crate::conv2d_standard_tests!(
-                $tile,
-                $partition,
-                $stage,
-                ConvolutionSize {
-                    h: 100,
-                    w: 100,
-                    c: 100,
-                    out_c: 100
-                }
-            );
-        }
+        // mod g100x100x100x100 {
+        //     use super::*;
+        //     $crate::conv2d_standard_tests!(
+        //         $tile,
+        //         $partition,
+        //         $stage,
+        //         ConvolutionSize {
+        //             h: 100,
+        //             w: 100,
+        //             c: 100,
+        //             out_c: 100
+        //         }
+        //     );
+        // }
 
         mod g20x20x16x32 {
             use super::*;

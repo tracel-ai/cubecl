@@ -3,11 +3,16 @@ use std::marker::PhantomData;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::{
     AvailableLineSizes, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
-    MatmulSetupError,
-    global::{PartitionedStageFamily, WriteTiling, read::NoLoadingValidation},
+    MatmulSetupError, MatrixLayout, StageIdent,
+    global::{
+        GlobalReaderConfig, GlobalWriterConfig, MatmulPlaneCounts, PartitionedStageFamily,
+        SharedGlobalMatmulConfig, WriteTiling, cube_dim_validation,
+        memory::{GlobalMemoryConfig, ViewDirection},
+        multi_stage::EventLoadingMode,
+    },
     stage::{
-        ContiguousTilingLayout, RowMajorTilingOrder, StageConfig as _, StageMatmulFamily,
-        StridedStageFamily, TilingLayout, TilingLayoutConfig, TilingLayoutEnum,
+        ContiguousTilingLayout, RowMajorTilingOrder, StageConfig, StageMatmulFamily,
+        StageMemoryConfig, StridedStageFamily,
     },
 };
 
@@ -36,7 +41,7 @@ where
         MP,
         SMM::Matmul<MP, ConvTilingLayout, ConvTilingLayout, BiasTilingLayout, WriteTiling>,
     >;
-    type Config = ConvolutionConfig<SimpleConfig<SMM::Config>>;
+    type Config = ConvolutionConfig<SharedGlobalMatmulConfig<SMM::Config>>;
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         available_line_sizes
@@ -49,44 +54,144 @@ where
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tiling_layout = TilingLayoutConfig {
-            lhs: ConvTilingLayout::to_enum(),
-            rhs: ConvTilingLayout::to_enum(),
-            acc: TilingLayoutEnum::Other,
-            out: WriteTiling::to_enum(),
-        };
         let stage_config = SMM::setup::<R>(
             client,
             &problem.as_matmul_problem(),
             selection,
             line_sizes,
-            tiling_layout,
             (1, 1).into(),
             None,
             false,
             dtypes,
         )?;
-        let stage_k = stage_config.tiling_scheme().elements_in_stage_k();
+
+        // TODO: Find the correct condition to avoid check bounds.
+        let check_m_bounds = true;
+        let check_n_bounds = true;
+        let check_k_bounds = true;
+
+        let plane_role_config = stage_config.plane_role_config();
+        let plane_counts = MatmulPlaneCounts::new(
+            selection.load_specialization_config,
+            plane_role_config.plane_roles,
+        );
+
+        let num_stages = 1;
+        let precompute_job = selection.loading_precompute_strategy.into();
+        let plane_dim = selection.plane_dim;
+        let event_loading_mode = EventLoadingMode::Relaxed;
+        let reader_mode = selection.reader_mode;
+
+        let lhs_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.lhs as u32,
+            check_row_bounds: check_m_bounds,
+            check_col_bounds: check_k_bounds,
+            matrix_layout: problem.lhs_layout,
+            view_direction: ViewDirection::Col,
+        };
+
+        let rhs_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.rhs as u32,
+            check_row_bounds: check_k_bounds,
+            check_col_bounds: check_n_bounds,
+            matrix_layout: problem.rhs_layout,
+            view_direction: ViewDirection::Row,
+        };
+
+        let out_gmem_config = GlobalMemoryConfig {
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            check_row_bounds: check_m_bounds,
+            check_col_bounds: check_n_bounds,
+            view_direction: ViewDirection::None,
+        };
+
+        let lhs_smem_config = StageMemoryConfig {
+            num_reading_planes: plane_counts.lhs,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
+            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
+            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
+            line_size: line_sizes.lhs as u32,
+            matrix_layout: problem.lhs_layout,
+            num_stages,
+            swizzle: selection.shared_swizzle.lhs,
+        };
+
+        let rhs_smem_config = StageMemoryConfig {
+            num_reading_planes: plane_counts.rhs,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
+            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+            line_size: line_sizes.rhs as u32,
+            matrix_layout: problem.rhs_layout,
+            num_stages,
+            swizzle: selection.shared_swizzle.rhs,
+        };
+
+        let out_smem_config = StageMemoryConfig {
+            num_reading_planes: plane_counts.out,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
+            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            num_stages,
+            swizzle: selection.shared_swizzle.out,
+        };
+
+        let lhs_reader_config = GlobalReaderConfig {
+            gmem_config: lhs_gmem_config,
+            smem_config: lhs_smem_config,
+            precompute_job,
+            plane_dim,
+            plane_role_config,
+            reader_mode,
+            stage_ident: StageIdent::Lhs,
+            event_loading_mode,
+            specialization_tensor_config: selection.load_specialization_config.lhs,
+        };
+
+        let rhs_reader_config = GlobalReaderConfig {
+            gmem_config: rhs_gmem_config,
+            smem_config: rhs_smem_config,
+            precompute_job,
+            plane_dim,
+            plane_role_config,
+            reader_mode,
+            stage_ident: StageIdent::Rhs,
+            event_loading_mode,
+            specialization_tensor_config: selection.load_specialization_config.rhs,
+        };
+
+        let writer_config = GlobalWriterConfig {
+            gmem_config: out_gmem_config,
+            smem_config: out_smem_config,
+            role_rule_config: plane_role_config.rule,
+            plane_dim: selection.plane_dim,
+            num_partitions_n: selection.tiling_scheme.stage_partitions_in_stage_n(),
+        };
+
+        let matmul_config = SharedGlobalMatmulConfig {
+            stage_config,
+            num_planes: plane_counts.total,
+            lhs_reader_config,
+            rhs_reader_config,
+            writer_config,
+        };
+
+        cube_dim_validation(matmul_config)?;
 
         ConvolutionConfig::new(
-            SimpleConfig::new::<NoLoadingValidation, NoLoadingValidation, R>(
-                client,
-                stage_config,
-                stage_config.num_main_flow_planes(),
-                true,
-                true,
-                true,
-                stage_k,
-                selection.loading_precompute_strategy,
-                selection.reader_mode,
-                dtypes,
-            )?,
+            matmul_config,
             &problem.kernel_size,
             &problem.stride,
             &problem.dilation,
             &problem.padding,
             problem.dimensionality,
-            1,
+            num_stages,
         )
     }
 }

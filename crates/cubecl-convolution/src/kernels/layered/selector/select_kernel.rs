@@ -1,3 +1,4 @@
+use crate::components::ConvGemmConfig as _;
 use cubecl_core::prelude::TensorHandleRef;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::MatmulElems;

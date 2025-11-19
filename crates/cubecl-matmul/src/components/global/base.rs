@@ -125,7 +125,7 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SharedGlobalConfig<S: StageConfig> {
+pub struct SharedGlobalMatmulConfig<S: StageConfig> {
     pub stage_config: S,
     pub num_planes: u32,
     pub lhs_reader_config: GlobalReaderConfig,
@@ -133,7 +133,7 @@ pub struct SharedGlobalConfig<S: StageConfig> {
     pub writer_config: GlobalWriterConfig,
 }
 
-impl<S: StageConfig> SharedGlobalConfig<S> {
+impl<S: StageConfig> SharedGlobalMatmulConfig<S> {
     pub fn check_k_bounds(&self) -> bool {
         let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds;
         let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds;
@@ -158,7 +158,7 @@ impl<S: StageConfig> SharedGlobalConfig<S> {
     }
 }
 
-impl<S: StageConfig> GlobalConfig for SharedGlobalConfig<S> {
+impl<S: StageConfig> GlobalConfig for SharedGlobalMatmulConfig<S> {
     type StageConfig = S;
 
     fn stage_config(&self) -> Self::StageConfig {

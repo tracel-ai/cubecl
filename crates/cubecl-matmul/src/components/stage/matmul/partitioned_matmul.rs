@@ -85,6 +85,10 @@ impl<TC: TileConfig> StageConfig for PartitionMatmulConfig<TC> {
         let partition_size = self.shared().partition_size;
         partition_size.m() * partition_size.n()
     }
+
+    fn elements_in_tile_k(&self) -> u32 {
+        self.shared().tile_config.elements_in_tile_k()
+    }
 }
 
 /// Stage Matmul implementation that splits its stage across partitions, one per compute primitive.

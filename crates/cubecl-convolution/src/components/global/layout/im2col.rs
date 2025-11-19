@@ -8,7 +8,7 @@ use cubecl_std::{
 
 use crate::{
     components::{
-        ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
+        ConvGemmConfig, ConvolutionConfig, ConvolutionParams, ConvolutionProblem,
         global::{layout::NhwcCoords, read::im2col_tma::div_mod_seq},
     },
     kernels::layered::selector::RuntimeArgs,
@@ -51,7 +51,7 @@ impl Im2colLayout {
             shape_m: args.shape_m,
             shape_k: args.shape_k,
             params: config.convolution_params,
-            config: config.matmul.lhs_reader_config(),
+            config: config.lhs_global_memory_config(),
         }
     }
 }
@@ -108,8 +108,8 @@ impl Layout for Im2colLayout {
     fn is_in_bounds(&self, pos: Self::Coordinates) -> bool {
         let (_, view_m, view_k) = pos;
         // Shouldn't be relied on because it doesn't check spatial
-        let m_in_bounds = comptime!(!self.config.check_row_bounds()) || view_m < self.shape_m;
-        let k_in_bounds = comptime!(!self.config.check_col_bounds()) || view_k < self.shape_k;
+        let m_in_bounds = comptime!(!self.config.check_row_bounds) || view_m < self.shape_m;
+        let k_in_bounds = comptime!(!self.config.check_col_bounds) || view_k < self.shape_k;
         m_in_bounds && k_in_bounds
     }
 }

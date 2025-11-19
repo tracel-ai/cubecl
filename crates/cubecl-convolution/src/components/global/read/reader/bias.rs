@@ -8,7 +8,7 @@ use cubecl_std::{
 use cubecl_matmul::components::{
     MatrixPrecision,
     global::GlobalConfig,
-    stage::{StageMemoryConfig, StridedStageMemory},
+    stage::{StageConfig as _, StageMemoryConfig, StridedStageMemory},
 };
 
 use crate::components::stage::reader::BiasTilingLayout;
@@ -34,9 +34,9 @@ impl<IP: MatrixPrecision> BiasGlobalReader<IP> {
         match self {
             BiasGlobalReader::Some { view, stage } => {
                 let line_size = view.line_size();
-                let num_stage_elements = config.tiling_scheme().elements_in_stage_n();
+                let num_stage_elements = config.stage_config().elements_in_stage_n();
 
-                let unit_id = UNIT_POS_Y * config.plane_dim() + UNIT_POS_X;
+                let unit_id = UNIT_POS_Y * config.stage_config().plane_dim() + UNIT_POS_X;
                 let unit_pos = unit_id * line_size;
 
                 let mut slice = stage.as_slice_mut(line_size);

@@ -1,7 +1,7 @@
 use crate::components::{
     AccG, AccS, LhsG, LhsS, MatmulPrecision, MatrixPrecision, RhsG, RhsS,
     global::{
-        GlobalMatmul, GlobalWriter, SharedGlobalConfig,
+        GlobalMatmul, GlobalWriter, SharedGlobalMatmulConfig,
         read::{FullLoadingStrategy, FullStageGlobalReader, SyncStrategy, ZeroGlobalReader},
     },
     stage::StridedStageMemory,
@@ -43,7 +43,7 @@ where
     RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = SharedGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,

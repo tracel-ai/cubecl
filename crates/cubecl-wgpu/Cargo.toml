@@ -32,7 +32,7 @@ spirv = ["cubecl-spirv", "ash", "tracel-ash"]
 spirv-dump = ["std"]
 
 # attention_tests = ["cubecl-attention/attention_tests"]
-# conv_tests = ["cubecl-convolution/conv_tests"]
+conv_tests = ["cubecl-convolution/conv_tests"]
 matmul_tests_all = [
     "matmul_tests_unit",
     "matmul_tests_plane",

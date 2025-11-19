@@ -1,13 +1,13 @@
-use cubecl_core::CubeDim;
-
 use crate::components::{
-    MatmulIdent, MatmulLineSizes, TilingScheme, error::MatmulSetupError,
-    global::multi_stage::LoadMaxRoundPlaneCount,
+    MatmulIdent, MatmulLineSizes, TilingScheme,
+    error::MatmulSetupError,
+    global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
 };
 
-pub(crate) fn cube_dim_validation(cube_dim: CubeDim) -> Result<(), MatmulSetupError> {
+pub fn cube_dim_validation<G: GlobalConfig>(config: G) -> Result<(), MatmulSetupError> {
     #[cfg(target_os = "macos")]
     {
+        let cube_dim = config.cube_dim();
         if cube_dim.num_elems() >= 512 {
             use crate::components::error::MatmulAvailabilityError;
 

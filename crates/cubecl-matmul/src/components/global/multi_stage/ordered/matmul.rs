@@ -1,4 +1,4 @@
-use crate::components::global::{self, GlobalWriter, SharedGlobalConfig};
+use crate::components::global::{self, GlobalWriter, SharedGlobalMatmulConfig};
 use crate::components::global::{Specializer, read::sync::Synchronous};
 use crate::components::stage::StageConfig as _;
 use crate::components::stage::StridedStageFamily;
@@ -55,7 +55,7 @@ where
     RL: PartialLoadingStrategy<Stage = StridedStageFamily, SyncStrategy = Synchronous>,
     GW: GlobalWriter<MP::Acc>,
 {
-    type Config = SharedGlobalConfig<SMM::Config>;
+    type Config = SharedGlobalMatmulConfig<SMM::Config>;
     type LhsGlobalReader = FullStageGlobalReader<
         <MP::Lhs as MatrixPrecision>::Global,
         <MP::Lhs as MatrixPrecision>::Stage,
