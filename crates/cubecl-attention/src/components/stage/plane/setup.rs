@@ -4,10 +4,11 @@ use crate::components::{
     AttentionElems,
     attention_types::*,
     stage::{
-        AttentionTilingLayout,
+        AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
         plane::{PlanePartitionAttention, config::PlanePartitionStageConfig},
+        validate,
     },
-    tile::TileAttentionFamily,
+    tile::{TileAttentionConfig, TileAttentionFamily},
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{stage::StageFamily, tile::io::Strided};
@@ -27,25 +28,25 @@ pub struct PlanePartitionStageAttentionFamily<
 }
 
 impl<
-    FA: TileAttentionFamily,
+    TA: TileAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for PlanePartitionStageAttentionFamily<FA, SK, SV, SO>
+> StageAttentionFamily for PlanePartitionStageAttentionFamily<TA, SK, SV, SO>
 {
     type Attention<AP: AttentionPrecision> = PlanePartitionAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        FA::TileAttention<AP>,
+        TA::TileAttention<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = PlanePartitionStageConfig<FA::Config>;
+    type Config = PartitionAttentionConfig<TA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -55,16 +56,18 @@ impl<
         dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
         let num_planes = selection.tiling_scheme.stage_size.seq_q
-            * FA::computation_resources()?.num_planes(selection.plane_dim)?;
+            * TA::computation_resources()?.num_planes(selection.plane_dim)?;
 
         let tile_config =
-            FA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+            TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
-        PlanePartitionStageConfig::new(
-            tile_config,
-            selection.tiling_scheme,
-            selection.reuse_key_value,
-            num_planes,
-        )
+        validate(PartitionAttentionConfig::Plane(PlanePartitionStageConfig {
+            shared: SharedPartitionAttentionConfig {
+                tile_config,
+                partition_size: selection.tiling_scheme.partition_size,
+                reuse_key_value: selection.reuse_key_value,
+                num_planes,
+            },
+        }))
     }
 }

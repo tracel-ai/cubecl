@@ -41,10 +41,12 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for PlaneAttentionWriter<ES, E
                 &this.stage.unit_tile,
                 tile,
                 comptime![this.plane_dim],
-                comptime![this.config],
+                // TODO,
+                999u32,
             ),
             _ => {}
         }
+        todo!()
     }
 }
 
@@ -79,7 +81,8 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<
             PartitionedStage::new((PlanePartitioner::seq_q_index(), 0u32), stage_mem_config);
 
         PlaneAttentionWriter::<ES, EG> {
-            global: global.view_mut(TiledLayout::new(global_config)),
+            // global: global.view_mut(TiledLayout::new(global_config)),
+            global: todo!(),
             stage,
             plane_dim: stage_config.plane_dim(),
             config: global_config,

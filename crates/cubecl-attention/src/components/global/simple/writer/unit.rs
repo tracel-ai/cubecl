@@ -35,10 +35,12 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for UnitAttentionWriter<ES, EG
                 &mut this.global,
                 &this.stage.unit_tile,
                 tile,
-                comptime![this.config],
+                // TODO,
+                999u32,
             ),
             _ => {}
         }
+        todo!()
     }
 }
 
@@ -72,7 +74,8 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for UnitAttentionWriter<E
         let stage = PartitionedStage::new((UnitPartitioner::seq_q_index(), 0u32), stage_mem_config);
 
         UnitAttentionWriter::<ES, EG> {
-            global: global.view_mut(TiledLayout::new(global_config)),
+            // global: global.view_mut(TiledLayout::new(global_config)),
+            global: todo!(),
             stage,
             config: global_config,
         }

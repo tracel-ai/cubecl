@@ -1,4 +1,5 @@
 use crate::components::attention_types::*;
+use crate::components::tile::TileAttentionConfig;
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
@@ -80,8 +81,8 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         #[comptime] config: S,
     ) -> (Coords2d, CubeOption<StridedTile<MSK<AP>>>) {
         let partition_tile_offset = (
-            pos_in_partition.0 * config.tiling_scheme().elements_in_tile_seq_q(),
-            pos_in_partition.1 * config.tiling_scheme().elements_in_tile_seq_kv(),
+            pos_in_partition.0 * config.elements_in_tile_seq_q(),
+            pos_in_partition.1 * config.elements_in_tile_seq_kv(),
         );
 
         let (origin, tile) = match self {
@@ -127,10 +128,9 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         #[comptime] config: S,
     ) -> StridedTile<M> {
         let (row_offset, col) = partition_tile_offset;
-        let attention_tile_size = config.tiling_scheme().tile_size;
+        let attention_tile_size = config.tile_config().attention_tile_size();
 
-        let row =
-            row_offset + P::seq_q_index() * config.tiling_scheme().elements_in_partition_seq_q();
+        let row = row_offset + P::seq_q_index() * config.elements_in_partition_seq_q();
 
         StridedTile::<M>::new_strided(
             self.global_iter
@@ -145,7 +145,10 @@ impl<M: Numeric> MaterializedMaskReader<M> {
             self.seq_kv_shape,
             Swizzle::none(),
             MatrixLayout::RowMajor,
-        )
+            // TODO
+            999u32,
+        );
+        todo!()
     }
 
     fn advance(&mut self) {

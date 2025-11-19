@@ -4,10 +4,10 @@ use crate::components::{
     AttentionElems,
     attention_types::*,
     stage::{
-        AttentionTilingLayout,
-        unit::{UnitPartitionAttention, config::UnitPartitionStageConfig},
+        AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
+        unit::{UnitPartitionAttention, config::UnitPartitionStageConfig}, validate,
     },
-    tile::TileAttentionFamily,
+    tile::{TileAttentionConfig, TileAttentionFamily},
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
 use cubecl_matmul::components::{ComputeResources, stage::StageFamily, tile::io::Strided};
@@ -27,25 +27,25 @@ pub struct UnitPartitionStageAttentionFamily<
 }
 
 impl<
-    FA: TileAttentionFamily,
+    TA: TileAttentionFamily,
     SK: StageFamily<TileKind = Strided>,
     SV: StageFamily<TileKind = Strided>,
     SO: StageFamily<ReadWrite, TileKind = Strided>,
-> StageAttentionFamily for UnitPartitionStageAttentionFamily<FA, SK, SV, SO>
+> StageAttentionFamily for UnitPartitionStageAttentionFamily<TA, SK, SV, SO>
 {
     type Attention<AP: AttentionPrecision> = UnitPartitionAttention<
         AP,
         SK::Stage<KS<AP>, AttentionTilingLayout>,
         SV::Stage<VS<AP>, AttentionTilingLayout>,
         SO::Stage<OS<AP>, AttentionTilingLayout>,
-        FA::TileAttention<AP>,
+        TA::TileAttention<AP>,
     >;
 
     type KeyStage = SK;
     type ValueStage = SV;
     type OutStage = SO;
 
-    type Config = UnitPartitionStageConfig<FA::Config>;
+    type Config = PartitionAttentionConfig<TA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
         client: &ComputeClient<R::Server>,
@@ -54,7 +54,7 @@ impl<
         line_sizes: &AttentionLineSizes,
         dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let compute_resources = if let ComputeResources::Units(units) = FA::computation_resources()?
+        let compute_resources = if let ComputeResources::Units(units) = TA::computation_resources()?
         {
             ComputeResources::Units(units * selection.tiling_scheme.stage_size.seq_q)
         } else {
@@ -66,13 +66,16 @@ impl<
 
         let num_planes = compute_resources.num_planes(selection.plane_dim)?;
         let tile_config =
-            FA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+            TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
-        UnitPartitionStageConfig::new(
-            tile_config,
-            selection.tiling_scheme,
-            selection.reuse_key_value,
-            num_planes,
-        )
+        validate(PartitionAttentionConfig::Unit(UnitPartitionStageConfig {
+            shared: SharedPartitionAttentionConfig {
+                tile_config,
+                partition_size: selection.tiling_scheme.partition_size,
+                reuse_key_value: selection.reuse_key_value,
+                num_planes,
+            },
+        }))
     }
 }
+

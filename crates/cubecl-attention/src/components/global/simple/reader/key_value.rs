@@ -53,55 +53,56 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
         stage: &mut StridedStageMemory<ES, AttentionTilingLayout>,
         #[comptime] config: G,
     ) {
-        if UNIT_POS_Y == 0 {
-            // TODO this reader is bad, it's not coalesced
-            let memory_config = config.global_memory_config(comptime!(self.attention_ident));
-            let mut slice = stage.as_slice_mut(1u32);
+        todo!()
+        // if UNIT_POS_Y == 0 {
+        //     // TODO this reader is bad, it's not coalesced
+        //     let memory_config = config.global_memory_config(comptime!(self.attention_ident));
+        //     let mut slice = stage.as_slice_mut(1u32);
 
-            let tile_rows = memory_config.elements_in_tile_row();
-            let tile_cols = memory_config.elements_in_tile_col();
-            let partition_rows = memory_config.elements_in_stage_row() / tile_rows;
-            let partition_cols = memory_config.elements_in_stage_col() / tile_cols;
+        //     let tile_rows = memory_config.elements_in_tile_row();
+        //     let tile_cols = memory_config.elements_in_tile_col();
+        //     let partition_rows = memory_config.elements_in_stage_row() / tile_rows;
+        //     let partition_cols = memory_config.elements_in_stage_col() / tile_cols;
 
-            let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
-            let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
+        //     let units_per_tile_row = comptime!(config.plane_dim() / tile_rows);
+        //     let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));
 
-            let row_in_tile = UNIT_POS_X / units_per_tile_row;
-            let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
+        //     let row_in_tile = UNIT_POS_X / units_per_tile_row;
+        //     let col_in_tile_start = (UNIT_POS_X % units_per_tile_row) * tile_cols_per_unit;
 
-            // Assumes row tiling order
-            let num_elements_per_tile = tile_rows * tile_cols;
-            let tile_row_stride = partition_cols * num_elements_per_tile;
-            let tile_col_stride = num_elements_per_tile;
+        //     // Assumes row tiling order
+        //     let num_elements_per_tile = tile_rows * tile_cols;
+        //     let tile_row_stride = partition_cols * num_elements_per_tile;
+        //     let tile_col_stride = num_elements_per_tile;
 
-            let layout = TiledLayout::new(memory_config);
-            let view = self.global_iter.view().view(layout);
+        //     let layout = TiledLayout::new(memory_config);
+        //     let view = self.global_iter.view().view(layout);
 
-            #[unroll]
-            for tile_row in 0..partition_rows {
-                #[unroll]
-                for tile_col in 0..partition_cols {
-                    if row_in_tile < tile_rows {
-                        #[unroll]
-                        for i in 0..tile_cols_per_unit {
-                            let col = col_in_tile_start + i;
+        //     #[unroll]
+        //     for tile_row in 0..partition_rows {
+        //         #[unroll]
+        //         for tile_col in 0..partition_cols {
+        //             if row_in_tile < tile_rows {
+        //                 #[unroll]
+        //                 for i in 0..tile_cols_per_unit {
+        //                     let col = col_in_tile_start + i;
 
-                            if col < tile_cols {
-                                let tile_row_offset = tile_row * tile_row_stride;
-                                let tile_col_offset = tile_col * tile_col_stride;
-                                let offset = tile_row_offset + tile_col_offset;
+        //                     if col < tile_cols {
+        //                         let tile_row_offset = tile_row * tile_row_stride;
+        //                         let tile_col_offset = tile_col * tile_col_stride;
+        //                         let offset = tile_row_offset + tile_col_offset;
 
-                                let index = row_in_tile * tile_cols + col;
+        //                         let index = row_in_tile * tile_cols + col;
 
-                                slice[index + offset] = Line::cast_from(
-                                    view.read_checked(((tile_row, tile_col).runtime(), index)),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //                         slice[index + offset] = Line::cast_from(
+        //                             view.read_checked(((tile_row, tile_col).runtime(), index)),
+        //                         );
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     pub fn advance_view(&mut self) {

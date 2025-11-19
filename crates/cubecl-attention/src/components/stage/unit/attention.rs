@@ -11,15 +11,8 @@ use crate::components::{
     tile::TileAttention,
 };
 
-pub type UnitPartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
-    AP,
-    SK,
-    SV,
-    SO,
-    FA,
-    UnitPartitioner,
-    UnitPartitionStageConfig<<FA as TileAttention<AP>>::Config>,
->;
+pub type UnitPartitionAttention<AP, SK, SV, SO, FA> =
+    PartitionAttention<AP, SK, SV, SO, FA, UnitPartitioner>;
 
 pub struct UnitPartitioner {}
 

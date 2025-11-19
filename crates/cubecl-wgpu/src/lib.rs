@@ -81,7 +81,7 @@ mod tests_msl {
     cubecl_matmul::testgen_matmul_plane_accelerated!();
     cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
-    // cubecl_attention::testgen_attention!();
+    cubecl_attention::testgen_attention!();
     cubecl_reduce::testgen_reduce!();
     cubecl_random::testgen_random!();
     cubecl_reduce::testgen_shared_sum!([f32]);
