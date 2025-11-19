@@ -50,3 +50,8 @@ pub mod tma;
 
 /// Simple system profiling using timestamps.
 pub mod timestamp_profiler;
+
+/// Plugin traits used with the ComputeClient extention function to add additional types and fns to
+/// a Backend
+#[cfg(feature = "plugin")]
+pub mod plugin;

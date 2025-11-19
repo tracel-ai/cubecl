@@ -10,6 +10,9 @@ use crate::{
     },
     storage::{BindingResource, ComputeStorage},
 };
+
+#[cfg(feature = "plugin")]
+use crate::plugin::{Plugin, PluginError, SupportsPlugin};
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -781,5 +784,33 @@ where
             .unwrap();
 
         alloc
+    }
+}
+
+#[cfg(feature = "plugin")]
+impl<Server: ComputeServer> ComputeClient<Server> {
+    /// This function is used to initialize a type on the `Server`
+    pub fn plugin_init<S: Plugin>(&self, plugin_type: S::InitType) -> Result<(), PluginError>
+    where
+        Server: SupportsPlugin<S>,
+    {
+        let mut state = self.context.lock();
+        let stream_id = self.stream_id();
+        state.init_type(plugin_type, stream_id)?;
+        Ok(())
+    }
+
+    /// Execute an extension function on the `Server`.
+    pub fn plugin_fn<S: Plugin>(
+        &self,
+        client_handle: S::ClientHandle,
+        op: S::Fns,
+    ) -> Result<S::ReturnVal, PluginError>
+    where
+        Server: SupportsPlugin<S>,
+    {
+        let stream_id = self.stream_id();
+        let mut state = self.context.lock();
+        state.plugin_fn::<S::Fns>(client_handle, stream_id, op)
     }
 }
