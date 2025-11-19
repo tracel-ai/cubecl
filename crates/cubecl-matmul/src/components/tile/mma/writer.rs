@@ -108,11 +108,11 @@ fn store_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeri
 }
 
 /// This is important to use on CUDA because CUDA's matrices are heavily permuted, being organized
-/// into 8x8 chunks with only 32 contiguous bits per thread. `ldmatrix` loads 8 consecutive elements
-/// in each thread (if executed with x4), then uses warp shuffles to move the elements to the
-/// correct positions for each thread. This currently only supports f16, fp8 needs more handling and
-/// packed fp4 isn't supported at all. So these currently fall back to manual loading.
-/// tf32 isn't supported by the instruction at all.
+/// into 8x8 chunks with only 32 contiguous bits per thread. `stmatrix` uses warp shuffles to move
+/// the elements from the mma fragment positions for each thread to 8 consecutive elements in each
+/// thread (if executed with x4), then stores them in one transaction. This currently only supports
+/// f16, fp8 needs more handling and packed fp4 isn't supported at all. So these currently fall back
+/// to manual loading. tf32 isn't supported by the instruction at all.
 #[cube]
 fn store_stmatrix<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     tile: &mut StridedTile<V, ReadWrite>,
