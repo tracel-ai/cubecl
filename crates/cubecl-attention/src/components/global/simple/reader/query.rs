@@ -3,8 +3,8 @@ use crate::components::{
 };
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_matmul::components::MatrixLayout;
 use cubecl_matmul::components::tile::StridedTile;
+use cubecl_matmul::components::{MatrixLayout, global::memory::GlobalMemoryConfig};
 use cubecl_std::{
     Swizzle,
     tensor::{View, layout::Coords2d},
@@ -29,20 +29,11 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
     pub fn get_tile<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
         tile: Coords2d,
-        #[comptime] config: S,
+        #[comptime] attention_tile_size: AttentionTileSize,
+        #[comptime] partition_seq_q: u32,
+        #[comptime] partition_head_dim: u32,
     ) -> StridedTile<QG<AP>> {
         let (row_in_partition, col) = tile;
-
-        // get from smem_config
-        // config.tile_config().attention_tile_size();
-        let attention_tile_size = comptime!(AttentionTileSize {
-            seq_q: todo!(),
-            head_dim: todo!(),
-            seq_kv: todo!(),
-            val_dim: todo!()
-        });
-        let partition_seq_q: u32 = todo!(); // config.partition_size.seq_q;
-        let elements_in_partition_head_dim: u32 = todo!(); //             config.tiling_scheme().elements_in_partition_head_dim(),
 
         let row = row_in_partition + P::seq_q_index() * partition_seq_q;
 
@@ -58,12 +49,10 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
                 .to_linear_slice(),
             0,
             attention_tile_size.seq_q * attention_tile_size.head_dim,
-            elements_in_partition_head_dim,
+            partition_head_dim * attention_tile_size.head_dim,
             Swizzle::none(),
             MatrixLayout::RowMajor,
-            // TODO
-            999u32,
-        );
-        todo!()
+            1u32,
+        )
     }
 }

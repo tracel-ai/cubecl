@@ -9,8 +9,8 @@ use std::{fmt::Debug, hash::Hash};
 
 use crate::components::{
     AttentionElems, AttentionLineSizes, AttentionPartitionSize, AttentionPrecision,
-    AttentionProblem, AttentionSelection, AttentionSetupError, AvailableLineSizes,
-    global::GlobalAttentionConfig, stage::RunningState,
+    AttentionProblem, AttentionSelection, AttentionSetupError, AttentionStageSize,
+    AvailableLineSizes, global::GlobalAttentionConfig, stage::RunningState,
 };
 use crate::components::{attention_types::*, tile::TileAttentionConfig};
 use crate::components::{global::simple::MaskReader, stage::AttentionPartitioner};
@@ -128,16 +128,16 @@ pub trait StageAttentionConfig:
 
     fn tile_config(&self) -> Self::TileAttentionConfig;
 
-    fn elements_in_partition_seq_q(&self) -> u32;
-    fn elements_in_partition_seq_kv(&self) -> u32;
-
-    fn elements_in_stage_seq_q(&self) -> u32;
-    fn elements_in_stage_seq_kv(&self) -> u32;
-
     fn elements_in_tile_seq_q(&self) -> u32;
     fn elements_in_tile_seq_kv(&self) -> u32;
 
-    // fn plane_dim(&self) -> u32;
+    fn elements_in_partition_seq_q(&self) -> u32;
+    fn elements_in_partition_seq_kv(&self) -> u32;
+    fn elements_in_partition_val_dim(&self) -> u32;
+
+    fn elements_in_stage_seq_q(&self) -> u32;
+
+    fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
 
     // fn tiling_scheme(&self) -> AttentionTilingScheme;
@@ -156,6 +156,7 @@ pub enum PartitionAttentionConfig<TC: TileAttentionConfig> {
 pub struct SharedPartitionAttentionConfig<TC: TileAttentionConfig> {
     pub tile_config: TC,
     pub partition_size: AttentionPartitionSize,
+    pub stage_size: AttentionStageSize,
     pub reuse_key_value: bool,
     pub num_planes: u32,
 }
@@ -196,34 +197,39 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
     type TileAttentionConfig = TC;
 
     fn tile_config(&self) -> Self::TileAttentionConfig {
-        todo!()
-    }
-
-    fn elements_in_partition_seq_q(&self) -> u32 {
-        todo!()
-    }
-
-    fn elements_in_partition_seq_kv(&self) -> u32 {
-        todo!()
-    }
-
-    fn elements_in_stage_seq_q(&self) -> u32 {
-        todo!()
-    }
-
-    fn elements_in_stage_seq_kv(&self) -> u32 {
-        todo!()
+        self.shared().tile_config
     }
 
     fn elements_in_tile_seq_q(&self) -> u32 {
-        todo!()
+        self.shared().tile_config.attention_tile_size().seq_q
     }
 
     fn elements_in_tile_seq_kv(&self) -> u32 {
-        todo!()
+        self.shared().tile_config.attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_seq_q(&self) -> u32 {
+        self.shared().partition_size.seq_q * self.shared().tile_config.attention_tile_size().seq_q
+    }
+
+    fn elements_in_partition_seq_kv(&self) -> u32 {
+        self.shared().partition_size.seq_kv * self.shared().tile_config.attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_val_dim(&self) -> u32 {
+        self.shared().partition_size.val_dim
+            * self.shared().tile_config.attention_tile_size().val_dim
+    }
+
+    fn elements_in_stage_seq_q(&self) -> u32 {
+        self.shared().stage_size.seq_q * self.elements_in_partition_seq_q()
     }
 
     fn num_planes(&self) -> u32 {
-        todo!()
+        self.shared().num_planes
+    }
+
+    fn plane_dim(&self) -> u32 {
+        self.shared().tile_config.plane_dim()
     }
 }

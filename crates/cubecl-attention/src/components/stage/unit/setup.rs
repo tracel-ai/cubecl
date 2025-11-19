@@ -5,7 +5,8 @@ use crate::components::{
     attention_types::*,
     stage::{
         AttentionTilingLayout, PartitionAttentionConfig, SharedPartitionAttentionConfig,
-        unit::{UnitPartitionAttention, config::UnitPartitionStageConfig}, validate,
+        unit::{UnitPartitionAttention, UnitPartitionStageConfig},
+        validate,
     },
     tile::{TileAttentionConfig, TileAttentionFamily},
 };
@@ -72,10 +73,10 @@ impl<
             shared: SharedPartitionAttentionConfig {
                 tile_config,
                 partition_size: selection.tiling_scheme.partition_size,
+                stage_size: selection.tiling_scheme.stage_size,
                 reuse_key_value: selection.reuse_key_value,
                 num_planes,
             },
         }))
     }
 }
-

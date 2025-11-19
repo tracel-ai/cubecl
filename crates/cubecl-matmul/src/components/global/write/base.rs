@@ -40,5 +40,5 @@ pub struct GlobalWriterConfig {
     pub smem_config: StageMemoryConfig,
     pub role_rule_config: RoleRuleConfig,
     pub plane_dim: u32,
-    pub num_partitions_n: u32,
+    pub num_partitions_col: u32,
 }

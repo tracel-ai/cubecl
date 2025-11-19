@@ -214,12 +214,9 @@ pub struct GlobalReaderConfig {
     pub reader_mode: ReaderMode,
     pub event_loading_mode: EventLoadingMode,
     pub specialization_tensor_config: SpecializationTensorConfig,
-
-    // Not ideal because duplicated from global config
     pub plane_role_config: PlaneRoleConfig,
 
-    // ideally remove because doesn't apply to any problem
-    // perhaps in favor of orientation or something
+    // ideally remove because doesn't apply to any kind of problem
     pub stage_ident: StageIdent,
 }
 

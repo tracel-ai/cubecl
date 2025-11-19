@@ -53,7 +53,7 @@ impl<EG: Float, ES: Float, G: GlobalAttentionConfig> DummyKeyValueReader<EG, ES,
         stage: &mut StridedStageMemory<ES, AttentionTilingLayout>,
         #[comptime] config: G,
     ) {
-        todo!()
+        // todo!()
         // if UNIT_POS_Y == 0 {
         //     // TODO this reader is bad, it's not coalesced
         //     let memory_config = config.global_memory_config(comptime!(self.attention_ident));

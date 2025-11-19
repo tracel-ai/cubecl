@@ -1,7 +1,7 @@
 use cubecl_core::CubeDim;
 use cubecl_matmul::components::{
     MatrixLayout,
-    global::{GlobalReaderConfig, memory::GlobalMemoryConfig},
+    global::{GlobalReaderConfig, GlobalWriterConfig, memory::GlobalMemoryConfig},
     stage::{StageMemoryConfig, SwizzleMode},
 };
 
@@ -11,17 +11,16 @@ use crate::components::{
 };
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct SimpleGlobalConfig<S: StageAttentionConfig> {
+pub struct SimpleGlobalAttentionConfig<S: StageAttentionConfig> {
     pub stage_config: S,
-    num_planes: u32,
-    causal_mask: bool,
     pub key_reader_config: GlobalReaderConfig,
     pub value_reader_config: GlobalReaderConfig,
     pub query_gmem_config: GlobalMemoryConfig,
     pub mask_gmem_config: GlobalMemoryConfig,
+    pub writer_config: GlobalWriterConfig,
 }
 
-impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
+impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalAttentionConfig<S> {
     type StageConfig = S;
 
     // fn key_stage_memory_config(&self) -> StageMemoryConfig {
@@ -61,7 +60,10 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     // }
 
     fn cube_dim(&self) -> CubeDim {
-        CubeDim::new_2d(self.stage_config.plane_dim(), self.num_planes)
+        CubeDim::new_2d(
+            self.stage_config.plane_dim(),
+            self.stage_config.num_planes(),
+        )
     }
 
     fn stage_config(&self) -> Self::StageConfig {
@@ -106,25 +108,20 @@ impl<S: StageAttentionConfig> GlobalAttentionConfig for SimpleGlobalConfig<S> {
     // }
 }
 
-impl<S: StageAttentionConfig> SimpleGlobalConfig<S> {
-    pub fn new(
-        stage_config: S,
-        num_planes: u32,
-        causal_mask: bool,
-    ) -> Result<Self, AttentionSetupError> {
-        Self {
-            stage_config,
-            num_planes,
-            causal_mask,
-            key_reader_config: todo!(),
-            value_reader_config: todo!(),
-            query_gmem_config: todo!(),
-            mask_gmem_config: todo!(),
-        }
-        .validate()
-    }
+// impl<S: StageAttentionConfig> SimpleGlobalConfig<S> {
+//     pub fn new(stage_config: S, num_planes: u32) -> Result<Self, AttentionSetupError> {
+//         Self {
+//             stage_config,
+//             key_reader_config: todo!(),
+//             value_reader_config: todo!(),
+//             query_gmem_config: todo!(),
+//             mask_gmem_config: todo!(),
+//             writer_config: todo!(),
+//         }
+//         .validate()
+//     }
 
-    pub fn validate(self) -> Result<Self, AttentionSetupError> {
-        Ok(self)
-    }
-}
+//     pub fn validate(self) -> Result<Self, AttentionSetupError> {
+//         Ok(self)
+//     }
+// }

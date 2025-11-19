@@ -10,11 +10,13 @@ use crate::components::attention_types::*;
 use crate::components::global::base::GlobalAttentionConfig;
 use crate::components::global::simple::{AttentionWriter, AttentionWriterExpand, MaskReader};
 use crate::components::global::{AttentionGlobalLayout, simple::DummyKeyValueReader};
-use crate::components::stage::{AttentionPartitioner, AttentionTilingLayout, StageAttention};
+use crate::components::stage::{
+    AttentionPartitioner, AttentionTilingLayout, StageAttention, StageAttentionConfig as _,
+};
 use crate::components::{AttentionIdent, global::simple::QueryReader};
 use crate::components::{
     AttentionPrecision,
-    global::{GlobalAttention, simple::config::SimpleGlobalConfig},
+    global::{GlobalAttention, simple::config::SimpleGlobalAttentionConfig},
 };
 
 pub struct SimpleGlobalAttention<AP: AttentionPrecision, SA: StageAttention<AP>> {
@@ -38,7 +40,7 @@ impl<
 
     type Writer = <SA::Partitioner as AttentionPartitioner>::Writer<OS<AP>, OG<AP>>;
 
-    type Config = SimpleGlobalConfig<SA::Config>;
+    type Config = SimpleGlobalAttentionConfig<SA::Config>;
 
     fn execute(
         query_reader: QueryReader<AP>,
@@ -182,14 +184,13 @@ impl<
         out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        let conf = config.global_memory_config(AttentionIdent::Out);
-        let layout = AttentionGlobalLayout::new(&out, batch_index, conf);
+        let layout =
+            AttentionGlobalLayout::new(&out, batch_index, config.writer_config.gmem_config);
         let out = out.view_mut(layout);
 
-        Self::Writer::new::<SA::Config>(
+        Self::Writer::init::<SA::Config>(
             out.slice_mut_unchecked((stage_q_offset, 0), out.shape()),
-            conf,
-            config.stage_config(),
+            config.writer_config,
         )
     }
 }

@@ -25,7 +25,7 @@ pub trait StagePartitioner: Send + Sync + 'static {
     fn coordinates(
         #[comptime] role_rule_config: RoleRuleConfig,
         #[comptime] plane_dim: u32,
-        #[comptime] num_partitions_n: u32,
+        #[comptime] num_partitions_col: u32,
     ) -> Coords2d;
 }
 

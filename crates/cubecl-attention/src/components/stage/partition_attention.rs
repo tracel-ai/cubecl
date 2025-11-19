@@ -272,14 +272,21 @@ impl<
         registers: &mut QueryPartition<AP, TA>,
         #[comptime] config: Self::Config,
     ) {
-        let p = config.shared().partition_size;
+        let partition_seq_q = config.shared().partition_size.seq_q;
+        let partition_head_dim = config.shared().partition_size.head_dim;
+        let attention_tile_size = config.shared().tile_config.attention_tile_size();
 
         #[unroll]
-        for q in 0..p.seq_q {
+        for q in 0..partition_seq_q {
             #[unroll]
-            for hd in 0..p.head_dim {
+            for hd in 0..partition_head_dim {
                 let tile_to_write = registers.get_at_mut(q, hd, config);
-                let tile_read = reader.get_tile::<P, Self::Config>((q, hd).runtime(), config);
+                let tile_read = reader.get_tile::<P, Self::Config>(
+                    (q, hd).runtime(),
+                    attention_tile_size,
+                    partition_seq_q,
+                    partition_head_dim,
+                );
 
                 tile_to_write.update(&tile_read);
             }

@@ -35,7 +35,7 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
             UnitPartitioner::coordinates(
                 config.role_rule_config,
                 config.plane_dim,
-                config.num_partitions_n,
+                config.num_partitions_col,
             ),
             smem_config,
         );

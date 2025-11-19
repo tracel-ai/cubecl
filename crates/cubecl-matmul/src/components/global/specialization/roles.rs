@@ -97,6 +97,16 @@ impl PlaneRoleConfig {
         Ok(Self { plane_roles, rule })
     }
 
+    pub fn new_unspecialized(num_planes: u32) -> PlaneRoleConfig {
+        PlaneRoleConfig {
+            plane_roles: PlaneRoles {
+                main_flow: num_planes,
+                load_only: 0,
+            },
+            rule: RoleRuleConfig::MainFlowOnly,
+        }
+    }
+
     /// Returns the number of planes participating in main flow
     pub fn main_flow_count(&self) -> u32 {
         self.plane_roles.main_flow
