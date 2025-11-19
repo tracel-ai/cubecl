@@ -292,7 +292,7 @@ fn dequantize_native<R: Runtime>(
 ) {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(input.elem_size),
+        R::io_optimized_line_sizes_unchecked(input_dtype.size()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -316,6 +316,7 @@ fn dequantize_native<R: Runtime>(
                 other => panic!("Unsupported quantization value {other:?}"),
             };
 
+            println!("{input_dtype:?} {scale_dtype:?} {quant_dtype:?}");
             unsafe {
                 dequantize_symmetric_native_kernel::launch_unchecked::<R>(
                     client,
