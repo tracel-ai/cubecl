@@ -120,29 +120,12 @@ impl MatmulPrecision for i64 {
     type Acc = (i64, i64);
 }
 
-impl<LhsG: Numeric, RhsG: Numeric, AccG: Numeric, LhsS: Numeric, RhsS: Numeric, AccS: Numeric>
-    MatmulPrecision for (LhsG, RhsG, AccG, LhsS, RhsS, AccS)
+impl<Lhs: MatrixPrecision, Rhs: MatrixPrecision, Acc: MatrixPrecision> MatmulPrecision
+    for (Lhs, Rhs, Acc)
 {
-    type Lhs = (LhsG, LhsS);
-    type Rhs = (RhsG, RhsS);
-    type Acc = (AccG, AccS);
-}
-
-impl<
-    LhsG: Numeric,
-    RhsG: Numeric,
-    AccG: Numeric,
-    LhsS: Numeric,
-    RhsS: Numeric,
-    AccS: Numeric,
-    LhsR: Numeric,
-    RhsR: Numeric,
-    AccR: Numeric,
-> MatmulPrecision for (LhsG, RhsG, AccG, LhsS, RhsS, AccS, LhsR, RhsR, AccR)
-{
-    type Lhs = (LhsG, LhsS, LhsR);
-    type Rhs = (RhsG, RhsS, RhsR);
-    type Acc = (AccG, AccS, AccR);
+    type Lhs = Lhs;
+    type Rhs = Rhs;
+    type Acc = Acc;
 }
 
 pub type LhsG<MP> = <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Global;

@@ -48,7 +48,7 @@ pub(crate) fn matmul<
         config.global_config(),
     );
 
-    BMMF::Matmul::<(LhsG, RhsG, AccG, LhsS, RhsS, AccS, LhsR, RhsR, AccR)>::execute::<Args>(
+    BMMF::Matmul::<((LhsG, LhsS, LhsR), (RhsG, RhsS, RhsR), (AccG, AccS, AccR))>::execute::<Args>(
         &mut state,
         cube_count_args,
         config,
