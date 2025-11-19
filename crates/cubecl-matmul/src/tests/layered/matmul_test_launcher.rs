@@ -113,7 +113,6 @@ pub fn test_matmul_algorithm<A, P, R>(
     let out_handle = unsafe {
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
-    let dtypes = MatmulElems::new_with_tile::<P::MP, A::TileMatmul>();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<TensorArgs, R>(
