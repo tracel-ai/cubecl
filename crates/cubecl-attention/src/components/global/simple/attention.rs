@@ -34,8 +34,8 @@ impl<
     AP: AttentionPrecision,
 > GlobalAttention<AP> for SimpleGlobalAttention<AP, SA>
 {
-    type KeyReader = DummyKeyValueReader<KG<AP>, KS<AP>, Self::Config>;
-    type ValueReader = DummyKeyValueReader<VG<AP>, VS<AP>, Self::Config>;
+    type KeyReader = DummyKeyValueReader<KG<AP>, KS<AP>>;
+    type ValueReader = DummyKeyValueReader<VG<AP>, VS<AP>>;
     type MaskReader = MaskReader<AP>;
 
     type Writer = <SA::Partitioner as AttentionPartitioner>::Writer<OS<AP>, OG<AP>>;
@@ -53,8 +53,8 @@ impl<
         #[comptime] config: Self::Config,
     ) {
         // Init staging shared memories
-        let mut key_stage = key_reader.init_stage(config.key_reader_config.smem_config);
-        let mut value_stage = value_reader.init_stage(config.value_reader_config.smem_config);
+        let mut key_stage = key_reader.init_stage();
+        let mut value_stage = value_reader.init_stage();
 
         // Load queries which stay alive in registers for all the kernel
         let mut query_registers = SA::init_query(config.stage_config);
@@ -77,8 +77,8 @@ impl<
         // Global loop over seq_kv
         for _ in 0..num_stage_iterations {
             // Put key and value into stage
-            key_reader.read_global(&mut key_stage, config);
-            value_reader.read_global(&mut value_stage, config);
+            key_reader.read_global(&mut key_stage);
+            value_reader.read_global(&mut value_stage);
 
             sync_cube();
 
@@ -136,7 +136,7 @@ impl<
         let step = config.stage_config.elements_in_partition_seq_kv().runtime();
         let layout =
             AttentionGlobalLayout::new(&key, batch_index, config.key_reader_config.gmem_config);
-        DummyKeyValueReader::new(key.view(layout), step, AttentionIdent::Key)
+        DummyKeyValueReader::new(key.view(layout), step, config.key_reader_config)
     }
 
     fn init_value_reader(
@@ -147,7 +147,7 @@ impl<
         let step = config.stage_config.elements_in_partition_seq_kv().runtime();
         let layout =
             AttentionGlobalLayout::new(&value, batch_index, config.value_reader_config.gmem_config);
-        DummyKeyValueReader::new(value.view(layout), step, AttentionIdent::Value)
+        DummyKeyValueReader::new(value.view(layout), step, config.value_reader_config)
     }
 
     fn init_mask_reader(
@@ -172,6 +172,7 @@ impl<
                     mask.view(layout),
                     step,
                     seq_kv_shape,
+                    config.mask_gmem_config.view_direction,
                 )
             }
             CubeOption::None => MaskReader::new_logical(stage_q_offset + partition_q_offset, step),

@@ -64,9 +64,10 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         mask: View<Line<MSK<AP>>, Coords2d>,
         step: u32,
         seq_kv_shape: u32,
+        #[comptime] view_direction: ViewDirection,
     ) -> Self {
         let mask = mask.slice((stage_q_offset, 0), mask.shape());
-        let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
+        let global_iter = GlobalIterator::new(mask, step, view_direction, false);
 
         MaskReader::<AP>::new_Materialized(MaterializedMaskReader::new(
             global_iter,
