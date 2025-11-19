@@ -1,5 +1,5 @@
-use crate::components::attention_types::*;
 use crate::components::tile::TileAttentionConfig;
+use crate::components::{AttentionTileSize, attention_types::*};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
@@ -89,9 +89,11 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         let (origin, tile) = match self {
             MaskReader::Materialized(materialized_mask_reader) => (
                 materialized_mask_reader.logical_iter.read(),
-                CubeOption::new_Some(
-                    materialized_mask_reader.read::<P, S>(partition_tile_offset, config),
-                ),
+                CubeOption::new_Some(materialized_mask_reader.read::<P>(
+                    partition_tile_offset,
+                    config.tile_config().attention_tile_size(),
+                    config.elements_in_partition_seq_q(),
+                )),
             ),
             MaskReader::Logical(logical_iter) => (logical_iter.read(), CubeOption::new_None()),
         };
@@ -123,15 +125,15 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         }
     }
 
-    fn read<P: AttentionPartitioner, S: StageAttentionConfig>(
+    fn read<P: AttentionPartitioner>(
         &self,
         #[comptime] partition_tile_offset: Coords2d,
-        #[comptime] config: S,
+        #[comptime] attention_tile_size: AttentionTileSize,
+        #[comptime] elements_in_partition_seq_q: u32,
     ) -> StridedTile<M> {
         let (row_offset, col) = partition_tile_offset;
-        let attention_tile_size = config.tile_config().attention_tile_size();
 
-        let row = row_offset + P::seq_q_index() * config.elements_in_partition_seq_q();
+        let row = row_offset + P::seq_q_index() * elements_in_partition_seq_q;
 
         StridedTile::<M>::new_strided(
             self.global_iter
@@ -146,10 +148,8 @@ impl<M: Numeric> MaterializedMaskReader<M> {
             self.seq_kv_shape,
             Swizzle::none(),
             MatrixLayout::RowMajor,
-            // TODO
-            999u32,
-        );
-        todo!()
+            1u32,
+        )
     }
 
     fn advance(&mut self) {
