@@ -221,6 +221,7 @@ pub fn launch_ref<R: Runtime>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn quantize_native<R: Runtime>(
     client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
@@ -274,6 +275,7 @@ fn quantize_native<R: Runtime>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn quantize_packed<R: Runtime>(
     client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
