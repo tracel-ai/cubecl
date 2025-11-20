@@ -107,7 +107,7 @@ where
             config.specialized_loading_sides(),
         );
 
-        read_first::<MP, SMM, LL::SyncStrategy, Self::LhsGlobalReader, Self::RhsGlobalReader>(
+        read_first::<MP, LL::SyncStrategy, Self::LhsGlobalReader, Self::RhsGlobalReader>(
             &mut lhs_reader,
             &mut rhs_reader,
             &mut barrier_a,
