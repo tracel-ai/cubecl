@@ -1,5 +1,8 @@
+use crate::components::tile::mma::config::{LoadMethod, MmaMatmulConfig};
+use crate::components::tile::{SharedTileConfig, mma::config::StoreMethod};
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
+    InvalidConfigError, MatmulAvailabilityError, MatmulElems, MatmulLineSizes, MatmulProblem,
+    MatmulSelection,
 };
 use crate::components::{
     TileSize,
@@ -7,7 +10,6 @@ use crate::components::{
         TileMatmulFamily,
         mma::{
             MmaMatmul,
-            config::MmaMatmulConfig,
             reader::{MmaFragmentReader, MmaStageReader},
         },
     },
@@ -24,13 +26,13 @@ where
     MmaStageReader<RhsTile>: MmaFragmentReader<TileKind = RhsTile>,
     MmaStageReader<AccTile>: MmaFragmentReader<TileKind = AccTile>,
 {
+    type Config = MmaMatmulConfig;
+
     type Matmul<L: Numeric, R: Numeric, A: Numeric> = MmaMatmul<LhsTile, RhsTile, AccTile>;
     type LhsTile = LhsTile;
     type RhsTile = RhsTile;
     type AccTile = AccTile;
     type OutTile = Strided;
-
-    type Config = MmaMatmulConfig;
 
     fn requires_accelerator() -> bool {
         true
@@ -46,25 +48,24 @@ where
 
     fn setup<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        problem: &MatmulProblem,
+        _problem: &MatmulProblem,
         selection: &MatmulSelection,
-        matmul_line_sizes: &MatmulLineSizes,
+        _matmul_line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        MmaMatmulConfig::new::<R>(
-            client,
-            selection.tiling_scheme.tile_size,
-            selection.plane_dim,
-            problem.lhs_layout,
-            problem.rhs_layout,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-            matmul_line_sizes.out as u32,
-            matmul_line_sizes.lhs as u32,
-            matmul_line_sizes.rhs as u32,
-            dtypes,
-            selection.shared_swizzle,
-        )
+        let tile_config = MmaMatmulConfig::from_shared_tile_config(
+            SharedTileConfig {
+                tile_size: selection.tiling_scheme.tile_size,
+                plane_dim: selection.plane_dim,
+                swizzle_config: selection.shared_swizzle,
+            },
+            load_method::<R>(client, dtypes.lhs_stage),
+            load_method::<R>(client, dtypes.rhs_stage),
+            load_method::<R>(client, dtypes.acc_stage),
+            store_method::<R>(client, dtypes.acc_stage),
+        );
+
+        validate::<R>(tile_config, client, dtypes)
     }
 
     fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
@@ -91,5 +92,52 @@ where
             .filter(|it| it.a_type == lhs_ty && it.b_type == rhs_ty && it.cd_type == acc_ty)
             .map(|it| (it.m, it.n, it.k).into())
             .collect()
+    }
+}
+
+fn validate<R: Runtime>(
+    tile_config: MmaMatmulConfig,
+    client: &ComputeClient<R::Server>,
+    dtypes: &MatmulElems,
+) -> Result<MmaMatmulConfig, MatmulSetupError> {
+    let lhs = dtypes.lhs_register;
+    let rhs = dtypes.rhs_register;
+    let acc = dtypes.acc_register;
+
+    let size = tile_config.shared.tile_size;
+    if !client.properties().features.mma.contains(&MmaConfig {
+        a_type: lhs,
+        b_type: rhs,
+        cd_type: acc,
+        m: size.m(),
+        k: size.k(),
+        n: size.n(),
+    }) {
+        return Err(MatmulSetupError::Unavailable(
+            MatmulAvailabilityError::CmmaInstructionUnavailable {
+                lhs,
+                rhs,
+                output: acc,
+                size: Some(TileSize::new(size.m(), size.n(), size.k())),
+            },
+        ));
+    }
+
+    Ok(tile_config)
+}
+
+fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> LoadMethod {
+    if client.properties().features.ldmatrix.contains(&dtype) {
+        LoadMethod::LoadMatrix
+    } else {
+        LoadMethod::Manual
+    }
+}
+
+fn store_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> StoreMethod {
+    if client.properties().features.stmatrix.contains(&dtype) {
+        StoreMethod::StoreMatrix
+    } else {
+        StoreMethod::Manual
     }
 }

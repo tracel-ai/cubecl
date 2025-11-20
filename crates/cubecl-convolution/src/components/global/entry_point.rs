@@ -2,13 +2,14 @@ use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_core::{Runtime, client::ComputeClient};
 use cubecl_matmul::components::MatmulElems;
+use cubecl_matmul::components::global::GlobalConfig;
+use cubecl_matmul::components::stage::StageConfig as _;
 use cubecl_matmul::components::{
-    InputRuntimeArg, OutputRuntimeArg,
-    batch::SliceIndex,
-    global::{GlobalConfig as _, args::MatmulArgs},
+    InputRuntimeArg, OutputRuntimeArg, batch::SliceIndex, global::args::MatmulArgs,
 };
 use cubecl_std::{CubeOption, CubeOptionExpand, FastDivmod, FastDivmodArgs};
 
+use crate::components::ConvGemmConfig;
 use crate::{
     components::{
         ConvolutionProblem,
@@ -62,15 +63,28 @@ pub(crate) fn implicit_conv<
     #[define(RhsS)] _rhs_stage: StorageType,
     #[define(AccS)] _acc_stage: StorageType,
 ) {
-    let mut state = Args::init_state::<LhsG, RhsG, AccG, GMM::Config>(inputs, output, config);
+    let mut state = Args::init_state::<
+        LhsG,
+        RhsG,
+        AccG,
+        <GMM::Config as ConvGemmConfig>::GlobalMatmulConfig,
+    >(inputs, output, config.matmul_config());
 
     let lhs = Args::view_lhs(&state);
     let rhs = Args::view_rhs(&state);
     let bias = Args::view_acc(&state);
     let out = Args::view_out(&mut state);
 
-    let stage_m = config.tiling_scheme().elements_in_stage_m().runtime();
-    let stage_n = config.tiling_scheme().elements_in_stage_n().runtime();
+    let stage_m = config
+        .matmul_config()
+        .stage_config()
+        .elements_in_stage_m()
+        .runtime();
+    let stage_n = config
+        .matmul_config()
+        .stage_config()
+        .elements_in_stage_n()
+        .runtime();
 
     let m_offset = CUBE_POS_X * stage_m;
     let n_offset = CUBE_POS_Y * stage_n;

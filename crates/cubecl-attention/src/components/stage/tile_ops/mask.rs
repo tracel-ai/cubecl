@@ -16,29 +16,29 @@ use cubecl_std::tensor::layout::Coordinates;
 #[derive(CubeType)]
 /// Mask tile for Tile Attention
 /// It is an additive mask, which means the result of apply should be added, not multiplied
-pub enum MaskTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
+pub enum MaskTile<AP: AttentionPrecision, TA: TileAttention<AP>> {
     /// When a mask tensor is supplied. Also contains a logical part
-    Materialized(MaterializedTileMask<AP, FA>),
+    Materialized(MaterializedTileMask<AP, TA>),
     /// When no mask tensor is supplied. Used for out of bounds and causal mask
-    Logical(LogicalTileMask<FA::FragmentLayout>),
+    Logical(LogicalTileMask<TA::FragmentLayout>),
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> MaskTile<AP, FA> {
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> MaskTile<AP, TA> {
     pub fn new(
         out_of_bounds: CubeOption<Coords2d>,
-        #[comptime] config: FA::Config,
-    ) -> MaskTile<AP, FA> {
-        let logical_mask = LogicalTileMask::<FA::FragmentLayout> {
+        #[comptime] config: TA::Config,
+    ) -> MaskTile<AP, TA> {
+        let logical_mask = LogicalTileMask::<TA::FragmentLayout> {
             logical_iter_origin: LogicalIterOrigin::init(),
             causal: config.causal_mask(),
             out_of_bounds,
-            fragment_layout: FA::softmax_layout(config),
+            fragment_layout: TA::softmax_layout(config),
         };
 
         if config.materialized_mask() {
-            MaskTile::new_Materialized(MaterializedTileMask::<AP, FA> {
-                fragment: FA::allocate_mask(config),
+            MaskTile::new_Materialized(MaterializedTileMask::<AP, TA> {
+                fragment: TA::allocate_mask(config),
                 logical_mask,
                 config,
             })
@@ -125,15 +125,15 @@ impl<F: FragmentLayout> LogicalTileMask<F> {
 }
 
 #[derive(CubeType)]
-pub struct MaterializedTileMask<AP: AttentionPrecision, FA: TileAttention<AP>> {
-    fragment: FA::Mask,
-    logical_mask: LogicalTileMask<FA::FragmentLayout>,
+pub struct MaterializedTileMask<AP: AttentionPrecision, TA: TileAttention<AP>> {
+    fragment: TA::Mask,
+    logical_mask: LogicalTileMask<TA::FragmentLayout>,
     #[cube(comptime)]
-    config: FA::Config,
+    config: TA::Config,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> MaterializedTileMask<AP, FA> {
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> MaterializedTileMask<AP, TA> {
     pub fn should_mask(&self, local_pos: Coords2d) -> bool {
         let logical_masked = self.logical_mask.should_mask(local_pos);
         let materialized_masked = self.fragment.should_mask(local_pos);
@@ -142,13 +142,13 @@ impl<AP: AttentionPrecision, FA: TileAttention<AP>> MaterializedTileMask<AP, FA>
     }
 
     pub fn update_tile(&mut self, tile: StridedTile<MSK<AP>>) {
-        FA::fill_mask(&tile, &mut self.fragment, self.config);
+        TA::fill_mask(&tile, &mut self.fragment, self.config);
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> FragmentMask for MaskTile<AP, FA> {
-    type Layout = <FA::Mask as FragmentMask>::Layout;
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> FragmentMask for MaskTile<AP, TA> {
+    type Layout = <TA::Mask as FragmentMask>::Layout;
 
     fn should_mask(&self, local_pos: (u32, u32)) -> bool {
         match self {

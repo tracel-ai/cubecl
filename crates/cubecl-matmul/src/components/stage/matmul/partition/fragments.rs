@@ -1,8 +1,5 @@
-use std::marker::PhantomData;
-
-use crate::components::stage::StageConfig;
 use crate::components::{AccS, stage::Stage, tile::TileMatmul};
-use crate::components::{MatmulPrecision, MatrixPrecision};
+use crate::components::{MatmulPrecision, MatrixLayout, MatrixPrecision, PartitionSize};
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
 
@@ -16,11 +13,8 @@ pub struct Accumulators<
             <MP::Rhs as MatrixPrecision>::Register,
             <MP::Acc as MatrixPrecision>::Register,
         >,
-    S: StageConfig<TileConfig = TM::Config>,
 > {
     sequence: Sequence<TM::AccFragment>,
-    #[cube(comptime)]
-    _phantom: PhantomData<S>,
 }
 
 #[cube]
@@ -31,22 +25,23 @@ impl<
             <MP::Rhs as MatrixPrecision>::Register,
             <MP::Acc as MatrixPrecision>::Register,
         >,
-    S: StageConfig<TileConfig = TM::Config>,
-> Accumulators<MP, TM, S>
+> Accumulators<MP, TM>
 {
     /// Create a new accumulators sequence from the provided configuration
-    pub fn new(#[comptime] config: S) -> Accumulators<MP, TM, S> {
-        let partition_size = config.tiling_scheme().partition_size;
+    pub fn new(
+        #[comptime] partition_size: PartitionSize,
+        #[comptime] acc_layout: MatrixLayout,
+        #[comptime] tile_config: TM::Config,
+    ) -> Accumulators<MP, TM> {
         let mut accumulators = Sequence::new();
 
         #[unroll]
         for _ in 0..comptime!(partition_size.mn()) {
-            accumulators.push(TM::allocate_acc(config.tile_config()));
+            accumulators.push(TM::allocate_acc(acc_layout, tile_config));
         }
 
-        Accumulators::<MP, TM, S> {
+        Accumulators::<MP, TM> {
             sequence: accumulators,
-            _phantom: PhantomData,
         }
     }
 
@@ -54,17 +49,17 @@ impl<
     pub fn load<R: Stage<AccS<MP>, ReadOnly, TileKind = TM::AccTile>>(
         &mut self,
         stage: &R,
-        #[comptime] config: S,
+        #[comptime] tiles_in_stage_partition_m: u32,
+        #[comptime] tiles_in_stage_partition_n: u32,
+        #[comptime] tile_config: TM::Config,
     ) {
-        let size_m = comptime![config.tiling_scheme().tiles_in_stage_partition_m()];
-        let size_n = comptime![config.tiling_scheme().tiles_in_stage_partition_n()];
         #[unroll]
-        for m in 0..size_m {
+        for m in 0..tiles_in_stage_partition_m {
             #[unroll]
-            for n in 0..size_n {
-                let acc = self.get_at_mut(m, n, config);
+            for n in 0..tiles_in_stage_partition_n {
+                let acc = self.get_at_mut(m, n, tiles_in_stage_partition_n);
                 let tile = R::tile(stage, (m, n).runtime());
-                TM::load_acc(&tile, acc, config.tile_config());
+                TM::load_acc(&tile, acc, tile_config);
             }
         }
     }
@@ -74,11 +69,10 @@ impl<
         &self,
         #[comptime] m: u32,
         #[comptime] n: u32,
-        #[comptime] config: S,
+        #[comptime] tiles_in_stage_partition_n: u32,
     ) -> &TM::AccFragment {
-        self.sequence.index(comptime!(
-            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
-        ))
+        self.sequence
+            .index(comptime!(m * tiles_in_stage_partition_n + n))
     }
 
     /// Fetch a mutable reference to the accumulator at (`m`, `n`)
@@ -86,11 +80,10 @@ impl<
         &mut self,
         #[comptime] m: u32,
         #[comptime] n: u32,
-        #[comptime] config: S,
+        #[comptime] tiles_in_stage_partition_n: u32,
     ) -> &mut TM::AccFragment {
-        self.sequence.index_mut(comptime!(
-            m * config.tiling_scheme().tiles_in_stage_partition_n() + n
-        ))
+        self.sequence
+            .index_mut(comptime!(m * tiles_in_stage_partition_n + n))
     }
 }
 

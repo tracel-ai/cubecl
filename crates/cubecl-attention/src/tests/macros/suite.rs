@@ -9,7 +9,7 @@ macro_rules! testgen_attention_suite {
         use $crate::tests::macros::{TestOptions, attention_test_launch};
 
         #[test]
-        fn attention_one_tile() {
+        fn attention_one_tile_simple() {
             let client = TestRuntime::client(&Default::default());
 
             let partition_size = AttentionPartitionSize {

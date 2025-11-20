@@ -6,20 +6,18 @@ use crate::components::{
     global::simple::UnitAttentionWriter,
     stage::{
         UnitReducer, partition_attention::PartitionAttention, partitioner::AttentionPartitioner,
-        unit::UnitPartitionStageConfig,
     },
-    tile::TileAttention,
 };
 
-pub type UnitPartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
-    AP,
-    SK,
-    SV,
-    SO,
-    FA,
-    UnitPartitioner,
-    UnitPartitionStageConfig<<FA as TileAttention<AP>>::Config>,
->;
+use crate::components::{stage::SharedPartitionAttentionConfig, tile::TileAttentionConfig};
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct UnitPartitionStageConfig<TC: TileAttentionConfig> {
+    pub shared: SharedPartitionAttentionConfig<TC>,
+}
+
+pub type UnitPartitionAttention<AP, SK, SV, SO, TA> =
+    PartitionAttention<AP, SK, SV, SO, TA, UnitPartitioner>;
 
 pub struct UnitPartitioner {}
 

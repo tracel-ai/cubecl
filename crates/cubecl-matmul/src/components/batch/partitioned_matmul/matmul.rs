@@ -1,7 +1,8 @@
 use std::marker::PhantomData;
 
 use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
-use crate::components::global::{self, GlobalMatmul};
+use crate::components::global::{self, GlobalConfig, GlobalMatmul};
+use crate::components::stage::StageConfig as _;
 use crate::components::{AccG, batch::partitioned_matmul::config::PartitionedBatchConfig};
 use crate::components::{LhsG, MatmulPrecision, RhsG};
 use crate::components::{
@@ -42,26 +43,21 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
         let (_, _, problem_k) = Args::view_lhs(state).shape();
         let k_range = (0, problem_k);
 
-        let tiling_scheme = config.tiling_scheme();
         let (m_index, n_index, batch_index) =
             cube_count_args.cube_pos_to_tensor_pos(config.hypercube_config().global_order);
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(
                 m_index,
-                tiling_scheme.elements_in_stage_m(),
-                tiling_scheme.elements_in_global_partition_m(),
+                config.global_config().stage_config().elements_in_stage_m(),
+                config.global_partition_size.m,
             ),
             PartitionRangeDim::new(
                 n_index,
-                tiling_scheme.elements_in_stage_n(),
-                tiling_scheme.elements_in_global_partition_n(),
+                config.global_config().stage_config().elements_in_stage_n(),
+                config.global_partition_size.n,
             ),
-            PartitionRangeDim::new(
-                batch_index,
-                1u32,
-                tiling_scheme.global_partition_size.batches,
-            ),
+            PartitionRangeDim::new(batch_index, 1u32, config.global_partition_size.batches),
         );
 
         let global_config = config.global_config();

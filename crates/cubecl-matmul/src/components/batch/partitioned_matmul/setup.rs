@@ -38,6 +38,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
             selection
                 .hypercube_selection
                 .to_hypercube_config(problem, client.properties().hardware.max_cube_count.clone()),
+            selection.tiling_scheme.global_partition_size,
         )
         .validate(problem)
     }

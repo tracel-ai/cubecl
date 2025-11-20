@@ -1,19 +1,14 @@
+use crate::components::MatmulElems;
+use crate::components::TilingScheme;
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::read::{validate_async_barrier, validate_tma};
+use crate::components::global::{RoleRule, read::async_tma::AsyncTma};
+use crate::components::stage::StridedStageFamily;
+use crate::components::stage::{StridedStageMemory, SwizzleMode};
 use crate::components::{InvalidConfigError, MatmulIdent};
-use crate::components::{
-    MatmulElems,
-    global::read::{validate_async_barrier, validate_tma},
-};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
-use crate::components::{
-    TilingScheme,
-    stage::{StridedStageMemory, SwizzleMode},
-};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TmaTilingLayout};
-use crate::components::{
-    global::{GlobalConfig, RoleRule, read::async_tma::AsyncTma},
-    stage::StridedStageFamily,
-};
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl, prelude::barrier::Barrier};
 
@@ -26,14 +21,13 @@ use super::{LoadingJob, LoadingValidation};
 pub struct AsyncFullTmaLoading {}
 
 impl LoadingValidation for AsyncFullTmaLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
-        ident: MatmulIdent,
+        config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        TmaTilingLayout::check(config.global_memory_config(ident))?;
-        validate_tma::<R>(client, config.stage_memory_config(ident), ident, dtypes)?;
+        TmaTilingLayout::check(config.smem_config)?;
+        validate_tma::<R>(client, config.smem_config, config.stage_ident, dtypes)?;
         validate_async_barrier::<R>(client)?;
 
         Ok(())
@@ -59,13 +53,12 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
     type SyncStrategy = AsyncTma;
     type Job<EG: Numeric, ES: Numeric> = AsyncFullTmaJob;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        #[comptime] ident: MatmulIdent,
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] _line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let role_rule_config = config.role_rule_config();
-        let config = config.stage_memory_config(ident);
+        let role_rule_config = config.plane_role_config.rule;
+        let config = config.smem_config;
         let tile_count_col = match config.matrix_layout {
             MatrixLayout::RowMajor => config.tiles_in_stage_col,
             MatrixLayout::ColMajor => config.tiles_in_stage_row,
@@ -82,7 +75,6 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
         AsyncFullTmaJob {
             is_elected,
             num_tasks,
-            ident,
         }
     }
 }
@@ -93,24 +85,22 @@ pub struct AsyncFullTmaJob {
 
     #[cube(comptime)]
     num_tasks: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
 impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for AsyncFullTmaJob {
     type Stage = StridedStageFamily;
 
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, TmaTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         if this.is_elected {
-            let config = comptime![config.stage_memory_config(this.ident)];
+            let config = comptime![config.smem_config];
 
             let size_row = match config.matrix_layout {
                 MatrixLayout::RowMajor => config.elements_in_stage_row(),

@@ -4,9 +4,8 @@ use crate::components::{
     global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
 };
 
-pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
-    config: G,
-) -> Result<G, MatmulSetupError> {
+#[allow(unused_variables)]
+pub fn cube_dim_validation<G: GlobalConfig>(config: G) -> Result<(), MatmulSetupError> {
     #[cfg(target_os = "macos")]
     {
         let cube_dim = config.cube_dim();
@@ -19,7 +18,7 @@ pub(crate) fn shared_global_config_validation<G: GlobalConfig>(
         }
     }
 
-    Ok(config)
+    Ok(())
 }
 
 /// Maximal number of planes each reader can handle to divide its workload evenly

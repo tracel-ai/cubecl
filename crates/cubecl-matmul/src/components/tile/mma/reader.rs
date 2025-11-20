@@ -7,7 +7,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout, as_cmma_layout, from_cmma_layout,
     tile::{
-        StridedTile, TileConfig,
+        StridedTile,
         io::{Filled, Strided, TileKind},
         mma::config::{LoadMethod, MmaMatmulConfig},
     },
@@ -182,7 +182,7 @@ pub(crate) fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] config: MmaMatmulConfig,
 ) -> u32 {
     let expected_layout = from_cmma_layout(def.line_layout(ident));
-    let tiling = config.tile_size();
+    let tiling = config.shared.tile_size;
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
         MatrixLayout::ColMajor => (1, stride),

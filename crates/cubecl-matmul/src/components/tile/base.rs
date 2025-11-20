@@ -2,28 +2,31 @@ use cubecl_core::{self as cubecl};
 use cubecl_core::{ir::StorageType, prelude::*};
 use cubecl_runtime::MmaConfig;
 
+use crate::components::error::MatmulSetupError;
+use crate::components::tile::TileConfig;
+use crate::components::tile::io::TileMut;
 use crate::components::{
-    AvailableLineSizes, InvalidConfigError, MatmulProblem, MatrixLayout, TileSize,
+    AvailableLineSizes, InvalidConfigError, MatmulProblem, TileSize,
     resource::ComputeResources,
     tile::io::{Tile, TileKind},
 };
-use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection};
-use crate::components::{StageIdent, tile::io::TileMut};
-use crate::components::{error::MatmulSetupError, stage::SwizzleMode};
-use std::{fmt::Debug, hash::Hash};
+use crate::components::{MatmulElems, MatmulLineSizes, MatmulSelection, MatrixLayout};
 
 /// A family of [TileMatmul] implementations that operate with any [precision](MatmulPrecision).
 pub trait TileMatmulFamily: Send + Sync + 'static {
+    /// Config for this matmul
+    type Config: TileConfig;
+
     /// The specific [TileMatmul] implementation associated with this family.
     type Matmul<L: Numeric, R: Numeric, A: Numeric>: TileMatmul<
             L,
             R,
             A,
-            Config = Self::Config,
             LhsTile = Self::LhsTile,
             RhsTile = Self::RhsTile,
             AccTile = Self::AccTile,
             OutTile = Self::OutTile,
+            Config = Self::Config,
         >;
 
     /// Tile kind for Lhs
@@ -34,9 +37,6 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     type AccTile: TileKind;
     /// Tile kind for Out
     type OutTile: TileKind<ReadWrite>;
-
-    /// The configuration type associated with this matmul family.
-    type Config: TileConfig;
 
     /// Returns whether this tile matmul requires specialized hardware accelerators (e.g., tensor cores).
     fn requires_accelerator() -> bool;
@@ -97,7 +97,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
 ///  - Enough units are present to perform the whole computation
 #[cube]
 pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync {
-    /// The configuration type associated with this Matmul.
+    /// Config for this matmul
     type Config: TileConfig;
 
     /// Contains Lhs data for computation
@@ -130,7 +130,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call [load_lhs](TileMatmul::load_lhs) prior to [execute](TileMatmul::execute).
-    fn allocate_lhs(#[comptime] config: Self::Config) -> Self::LhsFragment;
+    fn allocate_lhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::LhsFragment;
 
     /// Load the container of Lhs from tile data
     fn load_lhs<E: Numeric>(
@@ -145,7 +148,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     ///
     /// This may point towards uninitialized memory.
     /// Make sure to call [load_rhs](TileMatmul::load_rhs) prior to [execute](TileMatmul::execute).
-    fn allocate_rhs(#[comptime] config: Self::Config) -> Self::RhsFragment;
+    fn allocate_rhs(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::RhsFragment;
 
     /// Load the container of Rhs from tile data
     fn load_rhs<E: Numeric>(
@@ -161,7 +167,10 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
     /// The output container must be initialized to some value (typically 0),
     /// because the execution adds to the already present value.
     /// Make sure to call [load_acc](TileMatmul::load_acc) prior to [execute](TileMatmul::execute).
-    fn allocate_acc(#[comptime] config: Self::Config) -> Self::AccFragment;
+    fn allocate_acc(
+        #[comptime] layout: MatrixLayout,
+        #[comptime] config: Self::Config,
+    ) -> Self::AccFragment;
 
     /// Load the container of Acc from tile data
     fn load_acc<E: Numeric>(
@@ -176,25 +185,4 @@ pub trait TileMatmul<L: Numeric, R: Numeric, A: Numeric>: 'static + Send + Sync 
         out: &Self::AccFragment,
         #[comptime] config: Self::Config,
     );
-}
-
-/// Configuration for the Tile Matmul level
-pub trait TileConfig: Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static {
-    /// Returns the number of units in a plane
-    fn plane_dim(&self) -> u32;
-
-    /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
-
-    /// Returns the [SwizzleMode] for the given ident
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
-
-    /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: StageIdent) -> u32;
-
-    /// Returns the line size for the given ident
-    fn global_line_size(&self, ident: StageIdent) -> u32;
-
-    /// Returns the (m,n,k) shape of the tiles
-    fn tile_size(&self) -> &TileSize;
 }

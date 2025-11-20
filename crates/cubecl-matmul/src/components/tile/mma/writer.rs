@@ -4,7 +4,7 @@ use cubecl_core::{self as cubecl, cmma::MmaDefinition, ir::MatrixIdent};
 use crate::components::{
     MatrixLayout, as_cmma_layout,
     tile::{
-        StridedTile, TileConfig,
+        StridedTile,
         mma::config::{MmaMatmulConfig, StoreMethod},
     },
 };
@@ -164,7 +164,7 @@ pub(crate) fn stmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] ident: MatrixIdent,
     #[comptime] config: MmaMatmulConfig,
 ) -> u32 {
-    let tiling = config.tile_size();
+    let tiling = config.shared.tile_size;
     let (stride_row, stride_col) = (stride, 1);
 
     let elem_size = E::type_size();
