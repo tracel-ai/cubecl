@@ -14,14 +14,14 @@ use crate::components::{AttentionPrecision, stage::StageAttentionConfig};
 /// - Value: then iterate over one row of `val_dim`, multiplying each (kv, vd) tile with all `seq_q` tiles.
 ///
 /// Only one tile is active at a time; key and value alternate per `kv`.
-pub enum KeyValuePartition<AP: AttentionPrecision, FA: TileAttention<AP>> {
-    Reuse(KeyValueSequence<AP, FA>),
-    Separate(KeyValueSequence<AP, FA>, KeyValueSequence<AP, FA>),
+pub enum KeyValuePartition<AP: AttentionPrecision, TA: TileAttention<AP>> {
+    Reuse(KeyValueSequence<AP, TA>),
+    Separate(KeyValueSequence<AP, TA>, KeyValueSequence<AP, TA>),
 }
 
 #[derive(CubeType)]
-pub struct KeyValueSequence<AP: AttentionPrecision, FA: TileAttention<AP>> {
-    sequence: Sequence<KeyValueTile<AP, FA>>,
+pub struct KeyValueSequence<AP: AttentionPrecision, TA: TileAttention<AP>> {
+    sequence: Sequence<KeyValueTile<AP, TA>>,
 }
 
 #[cube]

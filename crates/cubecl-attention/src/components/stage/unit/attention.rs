@@ -16,8 +16,8 @@ pub struct UnitPartitionStageConfig<TC: TileAttentionConfig> {
     pub shared: SharedPartitionAttentionConfig<TC>,
 }
 
-pub type UnitPartitionAttention<AP, SK, SV, SO, FA> =
-    PartitionAttention<AP, SK, SV, SO, FA, UnitPartitioner>;
+pub type UnitPartitionAttention<AP, SK, SV, SO, TA> =
+    PartitionAttention<AP, SK, SV, SO, TA, UnitPartitioner>;
 
 pub struct UnitPartitioner {}
 

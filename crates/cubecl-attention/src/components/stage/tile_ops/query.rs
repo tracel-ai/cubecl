@@ -8,8 +8,8 @@ use cubecl_matmul::components::tile::StridedTile;
 
 #[derive(CubeType)]
 /// Query input to the Tile Attention
-pub struct QueryTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
-    pub fragment: FA::Query,
+pub struct QueryTile<AP: AttentionPrecision, TA: TileAttention<AP>> {
+    pub fragment: TA::Query,
 }
 
 #[cube]

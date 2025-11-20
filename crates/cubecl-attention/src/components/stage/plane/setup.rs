@@ -23,12 +23,12 @@ use crate::components::{
 };
 
 pub struct PlanePartitionStageAttentionFamily<
-    FA: TileAttentionFamily,
+    TA: TileAttentionFamily,
     SK: StageFamily,
     SV: StageFamily,
     SO: StageFamily<ReadWrite>,
 > {
-    _phantom: PhantomData<(FA, SK, SV, SO)>,
+    _phantom: PhantomData<(TA, SK, SV, SO)>,
 }
 
 impl<

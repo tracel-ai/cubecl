@@ -37,11 +37,11 @@ pub struct PartitionAttention<
     SK,
     SV,
     SO,
-    FA: TileAttention<AP>,
+    TA: TileAttention<AP>,
     P: AttentionPartitioner,
 > {
     #[cube(comptime)]
-    _phantom: PhantomData<(AP, SK, SV, SO, FA, P)>,
+    _phantom: PhantomData<(AP, SK, SV, SO, TA, P)>,
 }
 
 #[cube]
