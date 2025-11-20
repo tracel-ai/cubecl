@@ -16,13 +16,7 @@ use cubecl_core::prelude::*;
 /// Read the first stage for both Lhs and Rhs
 ///
 /// If there is specialization, will add a runtime if to determine the role of the plane
-pub fn read_first<
-    MP: MatmulPrecision,
-    SMM: stage::StageMatmul<MP>,
-    S: SyncStrategy,
-    LJ: JobExecutor<S>,
-    RJ: JobExecutor<S>,
->(
+pub fn read_first<MP: MatmulPrecision, S: SyncStrategy, LJ: JobExecutor<S>, RJ: JobExecutor<S>>(
     lhs_global_reader: &mut LJ,
     rhs_global_reader: &mut RJ,
     barrier: &mut S::Barrier,
