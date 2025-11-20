@@ -7,12 +7,14 @@ use crate::components::MatrixPrecision;
 use crate::components::RhsS;
 use crate::components::TilingScheme;
 use crate::components::error::MatmulSetupError;
+use crate::components::global::MatmulPlaneCounts;
 use crate::components::global::MaxGlobalReaderPlanes;
 use crate::components::global::PlaneRoleConfig;
 use crate::components::stage::NumStages;
 use crate::components::stage::PartitionBuffering;
 use crate::components::stage::PartitionSchedulerScheme;
 use crate::components::stage::StageFamily;
+use crate::components::stage::StageMemoryConfig;
 use crate::components::stage::matmul::partition::SharedPartitionMatmulConfig;
 use crate::components::stage::matmul::partitioned_matmul::PartitionMatmulConfig;
 use crate::components::stage::matmul::unit_partitioned::UnitMatmul;
@@ -99,6 +101,11 @@ impl<
             compute_planes,
         )?;
 
+        let plane_counts = MatmulPlaneCounts::new(
+            selection.load_specialization_config,
+            plane_role_config.plane_roles,
+        );
+
         let tiling_scheme = selection.tiling_scheme;
 
         let execution_is_sync = {
@@ -113,6 +120,43 @@ impl<
         };
         let must_sync_plane_after_execution = !execution_is_sync && ordered;
 
+        let lhs_smem_config = StageMemoryConfig {
+            num_planes: plane_counts.lhs,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
+            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
+            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
+            line_size: line_sizes.lhs as u32,
+            matrix_layout: problem.lhs_layout,
+            swizzle: selection.shared_swizzle.lhs,
+            num_stages: num_stages.lhs,
+        };
+
+        let rhs_smem_config = StageMemoryConfig {
+            num_planes: plane_counts.rhs,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
+            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+            line_size: line_sizes.rhs as u32,
+            matrix_layout: problem.rhs_layout,
+            swizzle: selection.shared_swizzle.rhs,
+            num_stages: num_stages.rhs,
+        };
+
+        let partition_size_n = selection.tiling_scheme.stage_partitions_in_stage_n();
+        let out_smem_config = StageMemoryConfig {
+            num_planes: plane_counts.out,
+            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_in_stage_row: plane_counts.out * selection.plane_dim / partition_size_n,
+            tiles_in_stage_col: partition_size_n,
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: selection.shared_swizzle.out,
+            num_stages: 1,
+        };
+
         let stage_config =
             PartitionMatmulConfig::Unit(UnitPartitionedStageConfig::from_shared_partition_config(
                 SharedPartitionMatmulConfig::new(
@@ -120,13 +164,13 @@ impl<
                     tiling_scheme.partition_size,
                     must_sync_plane_after_execution,
                     selection.partition_buffering,
-                    problem.lhs_layout,
-                    problem.rhs_layout,
-                    MatrixLayout::RowMajor,
                     plane_role_config,
                     selection.plane_dim,
                     tiling_scheme.stage_size,
                     PartitionSchedulerScheme::Naive,
+                    lhs_smem_config,
+                    rhs_smem_config,
+                    out_smem_config,
                 ),
             ));
 

@@ -2,7 +2,7 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
     global::{WriteEventListener, WriteTiling},
-    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily},
+    stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -100,7 +100,7 @@ pub trait StageAttention<AP: AttentionPrecision>: 'static + Send + Sync {
         acc: &Self::AccumulatorRegisters,
         stage: &mut Self::OutStage,
         writer: &mut W,
-        #[comptime] tile_config: Self::Config,
+        #[comptime] config: Self::Config,
     );
 
     fn init_query(#[comptime] config: Self::Config) -> Self::QueryRegisters;
@@ -138,6 +138,10 @@ pub trait StageAttentionConfig:
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
+
+    fn key_smem_config(&self) -> StageMemoryConfig;
+    fn value_smem_config(&self) -> StageMemoryConfig;
+    fn out_smem_config(&self) -> StageMemoryConfig;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -153,6 +157,9 @@ pub struct SharedPartitionAttentionConfig<TC: TileAttentionConfig> {
     pub stage_size: AttentionStageSize,
     pub reuse_key_value: bool,
     pub num_planes: u32,
+    pub key_smem_config: StageMemoryConfig,
+    pub value_smem_config: StageMemoryConfig,
+    pub out_smem_config: StageMemoryConfig,
 }
 
 impl<TC: TileAttentionConfig> PartitionAttentionConfig<TC> {
@@ -225,5 +232,17 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
 
     fn plane_dim(&self) -> u32 {
         self.shared().tile_config.plane_dim()
+    }
+
+    fn key_smem_config(&self) -> StageMemoryConfig {
+        self.shared().key_smem_config
+    }
+
+    fn value_smem_config(&self) -> StageMemoryConfig {
+        self.shared().value_smem_config
+    }
+
+    fn out_smem_config(&self) -> StageMemoryConfig {
+        self.shared().out_smem_config
     }
 }

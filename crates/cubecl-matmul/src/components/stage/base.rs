@@ -168,6 +168,10 @@ pub trait StageConfig:
     fn num_main_flow_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
     fn plane_role_config(&self) -> PlaneRoleConfig;
+
+    fn lhs_smem_config(&self) -> StageMemoryConfig;
+    fn rhs_smem_config(&self) -> StageMemoryConfig;
+    fn out_smem_config(&self) -> StageMemoryConfig;
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]

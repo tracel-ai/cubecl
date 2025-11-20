@@ -11,7 +11,7 @@ use cubecl_matmul::components::{
         multi_stage::EventLoadingMode,
         read::{validate_async_barrier, validate_tma},
     },
-    stage::{StageConfig as _, StageMatmulFamily, StageMemoryConfig, StridedStageFamily},
+    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
 
 use crate::{
@@ -125,43 +125,13 @@ where
             view_direction: ViewDirection::None,
         };
 
-        let lhs_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.lhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
-            line_size: line_sizes.lhs as u32,
-            matrix_layout: problem.lhs_layout,
-            num_stages,
-            swizzle: selection.shared_swizzle.lhs,
-        };
+        let lhs_smem_config = stage_config.lhs_smem_config();
         validate_tma::<R>(client, lhs_smem_config, StageIdent::Lhs, dtypes)?;
 
-        let rhs_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.rhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
-            line_size: line_sizes.rhs as u32,
-            matrix_layout: problem.rhs_layout,
-            num_stages,
-            swizzle: selection.shared_swizzle.rhs,
-        };
+        let rhs_smem_config = stage_config.rhs_smem_config();
         validate_tma::<R>(client, rhs_smem_config, StageIdent::Rhs, dtypes)?;
 
-        let out_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.out,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
-            line_size: line_sizes.out as u32,
-            matrix_layout: MatrixLayout::RowMajor,
-            num_stages,
-            swizzle: selection.shared_swizzle.out,
-        };
+        let out_smem_config = stage_config.out_smem_config();
 
         let lhs_reader_config = GlobalReaderConfig {
             gmem_config: lhs_gmem_config,

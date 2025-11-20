@@ -9,7 +9,7 @@ use crate::components::global::{
     GlobalWriterFamily, multi_stage::specialized::SpecializedMatmul, read::SyncStrategy,
 };
 use crate::components::global::{WriteTiling, read::PartialLoadingStrategy};
-use crate::components::stage::{StageConfig, StageMemoryConfig};
+use crate::components::stage::StageConfig;
 use crate::components::{MatmulElems, error::MatmulSetupError};
 use crate::components::{MatmulLineSizes, MatmulSelection};
 use crate::components::{MatmulPrecision, MatmulProblem, stage};
@@ -91,7 +91,6 @@ where
         let check_n_bounds = !(problem.n as u32).is_multiple_of(stage_shape_n);
         let check_k_bounds = !(problem.k as u32).is_multiple_of(2 * stage_shape_k);
 
-        let num_stages = 2;
         let precompute_job = selection.loading_precompute_strategy.into();
         let plane_dim = selection.plane_dim;
         let event_loading_mode = EventLoadingMode::Relaxed;
@@ -121,45 +120,9 @@ where
             view_direction: ViewDirection::None,
         };
 
-        let lhs_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.lhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
-            line_size: line_sizes.lhs as u32,
-            matrix_layout: problem.lhs_layout,
-            num_stages,
-            swizzle: selection.shared_swizzle.lhs,
-        };
-
-        let rhs_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.rhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
-            line_size: line_sizes.rhs as u32,
-            matrix_layout: problem.rhs_layout,
-            num_stages,
-            swizzle: selection.shared_swizzle.rhs,
-        };
-
-        let out_smem_config = StageMemoryConfig {
-            num_reading_planes: plane_counts.out,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
-            line_size: line_sizes.out as u32,
-            matrix_layout: MatrixLayout::RowMajor,
-            num_stages,
-            swizzle: selection.shared_swizzle.out,
-        };
-
         let lhs_reader_config = GlobalReaderConfig {
             gmem_config: lhs_gmem_config,
-            smem_config: lhs_smem_config,
+            smem_config: stage_config.lhs_smem_config(),
             precompute_job,
             plane_dim,
             plane_role_config,
@@ -171,7 +134,7 @@ where
 
         let rhs_reader_config = GlobalReaderConfig {
             gmem_config: rhs_gmem_config,
-            smem_config: rhs_smem_config,
+            smem_config: stage_config.rhs_smem_config(),
             precompute_job,
             plane_dim,
             plane_role_config,
@@ -183,7 +146,7 @@ where
 
         let writer_config = GlobalWriterConfig {
             gmem_config: out_gmem_config,
-            smem_config: out_smem_config,
+            smem_config: stage_config.out_smem_config(),
             role_rule_config: plane_role_config.rule,
             plane_dim: selection.plane_dim,
             num_partitions_col: selection.tiling_scheme.stage_partitions_in_stage_n(),

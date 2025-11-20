@@ -10,7 +10,7 @@ use cubecl_matmul::components::{
         multi_stage::EventLoadingMode,
         read::ReaderMode,
     },
-    stage::{StageMemoryConfig, StridedStageFamily, SwizzleMode},
+    stage::StridedStageFamily,
 };
 
 use crate::components::{
@@ -95,46 +95,9 @@ impl<
             view_direction: ViewDirection::None,
         };
 
-        let key_smem_config = StageMemoryConfig {
-            num_reading_planes: stage_config.num_planes(),
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.head_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_in_stage_col: selection.tiling_scheme.partition_size.head_dim,
-            line_size: line_sizes.key as u32,
-            matrix_layout: MatrixLayout::RowMajor,
-            swizzle: SwizzleMode::None,
-            num_stages: 1,
-        };
-
-        let value_smem_config = StageMemoryConfig {
-            num_reading_planes: stage_config.num_planes(),
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_in_stage_col: selection.tiling_scheme.partition_size.val_dim,
-            line_size: line_sizes.value as u32,
-            matrix_layout: MatrixLayout::RowMajor,
-            swizzle: SwizzleMode::None,
-            num_stages: 1,
-        };
-
-        let out_smem_config = StageMemoryConfig {
-            num_reading_planes: stage_config.num_planes(),
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_q,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_q
-                * selection.tiling_scheme.stage_size.seq_q,
-            tiles_in_stage_col: selection.tiling_scheme.partition_size.val_dim,
-            line_size: line_sizes.out as u32,
-            matrix_layout: MatrixLayout::RowMajor,
-            swizzle: SwizzleMode::None,
-            num_stages: 1,
-        };
-
         let key_reader_config = GlobalReaderConfig {
             gmem_config: key_gmem_config,
-            smem_config: key_smem_config,
+            smem_config: stage_config.key_smem_config(),
             precompute_job,
             plane_dim,
             reader_mode,
@@ -146,7 +109,7 @@ impl<
 
         let value_reader_config = GlobalReaderConfig {
             gmem_config: value_gmem_config,
-            smem_config: value_smem_config,
+            smem_config: stage_config.value_smem_config(),
             precompute_job,
             plane_dim,
             reader_mode,
@@ -158,7 +121,7 @@ impl<
 
         let writer_config = GlobalWriterConfig {
             gmem_config: out_gmem_config,
-            smem_config: out_smem_config,
+            smem_config: stage_config.out_smem_config(),
             role_rule_config: RoleRuleConfig::MainFlowOnly,
             plane_dim,
             num_partitions_col: 1,

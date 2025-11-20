@@ -2,6 +2,7 @@ use crate::components::MatmulPrecision;
 use crate::components::global;
 use crate::components::global::RoleRuleConfig;
 use crate::components::stage::StageConfig;
+use crate::components::stage::StageMemoryConfig;
 use crate::components::stage::matmul::partition::SharedPartitionMatmulConfig;
 use crate::components::stage::matmul::partition::{Accumulators, PartitionMatmul, RhsTile};
 use crate::components::stage::matmul::plane_partitioned::PlanePartitionedStageConfig;
@@ -88,6 +89,18 @@ impl<TC: TileConfig> StageConfig for PartitionMatmulConfig<TC> {
 
     fn elements_in_tile_k(&self) -> u32 {
         self.shared().tile_config.elements_in_tile_k()
+    }
+
+    fn lhs_smem_config(&self) -> StageMemoryConfig {
+        self.shared().lhs_smem_config
+    }
+
+    fn rhs_smem_config(&self) -> StageMemoryConfig {
+        self.shared().rhs_smem_config
+    }
+
+    fn out_smem_config(&self) -> StageMemoryConfig {
+        self.shared().out_smem_config
     }
 }
 

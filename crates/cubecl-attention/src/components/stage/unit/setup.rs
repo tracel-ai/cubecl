@@ -11,7 +11,11 @@ use crate::components::{
     tile::TileAttentionFamily,
 };
 use cubecl_core::{client::ComputeClient, prelude::ReadWrite};
-use cubecl_matmul::components::{ComputeResources, stage::StageFamily, tile::io::Strided};
+use cubecl_matmul::components::{
+    ComputeResources, MatrixLayout,
+    stage::{StageFamily, StageMemoryConfig, SwizzleMode},
+    tile::io::Strided,
+};
 
 use crate::components::{
     AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
@@ -69,6 +73,44 @@ impl<
         let tile_config =
             TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
+        let key_smem_config = StageMemoryConfig {
+            num_planes,
+            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_in_tile_col: selection.tiling_scheme.tile_size.head_dim,
+            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_in_stage_col: selection.tiling_scheme.partition_size.head_dim,
+            line_size: line_sizes.key as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
+
+        let value_smem_config = StageMemoryConfig {
+            num_planes,
+            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
+            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_in_stage_col: selection.tiling_scheme.partition_size.val_dim,
+            line_size: line_sizes.value as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
+
+        let out_smem_config = StageMemoryConfig {
+            num_planes,
+            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_q,
+            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
+            // Each unit has its slot in row direction
+            tiles_in_stage_row: num_planes * selection.plane_dim,
+            // Each unit needs only one slot
+            tiles_in_stage_col: 1,
+            line_size: line_sizes.out as u32,
+            matrix_layout: MatrixLayout::RowMajor,
+            swizzle: SwizzleMode::None,
+            num_stages: 1,
+        };
+
         validate(PartitionAttentionConfig::Unit(UnitPartitionStageConfig {
             shared: SharedPartitionAttentionConfig {
                 tile_config,
@@ -76,6 +118,9 @@ impl<
                 stage_size: selection.tiling_scheme.stage_size,
                 reuse_key_value: selection.reuse_key_value,
                 num_planes,
+                key_smem_config,
+                value_smem_config,
+                out_smem_config,
             },
         }))
     }

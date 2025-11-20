@@ -222,7 +222,7 @@ pub struct GlobalReaderConfig {
 
 impl GlobalReaderConfig {
     pub fn loading_planes_count(&self) -> u32 {
-        self.smem_config.num_reading_planes
+        self.smem_config.num_planes
     }
 
     pub fn loading_units_count(&self) -> u32 {

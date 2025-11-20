@@ -2,12 +2,12 @@ use std::marker::PhantomData;
 
 use super::fragments::{Accumulators, RhsTile, RhsTileExpand};
 use crate::components::global::PlaneRoleConfig;
-use crate::components::stage::PartitionSchedulerScheme;
 use crate::components::stage::matmul::scheduler::PartitionScheduler;
 use crate::components::stage::{PartitionBuffering, StageEventListener};
+use crate::components::stage::{PartitionSchedulerScheme, StageMemoryConfig};
 use crate::components::tile::{TileConfig, TileMatmul};
 use crate::components::{AccS, stage::StageEvent};
-use crate::components::{LhsS, MatmulPrecision, MatrixLayout, PartitionSize, RhsS, StageSize};
+use crate::components::{LhsS, MatmulPrecision, PartitionSize, RhsS, StageSize};
 use crate::components::{MatrixPrecision, stage::Stage};
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
@@ -18,13 +18,13 @@ pub struct SharedPartitionMatmulConfig<TC: TileConfig> {
     pub partition_size: PartitionSize,
     pub must_sync_plane_after_execution: bool,
     pub partition_buffering: PartitionBuffering,
-    pub lhs_layout: MatrixLayout,
-    pub rhs_layout: MatrixLayout,
-    pub acc_layout: MatrixLayout,
     pub plane_role_config: PlaneRoleConfig,
     pub plane_dim: u32,
     pub stage_size: StageSize,
     pub partition_schedule_scheme: PartitionSchedulerScheme,
+    pub lhs_smem_config: StageMemoryConfig,
+    pub rhs_smem_config: StageMemoryConfig,
+    pub out_smem_config: StageMemoryConfig,
 }
 
 impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
@@ -33,26 +33,26 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
         partition_size: PartitionSize,
         must_sync_plane_after_execution: bool,
         partition_buffering: PartitionBuffering,
-        lhs_layout: MatrixLayout,
-        rhs_layout: MatrixLayout,
-        acc_layout: MatrixLayout,
         plane_role_config: PlaneRoleConfig,
         plane_dim: u32,
         stage_size: StageSize,
         partition_schedule_scheme: PartitionSchedulerScheme,
+        lhs_smem_config: StageMemoryConfig,
+        rhs_smem_config: StageMemoryConfig,
+        out_smem_config: StageMemoryConfig,
     ) -> Self {
         Self {
             tile_config,
             partition_size,
             must_sync_plane_after_execution,
             partition_buffering,
-            lhs_layout,
-            rhs_layout,
-            acc_layout,
             plane_role_config,
             plane_dim,
             stage_size,
             partition_schedule_scheme,
+            lhs_smem_config,
+            rhs_smem_config,
+            out_smem_config,
         }
     }
 }
@@ -137,19 +137,25 @@ where
         #[unroll]
         for _ in 0..comptime!(shared_config.partition_size.m()) {
             lhs.push(TM::allocate_lhs(
-                shared_config.lhs_layout,
+                shared_config.lhs_smem_config.matrix_layout,
                 shared_config.tile_config,
             ));
         }
 
         let rhs = match shared_config.partition_buffering {
             PartitionBuffering::Single => RhsTile::new_Single(TM::allocate_rhs(
-                shared_config.rhs_layout,
+                shared_config.rhs_smem_config.matrix_layout,
                 shared_config.tile_config,
             )),
             PartitionBuffering::Double => RhsTile::new_Double((
-                TM::allocate_rhs(shared_config.rhs_layout, shared_config.tile_config),
-                TM::allocate_rhs(shared_config.rhs_layout, shared_config.tile_config),
+                TM::allocate_rhs(
+                    shared_config.rhs_smem_config.matrix_layout,
+                    shared_config.tile_config,
+                ),
+                TM::allocate_rhs(
+                    shared_config.rhs_smem_config.matrix_layout,
+                    shared_config.tile_config,
+                ),
             )),
         };
 
@@ -167,7 +173,7 @@ where
     ) -> Accumulators<MP, TM> {
         Accumulators::<MP, TM>::new(
             shared_config.partition_size,
-            shared_config.acc_layout,
+            shared_config.out_smem_config.matrix_layout,
             shared_config.tile_config,
         )
     }
