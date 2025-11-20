@@ -45,7 +45,7 @@ impl<'a> Visitor<'a> {
             self.location,
         ));
 
-        let dim = self.get_index(dim, dim.ty);
+        let dim = self.get_index(dim, dim.ty, true);
         let offset = self.append_operation_with_result(arith::addi(first_rank, dim, self.location));
         let result = self.append_operation_with_result(memref::load(
             metadata_memref,
