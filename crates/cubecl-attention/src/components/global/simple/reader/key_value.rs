@@ -46,10 +46,10 @@ impl<EG: Float, ES: Float> DummyKeyValueReader<EG, ES> {
             let memory_config = self.config.smem_config;
             let mut slice = stage.as_slice_mut(1u32);
 
-            let tile_rows = memory_config.elements_per_tile_row;
-            let tile_cols = memory_config.elements_per_tile_col;
-            let stage_rows = comptime!(memory_config.tiles_in_stage_row());
-            let stage_cols = comptime!(memory_config.tiles_in_stage_col());
+            let tile_rows = memory_config.elements_per_tile_along_row;
+            let tile_cols = memory_config.elements_per_tile_along_col;
+            let stage_rows = comptime!(memory_config.tiles_per_stage_along_row());
+            let stage_cols = comptime!(memory_config.tiles_per_stage_along_col());
 
             let units_per_tile_row = comptime!(self.config.plane_dim / tile_rows);
             let tile_cols_per_unit = comptime!(div_ceil(tile_cols, units_per_tile_row));

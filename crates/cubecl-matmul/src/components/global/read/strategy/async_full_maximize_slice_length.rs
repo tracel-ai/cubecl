@@ -63,8 +63,8 @@ impl FullLoadingStrategy for AsyncFullMaximizeSliceLengthLoading {
         let matrix_layout = config.gmem_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
-            MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
+            MatrixLayout::RowMajor => config.smem_config.elements_per_stage_along_row(),
+            MatrixLayout::ColMajor => config.smem_config.elements_per_stage_along_col(),
         };
         let unit_count = config.loading_units_count();
 

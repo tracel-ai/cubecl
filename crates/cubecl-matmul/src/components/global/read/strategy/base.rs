@@ -135,8 +135,8 @@ pub fn validate_tma<R: Runtime>(
     }
 
     let row_size = match config.matrix_layout {
-        MatrixLayout::RowMajor => config.elements_in_stage_col(),
-        MatrixLayout::ColMajor => config.elements_in_stage_row(),
+        MatrixLayout::RowMajor => config.elements_per_stage_along_col(),
+        MatrixLayout::ColMajor => config.elements_per_stage_along_row(),
     };
     let row_bytes = row_size * dtypes.global(ident.into()).size() as u32;
 

@@ -32,12 +32,12 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.smem_config.elements_in_stage_row(),
-                config.smem_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_per_stage_along_row(),
+                config.smem_config.elements_per_stage_along_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.smem_config.elements_in_stage_col(),
-                config.smem_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_per_stage_along_col(),
+                config.smem_config.elements_per_stage_along_row() / line_size,
             ),
         };
         let unit_count = config.plane_dim * config.loading_planes_count();
@@ -90,12 +90,12 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.smem_config.elements_in_stage_row(),
-                config.smem_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_per_stage_along_row(),
+                config.smem_config.elements_per_stage_along_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.smem_config.elements_in_stage_col(),
-                config.smem_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_per_stage_along_col(),
+                config.smem_config.elements_per_stage_along_row() / line_size,
             ),
         };
 

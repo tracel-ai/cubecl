@@ -36,7 +36,7 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
             PlanePartitioner::coordinates(
                 config.role_rule_config,
                 config.plane_dim,
-                config.smem_config.partitions_per_stage_col,
+                config.smem_config.partitions_per_stage_along_col,
             ),
             config.smem_config,
         );
@@ -55,7 +55,7 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
             &self.stage.unit_tile,
             tile_pos,
             comptime!(self.plane_dim),
-            comptime!(self.smem_config.elements_in_tile()),
+            comptime!(self.smem_config.elements_per_tile()),
         )
     }
 }

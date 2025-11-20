@@ -39,7 +39,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
 
         let line_size = config.gmem_config.line_size;
         let num_planes = config.loading_planes_count();
-        let num_tiles = config.smem_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_per_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
@@ -50,11 +50,11 @@ impl LoadingValidation for SyncFullOrderedLoading {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.loading_planes_count();
         let plane_dim = config.plane_dim;
-        let rows_per_plane = config.smem_config.tiles_in_stage_row() / num_planes;
+        let rows_per_plane = config.smem_config.tiles_per_stage_along_row() / num_planes;
 
         if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -64,7 +64,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
-        let tile_count_col = config.smem_config.tiles_in_stage_col();
+        let tile_count_col = config.smem_config.tiles_per_stage_along_col();
         if num_tiles_per_plane != rows_per_plane * tile_count_col {
             return Err(FormattedConfigError::new(move || {
                 format!(
@@ -102,11 +102,11 @@ impl FullLoadingStrategy for SyncFullOrderedLoading {
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
         let num_planes = config.loading_planes_count();
-        let num_tiles = config.smem_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_per_stage();
         let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 

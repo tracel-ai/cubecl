@@ -27,7 +27,7 @@ impl LoadingValidation for SyncFullStridedLoading {
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.gmem_config.line_size;
 
-        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let total_units = config.loading_units_count();
 
         if !num_stage_lines.is_multiple_of(total_units) {
@@ -66,7 +66,7 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let unit_count = config.loading_planes_count() * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 

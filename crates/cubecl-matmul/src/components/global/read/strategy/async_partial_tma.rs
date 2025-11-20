@@ -64,8 +64,8 @@ impl PartialLoadingStrategy for AsyncPartialTmaLoading {
         let role_rule_config = config.plane_role_config.rule;
         let config = config.smem_config;
         let tile_count_col = match config.matrix_layout {
-            MatrixLayout::RowMajor => config.tiles_in_stage_col(),
-            MatrixLayout::ColMajor => config.tiles_in_stage_row(),
+            MatrixLayout::RowMajor => config.tiles_per_stage_along_col(),
+            MatrixLayout::ColMajor => config.tiles_per_stage_along_row(),
         };
         // Swizzle renders the column format irrelevant, so we load the whole stage at once
         // The tiling is set on launch for TMA, so no further change is needed here.
@@ -111,21 +111,21 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma>
         let mut stage = stage.with_buffer_index(this.stage_index);
         if this.is_elected {
             let size_row = match config.smem_config.matrix_layout {
-                MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
-                MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
+                MatrixLayout::RowMajor => config.smem_config.elements_per_stage_along_row(),
+                MatrixLayout::ColMajor => config.smem_config.elements_per_stage_along_col(),
             };
             let size_col = match config.smem_config.matrix_layout {
-                MatrixLayout::RowMajor => config.smem_config.elements_per_tile_col,
-                MatrixLayout::ColMajor => config.smem_config.elements_per_tile_row,
+                MatrixLayout::RowMajor => config.smem_config.elements_per_tile_along_col,
+                MatrixLayout::ColMajor => config.smem_config.elements_per_tile_along_row,
             };
 
             let (offs_row, offs_col) = comptime![match config.stage_ident {
                 StageIdent::Lhs => (
                     0,
-                    this.stage_index * config.smem_config.elements_in_stage_col()
+                    this.stage_index * config.smem_config.elements_per_stage_along_col()
                 ),
                 StageIdent::Rhs => (
-                    this.stage_index * config.smem_config.elements_in_stage_row(),
+                    this.stage_index * config.smem_config.elements_per_stage_along_row(),
                     0
                 ),
                 _ => (0, 0),

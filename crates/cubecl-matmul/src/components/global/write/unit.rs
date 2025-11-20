@@ -35,7 +35,7 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
             UnitPartitioner::coordinates(
                 config.role_rule_config,
                 config.plane_dim,
-                smem_config.partitions_per_stage_col,
+                smem_config.partitions_per_stage_along_col,
             ),
             smem_config,
         );
@@ -52,7 +52,7 @@ impl<IP: MatrixPrecision> UnitWriter<IP> {
             &mut self.global,
             &self.stage.unit_tile,
             tile,
-            comptime!(self.smem_config.elements_in_tile()),
+            comptime!(self.smem_config.elements_per_tile()),
         )
     }
 }

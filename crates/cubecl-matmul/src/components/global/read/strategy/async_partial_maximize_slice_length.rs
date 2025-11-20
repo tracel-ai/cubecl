@@ -64,8 +64,8 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
         let matrix_layout = config.gmem_config.matrix_layout;
         let num_stages = config.smem_config.num_stages;
 
-        let total_row = config.smem_config.elements_in_stage_row();
-        let total_col = config.smem_config.elements_in_stage_col();
+        let total_row = config.smem_config.elements_per_stage_along_row();
+        let total_col = config.smem_config.elements_per_stage_along_col();
 
         // If stage is parallel to slices, slices are as long as in full stage memory, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage memory
