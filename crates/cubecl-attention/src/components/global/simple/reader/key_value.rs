@@ -37,14 +37,10 @@ impl<EG: Float, ES: Float> DummyKeyValueReader<EG, ES> {
 #[cube]
 impl<EG: Float, ES: Float> DummyKeyValueReader<EG, ES> {
     pub fn init_stage(&mut self) -> StridedStageMemory<ES, AttentionTilingLayout> {
-        comment!("is it here i dont nkne");
-        let x = StridedStageMemory::new(self.config.smem_config);
-        comment!("ohohohohoh");
-        x
+        StridedStageMemory::new(self.config.smem_config)
     }
 
     pub fn read_global(&mut self, stage: &mut StridedStageMemory<ES, AttentionTilingLayout>) {
-        comment!("keyvalue read global");
         if UNIT_POS_Y == 0 {
             // TODO this reader is bad, it's not coalesced
             let memory_config = self.config.smem_config;

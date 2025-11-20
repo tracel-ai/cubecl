@@ -47,31 +47,9 @@ impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<
         global: View<Line<EG>, Coords2d, ReadWrite>,
         #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        // let stage_mem_config = comptime! {
-        //     let elements_in_tile_row = stage_config.elements_in_partition_seq_q();
-        //     let elements_in_tile_col= stage_config.elements_in_partition_val_dim();
-        //     let planes = stage_config.num_planes();
-
-        //     StageMemoryConfig {
-        //         num_reading_planes: planes,
-        //         elements_in_tile_row,
-        //         elements_in_tile_col,
-        //         // Each plane has its slot in row direction
-        //         tiles_in_stage_row: planes,
-        //         // Each plane needs only one slot
-        //         tiles_in_stage_col: 1,
-        //         line_size: 1,
-        //         matrix_layout: MatrixLayout::RowMajor,
-        //         swizzle: SwizzleMode::None,
-        //         num_stages: 1,
-        //     }
-        // };
-        comment!("plou");
-
         let stage =
             PartitionedStage::new((PlanePartitioner::seq_q_index(), 0u32), config.smem_config);
 
-        comment!("ploucxc");
         PlaneAttentionWriter::<ES, EG> {
             global: global.view_mut(TiledLayout::new(config.smem_config)),
             stage,

@@ -51,8 +51,6 @@ impl<
         seq_kv: u32,
         #[comptime] config: Self::Config,
     ) {
-        comment!("A");
-
         // Init staging shared memories
         let mut key_stage = key_reader.init_stage();
         let mut value_stage = value_reader.init_stage();
@@ -61,7 +59,6 @@ impl<
         let mut query_registers = SA::init_query(config.stage_config);
         SA::read_query(&query_reader, &mut query_registers, config.stage_config);
 
-        comment!("B");
         // Init registers that will change inside global loop
         let mut key_value_registers = SA::init_key_value(config.stage_config);
         let mut mask_registers =
@@ -71,14 +68,12 @@ impl<
 
         // Init running state
         let mut stage_state = SA::init_state(config.stage_config);
-        comment!("C");
 
         // Define number of global iterations
         let num_stage_iterations =
             seq_kv.div_ceil(config.stage_config.elements_in_partition_seq_kv());
 
         // Global loop over seq_kv
-        comment!("D");
         for _ in 0..num_stage_iterations {
             // Put key and value into stage
             key_reader.read_global(&mut key_stage);
@@ -127,7 +122,6 @@ impl<
         query: VirtualTensor<QG<AP>>,
         #[comptime] config: Self::Config,
     ) -> QueryReader<AP> {
-        comment!("init query");
         let layout = AttentionGlobalLayout::new(&query, batch_index, config.query_gmem_config);
 
         QueryReader::<AP>::new(stage_q_offset, query.view(layout))
@@ -138,7 +132,6 @@ impl<
         key: VirtualTensor<KG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::KeyReader {
-        comment!("init key");
         let step = config.stage_config.elements_in_partition_seq_kv().runtime();
         let layout =
             AttentionGlobalLayout::new(&key, batch_index, config.key_reader_config.gmem_config);
@@ -150,7 +143,6 @@ impl<
         value: VirtualTensor<VG<AP>>,
         #[comptime] config: Self::Config,
     ) -> Self::ValueReader {
-        comment!("init value");
         let step = config.stage_config.elements_in_partition_seq_kv().runtime();
         let layout =
             AttentionGlobalLayout::new(&value, batch_index, config.value_reader_config.gmem_config);
@@ -164,7 +156,6 @@ impl<
         seq_kv_shape: u32,
         #[comptime] config: Self::Config,
     ) -> Self::MaskReader {
-        comment!("init mask");
         let step = config.stage_config.elements_in_partition_seq_kv().runtime();
         let partition_q_offset = <SA::Partitioner as AttentionPartitioner>::seq_q_index()
             * config.stage_config.elements_in_partition_seq_q();
@@ -193,11 +184,9 @@ impl<
         out: VirtualTensor<OG<AP>, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::Writer {
-        comment!("init writer");
         let layout =
             AttentionGlobalLayout::new(&out, batch_index, config.writer_config.gmem_config);
         let out = out.view_mut(layout);
-        comment!("pli");
 
         Self::Writer::init::<SA::Config>(
             out.slice_mut_unchecked((stage_q_offset, 0), out.shape()),
