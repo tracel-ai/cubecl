@@ -1,13 +1,13 @@
-use cubecl_core as cubecl;
-use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, CubeOptionExpand};
-
-use crate::precision::ReducePrecision;
-
 use super::{
     ArgMax, ArgMin, Max, MaxAbs, Mean, Min, Prod, ReduceCoordinate, ReduceFamily,
     ReduceInstruction, ReduceRequirements, SharedAccumulator, Sum,
 };
+use crate::ReduceDtypes;
+use crate::precision::ReducePrecision;
+use cubecl_core::ir::{FloatKind, IntKind, UIntKind};
+use cubecl_core::prelude::*;
+use cubecl_core::{self as cubecl, ir::ElemType};
+use cubecl_std::{CubeOption, CubeOptionExpand};
 
 #[derive(Debug, CubeType, Clone)]
 pub enum ReduceFn {
@@ -31,6 +31,70 @@ pub enum ReduceFnConfig {
     ArgMin,
     Max,
     Min,
+}
+
+impl ReduceFnConfig {
+    /// Computes the best case precision for the given config.
+    pub fn precision(&self, input: ElemType) -> ReduceDtypes {
+        match self {
+            ReduceFnConfig::Sum | ReduceFnConfig::Prod | ReduceFnConfig::Mean => {}
+            // No benefit to mixed precision accumulation.
+            ReduceFnConfig::MaxAbs | ReduceFnConfig::Max | ReduceFnConfig::Min => {
+                return ReduceDtypes {
+                    input: input.into(),
+                    output: input.into(),
+                    accumulation: input.into(),
+                };
+            }
+            ReduceFnConfig::ArgMax | ReduceFnConfig::ArgMin => {
+                return ReduceDtypes {
+                    input: input.into(),
+                    output: i32::as_type_native_unchecked(),
+                    accumulation: input.into(),
+                };
+            }
+        };
+
+        match input {
+            ElemType::Float(kind) => {
+                let acc = match kind {
+                    FloatKind::F64 => f64::as_type_native_unchecked(),
+                    _ => f32::as_type_native_unchecked(),
+                };
+
+                ReduceDtypes {
+                    input: input.into(),
+                    output: input.into(),
+                    accumulation: acc,
+                }
+            }
+            ElemType::Int(kind) => {
+                let acc = match kind {
+                    IntKind::I64 => i64::as_type_native_unchecked(),
+                    _ => i32::as_type_native_unchecked(),
+                };
+
+                ReduceDtypes {
+                    input: input.into(),
+                    output: input.into(),
+                    accumulation: acc,
+                }
+            }
+            ElemType::UInt(kind) => {
+                let acc = match kind {
+                    UIntKind::U64 => u64::as_type_native_unchecked(),
+                    _ => u32::as_type_native_unchecked(),
+                };
+
+                ReduceDtypes {
+                    input: input.into(),
+                    output: input.into(),
+                    accumulation: acc,
+                }
+            }
+            ElemType::Bool => panic!("Can't reduce on booleans"),
+        }
+    }
 }
 
 impl ReduceFamily for ReduceFn {
