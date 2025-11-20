@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
         GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -63,8 +63,8 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncFullMaximizeUnitCountLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {

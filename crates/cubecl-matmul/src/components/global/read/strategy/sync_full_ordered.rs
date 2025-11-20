@@ -5,9 +5,7 @@ use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::ContiguousTilingLayout;
 use crate::components::stage::OrderedTilingOrder;
-use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, StageIdent, TilingScheme,
-};
+use crate::components::{FormattedConfigError, InvalidConfigError, StageIdent};
 use crate::components::{global::RoleRule, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -82,12 +80,12 @@ impl LoadingValidation for SyncFullOrderedLoading {
 
 impl LoadMaxRoundPlaneCount for SyncFullOrderedLoading {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        _elements_per_tile: u32,
+        tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
-        tiling_scheme.tiles_in_stage(ident)
+        tiles_per_stage
     }
 }
 

@@ -8,7 +8,7 @@ use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync:
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
+use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -62,14 +62,13 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
-        let num_lines_per_tile = tiling_scheme.elements_in_tile(ident) / line_size as u32;
-        let num_tiles_in_stage = tiling_scheme.tiles_in_stage(ident);
-        let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
+        let num_lines_per_tile = elements_per_tile / line_size as u32;
+        let total_num_lines = tiles_per_stage * num_lines_per_tile;
         total_num_lines.div_ceil(plane_dim)
     }
 }

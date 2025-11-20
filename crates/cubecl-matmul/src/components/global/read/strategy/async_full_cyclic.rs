@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
         GlobalReaderConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
@@ -55,8 +55,8 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {

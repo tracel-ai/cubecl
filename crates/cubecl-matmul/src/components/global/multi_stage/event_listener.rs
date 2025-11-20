@@ -4,7 +4,6 @@ use cubecl_core::prelude::*;
 use crate::components::global::read::{StageBuffer, SyncStrategy};
 use crate::components::global::{GlobalConfig, GlobalReaderConfig, LoadingSides};
 use crate::components::stage::{StageConfig, StageEvent, StageEventListener};
-use crate::components::{MatmulIdent, TilingScheme};
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 /// For a tensor, whether it is constrained to be loaded respecting order
@@ -356,8 +355,8 @@ pub trait JobIterator: CubeType {
 pub trait LoadMaxRoundPlaneCount {
     /// Returns the largest number of planes that evenly divides the tasks.
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32;

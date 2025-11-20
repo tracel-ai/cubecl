@@ -1,11 +1,10 @@
+use crate::components::InvalidConfigError;
 use crate::components::MatmulElems;
-use crate::components::TilingScheme;
 use crate::components::global::GlobalReaderConfig;
 use crate::components::global::read::{validate_async_barrier, validate_tma};
 use crate::components::global::{RoleRule, read::async_tma::AsyncTma};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
-use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{MatrixLayout, global::read::FullLoadingStrategy};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TmaTilingLayout};
@@ -36,8 +35,8 @@ impl LoadingValidation for AsyncFullTmaLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncFullTmaLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {

@@ -5,7 +5,7 @@ use crate::components::global::{RoleRule, multi_stage::LoadMaxRoundPlaneCount};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::TmaTilingLayout;
 use crate::components::stage::{StridedStageMemory, SwizzleMode};
-use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
+use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{
     MatrixLayout,
     global::read::{PartialLoadingStrategy, async_tma::AsyncTma},
@@ -39,8 +39,8 @@ impl LoadingValidation for AsyncPartialTmaLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncPartialTmaLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {

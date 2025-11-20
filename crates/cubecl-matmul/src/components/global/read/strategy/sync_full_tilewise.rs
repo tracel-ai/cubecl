@@ -7,7 +7,7 @@ use crate::components::global::read::{FullLoadingStrategy, sync::Synchronous};
 use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, TilingOrder};
-use crate::components::{FormattedConfigError, InvalidConfigError, MatmulIdent, TilingScheme};
+use crate::components::{FormattedConfigError, InvalidConfigError};
 use crate::components::{global::memory::GlobalIterator, stage::ContiguousTilingLayout};
 use crate::components::{global::multi_stage::LoadMaxRoundPlaneCount, stage::TilingValidation};
 use cubecl_core as cubecl;
@@ -32,12 +32,12 @@ pub struct SyncFullTilewiseLoading<T: TilingOrder> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncFullTilewiseLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        _elements_per_tile: u32,
+        tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
-        tiling_scheme.tiles_in_stage(ident)
+        tiles_per_stage
     }
 }
 
