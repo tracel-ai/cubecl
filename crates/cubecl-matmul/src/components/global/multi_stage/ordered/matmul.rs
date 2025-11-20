@@ -106,7 +106,7 @@ where
             config.specialized_loading_sides(),
         );
 
-        read_first::<MP, Synchronous, Self::LhsGlobalReader, Self::RhsGlobalReader>(
+        read_first::<Synchronous, Self::LhsGlobalReader, Self::RhsGlobalReader>(
             &mut lhs_reader,
             &mut rhs_reader,
             &mut barrier,
