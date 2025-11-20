@@ -60,8 +60,8 @@ impl FullLoadingStrategy for AsyncFullTmaLoading {
         let role_rule_config = config.plane_role_config.rule;
         let config = config.smem_config;
         let tile_count_col = match config.matrix_layout {
-            MatrixLayout::RowMajor => config.tiles_in_stage_col,
-            MatrixLayout::ColMajor => config.tiles_in_stage_row,
+            MatrixLayout::RowMajor => config.tiles_in_stage_col(),
+            MatrixLayout::ColMajor => config.tiles_in_stage_row(),
         };
         // Swizzle renders the column format irrelevant, so we load the whole stage at once
         // The tiling is set on launch for TMA, so no further change is needed here.
@@ -107,8 +107,8 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, TmaTilingLayout, AsyncTma> for
                 MatrixLayout::ColMajor => config.elements_in_stage_col(),
             };
             let size_col = match config.matrix_layout {
-                MatrixLayout::RowMajor => config.elements_in_tile_col,
-                MatrixLayout::ColMajor => config.elements_in_tile_row,
+                MatrixLayout::RowMajor => config.elements_per_tile_col,
+                MatrixLayout::ColMajor => config.elements_per_tile_row,
             };
 
             let global_view = global_iter.view();

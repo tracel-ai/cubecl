@@ -155,7 +155,6 @@ where
             smem_config: stage_config.out_smem_config(),
             role_rule_config: plane_role_config.rule,
             plane_dim: selection.plane_dim,
-            num_partitions_col: selection.tiling_scheme.stage_partitions_in_stage_n(),
         };
 
         let config = SharedGlobalMatmulConfig {

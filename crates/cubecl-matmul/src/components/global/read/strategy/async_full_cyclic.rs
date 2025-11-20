@@ -37,7 +37,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     ) -> Result<(), InvalidConfigError> {
         let total_units = config.loading_planes_count() * config.plane_dim;
         let num_slices =
-            config.smem_config.elements_in_tile_row * config.smem_config.tiles_in_stage();
+            config.smem_config.elements_per_tile_row * config.smem_config.tiles_in_stage();
 
         if num_slices >= total_units && !num_slices.is_multiple_of(total_units) {
             return Err(Box::new(format!(
@@ -82,12 +82,12 @@ impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
 
         let (num_slices_per_tile, slice_length_in_lines) = match config.gmem_config.matrix_layout {
             MatrixLayout::RowMajor => (
-                config.smem_config.elements_in_tile_row,
-                config.smem_config.elements_in_tile_col / line_size,
+                config.smem_config.elements_per_tile_row,
+                config.smem_config.elements_per_tile_col / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.smem_config.elements_in_tile_col,
-                config.smem_config.elements_in_tile_row / line_size,
+                config.smem_config.elements_per_tile_col,
+                config.smem_config.elements_per_tile_row / line_size,
             ),
         };
 

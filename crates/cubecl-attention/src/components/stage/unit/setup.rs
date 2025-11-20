@@ -75,10 +75,12 @@ impl<
 
         let key_smem_config = StageMemoryConfig {
             num_planes,
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.head_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_in_stage_col: selection.tiling_scheme.partition_size.head_dim,
+            elements_per_tile_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_col: selection.tiling_scheme.tile_size.head_dim,
+            tiles_per_partition_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_col: selection.tiling_scheme.partition_size.head_dim,
+            partitions_per_stage_row: 1,
+            partitions_per_stage_col: 1,
             line_size: line_sizes.key as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,
@@ -87,10 +89,12 @@ impl<
 
         let value_smem_config = StageMemoryConfig {
             num_planes,
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_kv,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_kv,
-            tiles_in_stage_col: selection.tiling_scheme.partition_size.val_dim,
+            elements_per_tile_row: selection.tiling_scheme.tile_size.seq_kv,
+            elements_per_tile_col: selection.tiling_scheme.tile_size.val_dim,
+            tiles_per_partition_row: selection.tiling_scheme.partition_size.seq_kv,
+            tiles_per_partition_col: selection.tiling_scheme.partition_size.val_dim,
+            partitions_per_stage_row: 1,
+            partitions_per_stage_col: 1,
             line_size: line_sizes.value as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,
@@ -99,12 +103,13 @@ impl<
 
         let out_smem_config = StageMemoryConfig {
             num_planes,
-            elements_in_tile_row: selection.tiling_scheme.tile_size.seq_q,
-            elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
+            elements_per_tile_row: selection.tiling_scheme.tile_size.seq_q,
+            elements_per_tile_col: selection.tiling_scheme.tile_size.val_dim,
+            tiles_per_partition_row: 1,
+            tiles_per_partition_col: 1,
             // Each unit has its slot in row direction
-            tiles_in_stage_row: num_planes * selection.plane_dim,
-            // Each unit needs only one slot
-            tiles_in_stage_col: 1,
+            partitions_per_stage_row: num_planes * selection.plane_dim,
+            partitions_per_stage_col: 1,
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: SwizzleMode::None,

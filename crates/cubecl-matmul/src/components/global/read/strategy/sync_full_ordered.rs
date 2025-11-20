@@ -54,7 +54,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.loading_planes_count();
         let plane_dim = config.plane_dim;
-        let rows_per_plane = config.smem_config.tiles_in_stage_row / num_planes;
+        let rows_per_plane = config.smem_config.tiles_in_stage_row() / num_planes;
 
         if num_lines_per_plane % plane_dim != 0 {
             return Err(FormattedConfigError::new(move || {
@@ -64,7 +64,7 @@ impl LoadingValidation for SyncFullOrderedLoading {
             }));
         }
 
-        let tile_count_col = config.smem_config.tiles_in_stage_col;
+        let tile_count_col = config.smem_config.tiles_in_stage_col();
         if num_tiles_per_plane != rows_per_plane * tile_count_col {
             return Err(FormattedConfigError::new(move || {
                 format!(

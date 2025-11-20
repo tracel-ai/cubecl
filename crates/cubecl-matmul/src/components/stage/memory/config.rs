@@ -6,10 +6,12 @@ use crate::components::MatrixLayout;
 pub struct StageMemoryConfig {
     // Planes that read or write this stage memory
     pub num_planes: u32,
-    pub elements_in_tile_row: u32,
-    pub elements_in_tile_col: u32,
-    pub tiles_in_stage_row: u32,
-    pub tiles_in_stage_col: u32,
+    pub elements_per_tile_row: u32,
+    pub elements_per_tile_col: u32,
+    pub tiles_per_partition_row: u32,
+    pub tiles_per_partition_col: u32,
+    pub partitions_per_stage_row: u32,
+    pub partitions_per_stage_col: u32,
     pub line_size: u32,
     pub matrix_layout: MatrixLayout,
     pub swizzle: SwizzleMode,
@@ -54,16 +56,24 @@ impl SwizzleMode {
 }
 
 impl StageMemoryConfig {
+    pub fn tiles_in_stage_row(&self) -> u32 {
+        self.tiles_per_partition_row * self.partitions_per_stage_row
+    }
+
+    pub fn tiles_in_stage_col(&self) -> u32 {
+        self.tiles_per_partition_col * self.partitions_per_stage_col
+    }
+
     pub fn elements_in_stage_row(&self) -> u32 {
-        self.tiles_in_stage_row * self.elements_in_tile_row
+        self.tiles_in_stage_row() * self.elements_per_tile_row
     }
 
     pub fn elements_in_stage_col(&self) -> u32 {
-        self.tiles_in_stage_col * self.elements_in_tile_col
+        self.tiles_in_stage_col() * self.elements_per_tile_col
     }
 
     pub fn elements_in_tile(&self) -> u32 {
-        self.elements_in_tile_row * self.elements_in_tile_col
+        self.elements_per_tile_row * self.elements_per_tile_col
     }
 
     pub fn elements_in_stage(&self) -> u32 {
@@ -71,13 +81,13 @@ impl StageMemoryConfig {
     }
 
     pub fn tiles_in_stage(&self) -> u32 {
-        self.tiles_in_stage_row * self.tiles_in_stage_col
+        self.tiles_in_stage_row() * self.tiles_in_stage_col()
     }
 
     pub fn elements_in_tile_contiguous_dim(&self) -> u32 {
         match self.matrix_layout {
-            MatrixLayout::RowMajor => self.elements_in_tile_col,
-            MatrixLayout::ColMajor => self.elements_in_tile_row,
+            MatrixLayout::RowMajor => self.elements_per_tile_col,
+            MatrixLayout::ColMajor => self.elements_per_tile_row,
         }
     }
 

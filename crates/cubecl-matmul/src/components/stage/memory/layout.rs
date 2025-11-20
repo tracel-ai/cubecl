@@ -312,8 +312,8 @@ pub struct StridedTilingLayout {}
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
     pub fn to_x_y(nth: u32, #[comptime] config: StageMemoryConfig) -> Coords2d {
-        let num_x = config.tiles_in_stage_row;
-        let num_y = config.tiles_in_stage_col;
+        let num_x = config.tiles_in_stage_row();
+        let num_y = config.tiles_in_stage_col();
 
         T::to_row_col(nth, num_x, num_y, config)
     }
@@ -333,14 +333,14 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 
         let (tile_size_x, tile_size_y) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_row;
+                let tile_size_y = config.elements_per_tile_col / stage_line_size;
 
                 (tile_size_x, tile_size_y)
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_col;
 
                 (tile_size_x, tile_size_y)
             }
@@ -350,8 +350,8 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
             * tile_size_y
             * TO::to_nth_tile(
                 (row, col),
-                config.tiles_in_stage_row,
-                config.tiles_in_stage_col,
+                config.tiles_in_stage_row(),
+                config.tiles_in_stage_col(),
                 config,
             );
 
@@ -408,13 +408,13 @@ impl TilingLayout for StridedTilingLayout {
         let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
-        let tile_count_x = config.tiles_in_stage_row;
-        let tile_count_y = config.tiles_in_stage_col;
+        let tile_count_x = config.tiles_in_stage_row();
+        let tile_count_y = config.tiles_in_stage_col();
 
         match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_row;
+                let tile_size_y = config.elements_per_tile_col / stage_line_size;
 
                 let stride = tile_count_y * tile_size_y;
                 let length = (tile_size_x - 1) * stride + tile_size_y;
@@ -431,8 +431,8 @@ impl TilingLayout for StridedTilingLayout {
                 )
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_col;
 
                 let stride = tile_count_x * tile_size_x;
                 let length = (tile_size_y - 1) * stride + tile_size_x;

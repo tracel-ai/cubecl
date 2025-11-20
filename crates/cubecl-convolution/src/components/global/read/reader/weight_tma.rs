@@ -53,14 +53,14 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
             let global_view = self.global_iter.view();
 
             let mut stage = stage.as_slice_mut(1u32);
-            let slice_size = config.elements_in_stage_col() * config.elements_in_tile_row;
+            let slice_size = config.elements_in_stage_col() * config.elements_per_tile_row;
 
             #[unroll]
-            for tile_k in 0..config.tiles_in_stage_row {
+            for tile_k in 0..config.tiles_in_stage_row() {
                 let slice_start = slice_size * tile_k;
                 let slice = stage.slice_mut(slice_start, slice_size);
 
-                let k = tile_k * config.elements_in_tile_row;
+                let k = tile_k * config.elements_per_tile_row;
                 global_view.tensor_map_load(barrier, &mut slice.try_cast_unchecked(), (k, 0));
             }
         }

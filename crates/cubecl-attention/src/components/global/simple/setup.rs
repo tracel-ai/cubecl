@@ -124,7 +124,6 @@ impl<
             smem_config: stage_config.out_smem_config(),
             role_rule_config: RoleRuleConfig::MainFlowOnly,
             plane_dim,
-            num_partitions_col: 1,
         };
 
         Ok(SimpleGlobalAttentionConfig {

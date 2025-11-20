@@ -24,8 +24,8 @@ pub fn load_window_in_tile<EG: Numeric>(
     #[comptime] gmem_config: GlobalMemoryConfig,
 ) -> Slice<Line<EG>> {
     let (tile_row, tile_col) = tile;
-    let tile_size_row = smem_config.elements_in_tile_row;
-    let tile_size_col = smem_config.elements_in_tile_col;
+    let tile_size_row = smem_config.elements_per_tile_row;
+    let tile_size_col = smem_config.elements_per_tile_col;
 
     let size = match smem_config.matrix_layout {
         MatrixLayout::RowMajor => (1u32, tile_size_col).runtime(),

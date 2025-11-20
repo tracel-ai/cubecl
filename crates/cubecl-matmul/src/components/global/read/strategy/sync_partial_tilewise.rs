@@ -123,8 +123,8 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
         let stage_width = comptime!(match config.stage_ident {
-            StageIdent::Lhs => config.smem_config.tiles_in_stage_col,
-            StageIdent::Rhs => config.smem_config.tiles_in_stage_row,
+            StageIdent::Lhs => config.smem_config.tiles_in_stage_col(),
+            StageIdent::Rhs => config.smem_config.tiles_in_stage_row(),
             _ => unreachable!(),
         });
 
@@ -184,8 +184,8 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 
         let tile = TO::to_row_col(
             nth_tile_global,
-            config.smem_config.tiles_in_stage_row,
-            config.smem_config.tiles_in_stage_col,
+            config.smem_config.tiles_in_stage_row(),
+            config.smem_config.tiles_in_stage_col(),
             config.smem_config,
         );
 

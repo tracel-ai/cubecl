@@ -127,10 +127,12 @@ impl<
 
         let lhs_smem_config = StageMemoryConfig {
             num_planes: plane_counts.lhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
+            elements_per_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_per_tile_col: selection.tiling_scheme.elements_in_tile_k(),
+            tiles_per_partition_row: selection.tiling_scheme.tiles_in_stage_partition_m(),
+            tiles_per_partition_col: selection.tiling_scheme.tiles_in_stage_partition_k(),
+            partitions_per_stage_row: selection.tiling_scheme.stage_partitions_in_stage_m(),
+            partitions_per_stage_col: selection.tiling_scheme.stage_partitions_in_stage_k(),
             line_size: line_sizes.lhs as u32,
             matrix_layout: problem.lhs_layout,
             swizzle: selection.shared_swizzle.lhs,
@@ -139,23 +141,26 @@ impl<
 
         let rhs_smem_config = StageMemoryConfig {
             num_planes: plane_counts.rhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+            elements_per_tile_row: selection.tiling_scheme.elements_in_tile_k(),
+            elements_per_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_per_partition_row: selection.tiling_scheme.tiles_in_stage_partition_k(),
+            tiles_per_partition_col: selection.tiling_scheme.tiles_in_stage_partition_n(),
+            partitions_per_stage_row: selection.tiling_scheme.stage_partitions_in_stage_k(),
+            partitions_per_stage_col: selection.tiling_scheme.stage_partitions_in_stage_n(),
             line_size: line_sizes.rhs as u32,
             matrix_layout: problem.rhs_layout,
             swizzle: selection.shared_swizzle.rhs,
             num_stages: num_stages.rhs,
         };
 
-        let partition_size_n = selection.tiling_scheme.stage_partitions_in_stage_n();
         let out_smem_config = StageMemoryConfig {
             num_planes: plane_counts.out,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: plane_counts.out / partition_size_n,
-            tiles_in_stage_col: partition_size_n,
+            elements_per_tile_row: selection.tiling_scheme.elements_in_tile_m(),
+            elements_per_tile_col: selection.tiling_scheme.elements_in_tile_n(),
+            tiles_per_partition_row: selection.tiling_scheme.tiles_in_stage_partition_m(),
+            tiles_per_partition_col: selection.tiling_scheme.tiles_in_stage_partition_n(),
+            partitions_per_stage_row: selection.tiling_scheme.stage_partitions_in_stage_m(),
+            partitions_per_stage_col: selection.tiling_scheme.stage_partitions_in_stage_n(),
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: selection.shared_swizzle.out,

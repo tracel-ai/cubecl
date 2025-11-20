@@ -90,8 +90,8 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
         let num_stage_elements = config.smem_config.elements_in_stage();
 
         let tile_size = config.smem_config.elements_in_tile();
-        let tile_count_row = config.smem_config.tiles_in_stage_row;
-        let tile_count_col = config.smem_config.tiles_in_stage_col;
+        let tile_count_row = config.smem_config.tiles_in_stage_row();
+        let tile_count_col = config.smem_config.tiles_in_stage_col();
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.loading_units_count();
@@ -192,8 +192,8 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
             config.smem_config.elements_in_tile(),
-            config.smem_config.tiles_in_stage_row,
-            config.smem_config.tiles_in_stage_col,
+            config.smem_config.tiles_in_stage_row(),
+            config.smem_config.tiles_in_stage_col(),
         )
     };
     let line_size = view.line_size();
