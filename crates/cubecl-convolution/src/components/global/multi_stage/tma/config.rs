@@ -16,8 +16,10 @@ pub(crate) fn num_stages<R: Runtime>(
     tiling_scheme: &TilingScheme,
     dtypes: &MatmulElems,
 ) -> u32 {
-    let lhs_stage_size = tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k();
-    let rhs_stage_size = tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n();
+    let lhs_stage_size =
+        tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k();
+    let rhs_stage_size =
+        tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n();
 
     // u64 is the barrier, which is also in shared.
     // Just to ensure we don't go over by a few bytes accidentally.
@@ -34,8 +36,8 @@ pub(crate) fn num_stages<R: Runtime>(
 
     let mut num_stages = prev_power_of_two(max_stages as u64) as u32;
 
-    let num_tiles_k =
-        (problem.k as u32).div_ceil(tiling_scheme.elements_per_stage_along_k()) / MIN_STAGES_PER_PIPELINE;
+    let num_tiles_k = (problem.k as u32).div_ceil(tiling_scheme.elements_per_stage_along_k())
+        / MIN_STAGES_PER_PIPELINE;
 
     while num_stages > num_tiles_k && num_stages > 1 {
         num_stages /= 2;

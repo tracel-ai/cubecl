@@ -53,7 +53,8 @@ impl<IP: MatrixPrecision> TmaWeightGlobalReader<IP> {
             let global_view = self.global_iter.view();
 
             let mut stage = stage.as_slice_mut(1u32);
-            let slice_size = config.elements_per_stage_along_col() * config.elements_per_tile_along_row;
+            let slice_size =
+                config.elements_per_stage_along_col() * config.elements_per_tile_along_row;
 
             #[unroll]
             for tile_k in 0..config.tiles_per_stage_along_row() {

@@ -213,10 +213,12 @@ fn validate<TC: TileConfig>(
         )));
     }
 
-    let lhs_smem_size =
-        tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k() * num_stages.lhs;
-    let rhs_smem_size =
-        tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n() * num_stages.rhs;
+    let lhs_smem_size = tiling_scheme.elements_per_stage_along_m()
+        * tiling_scheme.elements_per_stage_along_k()
+        * num_stages.lhs;
+    let rhs_smem_size = tiling_scheme.elements_per_stage_along_k()
+        * tiling_scheme.elements_per_stage_along_n()
+        * num_stages.rhs;
     let out_smem_size = tiling_scheme.tile_size.m * tiling_scheme.tile_size.n * num_compute_planes;
     let smem_total_size =
         lhs_s_size * lhs_smem_size + rhs_s_size * rhs_smem_size + eo_size * out_smem_size;
