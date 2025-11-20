@@ -123,7 +123,8 @@ impl<
             num_reading_planes: stage_config.num_planes(),
             elements_in_tile_row: selection.tiling_scheme.tile_size.seq_q,
             elements_in_tile_col: selection.tiling_scheme.tile_size.val_dim,
-            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_q,
+            tiles_in_stage_row: selection.tiling_scheme.partition_size.seq_q
+                * selection.tiling_scheme.stage_size.seq_q,
             tiles_in_stage_col: selection.tiling_scheme.partition_size.val_dim,
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
