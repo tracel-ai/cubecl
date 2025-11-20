@@ -17,6 +17,7 @@ pub struct ReduceDtypes {
     pub output: StorageType,
     pub accumulation: StorageType,
 }
+
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
