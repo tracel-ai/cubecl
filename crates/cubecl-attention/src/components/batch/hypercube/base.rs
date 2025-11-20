@@ -26,8 +26,11 @@ impl HypercubeConfig {
         selection: &AttentionSelection,
     ) -> CubeCountPlan {
         CubeCountPlan {
-            inner: (problem.seq_q as u32)
-                .div_ceil(selection.tiling_scheme.elements_in_stage_seq_q()),
+            inner: (problem.seq_q as u32).div_ceil(
+                selection.tiling_scheme.tile_size.seq_q
+                    * selection.tiling_scheme.partition_size.seq_q
+                    * selection.tiling_scheme.stage_size.seq_q,
+            ),
             outer: (problem.batch * problem.num_heads) as u32,
         }
     }

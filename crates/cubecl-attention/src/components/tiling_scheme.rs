@@ -7,60 +7,6 @@ pub struct AttentionTilingScheme {
     pub stage_size: AttentionStageSize,
 }
 
-impl AttentionTilingScheme {
-    pub fn elements_in_stage_seq_q(&self) -> u32 {
-        self.stage_size.seq_q * self.elements_in_partition_seq_q()
-    }
-
-    pub fn elements_in_stage_seq_kv(&self) -> u32 {
-        self.elements_in_partition_seq_kv()
-    }
-
-    pub fn elements_in_partition_seq_q(&self) -> u32 {
-        self.elements_in_tile_seq_q() * self.partition_size.seq_q
-    }
-
-    pub fn elements_in_partition_head_dim(&self) -> u32 {
-        self.tile_size.head_dim * self.partition_size.head_dim
-    }
-
-    pub fn elements_in_partition_seq_kv(&self) -> u32 {
-        self.elements_in_tile_seq_kv() * self.partition_size.seq_kv
-    }
-
-    pub fn elements_in_partition_val_dim(&self) -> u32 {
-        self.tile_size.val_dim * self.partition_size.val_dim
-    }
-
-    pub fn elements_in_tile_seq_q(&self) -> u32 {
-        self.tile_size.seq_q
-    }
-
-    pub fn elements_in_tile_seq_kv(&self) -> u32 {
-        self.tile_size.seq_kv
-    }
-
-    pub fn elements_in_tile_head_dim(&self) -> u32 {
-        self.tile_size.head_dim
-    }
-
-    pub fn elements_in_tile_val_dim(&self) -> u32 {
-        self.tile_size.val_dim
-    }
-
-    pub fn tiles_in_stage_seq_kv(&self) -> u32 {
-        self.partition_size.seq_kv
-    }
-
-    pub fn tiles_in_stage_head_dim(&self) -> u32 {
-        self.partition_size.head_dim
-    }
-
-    pub fn tiles_in_stage_val_dim(&self) -> u32 {
-        self.partition_size.val_dim
-    }
-}
-
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 // Score matmul: (seq_q, head_dim) @ (head_dim, seq_kv) → (seq_q, seq_kv)
 // Value matmul: (seq_q, seq_kv) @ (seq_kv, val_dim) → (seq_q, val_dim)
