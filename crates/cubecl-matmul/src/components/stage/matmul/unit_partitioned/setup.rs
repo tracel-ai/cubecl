@@ -85,7 +85,11 @@ impl<
 
         let compute_resources = if let ComputeResources::Units(units) = TM::computation_resources()?
         {
-            ComputeResources::Units(units * selection.tiling_scheme.stage_partitions_in_stage_mn())
+            ComputeResources::Units(
+                units
+                    * selection.tiling_scheme.partitions_per_stage_along_m()
+                    * selection.tiling_scheme.partitions_per_stage_along_n(),
+            )
         } else {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
                 "Error: Tried to use a unit stage matmul with a plane tile matmul.".to_string(),
@@ -189,7 +193,8 @@ fn validate<TC: TileConfig>(
     plane_dim: u32,
     num_stages: NumStages,
 ) -> Result<PartitionMatmulConfig<TC>, MatmulSetupError> {
-    let num_units_needed = tiling_scheme.stage_partitions_in_stage_mn();
+    let num_units_needed =
+        tiling_scheme.partitions_per_stage_along_m() * tiling_scheme.partitions_per_stage_along_n();
     let num_compute_planes = stage_config.shared().plane_role_config.main_flow_count();
     let num_units = plane_dim * num_compute_planes;
 
@@ -200,16 +205,18 @@ fn validate<TC: TileConfig>(
     }
 
     if partition_buffering == PartitionBuffering::Double
-        && tiling_scheme.tiles_in_stage_partition_n() < 2
+        && tiling_scheme.tiles_per_stage_partition_along_n() < 2
     {
         return Err(MatmulSetupError::InvalidConfig(Box::new(
             "Error: Tried doing partition double buffering with only one tile to compute.",
         )));
     }
 
-    let lhs_smem_size = tiling_scheme.elements_in_stage_mk() * num_stages.lhs;
-    let rhs_smem_size = tiling_scheme.elements_in_stage_nk() * num_stages.rhs;
-    let out_smem_size = tiling_scheme.elements_in_tile_mn() * num_units;
+    let lhs_smem_size =
+        tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k() * num_stages.lhs;
+    let rhs_smem_size =
+        tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n() * num_stages.rhs;
+    let out_smem_size = tiling_scheme.tile_size.m * tiling_scheme.tile_size.n * num_units;
     let smem_total_size =
         lhs_s_size * lhs_smem_size + rhs_s_size * rhs_smem_size + eo_size * out_smem_size;
 

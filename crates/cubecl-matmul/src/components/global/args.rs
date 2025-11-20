@@ -354,9 +354,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let config = config.global_config();
 
         let tiling_scheme = selection.tiling_scheme;
-        let stage_m = tiling_scheme.elements_in_stage_m();
-        let stage_n = tiling_scheme.elements_in_stage_n();
-        let stage_k = tiling_scheme.elements_in_stage_k();
+        let stage_m = tiling_scheme.elements_per_stage_along_m();
+        let stage_n = tiling_scheme.elements_per_stage_along_n();
+        let stage_k = tiling_scheme.elements_per_stage_along_k();
 
         // Loaders use dynamic layout based on swizzle setting. For no swizzle, contiguous tiles are
         // loaded and TMA loads single tile wide columns.
@@ -364,10 +364,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let stage_size_lhs = match config.lhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.lhs_layout {
                 components::MatrixLayout::RowMajor => {
-                    vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
+                    vec![1, stage_m, tiling_scheme.tile_size.k]
                 }
                 components::MatrixLayout::ColMajor => {
-                    vec![1, stage_k, tiling_scheme.elements_in_tile_m()]
+                    vec![1, stage_k, tiling_scheme.tile_size.m]
                 }
             },
             _ => match problem.lhs_layout {
@@ -382,10 +382,10 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         let stage_size_rhs = match config.rhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.rhs_layout {
                 components::MatrixLayout::RowMajor => {
-                    vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
+                    vec![1, stage_k, tiling_scheme.tile_size.n]
                 }
                 components::MatrixLayout::ColMajor => {
-                    vec![1, stage_n, tiling_scheme.elements_in_tile_k()]
+                    vec![1, stage_n, tiling_scheme.tile_size.k]
                 }
             },
             _ => match problem.rhs_layout {

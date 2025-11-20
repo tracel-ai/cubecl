@@ -136,7 +136,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .unwrap();
 
     let partition_buffering = options.partition_buffering.unwrap_or_else(|| {
-        if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+        if tiling_scheme.tiles_per_stage_partition_along_n() > 1 {
             PartitionBuffering::Double
         } else {
             PartitionBuffering::Single
@@ -173,12 +173,12 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 
     if options.swizzled {
         let lhs_swizzle_dim = match problem.lhs_layout {
-            MatrixLayout::RowMajor => tiling_scheme.elements_in_stage_k(),
-            MatrixLayout::ColMajor => tiling_scheme.elements_in_stage_m(),
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_k(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_m(),
         };
         let rhs_swizzle_dim = match problem.rhs_layout {
-            MatrixLayout::RowMajor => tiling_scheme.elements_in_stage_n(),
-            MatrixLayout::ColMajor => tiling_scheme.elements_in_stage_k(),
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_n(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_k(),
         };
 
         let lhs = select_swizzle(lhs_swizzle_dim, dtypes.lhs_stage, line_sizes.lhs);

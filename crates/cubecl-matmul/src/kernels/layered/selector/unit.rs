@@ -519,12 +519,12 @@ fn selection(
 
     if swizzle {
         let lhs_swizzle_dim = match problem.lhs_layout {
-            MatrixLayout::RowMajor => tiling_scheme.elements_in_stage_k(),
-            MatrixLayout::ColMajor => tiling_scheme.elements_in_stage_m(),
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_k(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_m(),
         };
         let rhs_swizzle_dim = match problem.rhs_layout {
-            MatrixLayout::RowMajor => tiling_scheme.elements_in_stage_n(),
-            MatrixLayout::ColMajor => tiling_scheme.elements_in_stage_k(),
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_n(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_k(),
         };
 
         builder = builder.shared_swizzle(SwizzleConfig {

@@ -89,7 +89,9 @@ impl<
         let compute_resources =
             if let ComputeResources::Planes(planes) = TM::computation_resources()? {
                 ComputeResources::Planes(
-                    planes * selection.tiling_scheme.stage_partitions_in_stage_mn(),
+                    planes
+                        * selection.tiling_scheme.partitions_per_stage_along_m()
+                        * selection.tiling_scheme.partitions_per_stage_along_n(),
                 )
             } else {
                 return Err(MatmulSetupError::InvalidConfig(Box::new(
@@ -193,7 +195,8 @@ fn validate<TC: TileConfig>(
     partition_buffering: PartitionBuffering,
     num_stages: NumStages,
 ) -> Result<PartitionMatmulConfig<TC>, MatmulSetupError> {
-    let num_planes_needed = tiling_scheme.stage_partitions_in_stage_mn();
+    let num_planes_needed =
+        tiling_scheme.partitions_per_stage_along_m() * tiling_scheme.partitions_per_stage_along_n();
     let num_compute_planes = stage_config.shared().plane_role_config.main_flow_count();
 
     if num_compute_planes != num_planes_needed {
@@ -203,16 +206,18 @@ fn validate<TC: TileConfig>(
     }
 
     if partition_buffering == PartitionBuffering::Double
-        && tiling_scheme.tiles_in_stage_partition_n() < 2
+        && tiling_scheme.tiles_per_stage_partition_along_n() < 2
     {
         return Err(MatmulSetupError::InvalidConfig(Box::new(
             "Error: Tried doing double buffering with only one tile to compute.".to_string(),
         )));
     }
 
-    let lhs_smem_size = tiling_scheme.elements_in_stage_mk() * num_stages.lhs;
-    let rhs_smem_size = tiling_scheme.elements_in_stage_nk() * num_stages.rhs;
-    let out_smem_size = tiling_scheme.elements_in_tile_mn() * num_compute_planes;
+    let lhs_smem_size =
+        tiling_scheme.elements_per_stage_along_m() * tiling_scheme.elements_per_stage_along_k() * num_stages.lhs;
+    let rhs_smem_size =
+        tiling_scheme.elements_per_stage_along_k() * tiling_scheme.elements_per_stage_along_n() * num_stages.rhs;
+    let out_smem_size = tiling_scheme.tile_size.m * tiling_scheme.tile_size.n * num_compute_planes;
     let smem_total_size =
         lhs_s_size * lhs_smem_size + rhs_s_size * rhs_smem_size + eo_size * out_smem_size;
 

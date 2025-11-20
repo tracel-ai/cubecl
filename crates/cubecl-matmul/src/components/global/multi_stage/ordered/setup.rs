@@ -188,7 +188,7 @@ fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Run
     RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
-    if tiling_scheme.stage_partitions_in_stage_n() > 1 {
+    if tiling_scheme.partitions_per_stage_along_n() > 1 {
         return Err(MatmulSetupError::InvalidConfig(Box::new(
             "Ordered does not support number of stage partitions > 1 in n",
         )));

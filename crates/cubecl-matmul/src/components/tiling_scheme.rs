@@ -139,19 +139,6 @@ impl TilingScheme {
         }
     }
 
-    fn try_count_2d(
-        &self,
-        child_level: TilingLevel,
-        parent_level: TilingLevel,
-        dim1: MatmulDim,
-        dim2: MatmulDim,
-    ) -> Option<u32> {
-        Some(
-            self.try_count_1d(child_level, parent_level, dim1)?
-                * self.try_count_1d(child_level, parent_level, dim2)?,
-        )
-    }
-
     fn count_1d(&self, child_level: TilingLevel, parent_level: TilingLevel, dim: MatmulDim) -> u32 {
         self.try_count_1d(child_level, parent_level, dim)
             .unwrap_or_else(|| {
@@ -159,54 +146,51 @@ impl TilingScheme {
             })
     }
 
-    fn count_2d(
-        &self,
-        child_level: TilingLevel,
-        parent_level: TilingLevel,
-        dim1: MatmulDim,
-        dim2: MatmulDim,
-    ) -> u32 {
-        self.try_count_2d(child_level, parent_level, dim1, dim2)
-            .unwrap_or_else(|| {
-                panic!("Invalid hierarchy: {parent_level:?} cannot contain {child_level:?}")
-            })
+    pub fn partitions_per_stage_along_m(&self) -> u32 {
+        self.count_1d(
+            TilingLevel::StagePartition,
+            TilingLevel::Stage,
+            MatmulDim::M,
+        )
     }
-}
 
-macro_rules! count_1d_method {
-    ($name:ident, $child:ident, $parent:ident, $dim:ident) => {
-        pub fn $name(&self) -> u32 {
-            self.count_1d(TilingLevel::$child, TilingLevel::$parent, MatmulDim::$dim)
-        }
-    };
-}
+    pub fn partitions_per_stage_along_n(&self) -> u32 {
+        self.count_1d(
+            TilingLevel::StagePartition,
+            TilingLevel::Stage,
+            MatmulDim::N,
+        )
+    }
 
-macro_rules! count_2d_method {
-    ($name:ident, $child:ident, $parent:ident, $dim1:ident, $dim2:ident) => {
-        pub fn $name(&self) -> u32 {
-            self.count_2d(
-                TilingLevel::$child,
-                TilingLevel::$parent,
-                MatmulDim::$dim1,
-                MatmulDim::$dim2,
-            )
-        }
-    };
-}
+    pub fn elements_per_stage_along_m(&self) -> u32 {
+        self.count_1d(TilingLevel::Element, TilingLevel::Stage, MatmulDim::M)
+    }
 
-impl TilingScheme {
-    count_1d_method!(stage_partitions_in_stage_n, StagePartition, Stage, N);
-    count_2d_method!(stage_partitions_in_stage_mn, StagePartition, Stage, M, N);
-    count_1d_method!(elements_in_stage_m, Element, Stage, M);
-    count_1d_method!(elements_in_stage_n, Element, Stage, N);
-    count_1d_method!(elements_in_stage_k, Element, Stage, K);
-    count_2d_method!(elements_in_stage_mk, Element, Stage, M, K);
-    count_2d_method!(elements_in_stage_nk, Element, Stage, N, K);
-    count_1d_method!(tiles_in_stage_partition_n, Tile, StagePartition, N);
-    count_1d_method!(elements_in_tile_m, Element, Tile, M);
-    count_1d_method!(elements_in_tile_n, Element, Tile, N);
-    count_1d_method!(elements_in_tile_k, Element, Tile, K);
-    count_2d_method!(elements_in_tile_mn, Element, Tile, M, N);
-    count_1d_method!(elements_in_global_partition_m, Element, GlobalPartition, M);
-    count_1d_method!(elements_in_global_partition_n, Element, GlobalPartition, N);
+    pub fn elements_per_stage_along_n(&self) -> u32 {
+        self.count_1d(TilingLevel::Element, TilingLevel::Stage, MatmulDim::N)
+    }
+
+    pub fn elements_per_stage_along_k(&self) -> u32 {
+        self.count_1d(TilingLevel::Element, TilingLevel::Stage, MatmulDim::K)
+    }
+
+    pub fn tiles_per_stage_partition_along_n(&self) -> u32 {
+        self.count_1d(TilingLevel::Tile, TilingLevel::StagePartition, MatmulDim::N)
+    }
+
+    pub fn elements_per_global_partition_along_m(&self) -> u32 {
+        self.count_1d(
+            TilingLevel::Element,
+            TilingLevel::GlobalPartition,
+            MatmulDim::M,
+        )
+    }
+
+    pub fn elements_per_global_partition_along_n(&self) -> u32 {
+        self.count_1d(
+            TilingLevel::Element,
+            TilingLevel::GlobalPartition,
+            MatmulDim::N,
+        )
+    }
 }
