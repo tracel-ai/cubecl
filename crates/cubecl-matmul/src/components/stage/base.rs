@@ -2,22 +2,15 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_std::{CubeOption, CubeOptionExpand, tensor::layout::Coords2d};
 
+use crate::components::global::{MaxGlobalReaderPlanes, PlaneRoleConfig};
+use crate::components::stage::StageMemoryConfig;
 use crate::components::{
     AccS, AvailableLineSizes, LhsS, MatmulElems, MatmulLineSizes, MatmulSelection, RhsS,
-    StageIdent,
-    global::MaxGlobalReaderPlanes,
-    stage::{SwizzleMode, TilingLayoutConfig, TilingLayoutEnum},
 };
+use crate::components::{MatmulPrecision, MatmulProblem, tile::TileConfig};
+use crate::components::{error::MatmulSetupError, global::WriteEventListener};
 use crate::components::{
-    MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{self, PlaneRoleConfig, RoleRuleConfig},
-    tile::TileConfig,
-};
-use crate::components::{
-    error::MatmulSetupError, global::WriteEventListener, stage::StageMemoryConfig,
-};
-use crate::components::{
-    stage::{NumStages, PartitionScheduler, PartitionSchedulerScheme},
+    stage::{NumStages, PartitionScheduler},
     tile::io::TileKind,
 };
 use std::{fmt::Debug, hash::Hash};
@@ -58,7 +51,6 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
-        tiling_layout: TilingLayoutConfig,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         ordered: bool,
@@ -125,7 +117,7 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Executes the matrix multiplication of Lhs and Rhs, with the addition of injected
     /// [event listener](StageEventListener).
-    fn execute_with_listener<SEL: StageEventListener<Self::Config>>(
+    fn execute_with_listener<SEL: StageEventListener>(
         lhs: &Self::LhsStage,
         rhs: &Self::RhsStage,
         instruction_lhs: &mut Self::LhsTile,
@@ -150,13 +142,12 @@ pub trait StageMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
     );
 
     /// Reads the result of the accumulator and hands it to the stage writer
-    fn write_results<W: WriteEventListener, G: global::GlobalConfig>(
+    fn write_results<W: WriteEventListener>(
         acc: &Self::Accumulators,
         stage: &mut Self::OutStage,
         listener: &mut W,
         partition_scheduler: &PartitionScheduler,
         #[comptime] stage_config: Self::Config,
-        #[comptime] global_config: G,
     );
 
     fn init_scheduler(#[comptime] config: Self::Config) -> PartitionScheduler;
@@ -169,69 +160,18 @@ pub trait StageConfig:
     /// Underlying Tile matmul config
     type TileConfig: TileConfig;
 
-    /// Converts itself to the underlying Tile Matmul config
-    fn tile_config(self) -> Self::TileConfig;
-
-    /// Converts itself to the underlying Stage Memory config
-    fn stage_memory_config(self, ident: StageIdent) -> StageMemoryConfig {
-        let tiling = self.tiling_scheme();
-        StageMemoryConfig {
-            num_main_flow_planes: self.num_main_flow_planes(),
-            elements_in_tile_row: tiling.elements_in_tile_row(ident),
-            elements_in_tile_col: tiling.elements_in_tile_col(ident),
-            tiles_in_stage_row: tiling.tiles_in_stage_row(ident),
-            tiles_in_stage_col: tiling.tiles_in_stage_col(ident),
-            stage_line_size: self.stage_line_size(ident),
-            matrix_layout: self.matrix_layout(ident),
-            swizzle: self.swizzle_mode(ident),
-            num_stages: self.num_stages(ident),
-        }
-    }
-
-    /// Returns the line size for the given ident
-    fn stage_line_size(&self, ident: StageIdent) -> u32;
-
-    /// Returns the line size for the given ident
-    fn global_line_size(&self, ident: StageIdent) -> u32;
-
-    /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: StageIdent) -> MatrixLayout;
-
-    /// Returns the [SwizzleMode] for the given ident
-    fn swizzle_mode(&self, ident: StageIdent) -> SwizzleMode;
-
-    /// Returns the [TilingLayoutEnum] for the given ident
-    fn tiling_layout(&self, ident: StageIdent) -> TilingLayoutEnum;
-
-    /// Returns how many units are in a plane
+    fn elements_in_stage_m(&self) -> u32;
+    fn elements_in_stage_n(&self) -> u32;
+    fn elements_in_stage_k(&self) -> u32;
+    fn elements_in_tile_k(&self) -> u32;
+    fn tiles_in_partition_mn(&self) -> u32;
+    fn num_main_flow_planes(&self) -> u32;
     fn plane_dim(&self) -> u32;
-
-    /// Returns whether we must perform partition buffering
-    fn partition_buffering(&self) -> PartitionBuffering;
-
-    /// Returns the [TilingScheme]
-    fn tiling_scheme(&self) -> TilingScheme;
-
-    /// Indicates the specialization roles for the planes
     fn plane_role_config(&self) -> PlaneRoleConfig;
 
-    /// How to identify the role of the plane depending on its index
-    fn role_rule_config(&self) -> RoleRuleConfig;
-
-    /// Number of planes participating in the main computation flow
-    fn num_main_flow_planes(&self) -> u32;
-
-    /// Whether the Matmul is quantized
-    fn quantized(&self) -> bool;
-
-    /// Whether we must sync planes after execution because the execution
-    /// is not sync by itself (depends on the runtime/compiler)
-    fn must_sync_plane_after_execution(&self) -> bool;
-
-    fn partition_schedule_scheme(&self) -> PartitionSchedulerScheme;
-
-    /// Number of stages in the stage
-    fn num_stages(&self, ident: StageIdent) -> u32;
+    fn lhs_smem_config(&self) -> StageMemoryConfig;
+    fn rhs_smem_config(&self) -> StageMemoryConfig;
+    fn out_smem_config(&self) -> StageMemoryConfig;
 }
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Hash, Debug)]

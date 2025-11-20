@@ -9,22 +9,22 @@ use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 
 #[derive(CubeType)]
 /// Accumulator tile for Tile Attention
-pub struct AccumulatorTile<AP: AttentionPrecision, FA: TileAttention<AP>> {
-    pub fragment: FA::Accumulator,
+pub struct AccumulatorTile<AP: AttentionPrecision, TA: TileAttention<AP>> {
+    pub fragment: TA::Accumulator,
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> AccumulatorTile<AP, FA> {
-    pub fn new(#[comptime] config: FA::Config) -> AccumulatorTile<AP, FA> {
-        let mut fragment = FA::allocate_accumulator(config);
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> AccumulatorTile<AP, TA> {
+    pub fn new(#[comptime] config: TA::Config) -> AccumulatorTile<AP, TA> {
+        let mut fragment = TA::allocate_accumulator(config);
         fragment.zero();
 
-        AccumulatorTile::<AP, FA> { fragment }
+        AccumulatorTile::<AP, TA> { fragment }
     }
 }
 
 #[cube]
-impl<AP: AttentionPrecision, FA: TileAttention<AP>> AccumulatorTile<AP, FA> {
+impl<AP: AttentionPrecision, TA: TileAttention<AP>> AccumulatorTile<AP, TA> {
     /// Multiplies each row by a scale
     pub fn scale_mul(&mut self, scale: &RowWise<SM<AP>>) {
         self.fragment

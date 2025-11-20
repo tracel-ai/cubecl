@@ -1,7 +1,7 @@
 use crate::components::{
     InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
     global::{
-        GlobalConfig,
+        GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
@@ -24,15 +24,14 @@ use super::LoadingValidation;
 pub struct AsyncFullCooperativeLoading {}
 
 impl LoadingValidation for AsyncFullCooperativeLoading {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
-        ident: MatmulIdent,
+        config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        StridedTilingLayout::check(config.global_memory_config(ident))?;
+        StridedTilingLayout::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
-        validate_noswizzle(config.stage_memory_config(ident))?;
+        validate_noswizzle(config.smem_config)?;
 
         Ok(())
     }
@@ -59,19 +58,18 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        #[comptime] ident: MatmulIdent,
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] _line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullCooperativeJob {
-        let matrix_layout = config.matrix_layout(ident);
+        let matrix_layout = config.gmem_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.tiling_scheme().elements_in_stage_row(ident),
-            MatrixLayout::ColMajor => config.tiling_scheme().elements_in_stage_col(ident),
+            MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
+            MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
         };
 
-        AsyncFullCooperativeJob { num_slices, ident }
+        AsyncFullCooperativeJob { num_slices }
     }
 }
 
@@ -79,8 +77,6 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
 pub struct AsyncFullCooperativeJob {
     #[cube(comptime)]
     num_slices: u32,
-    #[cube(comptime)]
-    ident: MatmulIdent,
 }
 
 #[cube]
@@ -89,25 +85,23 @@ impl<EG: Numeric, ES: Numeric> LoadingJob<EG, ES, StridedTilingLayout, AsyncBarr
 {
     type Stage = StridedStageFamily;
 
-    fn execute_task<G: GlobalConfig>(
-        this: &mut Self,
+    fn execute_task(
+        _this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, StridedTilingLayout>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let window = load_window_in_stage(
             &global_iter.view(),
             task_id,
-            comptime!(config.global_memory_config(this.ident)),
+            config.smem_config,
+            config.gmem_config,
         );
 
-        let mut destination: SliceMut<Line<ES>> = StridedTilingLayout::nth_slice::<ES>(
-            stage,
-            task_id,
-            comptime!(config.stage_memory_config(this.ident)),
-        );
+        let mut destination: SliceMut<Line<ES>> =
+            StridedTilingLayout::nth_slice::<ES>(stage, task_id, comptime!(config.smem_config));
 
         barrier.memcpy_async_cooperative(&window.try_cast_unchecked(), &mut destination);
     }

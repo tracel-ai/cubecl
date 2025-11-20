@@ -12,14 +12,14 @@ use cubecl_std::{
 use crate::{
     MatmulInputHandleRef,
     components::{
-        self, MatmulElems, MatmulIdent, MatmulLineSizes, MatmulProblem, MatmulSelection,
+        self, MatmulElems, MatmulLineSizes, MatmulProblem, MatmulSelection,
         batch::BatchConfig,
         global::{
             GlobalConfig,
             memory::{
-                BatchLayout, BatchLayoutLaunch, GlobalLayout, GlobalLayoutLaunch,
-                GlobalScaleLayout, NoopLayout, NoopLayoutLaunch, SimpleTmaGlobalLayout,
-                SimpleTmaGlobalLayoutLaunch,
+                BatchLayout, BatchLayoutLaunch, GlobalLayout, GlobalLayoutConfig,
+                GlobalLayoutLaunch, GlobalScaleLayout, NoopLayout, NoopLayoutLaunch,
+                SimpleTmaGlobalLayout, SimpleTmaGlobalLayoutLaunch,
             },
         },
         stage::SwizzleMode,
@@ -163,14 +163,11 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
         config: impl BatchConfig,
         _dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
-        let config = config.global_config();
-        let view = |handle: &'a MatmulInputHandleRef<'a, R>, ident, line_size| match handle {
+        let view = |handle: &'a MatmulInputHandleRef<'a, R>,
+                    config: GlobalLayoutConfig,
+                    line_size| match handle {
             MatmulInputHandleRef::Normal(handle, _dtype) => {
-                let layout = GlobalLayoutLaunch::from_handle(
-                    handle,
-                    line_size,
-                    config.global_memory_config(ident).into(),
-                );
+                let layout = GlobalLayoutLaunch::from_handle(handle, line_size, config);
                 ViewArg::new::<GlobalLayout>(handle.as_array_arg(line_size), layout)
             }
             MatmulInputHandleRef::Quantized {
@@ -181,14 +178,7 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
                 ..
             } => {
                 let (data_layout, scales_layout) = GlobalLayoutLaunch::from_quantized_handle(
-                    client,
-                    data,
-                    scale,
-                    shape,
-                    problem,
-                    **scheme,
-                    line_size,
-                    config.global_memory_config(ident).into(),
+                    client, data, scale, shape, problem, **scheme, line_size, config,
                 );
                 let data_view =
                     ViewArg::new::<GlobalLayout>(data.as_array_arg(line_size), data_layout);
@@ -207,10 +197,19 @@ impl<Lhs: Numeric, Rhs: Numeric, Acc: Numeric> ConcreteInputsFactory
             }
         };
 
+        let config = config.global_config();
         TensorInputsLaunch::new(
-            view(lhs, MatmulIdent::Lhs, line_sizes.lhs),
+            view(
+                lhs,
+                config.lhs_reader_config().gmem_config.into(),
+                line_sizes.lhs,
+            ),
             batch_layout(lhs),
-            view(rhs, MatmulIdent::Rhs, line_sizes.rhs),
+            view(
+                rhs,
+                config.rhs_reader_config().gmem_config.into(),
+                line_sizes.rhs,
+            ),
             batch_layout(rhs),
             CubeOptionArgs::None,
             CubeOptionArgs::None,
@@ -238,7 +237,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         let layout = GlobalLayoutLaunch::from_handle(
             out,
             line_sizes.out,
-            config.global_memory_config(MatmulIdent::Out).into(),
+            config.writer_config().gmem_config.into(),
         );
         let batch = BatchLayoutLaunch::from_handle(client, out, problem);
         let view = ViewArg::new::<GlobalLayout>(out.as_array_arg(line_sizes.out), layout);
@@ -362,7 +361,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         // Loaders use dynamic layout based on swizzle setting. For no swizzle, contiguous tiles are
         // loaded and TMA loads single tile wide columns.
         // For swizzled, bank conflicts aren't an issue so the tile size is the full stage.
-        let stage_size_lhs = match config.swizzle_mode(MatmulIdent::Lhs) {
+        let stage_size_lhs = match config.lhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.lhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_m, tiling_scheme.elements_in_tile_k()]
@@ -380,7 +379,7 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
                 }
             },
         };
-        let stage_size_rhs = match config.swizzle_mode(MatmulIdent::Rhs) {
+        let stage_size_rhs = match config.rhs_reader_config().smem_config.swizzle {
             SwizzleMode::None => match problem.rhs_layout {
                 components::MatrixLayout::RowMajor => {
                     vec![1, stage_k, tiling_scheme.elements_in_tile_n()]
@@ -461,8 +460,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
             }
         }
 
-        let swizzle_lhs = swizzle(config.swizzle_mode(MatmulIdent::Lhs));
-        let swizzle_rhs = swizzle(config.swizzle_mode(MatmulIdent::Rhs));
+        let swizzle_lhs = swizzle(config.lhs_reader_config().smem_config.swizzle);
+        let swizzle_rhs = swizzle(config.rhs_reader_config().smem_config.swizzle);
 
         // f32 gets remapped to tf32 for the tensor map just to ensure CUDA loads them correctly.
         // It shouldn't matter, but it's better to be safe.
