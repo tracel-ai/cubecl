@@ -138,11 +138,6 @@ pub trait StageAttentionConfig:
 
     fn plane_dim(&self) -> u32;
     fn num_planes(&self) -> u32;
-
-    // fn tiling_scheme(&self) -> AttentionTilingScheme;
-    // fn reuse_key_value(&self) -> bool;
-
-    // fn num_rows_per_unit(&self) -> u32;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]

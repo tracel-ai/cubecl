@@ -106,14 +106,5 @@ pub trait GlobalAttentionConfig:
     type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    // fn key_stage_memory_config(&self) -> StageMemoryConfig;
-    // fn value_stage_memory_config(&self) -> StageMemoryConfig;
-
     fn cube_dim(&self) -> CubeDim;
-    // fn plane_dim(&self) -> u32;
-    // fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig;
-
-    // fn tiling_scheme(&self) -> AttentionTilingScheme;
-
-    // fn causal_mask(&self) -> bool;
 }
