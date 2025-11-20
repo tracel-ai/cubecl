@@ -302,7 +302,7 @@ pub fn launch_with_config<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     output: OutputRuntimeArg<'a, MA, R>,
     cube_count_input: CubeCountInputArgs<'a, R>,
     config: <A::BatchMatmul as BatchMatmulFamily>::Config,
-    dtypes: &mut MatmulElems,
+    dtypes: &MatmulElems,
 ) -> Result<(), MatmulSetupError> {
     unsafe {
         A::BatchMatmul::launch_unchecked::<MA, R>(
