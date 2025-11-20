@@ -1,4 +1,3 @@
-
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 
