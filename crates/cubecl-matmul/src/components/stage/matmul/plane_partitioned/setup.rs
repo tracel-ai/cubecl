@@ -193,6 +193,7 @@ impl<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate<TC: TileConfig>(
     stage_config: PartitionMatmulConfig<TC>,
     lhs_s_size: u32,

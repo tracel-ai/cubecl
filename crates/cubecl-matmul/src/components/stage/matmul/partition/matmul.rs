@@ -28,6 +28,7 @@ pub struct SharedPartitionMatmulConfig<TC: TileConfig> {
 }
 
 impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tile_config: TC,
         partition_size: PartitionSize,
