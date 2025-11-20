@@ -122,3 +122,12 @@ pub trait TileAttentionFamily: Send + Sync + 'static {
         available_line_sizes
     }
 }
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SharedTileAttentionConfig {
+    pub plane_dim: u32,
+    pub num_planes: u32,
+    pub attention_tile_size: AttentionTileSize,
+    pub causal_mask: bool,
+    pub materialized_mask: bool,
+}

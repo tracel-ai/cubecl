@@ -9,8 +9,7 @@ use crate::components::AttentionPrecision;
 use crate::components::attention_types::*;
 use crate::components::tile::RowVal;
 use crate::components::tile::RowWise;
-use crate::components::tile::TileAttentionConfig;
-use crate::components::tile::unit_register::UnitRegisterTileAttentionConfig;
+use crate::components::tile::unit_register::setup::UnitTileAttentionConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentMask, FragmentMaskExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
@@ -205,7 +204,7 @@ impl<E: Numeric> FragmentMask for UnitTile<E> {
 
 #[cube]
 impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
-    type Config = UnitRegisterTileAttentionConfig;
+    type Config = UnitTileAttentionConfig;
 
     type Query = UnitTile<QT<AP>>;
     type KeyValue = UnitTile<KVT<AP>>;
@@ -217,8 +216,8 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
 
     fn softmax_layout(#[comptime] config: Self::Config) -> Self::FragmentLayout {
         UnitTileLayout {
-            num_rows: config.attention_tile_size().seq_q,
-            num_cols: config.attention_tile_size().seq_kv,
+            num_rows: config.shared.attention_tile_size.seq_q,
+            num_cols: config.shared.attention_tile_size.seq_kv,
         }
     }
 
@@ -228,7 +227,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         out: &mut Self::Softmax,
         #[comptime] config: Self::Config,
     ) {
-        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_score_matmul_tile_size().into(); (m, n, k)};
+        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.shared.attention_tile_size.to_score_matmul_tile_size().into(); (m, n, k)};
         unit_inner_matmul(lhs, rhs, out, m, n, k);
     }
 
@@ -238,34 +237,34 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         out: &mut Self::Accumulator,
         #[comptime] config: Self::Config,
     ) {
-        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.attention_tile_size().to_value_matmul_tile_size().into(); (m, n, k)};
+        let (m, n, k) = comptime! {let (m, n, k): (u32, u32, u32) = config.shared.attention_tile_size.to_value_matmul_tile_size().into(); (m, n, k)};
         unit_inner_matmul(lhs, rhs, out, m, n, k);
     }
 
     fn allocate_key_value(#[comptime] config: Self::Config) -> Self::KeyValue {
         UnitTile::new(UnitTileLayout::new(
             comptime!(max(
-                config.attention_tile_size().head_dim,
-                config.attention_tile_size().seq_kv,
+                config.shared.attention_tile_size.head_dim,
+                config.shared.attention_tile_size.seq_kv,
             )),
             comptime!(max(
-                config.attention_tile_size().seq_kv,
-                config.attention_tile_size().val_dim,
+                config.shared.attention_tile_size.seq_kv,
+                config.shared.attention_tile_size.val_dim,
             )),
         ))
     }
 
     fn allocate_key(#[comptime] config: Self::Config) -> Self::KeyValue {
         UnitTile::new(UnitTileLayout::new(
-            config.attention_tile_size().head_dim,
-            config.attention_tile_size().seq_kv,
+            config.shared.attention_tile_size.head_dim,
+            config.shared.attention_tile_size.seq_kv,
         ))
     }
 
     fn allocate_value(#[comptime] config: Self::Config) -> Self::KeyValue {
         UnitTile::new(UnitTileLayout::new(
-            config.attention_tile_size().seq_kv,
-            config.attention_tile_size().val_dim,
+            config.shared.attention_tile_size.seq_kv,
+            config.shared.attention_tile_size.val_dim,
         ))
     }
 
@@ -279,15 +278,15 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
 
     fn allocate_accumulator(#[comptime] config: Self::Config) -> Self::Accumulator {
         UnitTile::new(UnitTileLayout::new(
-            config.attention_tile_size().seq_q,
-            config.attention_tile_size().val_dim,
+            config.shared.attention_tile_size.seq_q,
+            config.shared.attention_tile_size.val_dim,
         ))
     }
 
     fn allocate_query(#[comptime] config: Self::Config) -> Self::Query {
         UnitTile::new(UnitTileLayout::new(
-            config.attention_tile_size().seq_q,
-            config.attention_tile_size().head_dim,
+            config.shared.attention_tile_size.seq_q,
+            config.shared.attention_tile_size.head_dim,
         ))
     }
 
