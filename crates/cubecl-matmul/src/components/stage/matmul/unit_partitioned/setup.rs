@@ -79,7 +79,6 @@ impl<
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
-        ordered: bool,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
@@ -105,20 +104,6 @@ impl<
             selection.load_specialization_config,
             plane_role_config.plane_roles,
         );
-
-        let tiling_scheme = selection.tiling_scheme;
-
-        let execution_is_sync = {
-            #[cfg(target_os = "macos")]
-            {
-                false
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                true
-            }
-        };
-        let must_sync_plane_after_execution = !execution_is_sync && ordered;
 
         let lhs_smem_config = StageMemoryConfig {
             num_planes: plane_counts.lhs,
@@ -166,12 +151,11 @@ impl<
             PartitionMatmulConfig::Unit(UnitPartitionedStageConfig::from_shared_partition_config(
                 SharedPartitionMatmulConfig::new(
                     tile_config,
-                    tiling_scheme.partition_size,
-                    must_sync_plane_after_execution,
+                    selection.tiling_scheme.partition_size,
                     selection.partition_buffering,
                     plane_role_config,
                     selection.plane_dim,
-                    tiling_scheme.stage_size,
+                    selection.tiling_scheme.stage_size,
                     PartitionSchedulerScheme::Naive,
                     lhs_smem_config,
                     rhs_smem_config,
@@ -185,7 +169,7 @@ impl<
             dtypes.rhs_stage.size() as u32,
             dtypes.acc_stage.size() as u32,
             client.properties().hardware.max_shared_memory_size as u32,
-            tiling_scheme,
+            selection.tiling_scheme,
             selection.partition_buffering,
             selection.plane_dim,
             num_stages,

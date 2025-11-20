@@ -78,7 +78,6 @@ where
             line_sizes,
             (2, 2).into(),
             max_global_readers,
-            false,
             dtypes,
         )?;
 
@@ -163,6 +162,7 @@ where
             lhs_reader_config,
             rhs_reader_config,
             writer_config,
+            must_sync_plane_after_execution: false,
         };
 
         validate::<LL, RL, SMM::Config, R>(config, client, dtypes)

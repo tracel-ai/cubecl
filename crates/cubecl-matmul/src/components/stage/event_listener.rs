@@ -20,11 +20,7 @@ pub enum StageEvent {
 #[cube]
 /// Function that is called at each [StageEvent]
 pub trait StageEventListener: CubeType {
-    fn on_event(
-        this: &mut Self,
-        #[comptime] event: StageEvent,
-        #[comptime] must_sync_plane_after_execution: bool,
-    );
+    fn on_event(this: &mut Self, #[comptime] event: StageEvent);
 }
 
 #[derive(CubeType)]
@@ -33,11 +29,7 @@ pub struct NoEvent {}
 
 #[cube]
 impl StageEventListener for NoEvent {
-    fn on_event(
-        _this: &mut Self,
-        #[comptime] _event: StageEvent,
-        #[comptime] _must_sync_plane_after_execution: bool,
-    ) {
+    fn on_event(_this: &mut Self, #[comptime] _event: StageEvent) {
         // Nothing to do
     }
 }

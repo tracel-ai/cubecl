@@ -61,7 +61,6 @@ where
             line_sizes,
             (1, 1).into(),
             None,
-            false,
             dtypes,
         )?;
 
@@ -143,6 +142,7 @@ where
             lhs_reader_config,
             rhs_reader_config,
             writer_config,
+            must_sync_plane_after_execution: false,
         };
 
         cube_dim_validation(matmul_config)?;

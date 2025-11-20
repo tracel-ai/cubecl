@@ -37,6 +37,8 @@ pub struct DoubleBufferingEventListener<
     state_rhs: Sequence<Rhs::JobIterator>,
     #[cube(comptime)]
     event_loading_side: LoadingSides,
+    #[cube(comptime)]
+    must_sync_plane_after_execution: bool,
 }
 
 #[derive(Clone)]
@@ -86,6 +88,7 @@ impl<S: SyncStrategy, Lhs: JobExecutor<S>, Rhs: JobExecutor<S>, G: GlobalConfig>
             state_lhs: Sequence::new(),
             state_rhs: Sequence::new(),
             event_loading_side,
+            must_sync_plane_after_execution: config.must_sync_plane_after_execution(),
         }
     }
 }
@@ -106,12 +109,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
     ///
     /// Note: if the global matmul is ordered and the underlying Tile Matmul is not
     /// plane-synchronized (which is the case on some platforms), we need to synchronize the plane manually.
-    fn on_event(
-        this: &mut Self,
-        #[comptime] event: StageEvent,
-        // probably move to self
-        #[comptime] must_sync_plane_after_execution: bool,
-    ) {
+    fn on_event(this: &mut Self, #[comptime] event: StageEvent) {
         if let StageEvent::Begin = event {
             this.init();
         }
@@ -122,7 +120,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
             if comptime![analysis.lhs.should_execute(current)] {
                 let lhs_job = this.state_lhs.index_mut(0);
 
-                if must_sync_plane_after_execution {
+                if this.must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -137,7 +135,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
             if comptime![analysis.rhs.should_execute(current)] {
                 let rhs_job = this.state_rhs.index_mut(0);
 
-                if must_sync_plane_after_execution {
+                if this.must_sync_plane_after_execution {
                     sync_plane();
                 }
 
@@ -177,7 +175,7 @@ impl<S: SyncStrategy, L: JobExecutor<S>, R: JobExecutor<S>, G: GlobalConfig> Sta
             }
 
             #[allow(clippy::collapsible_if)]
-            if comptime!(must_sync_plane_after_execution) {
+            if comptime!(this.must_sync_plane_after_execution) {
                 if lhs_num_tasks - lhs_num_task_executed + rhs_num_tasks - rhs_num_task_executed > 0
                 {
                     sync_plane();

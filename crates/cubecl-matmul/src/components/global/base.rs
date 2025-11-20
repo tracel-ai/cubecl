@@ -131,6 +131,7 @@ pub struct SharedGlobalMatmulConfig<S: StageConfig> {
     pub lhs_reader_config: GlobalReaderConfig,
     pub rhs_reader_config: GlobalReaderConfig,
     pub writer_config: GlobalWriterConfig,
+    pub must_sync_plane_after_execution: bool,
 }
 
 impl<S: StageConfig> SharedGlobalMatmulConfig<S> {
@@ -188,6 +189,10 @@ impl<S: StageConfig> GlobalConfig for SharedGlobalMatmulConfig<S> {
     fn writer_config(&self) -> GlobalWriterConfig {
         self.writer_config
     }
+
+    fn must_sync_plane_after_execution(&self) -> bool {
+        self.must_sync_plane_after_execution
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
@@ -203,6 +208,7 @@ pub trait GlobalConfig:
     fn writer_config(&self) -> GlobalWriterConfig;
     fn cube_dim(&self) -> CubeDim;
     fn global_line_sizes(&self) -> MatmulLineSizes;
+    fn must_sync_plane_after_execution(&self) -> bool;
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
