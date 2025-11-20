@@ -21,11 +21,11 @@ serde = ["dep:serde", "hashbrown/serde", "enumset/serde"]
 std = []
 
 [dependencies]
-cubecl-common = { path = "../cubecl-common", version = "0.9.0-pre.1", features = [
+cubecl-common = { path = "../cubecl-common", version = "0.9.0-pre.2", features = [
     "fp4",
     "fp8",
 ] }
-cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.9.0-pre.1" }
+cubecl-macros-internal = { path = "../cubecl-macros-internal", version = "0.9.0-pre.2" }
 
 derive-new = { workspace = true }
 derive_more = { workspace = true, features = ["from"] }

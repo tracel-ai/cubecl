@@ -410,18 +410,29 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
         })
     }
 
-    /// Number of elements in each line passed to the execute function
+    /// Number of elements in each line passed to the execute function. Represents the maximum
+    /// number of contiguous elements held by the thread.
     #[allow(unused_variables)]
     pub fn line_size(&self, #[comptime] ident: MatrixIdent) -> comptime_type!(u32) {
         intrinsic!(|scope| {
-            let bits = match ident {
-                MatrixIdent::A => StorageType::size_bits(&self.a_type) as u32,
-                MatrixIdent::B => StorageType::size_bits(&self.b_type) as u32,
-                MatrixIdent::Accumulator => StorageType::size_bits(&self.cd_type) as u32,
+            let storage = match ident {
+                MatrixIdent::A => self.a_type,
+                MatrixIdent::B => self.b_type,
+                MatrixIdent::Accumulator => self.cd_type,
             };
-            let register_size = scope.runtime_properties.mma.register_size_bits;
-            // div_ceil for potential compatibility with f64
-            register_size.div_ceil(bits)
+            let matrix = cubecl_ir::Matrix {
+                ident,
+                m: self.m,
+                n: self.n,
+                k: self.k,
+                storage: storage,
+                layout: MatrixLayout::ColMajor,
+            };
+            scope
+                .runtime_properties
+                .mma
+                .contiguous_elements
+                .apply(ident, matrix)
         })
     }
 

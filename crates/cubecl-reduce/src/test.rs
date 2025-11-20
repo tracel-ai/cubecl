@@ -573,7 +573,13 @@ impl TestCase {
         };
 
         let cube_count = 3;
-        let result = shared_sum::<R, F>(&client, input, output, cube_count);
+        let result = shared_sum::<R>(
+            &client,
+            input,
+            output,
+            cube_count,
+            F::as_type_native_unchecked().elem_type(),
+        );
 
         if result.is_err() {
             return; // don't execute the test in that case since atomic adds are not supported.

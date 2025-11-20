@@ -1,3 +1,5 @@
+#![allow(clippy::approx_constant)]
+
 use std::{fmt::Display, sync::LazyLock};
 
 use crate::{self as cubecl, as_type};
@@ -165,21 +167,21 @@ test_binary_impl!(
             out_vectorization: 1,
             lhs: as_type![F: 0., 1., -1., 1., -1.],
             rhs: as_type![F: 1., 0., 0., 1., -1.],
-            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339, -2.35619449019]
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2, -2.356_194_5]
         },
         {
             input_vectorization: 2,
             out_vectorization: 2,
             lhs: as_type![F: 0., 1., -1., 1.],
             rhs: as_type![F: 1., 0., 0., 1.],
-            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339]
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
         },
         {
             input_vectorization: 4,
             out_vectorization: 4,
             lhs: as_type![F: 0., 1., -1., 1.],
             rhs: as_type![F: 1., 0., 0., 1.],
-            expected: as_type![F: 0., 1.57079632679, -1.57079632679, 0.78539816339]
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
         }
     ]
 );
