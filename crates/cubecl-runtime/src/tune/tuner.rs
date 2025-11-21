@@ -365,10 +365,7 @@ impl<K: AutotuneKey> Tuner<K> {
 
             if tunable_indices.is_empty() {
                 return Err(AutotuneError::NoValidKernelFound {
-                    context: format_debug(&Context {
-                        plan: &plan,
-                        results: &results,
-                    }),
+                    context: format_debug(&Context { plan, results }),
                 });
             }
 

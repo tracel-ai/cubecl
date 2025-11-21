@@ -175,7 +175,7 @@ impl TunePlan {
         // The indices might be empty, but it doesn't mean that we should stop
         // autotuning, since some entries were skipped.
         if indices.is_empty() && skipped {
-            return self.next();
+            self.next()
         } else {
             indices
         }
