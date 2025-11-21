@@ -1,5 +1,5 @@
 use crate::components::{
-    MatmulIdent, MatmulLineSizes, TilingScheme,
+    MatmulLineSizes, TilingScheme,
     error::MatmulSetupError,
     global::{GlobalConfig, multi_stage::LoadMaxRoundPlaneCount},
 };
@@ -36,14 +36,20 @@ impl MaxGlobalReaderPlanes {
     ) -> Self {
         MaxGlobalReaderPlanes {
             lhs: LL::max_round_plane_count(
-                tiling_scheme,
-                MatmulIdent::Lhs,
+                tiling_scheme.tile_size.m * tiling_scheme.tile_size.k,
+                (tiling_scheme.partition_size.m
+                    * tiling_scheme.stage_size.m
+                    * tiling_scheme.partition_size.k
+                    * tiling_scheme.stage_size.k) as u32,
                 line_sizes.lhs,
                 plane_dim,
             ),
             rhs: RL::max_round_plane_count(
-                tiling_scheme,
-                MatmulIdent::Rhs,
+                tiling_scheme.tile_size.k * tiling_scheme.tile_size.n,
+                (tiling_scheme.partition_size.k
+                    * tiling_scheme.stage_size.k
+                    * tiling_scheme.partition_size.n
+                    * tiling_scheme.stage_size.n) as u32,
                 line_sizes.rhs,
                 plane_dim,
             ),

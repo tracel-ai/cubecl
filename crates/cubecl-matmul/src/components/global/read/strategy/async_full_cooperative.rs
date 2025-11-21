@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
         GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -39,8 +39,8 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncFullCooperativeLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -65,8 +65,8 @@ impl FullLoadingStrategy for AsyncFullCooperativeLoading {
         let matrix_layout = config.gmem_config.matrix_layout;
 
         let num_slices = match matrix_layout {
-            MatrixLayout::RowMajor => config.smem_config.elements_in_stage_row(),
-            MatrixLayout::ColMajor => config.smem_config.elements_in_stage_col(),
+            MatrixLayout::RowMajor => config.smem_config.elements_per_stage_along_row(),
+            MatrixLayout::ColMajor => config.smem_config.elements_per_stage_along_col(),
         };
 
         AsyncFullCooperativeJob { num_slices }

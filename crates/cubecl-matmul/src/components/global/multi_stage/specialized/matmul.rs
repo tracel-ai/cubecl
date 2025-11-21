@@ -93,8 +93,8 @@ where
         let lhs_elem_size = LhsS::<MP>::type_size();
         let rhs_elem_size = RhsS::<MP>::type_size();
         let stage_bytes = comptime! {
-            let lhs_bytes = config.lhs_reader_config.smem_config.elements_in_stage() * lhs_elem_size;
-            let rhs_bytes = config.rhs_reader_config.smem_config.elements_in_stage() * rhs_elem_size;
+            let lhs_bytes = config.lhs_reader_config.smem_config.elements_per_stage() * lhs_elem_size;
+            let rhs_bytes = config.rhs_reader_config.smem_config.elements_per_stage() * rhs_elem_size;
             lhs_bytes + rhs_bytes
         };
 

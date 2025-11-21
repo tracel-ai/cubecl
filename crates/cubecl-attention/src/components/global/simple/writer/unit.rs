@@ -30,7 +30,7 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for UnitAttentionWriter<ES, EG
                 &mut this.global,
                 &this.stage.unit_tile,
                 tile,
-                comptime!(this.config.smem_config.elements_in_tile()),
+                comptime!(this.config.smem_config.elements_per_tile()),
             ),
             _ => {}
         }

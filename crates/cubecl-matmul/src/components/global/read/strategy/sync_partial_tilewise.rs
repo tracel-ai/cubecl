@@ -8,9 +8,7 @@ use crate::components::global::{RoleRule, read::tiled::TiledLayout};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::TilingOrderEnum;
-use crate::components::{
-    FormattedConfigError, InvalidConfigError, MatmulIdent, StageIdent, TilingScheme,
-};
+use crate::components::{FormattedConfigError, InvalidConfigError, StageIdent};
 use crate::components::{
     global::memory::GlobalIterator,
     stage::{ContiguousTilingLayout, TilingOrder},
@@ -37,12 +35,12 @@ pub struct SyncPartialTilewiseLoading<T: TilingOrder> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        _elements_per_tile: u32,
+        tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
-        tiling_scheme.tiles_in_stage(ident)
+        tiles_per_stage
     }
 }
 
@@ -54,7 +52,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.gmem_config.line_size;
         let num_planes = config.loading_planes_count();
-        let num_tiles = config.smem_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_per_stage();
 
         if !num_tiles.is_multiple_of(num_planes) {
             return Err(FormattedConfigError::new(move || {
@@ -63,7 +61,7 @@ impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
         }
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_planes = config.plane_dim;
 
@@ -114,17 +112,17 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialTilewiseLoading<TO> 
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialTilewiseJob {
         let num_planes = config.loading_planes_count();
-        let num_tiles = config.smem_config.tiles_in_stage();
+        let num_tiles = config.smem_config.tiles_per_stage();
         let plane_dim = config.plane_dim;
 
         let num_tiles_per_plane = comptime!(num_tiles / num_planes);
-        let num_lines_per_tile = comptime!(config.smem_config.elements_in_tile() / line_size);
+        let num_lines_per_tile = comptime!(config.smem_config.elements_per_tile() / line_size);
         let num_lines_per_plane = num_lines_per_tile * num_tiles_per_plane;
         let num_lines_per_unit = num_lines_per_plane / plane_dim;
 
         let stage_width = comptime!(match config.stage_ident {
-            StageIdent::Lhs => config.smem_config.tiles_in_stage_col,
-            StageIdent::Rhs => config.smem_config.tiles_in_stage_row,
+            StageIdent::Lhs => config.smem_config.tiles_per_stage_along_col(),
+            StageIdent::Rhs => config.smem_config.tiles_per_stage_along_row(),
             _ => unreachable!(),
         });
 
@@ -184,8 +182,8 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 
         let tile = TO::to_row_col(
             nth_tile_global,
-            config.smem_config.tiles_in_stage_row,
-            config.smem_config.tiles_in_stage_col,
+            config.smem_config.tiles_per_stage_along_row(),
+            config.smem_config.tiles_per_stage_along_col(),
             config.smem_config,
         );
 

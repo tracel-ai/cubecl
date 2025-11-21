@@ -64,8 +64,8 @@ impl<IP: MatrixPrecision> TmaIm2colGlobalReader<IP> {
         let config = comptime![self.config];
 
         if UNIT_POS == 0 {
-            let m_size = config.elements_in_stage_row();
-            let k_size = config.elements_in_tile_col;
+            let m_size = config.elements_per_stage_along_row();
+            let k_size = config.elements_per_tile_along_col;
             let slice_size = m_size * k_size;
             let mut full_stage = stage.as_slice_mut(1u32);
             let tensor = self.map.tensor.try_cast_unchecked();
@@ -82,7 +82,7 @@ impl<IP: MatrixPrecision> TmaIm2colGlobalReader<IP> {
             }
 
             #[unroll]
-            for tile_k in 0..config.tiles_in_stage_col {
+            for tile_k in 0..config.tiles_per_stage_along_col() {
                 let k = self.map.k_offset + tile_k * k_size;
                 let (k_idx, channel_start) = self.padded_channels.div_mod(k);
                 let slice_start = tile_k * slice_size;

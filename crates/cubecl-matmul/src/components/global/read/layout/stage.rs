@@ -24,8 +24,8 @@ impl Layout for FullStageLayout {
     type SourceCoordinates = Coords2d;
 
     fn to_source_pos(&self, pos: Self::Coordinates) -> Self::SourceCoordinates {
-        let stage_shape_row = comptime![self.config.elements_in_stage_row()];
-        let stage_shape_col = comptime![self.config.elements_in_stage_col()];
+        let stage_shape_row = comptime![self.config.elements_per_stage_along_row()];
+        let stage_shape_col = comptime![self.config.elements_per_stage_along_col()];
 
         match comptime![self.config.matrix_layout] {
             MatrixLayout::RowMajor => (pos / stage_shape_col, pos % stage_shape_col),
@@ -34,8 +34,8 @@ impl Layout for FullStageLayout {
     }
 
     fn shape(&self) -> Self::Coordinates {
-        let stage_shape_row = comptime![self.config.elements_in_stage_row()];
-        let stage_shape_y = comptime![self.config.elements_in_stage_col()];
+        let stage_shape_row = comptime![self.config.elements_per_stage_along_row()];
+        let stage_shape_y = comptime![self.config.elements_per_stage_along_col()];
 
         comptime!(stage_shape_row * stage_shape_y).runtime()
     }

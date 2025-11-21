@@ -2,8 +2,8 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::TileSize;
 
-use crate::components::tile::accelerated::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::accelerated::local_tile::{LocalTile, LocalTileLayout};
+use crate::components::tile::accelerated::setup::BlackboxAcceleratedAttentionMatmulConfig;
 use crate::components::tile::{FragmentAccumulator, FragmentAccumulatorExpand};
 use crate::components::tile::{FragmentSoftmax, FragmentSoftmaxExpand};
 use crate::components::tile::{RowWise, TileAttentionConfig as _};
@@ -39,8 +39,8 @@ impl<E: Float> HybridFragment<E> {
 
         let array_tile_layout = LocalTileLayout::new(
             (tile_size.m, tile_size.n),
-            config.plane_dim(),
-            config.inner_layout(),
+            config.shared.plane_dim,
+            config.inner_layout,
         );
 
         let local_tile = LocalTile::new(array_tile_layout);
