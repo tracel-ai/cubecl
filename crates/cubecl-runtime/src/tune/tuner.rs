@@ -379,7 +379,7 @@ impl<K: AutotuneKey> Tuner<K> {
                     Ok(result) => {
                         // Wait for the results to come in, and determine the outcome.
                         let (name, index, profiles) = result;
-                        let result = Self::process_autotune(name.clone(), index, profiles).await;
+                        let result = Self::process_autotune(name, index, profiles).await;
                         match result {
                             Ok(val) => {
                                 results[index] = Ok(val);

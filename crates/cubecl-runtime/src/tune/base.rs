@@ -163,7 +163,7 @@ impl TunePlan {
         };
 
         let (mut group_indices, cleanup) = self.group_plan_next(priority);
-        // Some entries are skip for this round of priotizing.
+        // Some entries are skipped for this round of prioritizing.
         let skipped = cleanup.skipped || priority < 0;
 
         self.cleanup(cleanup);
@@ -172,7 +172,7 @@ impl TunePlan {
             indices.append(&mut group_indices);
         }
 
-        // The indices might be empty, but it doesn't mean that we should stop
+        // The indices list is empty, but it doesn't mean we should stop
         // autotuning, since some entries were skipped.
         if indices.is_empty() && skipped {
             self.next()
