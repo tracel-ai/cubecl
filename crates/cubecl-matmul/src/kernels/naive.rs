@@ -23,7 +23,7 @@ fn load_unrolled<I: Numeric>(
     #[comptime] layout: MatrixLayout,
     #[comptime] line_size: u32,
 ) -> Line<I> {
-    comptime![assert!(line_size <= view.line_size())];
+    comptime![assert!(line_size >= view.line_size())];
     let view_line_size = view.line_size();
     if comptime![view.line_size() == line_size] {
         view[pos]
