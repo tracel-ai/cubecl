@@ -211,9 +211,7 @@ impl Optimizer {
     fn run_opt(&mut self) {
         self.parse_graph(self.root_scope.clone());
         self.split_critical_edges();
-        self.apply_pre_ssa_passes();
-        self.exempt_index_assign_locals();
-        self.ssa_transform();
+        self.transform_ssa_and_merge_composites();
         self.apply_post_ssa_passes();
 
         // Special expensive passes that should only run once.
@@ -246,8 +244,7 @@ impl Optimizer {
     fn run_shared_only(&mut self) {
         self.parse_graph(self.root_scope.clone());
         self.split_critical_edges();
-        self.exempt_index_assign_locals();
-        self.ssa_transform();
+        self.transform_ssa_and_merge_composites();
         self.split_free();
         self.analysis::<SharedLiveness>();
     }
@@ -270,22 +267,6 @@ impl Optimizer {
         // Analyses shouldn't have run at this point, but just in case they have, invalidate
         // all analyses that depend on the graph
         self.invalidate_structure();
-    }
-
-    fn apply_pre_ssa_passes(&mut self) {
-        // Currently only one pre-ssa pass, but might add more
-        let mut passes = vec![CompositeMerge];
-        loop {
-            let counter = AtomicCounter::default();
-
-            for pass in &mut passes {
-                pass.apply_pre_ssa(self, counter.clone());
-            }
-
-            if counter.get() == 0 {
-                break;
-            }
-        }
     }
 
     fn apply_post_ssa_passes(&mut self) {
@@ -333,6 +314,23 @@ impl Optimizer {
     /// A set of node indices for all blocks in the program
     pub fn node_ids(&self) -> Vec<NodeIndex> {
         self.program.node_indices().collect()
+    }
+
+    fn transform_ssa_and_merge_composites(&mut self) {
+        self.exempt_index_assign_locals();
+        self.ssa_transform();
+
+        let mut done = false;
+        while !done {
+            let changes = AtomicCounter::new(0);
+            CompositeMerge.apply_post_ssa(self, changes.clone());
+            if changes.get() > 0 {
+                self.exempt_index_assign_locals();
+                self.ssa_transform();
+            } else {
+                done = true;
+            }
+        }
     }
 
     fn ssa_transform(&mut self) {

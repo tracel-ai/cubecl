@@ -27,7 +27,7 @@ use super::OptimizerPass;
 pub struct CompositeMerge;
 
 impl OptimizerPass for CompositeMerge {
-    fn apply_pre_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
+    fn apply_post_ssa(&mut self, opt: &mut Optimizer, changes: AtomicCounter) {
         let blocks = opt.node_ids();
 
         for block in blocks {
@@ -55,6 +55,7 @@ impl OptimizerPass for CompositeMerge {
                     })),
                     Some(VariableKind::LocalMut { id }),
                 ) = (op.operation, op.out.map(|it| it.kind))
+                    && value.is_immutable()
                 {
                     let item = op.out.unwrap().ty;
                     if let Some(index) = index.as_const() {
@@ -70,6 +71,7 @@ impl OptimizerPass for CompositeMerge {
                                     id,
                                     item,
                                 );
+                                opt.program.variables.insert(id, item);
                                 changes.inc();
                             }
                         } else {
@@ -77,7 +79,9 @@ impl OptimizerPass for CompositeMerge {
                             opt.program[block].ops.borrow_mut()[idx] = Instruction::new(
                                 Operation::Copy(value),
                                 Variable::new(VariableKind::LocalMut { id }, item),
-                            )
+                            );
+                            opt.program.variables.insert(id, item);
+                            changes.inc();
                         }
                     }
                 }
