@@ -166,9 +166,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let tiling_scheme = selection.tiling_scheme;
-        let stage_m = tiling_scheme.elements_in_stage_m();
-        let stage_n = tiling_scheme.elements_in_stage_n();
-        let tile_size_k = tiling_scheme.elements_in_tile_k();
+        let stage_m = tiling_scheme.elements_per_stage_along_m();
+        let stage_n = tiling_scheme.elements_per_stage_along_n();
+        let tile_size_k = tiling_scheme.tile_size.k;
         let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
         let lhs_elem_size = size_of::<Lhs>();

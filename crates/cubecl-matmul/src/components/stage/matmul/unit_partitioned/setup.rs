@@ -79,14 +79,17 @@ impl<
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
-        ordered: bool,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
 
         let compute_resources = if let ComputeResources::Units(units) = TM::computation_resources()?
         {
-            ComputeResources::Units(units * selection.tiling_scheme.stage_partitions_in_stage_mn())
+            ComputeResources::Units(
+                units
+                    * selection.tiling_scheme.partitions_per_stage_along_m()
+                    * selection.tiling_scheme.partitions_per_stage_along_n(),
+            )
         } else {
             return Err(MatmulSetupError::InvalidConfig(Box::new(
                 "Error: Tried to use a unit stage matmul with a plane tile matmul.".to_string(),
@@ -106,26 +109,14 @@ impl<
             plane_role_config.plane_roles,
         );
 
-        let tiling_scheme = selection.tiling_scheme;
-
-        let execution_is_sync = {
-            #[cfg(target_os = "macos")]
-            {
-                false
-            }
-            #[cfg(not(target_os = "macos"))]
-            {
-                true
-            }
-        };
-        let must_sync_plane_after_execution = !execution_is_sync && ordered;
-
         let lhs_smem_config = StageMemoryConfig {
             num_planes: plane_counts.lhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_k(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_m(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_k(),
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.m,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.k,
+            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.m as u32,
+            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.k as u32,
+            partitions_per_stage_along_row: selection.tiling_scheme.stage_size.m as u32,
+            partitions_per_stage_along_col: selection.tiling_scheme.stage_size.k as u32,
             line_size: line_sizes.lhs as u32,
             matrix_layout: problem.lhs_layout,
             swizzle: selection.shared_swizzle.lhs,
@@ -134,23 +125,26 @@ impl<
 
         let rhs_smem_config = StageMemoryConfig {
             num_planes: plane_counts.rhs,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_k(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: selection.tiling_scheme.tiles_in_stage_k(),
-            tiles_in_stage_col: selection.tiling_scheme.tiles_in_stage_n(),
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.k,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.n,
+            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.k as u32,
+            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.n as u32,
+            partitions_per_stage_along_row: selection.tiling_scheme.stage_size.k as u32,
+            partitions_per_stage_along_col: selection.tiling_scheme.stage_size.n as u32,
             line_size: line_sizes.rhs as u32,
             matrix_layout: problem.rhs_layout,
             swizzle: selection.shared_swizzle.rhs,
             num_stages: num_stages.rhs,
         };
 
-        let partition_size_n = selection.tiling_scheme.stage_partitions_in_stage_n();
         let out_smem_config = StageMemoryConfig {
             num_planes: plane_counts.out,
-            elements_in_tile_row: selection.tiling_scheme.elements_in_tile_m(),
-            elements_in_tile_col: selection.tiling_scheme.elements_in_tile_n(),
-            tiles_in_stage_row: plane_counts.out * selection.plane_dim / partition_size_n,
-            tiles_in_stage_col: partition_size_n,
+            elements_per_tile_along_row: selection.tiling_scheme.tile_size.m,
+            elements_per_tile_along_col: selection.tiling_scheme.tile_size.n,
+            tiles_per_partition_along_row: selection.tiling_scheme.partition_size.m as u32,
+            tiles_per_partition_along_col: selection.tiling_scheme.partition_size.n as u32,
+            partitions_per_stage_along_row: selection.tiling_scheme.stage_size.m as u32,
+            partitions_per_stage_along_col: selection.tiling_scheme.stage_size.n as u32,
             line_size: line_sizes.out as u32,
             matrix_layout: MatrixLayout::RowMajor,
             swizzle: selection.shared_swizzle.out,
@@ -161,12 +155,11 @@ impl<
             PartitionMatmulConfig::Unit(UnitPartitionedStageConfig::from_shared_partition_config(
                 SharedPartitionMatmulConfig::new(
                     tile_config,
-                    tiling_scheme.partition_size,
-                    must_sync_plane_after_execution,
+                    selection.tiling_scheme.partition_size,
                     selection.partition_buffering,
                     plane_role_config,
                     selection.plane_dim,
-                    tiling_scheme.stage_size,
+                    selection.tiling_scheme.stage_size,
                     PartitionSchedulerScheme::Naive,
                     lhs_smem_config,
                     rhs_smem_config,
@@ -180,7 +173,7 @@ impl<
             dtypes.rhs_stage.size() as u32,
             dtypes.acc_stage.size() as u32,
             client.properties().hardware.max_shared_memory_size as u32,
-            tiling_scheme,
+            selection.tiling_scheme,
             selection.partition_buffering,
             selection.plane_dim,
             num_stages,
@@ -200,7 +193,8 @@ fn validate<TC: TileConfig>(
     plane_dim: u32,
     num_stages: NumStages,
 ) -> Result<PartitionMatmulConfig<TC>, MatmulSetupError> {
-    let num_units_needed = tiling_scheme.stage_partitions_in_stage_mn();
+    let num_units_needed =
+        tiling_scheme.partitions_per_stage_along_m() * tiling_scheme.partitions_per_stage_along_n();
     let num_compute_planes = stage_config.shared().plane_role_config.main_flow_count();
     let num_units = plane_dim * num_compute_planes;
 
@@ -211,16 +205,20 @@ fn validate<TC: TileConfig>(
     }
 
     if partition_buffering == PartitionBuffering::Double
-        && tiling_scheme.tiles_in_stage_partition_n() < 2
+        && tiling_scheme.tiles_per_stage_partition_along_n() < 2
     {
         return Err(MatmulSetupError::InvalidConfig(Box::new(
             "Error: Tried doing partition double buffering with only one tile to compute.",
         )));
     }
 
-    let lhs_smem_size = tiling_scheme.elements_in_stage_mk() * num_stages.lhs;
-    let rhs_smem_size = tiling_scheme.elements_in_stage_nk() * num_stages.rhs;
-    let out_smem_size = tiling_scheme.elements_in_tile_mn() * num_units;
+    let lhs_smem_size = tiling_scheme.elements_per_stage_along_m()
+        * tiling_scheme.elements_per_stage_along_k()
+        * num_stages.lhs;
+    let rhs_smem_size = tiling_scheme.elements_per_stage_along_k()
+        * tiling_scheme.elements_per_stage_along_n()
+        * num_stages.rhs;
+    let out_smem_size = tiling_scheme.tile_size.m * tiling_scheme.tile_size.n * num_units;
     let smem_total_size =
         lhs_s_size * lhs_smem_size + rhs_s_size * rhs_smem_size + eo_size * out_smem_size;
 

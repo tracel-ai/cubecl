@@ -1,12 +1,11 @@
+use crate::components::InvalidConfigError;
 use crate::components::MatmulElems;
-use crate::components::TilingScheme;
 use crate::components::global::read::validate_swizzle_atom_size;
 use crate::components::global::read::{FullLoadingStrategy, stage::FullStageLayout};
 use crate::components::global::{GlobalReaderConfig, RoleRule};
 use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync::Synchronous};
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::{StridedStageMemory, StridedTilingLayout};
-use crate::components::{InvalidConfigError, MatmulIdent};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -27,7 +26,7 @@ impl LoadingValidation for SyncFullStridedLoading {
     ) -> Result<(), InvalidConfigError> {
         let line_size = config.gmem_config.line_size;
 
-        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let total_units = config.loading_units_count();
 
         if !num_stage_lines.is_multiple_of(total_units) {
@@ -46,12 +45,13 @@ impl LoadingValidation for SyncFullStridedLoading {
 
 impl LoadMaxRoundPlaneCount for SyncFullStridedLoading {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
-        let num_lines = tiling_scheme.elements_in_stage(ident) / line_size as u32;
+        let elements_per_stage = elements_per_tile * tiles_per_stage;
+        let num_lines = elements_per_stage / line_size as u32;
         num_lines.div_ceil(plane_dim)
     }
 }
@@ -66,7 +66,7 @@ impl FullLoadingStrategy for SyncFullStridedLoading {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> Self::Job<EG, ES> {
-        let num_stage_lines = config.smem_config.elements_in_stage() / line_size;
+        let num_stage_lines = config.smem_config.elements_per_stage() / line_size;
         let unit_count = config.loading_planes_count() * config.plane_dim;
         let num_tasks_per_unit = comptime!(num_stage_lines / unit_count);
 

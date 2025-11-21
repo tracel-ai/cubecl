@@ -27,7 +27,7 @@ impl TilingLayout for BiasTilingLayout {
         let (_, col) = tile;
 
         let stage_line_size = config.line_size;
-        let tile_size_col = config.elements_in_tile_col / stage_line_size;
+        let tile_size_col = config.elements_per_tile_along_col / stage_line_size;
 
         let length = tile_size_col;
         let start = col * tile_size_col;
@@ -50,7 +50,7 @@ impl TilingLayout for BiasTilingLayout {
 
 impl TilingValidation for BiasTilingLayout {
     fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = config.elements_in_stage_col();
+        let stage_width = config.elements_per_stage_along_col();
         if config.line_size > stage_width {
             return Err(Box::new("Invalid line size"));
         }

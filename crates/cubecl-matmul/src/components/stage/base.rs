@@ -53,7 +53,6 @@ pub trait StageMatmulFamily: Send + Sync + 'static {
         line_sizes: &MatmulLineSizes,
         num_stages: NumStages,
         max_global_readers: Option<MaxGlobalReaderPlanes>,
-        ordered: bool,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 

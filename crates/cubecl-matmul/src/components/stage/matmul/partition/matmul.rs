@@ -16,7 +16,6 @@ use cubecl_core as cubecl;
 pub struct SharedPartitionMatmulConfig<TC: TileConfig> {
     pub tile_config: TC,
     pub partition_size: PartitionSize,
-    pub must_sync_plane_after_execution: bool,
     pub partition_buffering: PartitionBuffering,
     pub plane_role_config: PlaneRoleConfig,
     pub plane_dim: u32,
@@ -32,7 +31,6 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
     pub fn new(
         tile_config: TC,
         partition_size: PartitionSize,
-        must_sync_plane_after_execution: bool,
         partition_buffering: PartitionBuffering,
         plane_role_config: PlaneRoleConfig,
         plane_dim: u32,
@@ -45,7 +43,6 @@ impl<TC: TileConfig> SharedPartitionMatmulConfig<TC> {
         Self {
             tile_config,
             partition_size,
-            must_sync_plane_after_execution,
             partition_buffering,
             plane_role_config,
             plane_dim,
@@ -207,11 +204,7 @@ where
         mut listener: SEL,
         partition_scheduler: &PartitionScheduler,
     ) {
-        SEL::on_event(
-            &mut listener,
-            StageEvent::Begin,
-            shared_config.must_sync_plane_after_execution,
-        );
+        SEL::on_event(&mut listener, StageEvent::Begin);
 
         let m_iterations = shared_config.partition_size.m();
         let n_iterations = shared_config.partition_size.n();
@@ -244,7 +237,6 @@ where
                         current: lhs_load_counter,
                         total: lhs_load_total
                     }],
-                    shared_config.must_sync_plane_after_execution,
                 );
                 comptime!(lhs_load_counter += 1);
             }
@@ -261,7 +253,6 @@ where
                         current: rhs_load_counter,
                         total: rhs_load_total
                     }],
-                    shared_config.must_sync_plane_after_execution,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -281,7 +272,6 @@ where
                             current: execute_counter,
                             total: execute_total
                         }],
-                        shared_config.must_sync_plane_after_execution,
                     );
                     comptime!(execute_counter += 1);
                 }
@@ -291,11 +281,7 @@ where
         assert!(lhs_load_counter == lhs_load_total);
         assert!(rhs_load_counter == rhs_load_total);
         assert!(execute_counter == execute_total);
-        SEL::on_event(
-            &mut listener,
-            comptime!(StageEvent::Finish),
-            shared_config.must_sync_plane_after_execution,
-        );
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -312,11 +298,7 @@ where
         mut listener: SEL,
         partition_scheduler: &PartitionScheduler,
     ) {
-        SEL::on_event(
-            &mut listener,
-            StageEvent::Begin,
-            shared_config.must_sync_plane_after_execution,
-        );
+        SEL::on_event(&mut listener, StageEvent::Begin);
 
         let m_iterations = shared_config.partition_size.m();
         let n_iterations = shared_config.partition_size.n();
@@ -349,7 +331,6 @@ where
                         current: lhs_load_counter,
                         total: lhs_load_total
                     }],
-                    shared_config.must_sync_plane_after_execution,
                 );
                 comptime!(lhs_load_counter += 1);
             }
@@ -369,7 +350,6 @@ where
                     current: rhs_load_counter,
                     total: rhs_load_total
                 }),
-                shared_config.must_sync_plane_after_execution,
             );
             comptime!(rhs_load_counter += 1);
 
@@ -391,7 +371,6 @@ where
                         current: rhs_load_counter,
                         total: rhs_load_total
                     }),
-                    shared_config.must_sync_plane_after_execution,
                 );
                 comptime!(rhs_load_counter += 1);
 
@@ -412,7 +391,6 @@ where
                             current: execute_counter,
                             total: execute_total
                         }),
-                        shared_config.must_sync_plane_after_execution,
                     );
                     comptime!(execute_counter += 1);
                 }
@@ -442,7 +420,6 @@ where
                         current: execute_counter,
                         total: execute_total
                     }),
-                    shared_config.must_sync_plane_after_execution,
                 );
                 comptime!(execute_counter += 1);
             }
@@ -451,10 +428,6 @@ where
         assert!(lhs_load_counter == lhs_load_total);
         assert!(rhs_load_counter == rhs_load_total);
         assert!(execute_counter == execute_total);
-        SEL::on_event(
-            &mut listener,
-            comptime!(StageEvent::Finish),
-            shared_config.must_sync_plane_after_execution,
-        );
+        SEL::on_event(&mut listener, comptime!(StageEvent::Finish));
     }
 }

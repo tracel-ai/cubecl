@@ -6,7 +6,7 @@ macro_rules! testgen_attention_suite {
             AttentionPartitionSize, AttentionProblem, AttentionStageSize, AttentionTileSize,
             AttentionTilingScheme,
         };
-        use $crate::tests::macros::{TestOptions, attention_test_launch};
+        use $crate::tests::macros::{TestOptions, attention_test_launch, tiling_scheme_ops::*};
 
         #[test]
         fn attention_one_tile_simple() {
@@ -29,10 +29,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -65,10 +65,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -105,9 +105,9 @@ macro_rules! testgen_attention_suite {
                 batch: 1,
                 num_heads: 1,
                 seq_q: 16,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -141,9 +141,9 @@ macro_rules! testgen_attention_suite {
                 batch: 1,
                 num_heads: 1,
                 seq_q: 4,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -176,10 +176,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -212,10 +212,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -248,10 +248,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -284,10 +284,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -320,10 +320,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -356,10 +356,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -393,10 +393,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * num_iterations,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * num_iterations,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -430,10 +430,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * num_iterations,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * num_iterations,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -466,10 +466,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize - 1,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) - 1,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -502,10 +502,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2 + 1,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2 + 1,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -539,9 +539,9 @@ macro_rules! testgen_attention_suite {
                 batch: 1,
                 num_heads: 1,
                 seq_q: 1,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -574,10 +574,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize + 9,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) + 9,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -610,10 +610,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: true,
             };
@@ -646,10 +646,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: false,
             };
@@ -682,10 +682,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -718,10 +718,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -754,10 +754,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize * 2,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme) * 2,
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -790,10 +790,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -826,10 +826,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -865,10 +865,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -904,10 +904,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: false,
             };
@@ -940,10 +940,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: true,
             };
@@ -976,10 +976,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: true,
             };
@@ -1012,10 +1012,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize - 1,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) - 1,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: false,
             };
@@ -1048,10 +1048,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize * 2,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme) * 2,
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: false,
             };
@@ -1084,10 +1084,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 2,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -1120,10 +1120,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -1156,10 +1156,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 1,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -1192,10 +1192,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 2,
                 num_heads: 2,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: false,
                 causal: false,
             };
@@ -1228,10 +1228,10 @@ macro_rules! testgen_attention_suite {
             let problem = AttentionProblem {
                 batch: 1,
                 num_heads: 2,
-                seq_q: tiling_scheme.elements_in_stage_seq_q() as usize,
-                seq_kv: tiling_scheme.elements_in_partition_seq_kv() as usize,
-                head_dim: tiling_scheme.elements_in_partition_head_dim() as usize,
-                val_dim: tiling_scheme.elements_in_partition_val_dim() as usize,
+                seq_q: elements_in_stage_seq_q(&tiling_scheme),
+                seq_kv: elements_in_partition_seq_kv(&tiling_scheme),
+                head_dim: elements_in_partition_head_dim(&tiling_scheme),
+                val_dim: elements_in_partition_val_dim(&tiling_scheme),
                 masked: true,
                 causal: false,
             };

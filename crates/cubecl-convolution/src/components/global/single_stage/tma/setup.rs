@@ -74,7 +74,6 @@ where
             line_sizes,
             (1, 1).into(),
             None,
-            false,
             dtypes,
         )?;
 
@@ -156,7 +155,6 @@ where
             smem_config: out_smem_config,
             role_rule_config: plane_role_config.rule,
             plane_dim: selection.plane_dim,
-            num_partitions_col: selection.tiling_scheme.stage_partitions_in_stage_n(),
         };
 
         let matmul_config = SharedGlobalMatmulConfig {
@@ -165,6 +163,7 @@ where
             lhs_reader_config,
             rhs_reader_config,
             writer_config,
+            must_sync_plane_after_execution: false,
         };
 
         cube_dim_validation(matmul_config)?;
