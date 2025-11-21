@@ -38,7 +38,7 @@ where
         true
     }
 
-    fn can_cast_stage() -> bool {
+    fn can_cast_stage_element() -> bool {
         true
     }
 

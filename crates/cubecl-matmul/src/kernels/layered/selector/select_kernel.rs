@@ -44,7 +44,7 @@ where
     // Prefer output type for stage because it's the same size at best, but often smaller.
     // Having stage == global also enables things like TMA, and an f16 stage for output enables
     // using `stmatrix` on the registers after casting.
-    if A::TileMatmul::can_cast_stage() {
+    if A::TileMatmul::can_cast_stage_element() {
         dtypes.lhs_stage = dtypes.lhs_global;
         dtypes.rhs_stage = dtypes.rhs_global;
         dtypes.acc_stage = dtypes.acc_global;
@@ -106,7 +106,7 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     // Prefer output type for stage because it's the same size at best, but often smaller.
     // Having stage == global also enables things like TMA, and an f16 stage for output enables
     // using `stmatrix` on the registers after casting.
-    if A::TileMatmul::can_cast_stage() {
+    if A::TileMatmul::can_cast_stage_element() {
         dtypes.lhs_stage = dtypes.lhs_global;
         dtypes.rhs_stage = dtypes.rhs_global;
         dtypes.acc_stage = dtypes.acc_global;

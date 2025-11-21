@@ -183,7 +183,7 @@ impl MatmulElems {
 
     pub fn new_with_tile<MP: MatmulPrecision, TMM: TileMatmulFamily>() -> Self {
         fn stage<MP: MatrixPrecision, TMM: TileMatmulFamily>() -> StorageType {
-            if TMM::can_cast_stage() {
+            if TMM::can_cast_stage_element() {
                 MP::Global::as_type_native_unchecked()
             } else {
                 MP::Register::as_type_native_unchecked()

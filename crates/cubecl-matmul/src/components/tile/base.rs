@@ -42,7 +42,7 @@ pub trait TileMatmulFamily: Send + Sync + 'static {
     fn requires_accelerator() -> bool;
 
     /// Whether this matmul family is able to cast on load/store from the stage.
-    fn can_cast_stage() -> bool;
+    fn can_cast_stage_element() -> bool;
 
     /// Returns whether this tile matmul may benefit from swizzling.
     /// Used to determine the selection, since swizzling may require different stage sizes.
