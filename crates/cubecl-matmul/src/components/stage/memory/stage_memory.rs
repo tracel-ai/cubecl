@@ -56,7 +56,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         let align = comptime![Ord::max(alignment, swizzle_align)];
         let type_size = type_size::<ES>(line_size);
 
-        let stage_size_bytes = comptime![config.elements_in_stage() * type_size];
+        let stage_size_bytes = comptime![config.elements_per_stage() * type_size];
         // Ensure all stages are aligned properly
         let stage_size =
             comptime![stage_size_bytes.next_multiple_of(align) / type_size / line_size];

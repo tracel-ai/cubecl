@@ -312,8 +312,8 @@ pub struct StridedTilingLayout {}
 impl<T: TilingOrder> ContiguousTilingLayout<T> {
     /// Converts a tile index in the stage to its (x,y) position
     pub fn to_x_y(nth: u32, #[comptime] config: StageMemoryConfig) -> Coords2d {
-        let num_x = config.tiles_in_stage_row;
-        let num_y = config.tiles_in_stage_col;
+        let num_x = config.tiles_per_stage_along_row();
+        let num_y = config.tiles_per_stage_along_col();
 
         T::to_row_col(nth, num_x, num_y, config)
     }
@@ -333,14 +333,14 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 
         let (tile_size_x, tile_size_y) = match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_along_row;
+                let tile_size_y = config.elements_per_tile_along_col / stage_line_size;
 
                 (tile_size_x, tile_size_y)
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_along_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_along_col;
 
                 (tile_size_x, tile_size_y)
             }
@@ -350,8 +350,8 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
             * tile_size_y
             * TO::to_nth_tile(
                 (row, col),
-                config.tiles_in_stage_row,
-                config.tiles_in_stage_col,
+                config.tiles_per_stage_along_row(),
+                config.tiles_per_stage_along_col(),
                 config,
             );
 
@@ -365,7 +365,7 @@ impl<TO: TilingOrder> TilingLayout for ContiguousTilingLayout<TO> {
 
 impl<TO: TilingOrder> TilingValidation for ContiguousTilingLayout<TO> {
     fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
-        let tile_width = config.elements_in_tile_contiguous_dim();
+        let tile_width = config.elements_per_tile_along_contiguous_dim();
         if config.line_size > tile_width {
             return Err(Box::new("Invalid line size"));
         }
@@ -385,8 +385,8 @@ impl StridedTilingLayout {
         let stage_line_size = config.line_size;
 
         let slice_length = match comptime!(matrix_layout) {
-            MatrixLayout::RowMajor => config.elements_in_stage_col(),
-            MatrixLayout::ColMajor => config.elements_in_stage_row(),
+            MatrixLayout::RowMajor => config.elements_per_stage_along_col(),
+            MatrixLayout::ColMajor => config.elements_per_stage_along_row(),
         } / stage_line_size;
 
         let start = slice_length * nth;
@@ -408,13 +408,13 @@ impl TilingLayout for StridedTilingLayout {
         let stage_line_size = config.line_size;
         let matrix_layout = config.matrix_layout;
 
-        let tile_count_x = config.tiles_in_stage_row;
-        let tile_count_y = config.tiles_in_stage_col;
+        let tile_count_x = config.tiles_per_stage_along_row();
+        let tile_count_y = config.tiles_per_stage_along_col();
 
         match matrix_layout {
             MatrixLayout::RowMajor => {
-                let tile_size_x = config.elements_in_tile_row;
-                let tile_size_y = config.elements_in_tile_col / stage_line_size;
+                let tile_size_x = config.elements_per_tile_along_row;
+                let tile_size_y = config.elements_per_tile_along_col / stage_line_size;
 
                 let stride = tile_count_y * tile_size_y;
                 let length = (tile_size_x - 1) * stride + tile_size_y;
@@ -431,8 +431,8 @@ impl TilingLayout for StridedTilingLayout {
                 )
             }
             MatrixLayout::ColMajor => {
-                let tile_size_x = config.elements_in_tile_row / stage_line_size;
-                let tile_size_y = config.elements_in_tile_col;
+                let tile_size_x = config.elements_per_tile_along_row / stage_line_size;
+                let tile_size_y = config.elements_per_tile_along_col;
 
                 let stride = tile_count_x * tile_size_x;
                 let length = (tile_size_y - 1) * stride + tile_size_x;
@@ -458,7 +458,7 @@ impl TilingLayout for StridedTilingLayout {
 
 impl TilingValidation for StridedTilingLayout {
     fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
-        let stage_width = config.elements_in_stage_contiguous_dim();
+        let stage_width = config.elements_per_stage_along_contiguous_dim();
         if config.line_size > stage_width {
             return Err(Box::new("Invalid line size"));
         }

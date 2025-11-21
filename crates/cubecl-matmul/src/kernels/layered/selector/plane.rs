@@ -5,13 +5,13 @@ use crate::components::{
     MatmulAvailabilityError, MatmulElems, MatmulSelection, MatmulSetupError, MultiRowStrategy,
     PartitionSize, StageSize, TileSize, TilingScheme, adjust_dtypes,
 };
+use crate::components::{MatmulLineSizes, stage::PartitionBuffering};
+use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::components::{
-    MatmulIdent, MatrixLayout,
+    MatrixLayout,
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::SwizzleMode,
 };
-use crate::components::{MatmulLineSizes, stage::PartitionBuffering};
-use crate::components::{MatmulProblem, tile::TileMatmulFamily};
 use crate::components::{
     SwizzleConfig,
     global::{LoadSpecializationConfig, SpecializationTensorConfig},
@@ -136,7 +136,7 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
         .unwrap();
 
     let partition_buffering = options.partition_buffering.unwrap_or_else(|| {
-        if tiling_scheme.tiles_in_stage_partition_n() > 1 {
+        if tiling_scheme.tiles_per_stage_partition_along_n() > 1 {
             PartitionBuffering::Double
         } else {
             PartitionBuffering::Single
@@ -172,20 +172,17 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
     }
 
     if options.swizzled {
-        let lhs = select_swizzle(
-            tiling_scheme,
-            MatmulIdent::Lhs,
-            dtypes.lhs_stage,
-            line_sizes.lhs,
-            problem.lhs_layout,
-        );
-        let rhs = select_swizzle(
-            tiling_scheme,
-            MatmulIdent::Rhs,
-            dtypes.rhs_stage,
-            line_sizes.rhs,
-            problem.rhs_layout,
-        );
+        let lhs_swizzle_dim = match problem.lhs_layout {
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_k(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_m(),
+        };
+        let rhs_swizzle_dim = match problem.rhs_layout {
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_n(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_k(),
+        };
+
+        let lhs = select_swizzle(lhs_swizzle_dim, dtypes.lhs_stage, line_sizes.lhs);
+        let rhs = select_swizzle(rhs_swizzle_dim, dtypes.rhs_stage, line_sizes.rhs);
         builder = builder.shared_swizzle(SwizzleConfig {
             lhs,
             rhs,
@@ -199,21 +196,11 @@ pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
 /// All modes currently use atom size 16
 const SWIZZLE_ATOM: usize = 16;
 
-fn select_swizzle(
-    tiling: TilingScheme,
-    ident: MatmulIdent,
-    elem: StorageType,
-    line_size: u8,
-    layout: MatrixLayout,
-) -> SwizzleMode {
+fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> SwizzleMode {
     // Line size exceeds swizzle atom
     if elem.size() * line_size as usize > SWIZZLE_ATOM {
         return SwizzleMode::None;
     }
-    let swizzle_dim = match layout {
-        MatrixLayout::RowMajor => tiling.elements_in_stage_col(ident),
-        MatrixLayout::ColMajor => tiling.elements_in_stage_row(ident),
-    };
     let swizzle_dim_bytes = swizzle_dim as usize * elem.size();
     if !swizzle_dim_bytes.is_power_of_two() {
         return SwizzleMode::None;

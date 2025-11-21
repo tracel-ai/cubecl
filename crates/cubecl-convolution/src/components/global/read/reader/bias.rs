@@ -85,7 +85,7 @@ fn init_stage<ES: Numeric>(
 ) -> StridedStageMemory<ES, BiasTilingLayout> {
     let line_size = config.line_size;
 
-    let stage_len = comptime!(config.elements_in_stage_col() / line_size);
+    let stage_len = comptime!(config.elements_per_stage_along_col() / line_size);
     let smem = SharedMemory::new_lined(stage_len, line_size);
 
     StridedStageMemory::<ES, BiasTilingLayout>::new_with_smem(smem, stage_len, config)

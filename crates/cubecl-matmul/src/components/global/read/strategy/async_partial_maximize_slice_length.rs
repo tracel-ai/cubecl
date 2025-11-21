@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, StageIdent, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout, StageIdent,
     global::{
         GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -37,8 +37,8 @@ impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncPartialMaximizeSliceLengthLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -64,8 +64,8 @@ impl PartialLoadingStrategy for AsyncPartialMaximizeSliceLengthLoading {
         let matrix_layout = config.gmem_config.matrix_layout;
         let num_stages = config.smem_config.num_stages;
 
-        let total_row = config.smem_config.elements_in_stage_row();
-        let total_col = config.smem_config.elements_in_stage_col();
+        let total_row = config.smem_config.elements_per_stage_along_row();
+        let total_col = config.smem_config.elements_per_stage_along_col();
 
         // If stage is parallel to slices, slices are as long as in full stage memory, but there are less.
         // Otherwise, slices are shorter but there are as many as in full stage memory

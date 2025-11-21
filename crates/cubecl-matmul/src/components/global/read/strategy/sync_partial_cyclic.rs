@@ -8,7 +8,7 @@ use crate::components::global::{multi_stage::LoadMaxRoundPlaneCount, read::sync:
 use crate::components::stage::StridedStageFamily;
 use crate::components::stage::StridedStageMemory;
 use crate::components::stage::{ContiguousTilingLayout, TilingOrder};
-use crate::components::{InvalidConfigError, MatmulIdent, StageIdent, TilingScheme};
+use crate::components::{InvalidConfigError, StageIdent};
 use crate::components::{global::memory::GlobalIterator, stage::TilingValidation};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
@@ -32,8 +32,8 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
     ) -> Result<(), InvalidConfigError> {
         if let ReaderMode::Strict = config.reader_mode {
             let line_size = config.gmem_config.line_size;
-            let num_lines_per_tile = config.smem_config.elements_in_tile() / line_size;
-            let num_tiles_in_stage = config.smem_config.tiles_in_stage();
+            let num_lines_per_tile = config.smem_config.elements_per_tile() / line_size;
+            let num_tiles_in_stage = config.smem_config.tiles_per_stage();
             let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
 
             let total_units = config.loading_units_count();
@@ -44,7 +44,7 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
             let max_task_id = num_tasks_per_unit - 1;
             let max_position_base = max_id * line_size;
             let max_position = max_position_base + max_task_id * jump_length;
-            let num_stage_elements = config.smem_config.elements_in_stage();
+            let num_stage_elements = config.smem_config.elements_per_stage();
 
             if max_position > num_stage_elements {
                 return Err(Box::new(
@@ -62,14 +62,13 @@ impl<TO: TilingOrder> LoadingValidation for SyncPartialCyclicLoading<TO> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialCyclicLoading<TO> {
     fn max_round_plane_count(
-        tiling_scheme: &TilingScheme,
-        ident: MatmulIdent,
+        elements_per_tile: u32,
+        tiles_per_stage: u32,
         line_size: u8,
         plane_dim: u32,
     ) -> u32 {
-        let num_lines_per_tile = tiling_scheme.elements_in_tile(ident) / line_size as u32;
-        let num_tiles_in_stage = tiling_scheme.tiles_in_stage(ident);
-        let total_num_lines = num_tiles_in_stage * num_lines_per_tile;
+        let num_lines_per_tile = elements_per_tile / line_size as u32;
+        let total_num_lines = tiles_per_stage * num_lines_per_tile;
         total_num_lines.div_ceil(plane_dim)
     }
 }
@@ -87,11 +86,11 @@ impl<TO: TilingOrder> PartialLoadingStrategy for SyncPartialCyclicLoading<TO> {
         #[comptime] line_size: u32,
         #[comptime] config: GlobalReaderConfig,
     ) -> SyncPartialCyclicJob {
-        let num_stage_elements = config.smem_config.elements_in_stage();
+        let num_stage_elements = config.smem_config.elements_per_stage();
 
-        let tile_size = config.smem_config.elements_in_tile();
-        let tile_count_row = config.smem_config.tiles_in_stage_row;
-        let tile_count_col = config.smem_config.tiles_in_stage_col;
+        let tile_size = config.smem_config.elements_per_tile();
+        let tile_count_row = config.smem_config.tiles_per_stage_along_row();
+        let tile_count_col = config.smem_config.tiles_per_stage_along_col();
 
         let num_lines_per_tile = tile_size / line_size;
         let total_units = config.loading_units_count();
@@ -191,9 +190,9 @@ pub(crate) fn load_and_store_line<EG: Numeric, ES: Numeric, TO: TilingOrder>(
 
     let (tile_size, tile_count_row, tile_count_col) = comptime! {
         (
-            config.smem_config.elements_in_tile(),
-            config.smem_config.tiles_in_stage_row,
-            config.smem_config.tiles_in_stage_col,
+            config.smem_config.elements_per_tile(),
+            config.smem_config.tiles_per_stage_along_row(),
+            config.smem_config.tiles_per_stage_along_col(),
         )
     };
     let line_size = view.line_size();

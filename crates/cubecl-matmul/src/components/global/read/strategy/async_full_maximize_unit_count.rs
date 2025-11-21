@@ -1,5 +1,5 @@
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
         GlobalReaderConfig,
         memory::{GlobalIterator, load_window_in_stage},
@@ -32,12 +32,12 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.smem_config.elements_in_stage_row(),
-                config.smem_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_per_stage_along_row(),
+                config.smem_config.elements_per_stage_along_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.smem_config.elements_in_stage_col(),
-                config.smem_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_per_stage_along_col(),
+                config.smem_config.elements_per_stage_along_row() / line_size,
             ),
         };
         let unit_count = config.plane_dim * config.loading_planes_count();
@@ -63,8 +63,8 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
 
 impl LoadMaxRoundPlaneCount for AsyncFullMaximizeUnitCountLoading {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -90,12 +90,12 @@ impl FullLoadingStrategy for AsyncFullMaximizeUnitCountLoading {
 
         let (num_slices, slice_length) = match matrix_layout {
             MatrixLayout::RowMajor => (
-                config.smem_config.elements_in_stage_row(),
-                config.smem_config.elements_in_stage_col() / line_size,
+                config.smem_config.elements_per_stage_along_row(),
+                config.smem_config.elements_per_stage_along_col() / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.smem_config.elements_in_stage_col(),
-                config.smem_config.elements_in_stage_row() / line_size,
+                config.smem_config.elements_per_stage_along_col(),
+                config.smem_config.elements_per_stage_along_row() / line_size,
             ),
         };
 

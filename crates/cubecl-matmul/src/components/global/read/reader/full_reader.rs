@@ -87,7 +87,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
                 {
                     #[allow(clippy::collapsible_if)]
                     if config.gmem_config.check_row_bounds {
-                        if shape_row < config.smem_config.elements_in_stage_row() {
+                        if shape_row < config.smem_config.elements_per_stage_along_row() {
                             stage.clear_all(config);
                         }
                     }
@@ -96,7 +96,7 @@ impl<EG: Numeric, ES: Numeric, L: FullLoadingStrategy> FullStageGlobalReader<EG,
                 {
                     #[allow(clippy::collapsible_if)]
                     if config.gmem_config.check_col_bounds {
-                        if shape_col < config.smem_config.elements_in_stage_col() {
+                        if shape_col < config.smem_config.elements_per_stage_along_col() {
                             stage.clear_all(config);
                         }
                     }
