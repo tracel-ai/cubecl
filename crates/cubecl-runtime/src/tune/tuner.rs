@@ -360,8 +360,7 @@ impl<K: AutotuneKey> Tuner<K> {
         }
 
         loop {
-            let mut num_autotuned = 0;
-
+            let mut num_success = 0;
             let tunable_indices = plan.next();
 
             if tunable_indices.is_empty() {
@@ -383,11 +382,11 @@ impl<K: AutotuneKey> Tuner<K> {
                     Ok(result) => {
                         // Wait for the results to come in, and determine the outcome.
                         let (name, index, profiles) = result;
-                        let result = Self::process_autotune(name, index, profiles).await;
+                        let result = Self::process_autotune(name.clone(), index, profiles).await;
                         match result {
                             Ok(val) => {
                                 results[index] = Ok(val);
-                                num_autotuned += 1;
+                                num_success += 1;
                             }
                             Err(err) => {
                                 results[index] = Err(err);
@@ -400,7 +399,7 @@ impl<K: AutotuneKey> Tuner<K> {
                 }
             }
 
-            if num_autotuned > 0 {
+            if num_success > 0 {
                 break;
             }
         }

@@ -8,10 +8,18 @@ pub fn format_str(string: &str, markers: &[(char, char)], include_space: bool) -
     let indentation = 4;
 
     let mut prev = ' ';
+    let mut in_string = false;
 
     for c in string.chars() {
         if c == ' ' {
+            if in_string {
+                result.push(c);
+            }
+
             continue;
+        }
+        if c == '"' {
+            in_string = !in_string;
         }
 
         let mut found_marker = false;
@@ -79,4 +87,33 @@ pub fn format_str(string: &str, markers: &[(char, char)], include_space: bool) -
 pub fn format_debug<F: core::fmt::Debug>(string: &F) -> String {
     let string = format!("{string:?}");
     format_str(&string, &[('(', ')'), ('[', ']'), ('{', '}')], true)
+}
+
+#[cfg(test)]
+mod tests {
+    use hashbrown::HashMap;
+
+    use super::*;
+
+    #[derive(Debug)]
+    #[allow(unused)]
+    struct Test {
+        map: HashMap<String, u32>,
+    }
+
+    #[test]
+    fn test_format_debug() {
+        let test = Test {
+            map: HashMap::from_iter([("Hey with space".to_string(), 8)].into_iter()),
+        };
+
+        let formatted = format_debug(&test);
+        let expected = r#"Test {
+    map: {
+        "Hey with space": 8,
+    },
+}"#;
+
+        assert_eq!(expected, formatted);
+    }
 }
