@@ -42,9 +42,9 @@ often not present in other languages, except WebGPU with `local_invocation_index
 | CUBE_COUNT_Y   | gridDim.y   | num_workgroups.y       |
 | CUBE_COUNT_Z   | gridDim.z   | num_workgroups.z       |
 | CUBE_POS       | N/A         | N/A                    |
-| CUBE_POS_X     | blockIdx.x  | workgroup.x            |
-| CUBE_POS_Y     | blockIdx.y  | workgroup.y            |
-| CUBE_POS_Z     | blockIdx.z  | workgroup.z            |
+| CUBE_POS_X     | blockIdx.x  | workgroup_id.x         |
+| CUBE_POS_Y     | blockIdx.y  | workgroup_id.y         |
+| CUBE_POS_Z     | blockIdx.z  | workgroup_id.z         |
 | CUBE_DIM       | N/A         | N/A                    |
 | CUBE_DIM_X     | blockDim.x  | workgroup_size.x       |
 | CUBE_DIM_Y     | blockDim.y  | workgroup_size.y       |
