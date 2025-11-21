@@ -3,6 +3,7 @@ use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use async_channel::{Receiver, Sender};
+use cubecl_common::format::format_debug;
 use cubecl_common::profile::ProfileDuration;
 use hashbrown::HashSet;
 
@@ -66,6 +67,15 @@ pub enum AutotuneError {
     Unknown(String),
     /// All samples are invalid.
     InvalidSamples,
+    /// No autotune was flagged as valid for the problem.
+    ///
+    /// # Warning
+    ///
+    /// This is an unrecoverable error and will cause a panic.
+    NoValidKernelFound {
+        /// The formatted context on why no valid kernel was found.
+        context: String,
+    },
     /// The autotune is skipped manually.
     Skip,
 }
@@ -292,7 +302,14 @@ impl<K: AutotuneKey> Tuner<K> {
         mut results: Vec<Result<AutotuneOutcome, AutotuneError>>,
         #[cfg(std_io)] checksum: String,
     ) -> AutotuneMessage<K> {
-        Self::execute_tune_plan(client, &mut plan, autotunables, &test_inputs, &mut results).await;
+        match Self::execute_tune_plan(client, &mut plan, autotunables, &test_inputs, &mut results)
+            .await
+        {
+            Ok(_) => {}
+            Err(err) => {
+                panic!("Can't execute the autotune plan for key: {key:?}\n - Error: {err:?}");
+            }
+        };
 
         // Finds the fastest operation (by the median time).
         results.sort_by(|a, b| {
@@ -334,14 +351,26 @@ impl<K: AutotuneKey> Tuner<K> {
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,
         results: &mut [Result<AutotuneOutcome, AutotuneError>],
-    ) {
+    ) -> Result<(), AutotuneError> {
+        #[derive(Debug)]
+        #[allow(unused_variables, dead_code)] // Only use for debug
+        struct Context<'a> {
+            plan: &'a TunePlan,
+            results: &'a [Result<AutotuneOutcome, AutotuneError>],
+        }
+
         loop {
             let mut num_autotuned = 0;
 
             let tunable_indices = plan.next();
 
             if tunable_indices.is_empty() {
-                panic!("No autotune was flagged as valid for the problem.")
+                return Err(AutotuneError::NoValidKernelFound {
+                    context: format_debug(&Context {
+                        plan: &plan,
+                        results: &results,
+                    }),
+                });
             }
 
             for index in tunable_indices {
@@ -375,6 +404,8 @@ impl<K: AutotuneKey> Tuner<K> {
                 break;
             }
         }
+
+        Ok(())
     }
 
     async fn process_autotune(

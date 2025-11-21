@@ -51,6 +51,9 @@ pub mod future;
 /// Quantization primitives required outside of `cubecl-quant`
 pub mod quant;
 
+/// Format utilities.
+pub mod format;
+
 /// Various utilities to create ID's.
 extern crate alloc;
 
