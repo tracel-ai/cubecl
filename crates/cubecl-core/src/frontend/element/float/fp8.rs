@@ -1,13 +1,9 @@
 use cubecl_common::{e4m3, e5m2, ue8m0};
 use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
-use crate::{
-    Runtime,
-    compute::KernelLauncher,
-    prelude::{
-        CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, Numeric,
-        ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
-    },
+use crate::prelude::{
+    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime, Numeric,
+    into_mut_expand_element, into_runtime_expand_element,
 };
 
 impl CubeType for e4m3 {
@@ -47,12 +43,6 @@ impl Numeric for e4m3 {
 impl ExpandElementIntoMut for e4m3 {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
-    }
-}
-
-impl ScalarArgSettings for e4m3 {
-    fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
     }
 }
 
@@ -96,12 +86,6 @@ impl ExpandElementIntoMut for e5m2 {
     }
 }
 
-impl ScalarArgSettings for e5m2 {
-    fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
-    }
-}
-
 impl CubeType for ue8m0 {
     type ExpandType = ExpandElementTyped<ue8m0>;
 }
@@ -139,11 +123,5 @@ impl Numeric for ue8m0 {
 impl ExpandElementIntoMut for ue8m0 {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
-    }
-}
-
-impl ScalarArgSettings for ue8m0 {
-    fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
     }
 }
