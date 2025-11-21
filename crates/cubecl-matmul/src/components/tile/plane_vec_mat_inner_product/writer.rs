@@ -32,10 +32,6 @@ impl MatrixStageWriter {
                         sum += line_container.line[i];
                     }
 
-                    // if out_line_size == 2 {
-                    //     debug_print!("within_line: %d, value: [%f]", within_line, sum);
-                    // }
-
                     out_line[within_line] = S::cast_from(sum);
                 }
 
