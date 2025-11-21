@@ -268,8 +268,6 @@ where
         .filter_out_with_tensor(out.strides, out.shape)
         .pick_max()?;
 
-    println!("out shape: {:?}, line_sizes: {line_sizes:?}", out.shape);
-
     // The large line size resulting from dequantizing ends up slower due to restrictions on
     // algorithms. Use this as a quick and dirty fix.
     if lhs_handle.scale().is_some() {
