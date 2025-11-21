@@ -62,16 +62,11 @@ impl MatrixFragmentReader for MatrixStageReader<Strided> {
     ) {
         comptime!(assert!(tile.layout == MatrixLayout::ColMajor));
 
-        let mut n_ = comptime![0];
-
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..n {
-            let line_container = frag.index_mut(n_);
-            let offset = tile.stage_offset(UNIT_POS_X + n_ * tile.stride);
+        for n in 0..n {
+            let line_container = frag.index_mut(n);
+            let offset = tile.stage_offset(UNIT_POS_X + n * tile.stride);
             line_container.line = Line::cast_from(tile.stage[offset]);
-
-            comptime![n_ += 1];
         }
     }
 }
@@ -85,15 +80,10 @@ impl MatrixFragmentReader for MatrixStageReader<Filled> {
         frag: &mut Sequence<LineContainer<E>>,
         #[comptime] n: u32,
     ) {
-        let mut n_ = comptime![0];
-
         #[unroll]
-        #[allow(clippy::explicit_counter_loop)]
-        for _ in 0..n {
-            let line_container = frag.index_mut(n_);
+        for n in 0..n {
+            let line_container = frag.index_mut(n);
             line_container.line = Line::cast_from(*value);
-
-            comptime![n_ += 1];
         }
     }
 }
