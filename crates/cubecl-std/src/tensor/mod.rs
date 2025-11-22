@@ -2,7 +2,6 @@ mod contiguous;
 mod handle;
 pub mod identity;
 mod matrix_batch_layout;
-pub mod permute;
 
 pub use contiguous::*;
 pub use handle::*;

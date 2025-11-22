@@ -1,0 +1,17 @@
+[package]
+name = "permute-example"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+cubecl = { path = "../../crates/cubecl", features = ["wgpu"], default-features = false }
+cubecl-core = { path = "../../crates/cubecl-core", default-features = false }
+cubecl-std = { path = "../../crates/cubecl-std", default-features = false }
+tokio = { version = "1.33.0", features = ["full"] }
+burn-tensor = "0.13.2"
+
+[features]
+default = []
+wgpu = ["cubecl/wgpu"]
+cuda = ["cubecl/cuda"]

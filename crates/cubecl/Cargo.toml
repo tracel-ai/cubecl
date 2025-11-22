@@ -87,8 +87,3 @@ required-features = ["random"]
 harness = false
 name = "attention"
 required-features = ["random"]
-
-[[bench]]
-harness = false
-name = "permute"
-required-features = ["stdlib"]

@@ -33,7 +33,6 @@ mod tests {
     cubecl_core::testgen_all!();
     cubecl_std::testgen!();
     cubecl_std::testgen_tensor_identity!([flex32, f32, u32]);
-    cubecl_std::testgen_tensor_permute!([flex32, f32]);
     cubecl_std::testgen_quantized_view!(f32);
     cubecl_matmul::testgen_matmul_simple!([flex32, f32]);
     cubecl_matmul::testgen_matmul_plane_vecmat!();
