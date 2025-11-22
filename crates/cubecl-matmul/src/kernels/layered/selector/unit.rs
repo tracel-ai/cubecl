@@ -1,6 +1,6 @@
 use crate::components::{
-    MatmulElems, MatmulIdent, MatmulKind, MatmulLineSizes, MatmulProblem, MatmulSelection,
-    MatrixLayout, SwizzleConfig, TilingScheme,
+    MatmulElems, MatmulKind, MatmulLineSizes, MatmulProblem, MatmulSelection, MatrixLayout,
+    SwizzleConfig, TilingScheme,
     batch::{CubeCountPlanSelection, GlobalOrderSelection, HypercubeSelection, SmAllocation},
     stage::{PartitionBuffering, SwizzleMode},
 };
@@ -518,21 +518,18 @@ fn selection(
         .hypercube_config(hypercube);
 
     if swizzle {
+        let lhs_swizzle_dim = match problem.lhs_layout {
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_k(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_m(),
+        };
+        let rhs_swizzle_dim = match problem.rhs_layout {
+            MatrixLayout::RowMajor => tiling_scheme.elements_per_stage_along_n(),
+            MatrixLayout::ColMajor => tiling_scheme.elements_per_stage_along_k(),
+        };
+
         builder = builder.shared_swizzle(SwizzleConfig {
-            lhs: select_swizzle(
-                tiling_scheme,
-                MatmulIdent::Lhs,
-                dtypes.lhs_stage,
-                line_sizes.lhs,
-                problem.lhs_layout,
-            ),
-            rhs: select_swizzle(
-                tiling_scheme,
-                MatmulIdent::Rhs,
-                dtypes.rhs_stage,
-                line_sizes.rhs,
-                problem.rhs_layout,
-            ),
+            lhs: select_swizzle(lhs_swizzle_dim, dtypes.lhs_stage, line_sizes.lhs),
+            rhs: select_swizzle(rhs_swizzle_dim, dtypes.rhs_stage, line_sizes.rhs),
             ..Default::default()
         })
     }
@@ -543,21 +540,11 @@ fn selection(
 /// All modes currently use atom size 16
 const SWIZZLE_ATOM: usize = 16;
 
-fn select_swizzle(
-    tiling: TilingScheme,
-    ident: MatmulIdent,
-    elem: StorageType,
-    line_size: u8,
-    layout: MatrixLayout,
-) -> SwizzleMode {
+fn select_swizzle(swizzle_dim: u32, elem: StorageType, line_size: u8) -> SwizzleMode {
     // Can't swizzle if line size > swizzle atom
     if elem.size() * line_size as usize > SWIZZLE_ATOM {
         return SwizzleMode::None;
     }
-    let swizzle_dim = match layout {
-        MatrixLayout::RowMajor => tiling.elements_in_stage_col(ident),
-        MatrixLayout::ColMajor => tiling.elements_in_stage_row(ident),
-    };
     let swizzle_dim_bytes = swizzle_dim as usize * elem.size();
     if !swizzle_dim_bytes.is_power_of_two() {
         return SwizzleMode::None;

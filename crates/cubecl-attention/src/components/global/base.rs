@@ -2,13 +2,12 @@ use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 
 use crate::components::{AttentionElems, global::simple::AttentionWriter};
-use cubecl_matmul::components::{global::memory::GlobalMemoryConfig, stage::StageMemoryConfig};
 use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 use crate::components::{
-    AttentionIdent, AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
-    AttentionSetupError, AttentionTilingScheme, AvailableLineSizes, attention_types::*,
-    global::simple::QueryReader, stage::StageAttentionConfig,
+    AttentionLineSizes, AttentionPrecision, AttentionProblem, AttentionSelection,
+    AttentionSetupError, AvailableLineSizes, attention_types::*, global::simple::QueryReader,
+    stage::StageAttentionConfig,
 };
 use std::{fmt::Debug, hash::Hash};
 
@@ -107,14 +106,5 @@ pub trait GlobalAttentionConfig:
     type StageConfig: StageAttentionConfig;
 
     fn stage_config(&self) -> Self::StageConfig;
-    fn key_stage_memory_config(&self) -> StageMemoryConfig;
-    fn value_stage_memory_config(&self) -> StageMemoryConfig;
-
     fn cube_dim(&self) -> CubeDim;
-    fn plane_dim(&self) -> u32;
-    fn global_memory_config(&self, ident: AttentionIdent) -> GlobalMemoryConfig;
-
-    fn tiling_scheme(&self) -> AttentionTilingScheme;
-
-    fn causal_mask(&self) -> bool;
 }

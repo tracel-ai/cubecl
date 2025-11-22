@@ -1,14 +1,9 @@
 use cubecl::prelude::*;
 use cubecl_core::{self as cubecl};
-use cubecl_matmul::components::{
-    MatrixLayout,
-    global::{
-        PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
-        plane_write,
-        read::tiled::{TiledCoords, TiledLayout},
-    },
-    stage::{StageMemoryConfig, SwizzleMode},
+use cubecl_matmul::components::global::{
+    GlobalWriterConfig, PartitionedStage, WriteEvent, WriteEventExpand, WriteEventListener,
+    plane_write,
+    read::tiled::{TiledCoords, TiledLayout},
 };
 use cubecl_std::tensor::{View, layout::Coords2d};
 
@@ -23,9 +18,7 @@ pub struct PlaneAttentionWriter<ES: Numeric, EO: Numeric> {
     stage: PartitionedStage<ES>,
 
     #[cube(comptime)]
-    plane_dim: u32,
-    #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    config: GlobalWriterConfig,
 }
 
 #[cube]
@@ -40,8 +33,8 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for PlaneAttentionWriter<ES, E
                 &mut this.global,
                 &this.stage.unit_tile,
                 tile,
-                comptime![this.plane_dim],
-                comptime![this.config],
+                this.config.plane_dim,
+                comptime!(this.config.smem_config.elements_per_tile()),
             ),
             _ => {}
         }
@@ -50,39 +43,17 @@ impl<ES: Numeric, EG: Numeric> WriteEventListener for PlaneAttentionWriter<ES, E
 
 #[cube]
 impl<ES: Numeric, EG: Numeric> AttentionWriter<ES, EG> for PlaneAttentionWriter<ES, EG> {
-    fn new<S: StageAttentionConfig>(
+    fn init<S: StageAttentionConfig>(
         global: View<Line<EG>, Coords2d, ReadWrite>,
-        #[comptime] global_config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        let stage_mem_config = comptime! {
-            let elements_in_tile_row = stage_config.tiling_scheme().elements_in_partition_seq_q();
-            let elements_in_tile_col= stage_config.tiling_scheme().elements_in_partition_val_dim();
-            let planes = stage_config.num_planes();
-
-            StageMemoryConfig {
-                num_main_flow_planes: planes,
-                elements_in_tile_row,
-                elements_in_tile_col,
-                // Each plane has its slot in row direction
-                tiles_in_stage_row: planes,
-                // Each plane needs only one slot
-                tiles_in_stage_col: 1,
-                stage_line_size: 1,
-                matrix_layout: MatrixLayout::RowMajor,
-                swizzle: SwizzleMode::None,
-                num_stages: 1,
-            }
-        };
-
         let stage =
-            PartitionedStage::new((PlanePartitioner::seq_q_index(), 0u32), stage_mem_config);
+            PartitionedStage::new((PlanePartitioner::seq_q_index(), 0u32), config.smem_config);
 
         PlaneAttentionWriter::<ES, EG> {
-            global: global.view_mut(TiledLayout::new(global_config)),
+            global: global.view_mut(TiledLayout::new(config.smem_config)),
             stage,
-            plane_dim: stage_config.plane_dim(),
-            config: global_config,
+            config,
         }
     }
 

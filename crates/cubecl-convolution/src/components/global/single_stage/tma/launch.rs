@@ -1,8 +1,8 @@
 use cubecl_core::{CubeCount, CubeDim, Runtime, client::ComputeClient, prelude::ScalarArg};
 use cubecl_matmul::components::{
     InputRuntimeArg, MatmulElems, OutputRuntimeArg,
-    global::{GlobalConfig as _, PartitionedStageFamily, args::MatmulArgs},
-    stage::{StageMatmulFamily, StridedStageFamily},
+    global::{PartitionedStageFamily, args::MatmulArgs},
+    stage::{StageConfig as _, StageMatmulFamily, StridedStageFamily},
 };
 use cubecl_std::FastDivmodArgs;
 
@@ -38,7 +38,7 @@ impl<
         dtypes: &MatmulElems,
     ) {
         let padded_channels =
-            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
+            (problem.channels as u32).next_multiple_of(config.stage_config.elements_in_tile_k());
 
         let size_k = problem.kernel_size.iter().product::<u32>() * padded_channels;
 

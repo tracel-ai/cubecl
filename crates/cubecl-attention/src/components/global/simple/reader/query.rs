@@ -1,4 +1,4 @@
-use crate::components::attention_types::*;
+use crate::components::{AttentionTileSize, attention_types::*};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
@@ -27,12 +27,13 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
     pub fn get_tile<P: AttentionPartitioner, S: StageAttentionConfig>(
         &self,
         tile: Coords2d,
-        #[comptime] config: S,
+        #[comptime] attention_tile_size: AttentionTileSize,
+        #[comptime] partition_seq_q: u32,
+        #[comptime] partition_head_dim: u32,
     ) -> StridedTile<QG<AP>> {
         let (row_in_partition, col) = tile;
-        let attention_tile_size = config.tiling_scheme().tile_size;
 
-        let row = row_in_partition + P::seq_q_index() * config.tiling_scheme().partition_size.seq_q;
+        let row = row_in_partition + P::seq_q_index() * partition_seq_q;
 
         StridedTile::<QG<AP>>::new_strided(
             self.query
@@ -46,9 +47,10 @@ impl<AP: AttentionPrecision> QueryReader<AP> {
                 .to_linear_slice(),
             0,
             attention_tile_size.seq_q * attention_tile_size.head_dim,
-            config.tiling_scheme().elements_in_partition_head_dim(),
+            partition_head_dim * attention_tile_size.head_dim,
             Swizzle::none(),
             MatrixLayout::RowMajor,
+            1u32,
         )
     }
 }

@@ -1,9 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::components::global::{GlobalConfig, RoleRule};
+use crate::components::global::GlobalReaderConfig;
+use crate::components::global::RoleRule;
+use crate::components::stage::SwizzleMode;
 use crate::components::stage::{LoadStageFamily, StageMemoryConfig, TilingLayout};
 use crate::components::tile::StridedTile;
-use crate::components::{MatmulIdent, stage::SwizzleMode};
 use crate::components::{global::read::StageBuffer, stage::StageFamily};
 use crate::components::{stage::Stage, tile::io::Strided};
 use cubecl_core as cubecl;
@@ -41,7 +42,7 @@ pub struct StridedStageMemory<ES: Numeric, T: TilingLayout> {
 impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
     /// Instantiate a new stage memory for the given identifier
     pub fn new(#[comptime] config: StageMemoryConfig) -> StridedStageMemory<ES, T> {
-        Self::new_aligned(type_size::<ES>(config.stage_line_size), config)
+        Self::new_aligned(type_size::<ES>(config.line_size), config)
     }
 
     /// Instantiate a new stage memory for the given identifier, with shared memory alignment
@@ -49,13 +50,13 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
         #[comptime] alignment: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedStageMemory<ES, T> {
-        let line_size = config.stage_line_size;
+        let line_size = config.line_size;
         let swizzle = as_swizzle_object(config.swizzle);
         let swizzle_align = swizzle.repeats_after();
         let align = comptime![Ord::max(alignment, swizzle_align)];
         let type_size = type_size::<ES>(line_size);
 
-        let stage_size_bytes = comptime![config.elements_in_stage() * type_size];
+        let stage_size_bytes = comptime![config.elements_per_stage() * type_size];
         // Ensure all stages are aligned properly
         let stage_size =
             comptime![stage_size_bytes.next_multiple_of(align) / type_size / line_size];
@@ -128,6 +129,7 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
             stride: tile.stride,
             swizzle: tile.swizzle,
             layout: tile.layout,
+            line_size: tile.line_size,
         }
     }
 
@@ -149,20 +151,16 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
 
     /// Zero out the shared memory
     /// Available for matmul only
-    pub fn clear_all<G: GlobalConfig>(
-        &mut self,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
-    ) {
+    pub fn clear_all(&mut self, #[comptime] config: GlobalReaderConfig) {
         // TODO: this assumes the stage was created with new
         let smem_length = comptime!(self.config.num_stages * self.stage_size);
 
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
-        let num_writes_per_unit = comptime![smem_length.div_ceil(unit_count)];
+        let unit_count = config.loading_units_count();
+        let num_writes_per_unit = smem_length.div_ceil(unit_count);
 
-        let unit_base_position = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_base_position = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
+            * config.plane_dim
             + UNIT_POS_X;
 
         for i in 0..num_writes_per_unit {
@@ -181,21 +179,20 @@ impl<ES: Numeric, T: TilingLayout> StridedStageMemory<ES, T> {
 
     /// Zero out the shared memory for only one stage
     /// Available for matmul only
-    pub fn clear_stage<G: GlobalConfig>(
+    pub fn clear_stage(
         &mut self,
         #[comptime] stage_buffer: StageBuffer,
-        #[comptime] ident: MatmulIdent,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let mut this = self.with_buffer_index(stage_buffer.to_index());
-        let line_size = comptime![this.config.stage_line_size];
+        let line_size = comptime![this.config.line_size];
 
-        let unit_count = config.num_loading_planes(ident) * config.plane_dim();
+        let unit_count = config.loading_units_count();
         let num_writes_per_unit = comptime![this.stage_size.div_ceil(unit_count)];
 
-        let unit_base_position = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_base_position = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
+            * config.plane_dim
             + UNIT_POS_X;
 
         let mut stage = this.as_slice_mut(line_size);

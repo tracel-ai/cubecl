@@ -141,7 +141,7 @@ cubecl-attention = { path = "../cubecl-attention", version = "0.9.0-pre.2", feat
 cubecl-convolution = { path = "../cubecl-convolution", version = "0.9.0-pre.2", features = [
     "export_tests",
 ] }
-cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.2", features = [
+cubecl-core = { path = "../cubecl-core", version = "0.9.0-pre.1", features = [
     "export_tests",
 ] }
 cubecl-matmul = { path = "../cubecl-matmul", version = "0.9.0-pre.2", features = [

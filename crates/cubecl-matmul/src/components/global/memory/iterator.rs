@@ -19,7 +19,7 @@ pub struct GlobalIterator<EI: CubePrimitive> {
 unsafe impl<EG: CubePrimitive> Sync for GlobalIterator<EG> {}
 unsafe impl<EG: CubePrimitive> Send for GlobalIterator<EG> {}
 
-#[derive(CubeType, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ViewDirection {
     Row,
     Col,

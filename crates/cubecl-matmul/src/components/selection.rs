@@ -11,7 +11,6 @@ use crate::components::{
 pub struct MatmulSelection {
     pub plane_dim: u32,
     pub tiling_scheme: TilingScheme,
-    pub quantized: bool,
     pub shared_swizzle: SwizzleConfig,
     pub partition_buffering: PartitionBuffering,
     pub loading_precompute_strategy: LoadingPrecomputeStrategy,
@@ -75,7 +74,6 @@ pub struct MatmulSelectionBuilder {
     pub tiling_scheme: Option<TilingScheme>,
     shared_swizzle: SwizzleConfig,
     hypercube_selection: Option<HypercubeSelection>,
-    quantized: bool,
     partition_buffering: PartitionBuffering,
     loading_precompute_strategy: LoadingPrecomputeStrategy,
     reader_mode: ReaderMode,
@@ -89,7 +87,6 @@ impl MatmulSelectionBuilder {
             tiling_scheme: None,
             shared_swizzle: Default::default(),
             hypercube_selection: None,
-            quantized: false,
             partition_buffering: PartitionBuffering::default(),
             loading_precompute_strategy: LoadingPrecomputeStrategy::default(),
             reader_mode: ReaderMode::default(),
@@ -114,11 +111,6 @@ impl MatmulSelectionBuilder {
 
     pub fn hypercube_config(mut self, hypercube_config: HypercubeSelection) -> Self {
         self.hypercube_selection = Some(hypercube_config);
-        self
-    }
-
-    pub fn quantized(mut self, quantized: bool) -> Self {
-        self.quantized = quantized;
         self
     }
 
@@ -154,7 +146,6 @@ impl MatmulSelectionBuilder {
             tiling_scheme: self.tiling_scheme.unwrap(),
             shared_swizzle: self.shared_swizzle,
             hypercube_selection: self.hypercube_selection.unwrap(),
-            quantized: self.quantized,
             partition_buffering: self.partition_buffering,
             loading_precompute_strategy: self.loading_precompute_strategy,
             reader_mode: self.reader_mode,

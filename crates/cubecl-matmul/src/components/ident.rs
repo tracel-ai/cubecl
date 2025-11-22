@@ -42,3 +42,14 @@ impl From<MatmulIdent> for StageIdent {
         }
     }
 }
+
+impl From<StageIdent> for MatmulIdent {
+    fn from(matmul_ident: StageIdent) -> Self {
+        match matmul_ident {
+            StageIdent::Lhs => MatmulIdent::Lhs,
+            StageIdent::Rhs => MatmulIdent::Rhs,
+            StageIdent::Acc => MatmulIdent::Out,
+            StageIdent::Out => MatmulIdent::Out,
+        }
+    }
+}

@@ -1,6 +1,6 @@
+use crate::components::ConvGemmConfig;
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_matmul::components::global::GlobalConfig;
 use cubecl_matmul::components::{InputArg, MatmulSelection, OutputArg};
 use cubecl_matmul::components::{MatmulElems, MatmulIdent};
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
@@ -9,7 +9,7 @@ use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
 use crate::{
     components::{
-        ConvGemmConfig as _, ConvolutionProblem,
+        ConvolutionProblem,
         global::{
             args::{ConcreteInputsFactory, ConcreteOutputFactory},
             entry_point::ConvolutionLaunch,

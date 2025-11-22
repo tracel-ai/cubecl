@@ -24,6 +24,9 @@ pub struct StridedTile<ES: Numeric, IO: SliceVisibility = ReadOnly> {
     #[cube(comptime)]
     /// Layout of the tile (row-major or column-major).
     pub layout: MatrixLayout,
+    #[cube(comptime)]
+    /// Line size of the slice
+    pub line_size: u32,
 }
 
 #[cube]
@@ -36,14 +39,14 @@ impl<ES: Numeric> StridedTile<ES> {
         start: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
-        let len = config.elements_in_tile() / config.stage_line_size;
+        let len = config.elements_per_tile() / config.line_size;
         let layout = config.matrix_layout;
         let stride = match layout {
-            MatrixLayout::RowMajor => config.elements_in_tile_col,
-            MatrixLayout::ColMajor => config.elements_in_tile_row,
+            MatrixLayout::RowMajor => config.elements_per_tile_along_col,
+            MatrixLayout::ColMajor => config.elements_per_tile_along_row,
         };
 
-        let stride = comptime![stride / config.stage_line_size];
+        let stride = comptime![stride / config.line_size];
 
         StridedTile::<ES> {
             stage,
@@ -52,6 +55,7 @@ impl<ES: Numeric> StridedTile<ES> {
             stride,
             swizzle: as_swizzle_object(config.swizzle),
             layout,
+            line_size: config.line_size,
         }
     }
 
@@ -63,14 +67,14 @@ impl<ES: Numeric> StridedTile<ES> {
         start: u32,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES, ReadWrite> {
-        let len = config.elements_in_tile() / config.stage_line_size;
+        let len = config.elements_per_tile() / config.line_size;
         let layout = config.matrix_layout;
         let stride = match layout {
-            MatrixLayout::RowMajor => config.elements_in_tile_col,
-            MatrixLayout::ColMajor => config.elements_in_tile_row,
+            MatrixLayout::RowMajor => config.elements_per_tile_along_col,
+            MatrixLayout::ColMajor => config.elements_per_tile_along_row,
         };
 
-        let stride = comptime![stride / config.stage_line_size];
+        let stride = comptime![stride / config.line_size];
 
         StridedTile::<ES, ReadWrite> {
             stage,
@@ -79,6 +83,7 @@ impl<ES: Numeric> StridedTile<ES> {
             stride,
             swizzle: as_swizzle_object(config.swizzle),
             layout,
+            line_size: config.line_size,
         }
     }
 
@@ -92,6 +97,7 @@ impl<ES: Numeric> StridedTile<ES> {
         stride: u32,
         swizzle: Swizzle,
         #[comptime] layout: MatrixLayout,
+        #[comptime] line_size: u32,
     ) -> StridedTile<ES> {
         StridedTile::<ES> {
             stage,
@@ -100,6 +106,7 @@ impl<ES: Numeric> StridedTile<ES> {
             stride,
             swizzle,
             layout,
+            line_size,
         }
     }
 
@@ -113,6 +120,7 @@ impl<ES: Numeric> StridedTile<ES> {
         stride: u32,
         swizzle: Swizzle,
         #[comptime] layout: MatrixLayout,
+        #[comptime] line_size: u32,
     ) -> StridedTile<ES, ReadWrite> {
         StridedTile::<ES, ReadWrite> {
             stage,
@@ -121,6 +129,7 @@ impl<ES: Numeric> StridedTile<ES> {
             stride,
             swizzle,
             layout,
+            line_size,
         }
     }
 }
