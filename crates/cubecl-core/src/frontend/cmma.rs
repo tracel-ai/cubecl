@@ -52,7 +52,7 @@ use super::{
 };
 use crate::{
     self as cubecl,
-    prelude::{Array, Line},
+    prelude::{Array, Line, ReadWrite},
 };
 use crate::{
     ir::{self, Instruction},
@@ -562,6 +562,42 @@ impl<A: CubePrimitive, B: CubePrimitive, CD: CubePrimitive> MmaDefinition<A, B, 
                 *out.expand,
             ));
             out
+        })
+    }
+
+    /// Store one or more matrix register using intrinsic instructions. CUDA only.
+    /// The number of matrices must be 1, 2, or 4. The rows for the nth matrix are passed by the 8
+    /// lanes starting at `n * 8`. All slice starts must be valid, even for non-participating lanes.
+    /// The slice determines the starting address for a 16-byte row loaded by this unit, with
+    /// the row index being `UNIT_POS_PLANE % 8`.
+    /// The number of elements is determined by element size.
+    ///
+    /// # Constraints:
+    /// Address must be aligned to 16 bytes
+    /// Address must be in shared memory
+    #[allow(unused_variables)]
+    pub fn store_matrix<E: CubePrimitive>(
+        &self,
+        row: &mut Slice<Line<E>, ReadWrite>,
+        registers: &Array<Line<E>>,
+        #[comptime] ident: MatrixIdent,
+        #[comptime] num_matrices: u32,
+        #[comptime] transpose: bool,
+    ) {
+        intrinsic!(|scope| {
+            let line_size = self.__expand_line_size_method(scope, ident);
+            let slice_line_size = row.line_size;
+            let (buffer, offset) = row.__to_raw_parts();
+            scope.register(Instruction::new(
+                CoopMma::StoreMatrix {
+                    offset,
+                    line_size: slice_line_size,
+                    registers: *registers.expand,
+                    factor: num_matrices,
+                    transpose,
+                },
+                buffer,
+            ));
         })
     }
 

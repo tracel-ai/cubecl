@@ -152,7 +152,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
                     WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
                 ),
-                shared::WmmaInstruction::LdMatrix { .. } => {
+                shared::WmmaInstruction::LdMatrix { .. }
+                | shared::WmmaInstruction::StMatrix { .. } => {
                     unimplemented!("Not supported for HIP");
                 }
                 shared::WmmaInstruction::Execute {

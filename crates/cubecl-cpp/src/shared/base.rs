@@ -822,9 +822,20 @@ impl<D: Dialect> CppCompiler<D> {
                 factor,
                 transpose,
             },
-            gpu::CoopMma::StoreMatrix { .. } => {
-                todo!()
-            }
+            gpu::CoopMma::StoreMatrix {
+                offset,
+                line_size,
+                registers,
+                factor,
+                transpose,
+            } => WmmaInstruction::StMatrix {
+                registers: self.compile_variable(registers),
+                buffer: out,
+                offset: self.compile_variable(offset),
+                line_size,
+                factor,
+                transpose,
+            },
             gpu::CoopMma::Cast { input } => WmmaInstruction::Cast {
                 input: self.compile_variable(input),
                 output: out,

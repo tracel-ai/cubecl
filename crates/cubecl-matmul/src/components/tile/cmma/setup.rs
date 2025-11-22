@@ -29,6 +29,10 @@ where
         true
     }
 
+    fn can_cast_stage_element() -> bool {
+        false
+    }
+
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Planes(1))
     }

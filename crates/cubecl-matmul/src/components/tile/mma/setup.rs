@@ -1,5 +1,5 @@
-use crate::components::tile::SharedTileConfig;
 use crate::components::tile::mma::config::{LoadMethod, MmaMatmulConfig};
+use crate::components::tile::{SharedTileConfig, mma::config::StoreMethod};
 use crate::components::{
     InvalidConfigError, MatmulAvailabilityError, MatmulElems, MatmulLineSizes, MatmulProblem,
     MatmulSelection,
@@ -38,6 +38,10 @@ where
         true
     }
 
+    fn can_cast_stage_element() -> bool {
+        true
+    }
+
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Planes(1))
     }
@@ -58,6 +62,7 @@ where
             load_method::<R>(client, dtypes.lhs_stage),
             load_method::<R>(client, dtypes.rhs_stage),
             load_method::<R>(client, dtypes.acc_stage),
+            store_method::<R>(client, dtypes.acc_stage),
         );
 
         validate::<R>(tile_config, client, dtypes)
@@ -126,5 +131,13 @@ fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType
         LoadMethod::LoadMatrix
     } else {
         LoadMethod::Manual
+    }
+}
+
+fn store_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> StoreMethod {
+    if client.properties().features.stmatrix.contains(&dtype) {
+        StoreMethod::StoreMatrix
+    } else {
+        StoreMethod::Manual
     }
 }

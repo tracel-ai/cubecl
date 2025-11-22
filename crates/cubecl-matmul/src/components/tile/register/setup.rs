@@ -31,6 +31,10 @@ where
         false
     }
 
+    fn can_cast_stage_element() -> bool {
+        true
+    }
+
     fn computation_resources() -> Result<ComputeResources, InvalidConfigError> {
         Ok(ComputeResources::Units(1))
     }

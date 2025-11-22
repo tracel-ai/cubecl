@@ -58,7 +58,7 @@ pub fn test_convolution_algorithm<A, P, R>(
     .pick_max()
     .unwrap();
 
-    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, f32)>();
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, f32))>();
     let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
@@ -130,7 +130,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         &dtypes,
     );
 
-    let dtypes = MatmulElems::new::<(P::EG, P::EG, P::EG, P::ES, P::ES, P::EA)>();
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, P::EA))>();
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<A::Args, R>(

@@ -5,7 +5,7 @@ use crate::{
     cuda::{
         CudaDialect,
         arch::CudaArchitecture,
-        ptx::{comma_separated, ldmatrix_call},
+        ptx::{comma_separated, ldmatrix_call, stmatrix_call},
     },
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
@@ -140,6 +140,16 @@ asm volatile(
                 transpose,
             } => f.write_str(&ldmatrix_call(
                 output, buffer, offset, line_size, factor, transpose,
+            )),
+            WmmaInstruction::StMatrix {
+                registers,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&stmatrix_call(
+                registers, buffer, offset, line_size, factor, transpose,
             )),
             WmmaInstruction::Execute {
                 frag_a: var_a,

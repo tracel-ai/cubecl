@@ -11,12 +11,19 @@ pub enum LoadMethod {
     LoadMatrix,
 }
 
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub enum StoreMethod {
+    Manual,
+    StoreMatrix,
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct MmaMatmulConfig {
     pub shared: SharedTileConfig,
     lhs_load_method: LoadMethod,
     rhs_load_method: LoadMethod,
     acc_load_method: LoadMethod,
+    store_method: StoreMethod,
 }
 
 impl MmaMatmulConfig {
@@ -25,12 +32,14 @@ impl MmaMatmulConfig {
         lhs_load_method: LoadMethod,
         rhs_load_method: LoadMethod,
         acc_load_method: LoadMethod,
+        store_method: StoreMethod,
     ) -> Self {
         Self {
             shared,
             lhs_load_method,
             rhs_load_method,
             acc_load_method,
+            store_method,
         }
     }
 
@@ -40,6 +49,10 @@ impl MmaMatmulConfig {
             MatrixIdent::B => self.rhs_load_method,
             MatrixIdent::Accumulator => self.acc_load_method,
         }
+    }
+
+    pub fn store_method(&self) -> StoreMethod {
+        self.store_method
     }
 }
 

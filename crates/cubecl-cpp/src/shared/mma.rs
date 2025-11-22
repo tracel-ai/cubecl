@@ -160,6 +160,15 @@ pub enum WmmaInstruction<D: Dialect> {
         factor: u32,
         transpose: bool,
     },
+    /// Store a part of a fragment into smem, either 1, 2, or 4 at once.
+    StMatrix {
+        registers: Variable<D>,
+        buffer: Variable<D>,
+        offset: Variable<D>,
+        line_size: Option<u32>,
+        factor: u32,
+        transpose: bool,
+    },
     /// Cast
     Cast {
         input: Variable<D>,
@@ -192,7 +201,10 @@ impl<D: Dialect> Display for WmmaInstruction<D> {
 }
 
 pub mod wmma_api_base {
-    use crate::{cuda::ptx::ldmatrix_call, shared::ManualMma};
+    use crate::{
+        cuda::ptx::{ldmatrix_call, stmatrix_call},
+        shared::ManualMma,
+    };
 
     use super::*;
 
@@ -327,6 +339,16 @@ pub mod wmma_api_base {
                 transpose,
             } => f.write_str(&ldmatrix_call(
                 output, buffer, offset, line_size, factor, transpose,
+            )),
+            WmmaInstruction::StMatrix {
+                registers,
+                buffer,
+                offset,
+                line_size,
+                factor,
+                transpose,
+            } => f.write_str(&stmatrix_call(
+                registers, buffer, offset, line_size, factor, transpose,
             )),
             WmmaInstruction::Execute {
                 frag_a,
