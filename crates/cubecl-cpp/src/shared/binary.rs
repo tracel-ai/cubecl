@@ -324,7 +324,6 @@ impl<D: Dialect> Binary<D> for Powi {
         f.write_str("};\n")
     }
 }
-
 pub struct ArcTan2;
 
 impl<D: Dialect> Binary<D> for ArcTan2 {
@@ -347,6 +346,112 @@ impl<D: Dialect> Binary<D> for ArcTan2 {
     }
 
     // ArcTan2 doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
+
+pub struct Hypot;
+
+impl<D: Dialect> Binary<D> for Hypot {
+    // Hypot doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs, Rhs>(
+        f: &mut Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result
+    where
+        Lhs: Component<D>,
+        Rhs: Component<D>,
+    {
+        let elem = item.elem;
+        let lhs = lhs.to_string();
+        let rhs = rhs.to_string();
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                let lhs = format!("float({lhs})");
+                let rhs = format!("float({rhs})");
+                write!(f, "{elem}(")?;
+                D::compile_instruction_hypot(f, &lhs, &rhs, Elem::F32)?;
+                write!(f, ")")
+            }
+            _ => D::compile_instruction_hypot(f, &lhs, &rhs, elem),
+        }
+    }
+
+    // Hypot doesn't support half and no half equivalent exists
+    fn unroll_vec(
+        f: &mut Formatter<'_>,
+        lhs: &Variable<D>,
+        rhs: &Variable<D>,
+        out: &Variable<D>,
+    ) -> core::fmt::Result {
+        let item_out = out.item();
+        let index = out.item().vectorization;
+
+        let out = out.fmt_left();
+        writeln!(f, "{out} = {item_out}{{")?;
+        for i in 0..index {
+            let lhsi = lhs.index(i);
+            let rhsi = rhs.index(i);
+
+            Self::format_scalar(f, lhsi, rhsi, item_out)?;
+            f.write_str(", ")?;
+        }
+
+        f.write_str("};\n")
+    }
+}
+
+pub struct Rhypot;
+
+impl<D: Dialect> Binary<D> for Rhypot {
+    // Rhypot doesn't support half and no half equivalent exists
+    fn format_scalar<Lhs, Rhs>(
+        f: &mut Formatter<'_>,
+        lhs: Lhs,
+        rhs: Rhs,
+        item: Item<D>,
+    ) -> std::fmt::Result
+    where
+        Lhs: Component<D>,
+        Rhs: Component<D>,
+    {
+        let elem = item.elem;
+        let lhs = lhs.to_string();
+        let rhs = rhs.to_string();
+        match elem {
+            Elem::F16 | Elem::F16x2 | Elem::BF16 | Elem::BF16x2 => {
+                let lhs = format!("float({lhs})");
+                let rhs = format!("float({rhs})");
+                write!(f, "{elem}(")?;
+                D::compile_instruction_rhypot(f, &lhs, &rhs, Elem::F32)?;
+                write!(f, ")")
+            }
+            _ => D::compile_instruction_rhypot(f, &lhs, &rhs, elem),
+        }
+    }
+
+    // Rhypot doesn't support half and no half equivalent exists
     fn unroll_vec(
         f: &mut Formatter<'_>,
         lhs: &Variable<D>,

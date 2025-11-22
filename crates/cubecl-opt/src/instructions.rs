@@ -79,6 +79,8 @@ impl Optimizer {
             | Arithmetic::Div(binary_operator)
             | Arithmetic::Powf(binary_operator)
             | Arithmetic::Powi(binary_operator)
+            | Arithmetic::Hypot(binary_operator)
+            | Arithmetic::Rhypot(binary_operator)
             | Arithmetic::Modulo(binary_operator)
             | Arithmetic::Max(binary_operator)
             | Arithmetic::Min(binary_operator)
