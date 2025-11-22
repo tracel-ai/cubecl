@@ -27,6 +27,7 @@ exclusive-memory-only = []
 profile-tracy = ["dep:tracy-client"]
 std = ["cubecl-common/std", "toml", "dirs"]
 storage-bytes = []
+plugin = []
 
 [dependencies]
 async-channel = { workspace = true }                                                       # Assume std
