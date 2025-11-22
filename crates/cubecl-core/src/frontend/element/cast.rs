@@ -14,7 +14,7 @@ pub trait Cast: CubePrimitive {
         scope: &mut Scope,
         value: ExpandElementTyped<From>,
     ) -> <Self as CubeType>::ExpandType {
-        if core::any::TypeId::of::<Self>() == core::any::TypeId::of::<From>() {
+        if Self::as_type(scope) == From::as_type(scope) {
             return value.expand.into();
         }
         let line_size_in = value.expand.ty.line_size();
@@ -22,7 +22,7 @@ pub trait Cast: CubePrimitive {
             / Self::as_type(scope).packing_factor();
         let new_var = scope
             .create_local(Type::new(<Self as CubePrimitive>::as_type(scope)).line(line_size_out));
-        cast::expand(scope, value, new_var.clone().into());
+        cast::expand::<From, Self>(scope, value, new_var.clone().into());
         new_var.into()
     }
 }

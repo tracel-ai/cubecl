@@ -79,7 +79,7 @@ mod fill {
                 let length = self.expand.ty.line_size();
                 let output = scope.create_local(Type::new(P::as_type(scope)).line(length));
 
-                cast::expand::<P>(scope, value, output.clone().into());
+                cast::expand::<P, Line<P>>(scope, value, output.clone().into());
 
                 output.into()
             })

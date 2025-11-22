@@ -3,9 +3,12 @@ use std::marker::PhantomData;
 use cubecl_ir::ExpandElement;
 use num_traits::NumCast;
 
-use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
 use crate::prelude::Clamp;
+use crate::{
+    CubeScalar,
+    frontend::{CubePrimitive, CubeType},
+};
 use crate::{Runtime, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
@@ -26,7 +29,6 @@ pub trait Numeric:
     + Remainder
     + CubePrimitive
     + IntoRuntime
-    + ScalarArgSettings
     + ExpandElementIntoMut
     + Into<ExpandElementTyped<Self>>
     + num_traits::NumCast
@@ -95,6 +97,12 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Self> {
         builder.scalar(Self::as_type(&builder.scope)).into()
+    }
+}
+
+impl<E: CubeScalar> ScalarArgSettings for E {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        launcher.register_scalar(*self);
     }
 }
 
