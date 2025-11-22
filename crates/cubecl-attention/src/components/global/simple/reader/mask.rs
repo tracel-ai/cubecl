@@ -1,4 +1,5 @@
-use crate::components::attention_types::*;
+use crate::components::tile::TileAttentionConfig;
+use crate::components::{AttentionTileSize, attention_types::*};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::MatrixLayout;
@@ -63,9 +64,10 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         mask: View<Line<MSK<AP>>, Coords2d>,
         step: u32,
         seq_kv_shape: u32,
+        #[comptime] view_direction: ViewDirection,
     ) -> Self {
         let mask = mask.slice((stage_q_offset, 0), mask.shape());
-        let global_iter = GlobalIterator::new(mask, step, ViewDirection::Col, false);
+        let global_iter = GlobalIterator::new(mask, step, view_direction, false);
 
         MaskReader::<AP>::new_Materialized(MaterializedMaskReader::new(
             global_iter,
@@ -80,16 +82,18 @@ impl<AP: AttentionPrecision> MaskReader<AP> {
         #[comptime] config: S,
     ) -> (Coords2d, CubeOption<StridedTile<MSK<AP>>>) {
         let partition_tile_offset = (
-            pos_in_partition.0 * config.tiling_scheme().elements_in_tile_seq_q(),
-            pos_in_partition.1 * config.tiling_scheme().elements_in_tile_seq_kv(),
+            pos_in_partition.0 * config.elements_in_tile_seq_q(),
+            pos_in_partition.1 * config.elements_in_tile_seq_kv(),
         );
 
         let (origin, tile) = match self {
             MaskReader::Materialized(materialized_mask_reader) => (
                 materialized_mask_reader.logical_iter.read(),
-                CubeOption::new_Some(
-                    materialized_mask_reader.read::<P, S>(partition_tile_offset, config),
-                ),
+                CubeOption::new_Some(materialized_mask_reader.read::<P>(
+                    partition_tile_offset,
+                    config.tile_config().attention_tile_size(),
+                    config.elements_in_partition_seq_q(),
+                )),
             ),
             MaskReader::Logical(logical_iter) => (logical_iter.read(), CubeOption::new_None()),
         };
@@ -121,16 +125,15 @@ impl<M: Numeric> MaterializedMaskReader<M> {
         }
     }
 
-    fn read<P: AttentionPartitioner, S: StageAttentionConfig>(
+    fn read<P: AttentionPartitioner>(
         &self,
         #[comptime] partition_tile_offset: Coords2d,
-        #[comptime] config: S,
+        #[comptime] attention_tile_size: AttentionTileSize,
+        #[comptime] elements_in_partition_seq_q: u32,
     ) -> StridedTile<M> {
         let (row_offset, col) = partition_tile_offset;
-        let attention_tile_size = config.tiling_scheme().tile_size;
 
-        let row =
-            row_offset + P::seq_q_index() * config.tiling_scheme().elements_in_partition_seq_q();
+        let row = row_offset + P::seq_q_index() * elements_in_partition_seq_q;
 
         StridedTile::<M>::new_strided(
             self.global_iter
@@ -145,6 +148,7 @@ impl<M: Numeric> MaterializedMaskReader<M> {
             self.seq_kv_shape,
             Swizzle::none(),
             MatrixLayout::RowMajor,
+            1u32,
         )
     }
 

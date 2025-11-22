@@ -1,9 +1,9 @@
 use std::marker::PhantomData;
 
 use crate::components::{
-    InvalidConfigError, MatmulElems, MatmulIdent, MatrixLayout, TilingScheme,
+    InvalidConfigError, MatmulElems, MatrixLayout,
     global::{
-        GlobalConfig, RoleRule,
+        GlobalReaderConfig, RoleRule,
         memory::{GlobalIterator, load_window_in_tile},
         multi_stage::LoadMaxRoundPlaneCount,
         read::{
@@ -30,15 +30,14 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 }
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
-    fn check<C: GlobalConfig, R: Runtime>(
+    fn check<R: Runtime>(
         client: &ComputeClient<R::Server>,
-        config: &C,
-        ident: MatmulIdent,
+        config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
-        let total_units = config.num_loading_planes(ident) * config.plane_dim();
-        let num_slices = config.tiling_scheme().elements_in_tile_row(ident)
-            * config.tiling_scheme().tiles_in_stage(ident);
+        let total_units = config.loading_planes_count() * config.plane_dim;
+        let num_slices =
+            config.smem_config.elements_per_tile_along_row * config.smem_config.tiles_per_stage();
 
         if num_slices >= total_units && !num_slices.is_multiple_of(total_units) {
             return Err(Box::new(format!(
@@ -46,9 +45,9 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
             )));
         }
 
-        ContiguousTilingLayout::<T>::check(config.global_memory_config(ident))?;
+        ContiguousTilingLayout::<T>::check(config.smem_config)?;
         validate_async_barrier::<R>(client)?;
-        validate_noswizzle(config.stage_memory_config(ident))?;
+        validate_noswizzle(config.smem_config)?;
 
         Ok(())
     }
@@ -56,8 +55,8 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
 
 impl<TO: TilingOrder> LoadMaxRoundPlaneCount for AsyncFullCyclicLoading<TO> {
     fn max_round_plane_count(
-        _tiling_scheme: &TilingScheme,
-        _ident: MatmulIdent,
+        _elements_per_tile: u32,
+        _tiles_per_stage: u32,
         _line_size: u8,
         _plane_dim: u32,
     ) -> u32 {
@@ -75,31 +74,29 @@ impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
 
     const SHOULD_CLEAR: bool = true;
 
-    fn new_job<EG: Numeric, ES: Numeric, G: GlobalConfig>(
-        #[comptime] ident: MatmulIdent,
+    fn new_job<EG: Numeric, ES: Numeric>(
         #[comptime] line_size: u32,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) -> AsyncFullCyclicJob {
-        let total_units = config.plane_dim() * config.num_loading_planes(ident);
+        let total_units = config.loading_units_count();
 
-        let (num_slices_per_tile, slice_length_in_lines) = match config.matrix_layout(ident) {
+        let (num_slices_per_tile, slice_length_in_lines) = match config.gmem_config.matrix_layout {
             MatrixLayout::RowMajor => (
-                config.tiling_scheme().elements_in_tile_row(ident),
-                config.tiling_scheme().elements_in_tile_col(ident) / line_size,
+                config.smem_config.elements_per_tile_along_row,
+                config.smem_config.elements_per_tile_along_col / line_size,
             ),
             MatrixLayout::ColMajor => (
-                config.tiling_scheme().elements_in_tile_col(ident),
-                config.tiling_scheme().elements_in_tile_row(ident) / line_size,
+                config.smem_config.elements_per_tile_along_col,
+                config.smem_config.elements_per_tile_along_row / line_size,
             ),
         };
 
-        let num_slices =
-            comptime!(num_slices_per_tile * config.tiling_scheme().tiles_in_stage(ident));
+        let num_slices = comptime!(num_slices_per_tile * config.smem_config.tiles_per_stage());
         let num_tasks_per_unit = num_slices.div_ceil(total_units);
 
-        let unit_id = RoleRule::new(config.role_rule_config())
-            .load_index(ident, config.specialized_loading_sides())
-            * config.plane_dim()
+        let unit_id = RoleRule::new(config.plane_role_config.rule)
+            .load_index(config.specialization_tensor_config)
+            * config.plane_dim
             + UNIT_POS_X;
 
         AsyncFullCyclicJob {
@@ -107,7 +104,6 @@ impl<TO: TilingOrder> FullLoadingStrategy for AsyncFullCyclicLoading<TO> {
             num_tasks_per_unit,
             total_units,
             num_slices,
-            ident,
             num_slices_per_tile,
             slice_length_in_lines,
             line_size,
@@ -126,8 +122,6 @@ pub struct AsyncFullCyclicJob {
     #[cube(comptime)]
     num_slices: u32,
     #[cube(comptime)]
-    ident: MatmulIdent,
-    #[cube(comptime)]
     num_slices_per_tile: u32,
     #[cube(comptime)]
     slice_length_in_lines: u32,
@@ -141,21 +135,19 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
 {
     type Stage = StridedStageFamily;
 
-    fn execute_task<G: GlobalConfig>(
+    fn execute_task(
         this: &mut Self,
         #[comptime] task_id: u32,
         global_iter: &GlobalIterator<Line<EG>>,
         stage: &mut StridedStageMemory<ES, ContiguousTilingLayout<TO>>,
         barrier: &mut Barrier,
-        #[comptime] config: G,
+        #[comptime] config: GlobalReaderConfig,
     ) {
         let slice_index = this.unit_id + this.total_units * task_id;
 
         let nth_tile = slice_index / this.num_slices_per_tile;
-        let (tile_x, tile_y) = ContiguousTilingLayout::<TO>::to_x_y(
-            nth_tile,
-            comptime!(config.stage_memory_config(this.ident)),
-        );
+        let (tile_x, tile_y) =
+            ContiguousTilingLayout::<TO>::to_x_y(nth_tile, comptime!(config.smem_config));
         let nth_slice = slice_index % this.num_slices_per_tile;
 
         // TODO make branching comptime conditional (using Reader Mode)
@@ -164,7 +156,8 @@ impl<EG: Numeric, ES: Numeric, TO: TilingOrder>
                 &global_iter.view(),
                 (tile_x, tile_y),
                 nth_slice,
-                comptime!(config.global_memory_config(this.ident)),
+                config.smem_config,
+                config.gmem_config,
             );
 
             // Where this unit writes source in the stage

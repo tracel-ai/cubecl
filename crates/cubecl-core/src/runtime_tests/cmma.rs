@@ -977,14 +977,12 @@ pub fn kernel_manual_ldmatrix<AB: Numeric, CD: Numeric>(
 
     let registers_b = def.load_matrix(&slice_b, MatrixIdent::B, line_count_b, true);
 
-    let elem_count_c = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_c = def.line_size(MatrixIdent::Accumulator);
-    let line_count_c = comptime!(elem_count_c / line_size_c);
+    let line_count_c = def.lines_per_lane(MatrixIdent::Accumulator);
     let mut registers_c = Array::<Line<CD>>::vectorized(line_count_c, line_size_c);
 
-    let elem_count_d = def.elems_per_lane(MatrixIdent::Accumulator);
     let line_size_d = def.line_size(MatrixIdent::Accumulator);
-    let line_count_d = comptime!(elem_count_d / line_size_d);
+    let line_count_d = def.lines_per_lane(MatrixIdent::Accumulator);
 
     // Load C
     #[unroll]

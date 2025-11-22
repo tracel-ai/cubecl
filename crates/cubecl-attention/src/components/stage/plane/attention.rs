@@ -6,20 +6,19 @@ use crate::components::{
     global::simple::PlaneAttentionWriter,
     stage::{
         BroadcastReducer, partition_attention::PartitionAttention,
-        partitioner::AttentionPartitioner, plane::PlanePartitionStageConfig,
+        partitioner::AttentionPartitioner,
     },
-    tile::TileAttention,
 };
 
-pub type PlanePartitionAttention<AP, SK, SV, SO, FA> = PartitionAttention<
-    AP,
-    SK,
-    SV,
-    SO,
-    FA,
-    PlanePartitioner,
-    PlanePartitionStageConfig<<FA as TileAttention<AP>>::Config>,
->;
+use crate::components::{stage::SharedPartitionAttentionConfig, tile::TileAttentionConfig};
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct PlanePartitionStageConfig<TC: TileAttentionConfig> {
+    pub shared: SharedPartitionAttentionConfig<TC>,
+}
+
+pub type PlanePartitionAttention<AP, SK, SV, SO, TA> =
+    PartitionAttention<AP, SK, SV, SO, TA, PlanePartitioner>;
 
 pub struct PlanePartitioner {}
 

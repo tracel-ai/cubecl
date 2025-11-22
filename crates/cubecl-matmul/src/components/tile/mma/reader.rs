@@ -7,7 +7,7 @@ use cubecl_std::{CubeOption, CubeOptionExpand};
 use crate::components::{
     MatrixLayout, as_cmma_layout, from_cmma_layout,
     tile::{
-        StridedTile, TileConfig,
+        StridedTile,
         io::{Filled, Strided, TileKind},
         mma::config::{LoadMethod, MmaMatmulConfig},
     },
@@ -129,9 +129,9 @@ fn load_manual_plain<E: Numeric, V: Numeric, A: Numeric, B: Numeric, CD: Numeric
         let elem_idx = i * line_size;
         let (row, col) = def.position_of_nth(lane_id, elem_idx, ident);
         let offset = row * stride_row + col * stride_col;
-        let offset = tile.stage_offset(offset / line_size);
+        let stage_offset = tile.stage_offset(offset / line_size);
 
-        fragment[i] = Line::cast_from(tile.stage[offset]);
+        fragment[i] = Line::cast_from(tile.stage[stage_offset]);
     }
 }
 
@@ -182,7 +182,7 @@ fn ldmatrix_offset<E: Numeric, A: Numeric, B: Numeric, CD: Numeric>(
     #[comptime] config: MmaMatmulConfig,
 ) -> u32 {
     let expected_layout = from_cmma_layout(def.line_layout(ident));
-    let tiling = config.tile_size();
+    let tiling = config.shared.tile_size;
     let (stride_row, stride_col) = match layout {
         MatrixLayout::RowMajor => (stride, 1),
         MatrixLayout::ColMajor => (1, stride),

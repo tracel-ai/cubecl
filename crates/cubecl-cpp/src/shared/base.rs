@@ -39,6 +39,7 @@ pub struct CppSupportedFeatures {
     pub grid_constants: bool,
     pub clusters: bool,
     pub fast_math: bool,
+    pub fast_tanh: bool,
     pub elect_sync: bool,
 }
 
@@ -1100,13 +1101,17 @@ impl<D: Dialect> CppCompiler<D> {
                 let op = self.compile_unary(op, out);
                 let instruction = Instruction::Tanh(op);
                 D::register_instruction_extension(&mut self.extensions, &instruction);
-                instructions.push(self.select_fast_float(
-                    out.ty,
-                    modes,
-                    FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
-                    instruction,
-                    Instruction::FastTanh(op),
-                ))
+                if self.compilation_options.supports_features.fast_tanh {
+                    instructions.push(self.select_fast_float(
+                        out.ty,
+                        modes,
+                        FastMath::ReducedPrecision | FastMath::NotNaN | FastMath::NotInf,
+                        instruction,
+                        Instruction::FastTanh(op),
+                    ))
+                } else {
+                    instructions.push(instruction);
+                }
             }
             gpu::Arithmetic::Sinh(op) => {
                 let instruction = Instruction::Sinh(self.compile_unary(op, out));

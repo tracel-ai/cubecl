@@ -28,8 +28,8 @@ pub trait Algorithm {
     type Args: MatmulArgs;
 
     fn cube_count(selection: &MatmulSelection, problem: &ConvolutionProblem) -> CubeCount {
-        let m_stage = selection.tiling_scheme.elements_in_stage_m();
-        let n_stage = selection.tiling_scheme.elements_in_stage_n();
+        let m_stage = selection.tiling_scheme.elements_per_stage_along_m();
+        let n_stage = selection.tiling_scheme.elements_per_stage_along_n();
         let cubes_needed_m = (problem.m as u32).div_ceil(m_stage);
         let cubes_needed_n = (problem.n as u32).div_ceil(n_stage);
 

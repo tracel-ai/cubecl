@@ -10,14 +10,14 @@ use cubecl_common::{
 use cubecl_core::{
     CubeCount, CubeDim, MemoryConfiguration, Runtime,
     ir::{
-        ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType, StorageType,
-        TargetProperties,
+        ContiguousElements, ElemType, FloatKind, MatrixLayout, MmaProperties, SemanticType,
+        StorageType, TargetProperties,
     },
     server::ServerUtilities,
 };
 use cubecl_cpp::{
     DialectWmmaCompiler,
-    cuda::{CudaDialect, arch::CudaArchitecture},
+    cuda::{CudaDialect, arch::CudaArchitecture, mma::contiguous_elements_cuda},
     register_supported_types,
     shared::{
         CompilationOptions, CppCompiler, CppSupportedFeatures, register_mma_features,
@@ -30,7 +30,7 @@ use cubecl_runtime::{
     logging::ServerLogger,
     memory_management::{HardwareProperties, MemoryDeviceProperties},
 };
-use cudarc::driver::sys::cuDeviceTotalMem_v2;
+use cudarc::driver::sys::{CUDA_VERSION, cuDeviceTotalMem_v2};
 use std::{mem::MaybeUninit, sync::Arc};
 
 /// Options configuring the CUDA runtime.
@@ -191,6 +191,7 @@ impl DeviceState for CudaServer {
                 .features
                 .ldmatrix
                 .insert(ElemType::Float(FloatKind::BF16).into());
+            comp_opts.supports_features.fast_tanh = CUDA_VERSION >= 12080;
         }
 
         // NOTE: I commented that since I observed synchronisation issues with atomic add for bf16.
@@ -325,6 +326,7 @@ impl Runtime for CudaRuntime {
                 register_duplication_a: 1,
                 register_duplication_b: 1,
                 register_duplication_acc: 1,
+                contiguous_elements: ContiguousElements::new(contiguous_elements_cuda),
             },
         }
     }

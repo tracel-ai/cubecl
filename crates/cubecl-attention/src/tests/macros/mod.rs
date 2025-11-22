@@ -16,6 +16,28 @@ pub struct TestOptions {
     pub two_rows_in_array_tile: bool,
 }
 
+pub mod tiling_scheme_ops {
+    use crate::components::AttentionTilingScheme;
+
+    pub fn elements_in_stage_seq_q(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.stage_size.seq_q
+            * tiling_scheme.tile_size.seq_q
+            * tiling_scheme.partition_size.seq_q) as usize
+    }
+
+    pub fn elements_in_partition_head_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.head_dim * tiling_scheme.partition_size.head_dim) as usize
+    }
+
+    pub fn elements_in_partition_seq_kv(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.seq_kv * tiling_scheme.partition_size.seq_kv) as usize
+    }
+
+    pub fn elements_in_partition_val_dim(tiling_scheme: &AttentionTilingScheme) -> usize {
+        (tiling_scheme.tile_size.val_dim * tiling_scheme.partition_size.val_dim) as usize
+    }
+}
+
 pub fn attention_test_launch<A: Algorithm, R: Runtime>(
     client: ComputeClient<R::Server>,
     tiling_scheme: AttentionTilingScheme,

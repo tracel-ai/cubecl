@@ -286,6 +286,9 @@ pub fn update_references(opt: &mut Optimizer, from: NodeIndex, to: NodeIndex) {
         }
     };
 
+    update(&mut opt.program.root);
+    update(&mut opt.ret);
+
     for node in opt.node_ids() {
         for phi in opt.program[node].phi_nodes.borrow_mut().iter_mut() {
             for entry in phi.entries.iter_mut() {

@@ -29,14 +29,16 @@ use crate::{
 use cubecl_matmul::{
     MatmulInputHandleRef,
     components::{
-        MatmulElems, MatmulIdent, MatmulLineSizes, MatmulSelection,
+        MatmulElems, MatmulLineSizes, MatmulSelection,
         global::{
+            GlobalConfig,
             args::{
                 TensorInputs, TensorInputsLaunch, TensorMapInputs, TensorMapInputsLaunch,
                 TensorOutput, TensorOutputLaunch,
             },
             memory::{NoopLayout, NoopLayoutLaunch},
         },
+        stage::StageConfig as _,
     },
 };
 
@@ -93,13 +95,13 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory for TensorIn
             client,
             problem,
             config.convolution_params(),
-            config.global_memory_config(MatmulIdent::Lhs),
+            config.lhs_global_memory_config(),
         );
         let layout_rhs = WeightLayoutLaunch::from_args(
             client,
             problem,
             config.convolution_params(),
-            config.global_memory_config(MatmulIdent::Rhs),
+            config.rhs_global_memory_config(),
         );
         let layout_bias =
             BiasLayoutLaunch::new(ScalarArg::new(problem.n as u32), line_sizes.out as u32);
@@ -141,11 +143,7 @@ impl<EG: Numeric> ConcreteOutputFactory for TensorOutput<EG> {
         type Layout = Chain<NhwcLayout, OutLayout>;
 
         let global = NhwcLayoutLaunch::from_handle(out, line_sizes.out as u32, false);
-        let layout = OutLayoutLaunch::from_args(
-            client,
-            problem,
-            config.global_memory_config(MatmulIdent::Out),
-        );
+        let layout = OutLayoutLaunch::from_args(client, problem, config.out_global_memory_config());
         let layout = ChainLaunch::new(global, layout);
         let view = ViewArg::new::<Layout>(out.as_array_arg(line_sizes.out), layout);
         let batch = VirtualLayoutLaunch::new::<NoopLayout>(NoopLayoutLaunch::new());
@@ -168,9 +166,9 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         dtypes: &MatmulElems,
     ) -> Self::RuntimeArg<'a, R> {
         let tiling_scheme = selection.tiling_scheme;
-        let stage_m = tiling_scheme.elements_in_stage_m();
-        let stage_n = tiling_scheme.elements_in_stage_n();
-        let tile_size_k = tiling_scheme.elements_in_tile_k();
+        let stage_m = tiling_scheme.elements_per_stage_along_m();
+        let stage_n = tiling_scheme.elements_per_stage_along_n();
+        let tile_size_k = tiling_scheme.tile_size.k;
         let stage_size_rhs = vec![stage_n, 1, tile_size_k];
 
         let lhs_elem_size = size_of::<Lhs>();
@@ -228,8 +226,8 @@ impl<Lhs: Numeric, Rhs: Numeric, EO: Numeric> ConcreteInputsFactory
         )
         .with_prefetch(prefetch_rhs);
 
-        let padded_channels =
-            (problem.channels as u32).next_multiple_of(config.tiling_scheme().elements_in_tile_k());
+        let padded_channels = (problem.channels as u32)
+            .next_multiple_of(config.matmul_config().stage_config().elements_in_tile_k());
 
         // Dummy layout since we don't support im2col loading rn
         let lhs_layout = TmaDummyLayoutLaunch::new();

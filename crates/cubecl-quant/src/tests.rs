@@ -1,5 +1,6 @@
 use cubecl::prelude::*;
 use cubecl_core::Runtime;
+use cubecl_core::ir::{ElemType, FloatKind};
 use cubecl_core::server::CopyDescriptor;
 use cubecl_core::{self as cubecl, server::AllocationDescriptor};
 use cubecl_std::tensor::TensorHandle;
@@ -83,16 +84,17 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         f32::as_type_native_unchecked(),
     );
 
-    crate::quantize::launch_ref::<R, f32>(
+    crate::quantize::launch_ref::<R>(
         &client,
         &input.as_ref(),
         &output.as_ref(),
         &scale.as_ref(),
         &output_scale.as_ref(),
         &scheme,
+        ElemType::Float(FloatKind::Flex32),
     );
 
-    crate::dequantize::launch_ref::<R, f32>(
+    crate::dequantize::launch_ref::<R>(
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
@@ -100,6 +102,7 @@ pub fn test_quantization_tensor_symmetric<R: Runtime>(m: usize, n: usize, value:
         &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
+        f32::as_type_native_unchecked(),
     );
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
@@ -225,16 +228,17 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         f32::as_type_native_unchecked(),
     );
 
-    crate::quantize::launch_ref::<R, f32>(
+    crate::quantize::launch_ref::<R>(
         &client,
         &input.as_ref(),
         &output.as_ref(),
         &scale.as_ref(),
         &output_scale.as_ref(),
         &scheme,
+        ElemType::Float(FloatKind::Flex32),
     );
 
-    crate::dequantize::launch_ref::<R, f32>(
+    crate::dequantize::launch_ref::<R>(
         &client,
         // The input of the dequantize kernel is the output of the quantized one.
         &output.as_ref(),
@@ -242,6 +246,7 @@ pub fn test_quantization_block_symmetric<R: Runtime>(
         &output_f.as_ref(),
         &output_scale.as_ref(),
         &scheme,
+        f32::as_type_native_unchecked(),
     );
 
     let computed = client.read_one_tensor(CopyDescriptor::new(
