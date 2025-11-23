@@ -1,6 +1,5 @@
 use alloc::format;
 use alloc::string::String;
-use alloc::string::ToString;
 use alloc::sync::Arc;
 use core::{
     any::{Any, TypeId},
@@ -8,6 +7,7 @@ use core::{
     hash::{BuildHasher, Hash, Hasher},
 };
 use cubecl_common::ExecutionMode;
+use cubecl_common::format::format_str;
 
 #[macro_export(local_inner_macros)]
 /// Create a new storage ID type.
@@ -207,81 +207,6 @@ impl PartialEq for KernelId {
 }
 
 impl Eq for KernelId {}
-
-/// Format strings for use in identifiers and types.
-pub fn format_str(kernel_id: &str, markers: &[(char, char)], include_space: bool) -> String {
-    let kernel_id = kernel_id.to_string();
-    let mut result = String::new();
-    let mut depth = 0;
-    let indentation = 4;
-
-    let mut prev = ' ';
-
-    for c in kernel_id.chars() {
-        if c == ' ' {
-            continue;
-        }
-
-        let mut found_marker = false;
-
-        for (start, end) in markers {
-            let (start, end) = (*start, *end);
-
-            if c == start {
-                depth += 1;
-                if prev != ' ' && include_space {
-                    result.push(' ');
-                }
-                result.push(start);
-                result.push('\n');
-                result.push_str(&" ".repeat(indentation * depth));
-                found_marker = true;
-            } else if c == end {
-                depth -= 1;
-                if prev != start {
-                    if prev == ' ' {
-                        result.pop();
-                    }
-                    result.push_str(",\n");
-                    result.push_str(&" ".repeat(indentation * depth));
-                    result.push(end);
-                } else {
-                    for _ in 0..(&" ".repeat(indentation * depth).len()) + 1 + indentation {
-                        result.pop();
-                    }
-                    result.push(end);
-                }
-                found_marker = true;
-            }
-        }
-
-        if found_marker {
-            prev = c;
-            continue;
-        }
-
-        if c == ',' && depth > 0 {
-            if prev == ' ' {
-                result.pop();
-            }
-
-            result.push_str(",\n");
-            result.push_str(&" ".repeat(indentation * depth));
-            continue;
-        }
-
-        if c == ':' && include_space {
-            result.push(c);
-            result.push(' ');
-            prev = ' ';
-        } else {
-            result.push(c);
-            prev = c;
-        }
-    }
-
-    result
-}
 
 impl Display for KernelId {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

@@ -5,11 +5,11 @@ use std::{
 };
 
 use crate::{Compiler, KernelOptions};
-use cubecl_common::{CubeDim, ExecutionMode};
+use cubecl_common::{CubeDim, ExecutionMode, format::format_str};
 use cubecl_ir::{Id, Scope, StorageType, Type};
 use cubecl_runtime::{
     config::{GlobalConfig, compilation::CompilationLogLevel},
-    id::{KernelId, format_str},
+    id::KernelId,
     kernel::KernelMetadata,
 };
 use serde::{Deserialize, Serialize};
