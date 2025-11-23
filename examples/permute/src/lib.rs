@@ -1,6 +1,6 @@
+use cubecl::frontend::TensorHandleRef;
 use cubecl_core::{self as cubecl, prelude::*};
 use cubecl_std::tensor::TensorHandle;
-use cubecl::frontend::TensorHandleRef;
 use std::collections::HashSet;
 use std::env;
 use std::sync::{LazyLock, Mutex};
