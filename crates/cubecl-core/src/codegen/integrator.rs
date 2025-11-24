@@ -1,7 +1,8 @@
 use cubecl_common::CubeDim;
 use cubecl_ir::{Id, Scope, StorageType, Type};
-
-use crate::compute::{Binding, KernelDefinition, Location, ScalarBinding, Visibility};
+use cubecl_runtime::kernel::{
+    Binding, KernelDefinition, KernelOptions, Location, ScalarBinding, Visibility,
+};
 
 /// The kernel integrator allows you to create a [kernel definition](KernelDefinition) based on
 /// [kernel expansion](KernelExpansion) and [kernel settings](KernelSettings).
@@ -26,13 +27,6 @@ pub struct KernelExpansion {
 pub struct KernelSettings {
     pub cube_dim: CubeDim,
     pub options: KernelOptions,
-}
-
-#[derive(Default, Clone, Debug, Hash, PartialEq, Eq)]
-pub struct KernelOptions {
-    pub kernel_name: String,
-    pub debug_symbols: bool,
-    pub cluster_dim: Option<CubeDim>,
 }
 
 impl KernelSettings {

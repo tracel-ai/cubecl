@@ -11,7 +11,7 @@ pub fn kernel_absolute_pos(output1: &mut Array<u32>) {
     output1[ABSOLUTE_POS] = ABSOLUTE_POS;
 }
 
-pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R>) {
     let cube_count = (3, 5, 7);
     let cube_dim = (16, 16, 1);
 

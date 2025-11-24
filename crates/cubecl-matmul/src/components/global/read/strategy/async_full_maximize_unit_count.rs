@@ -23,7 +23,7 @@ pub struct AsyncFullMaximizeUnitCountLoading {}
 
 impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

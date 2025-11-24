@@ -43,7 +43,7 @@ where
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         _problem: &MatmulProblem,
         selection: &MatmulSelection,
         _matmul_line_sizes: &MatmulLineSizes,
@@ -63,18 +63,18 @@ where
         validate::<R>(tile_config, client, dtypes)
     }
 
-    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R>) -> bool {
         // No alignment means swizzling can't be properly used, since it needs to be applied to
         // the address, and alignment guarantees the offset is aligned to the pattern repeat.
         client.properties().features.alignment
     }
 
-    fn is_supported<R: Runtime>(client: &ComputeClient<R::Server>, config: MmaConfig) -> bool {
+    fn is_supported<R: Runtime>(client: &ComputeClient<R>, config: MmaConfig) -> bool {
         client.properties().features.mma.contains(&config)
     }
 
     fn supported_sizes<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         lhs_ty: StorageType,
         rhs_ty: StorageType,
         acc_ty: StorageType,
@@ -92,7 +92,7 @@ where
 
 fn validate<R: Runtime>(
     tile_config: MmaMatmulConfig,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<MmaMatmulConfig, MatmulSetupError> {
     let lhs = dtypes.lhs_register;
@@ -121,7 +121,7 @@ fn validate<R: Runtime>(
     Ok(tile_config)
 }
 
-fn load_method<R: Runtime>(client: &ComputeClient<R::Server>, dtype: StorageType) -> LoadMethod {
+fn load_method<R: Runtime>(client: &ComputeClient<R>, dtype: StorageType) -> LoadMethod {
     if client.properties().features.ldmatrix.contains(&dtype) {
         LoadMethod::LoadMatrix
     } else {

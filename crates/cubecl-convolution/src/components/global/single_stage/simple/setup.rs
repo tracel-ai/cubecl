@@ -48,7 +48,7 @@ where
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,

@@ -9,7 +9,7 @@ use cubecl_core::post_processing::{
 };
 use cubecl_core::prelude::*;
 use cubecl_core::{
-    Metadata, WgpuCompilationOptions, compute,
+    Metadata, WgpuCompilationOptions,
     ir::{self as cube, Scope},
     prelude::expand_erf,
 };
@@ -17,6 +17,7 @@ use cubecl_core::{
     ir::{ConstantScalarValue, Processor, UIntKind},
     post_processing::unroll::UnrollProcessor,
 };
+use cubecl_runtime::kernel;
 
 pub const MAX_LINE_SIZE: u32 = 4;
 
@@ -59,7 +60,7 @@ impl cubecl_core::Compiler for WgslCompiler {
 
     fn compile(
         &mut self,
-        shader: compute::KernelDefinition,
+        shader: kernel::KernelDefinition,
         compilation_options: &Self::CompilationOptions,
         mode: ExecutionMode,
     ) -> Self::Representation {
@@ -79,7 +80,7 @@ impl cubecl_core::Compiler for WgslCompiler {
 impl WgslCompiler {
     fn compile_shader(
         &mut self,
-        mut value: compute::KernelDefinition,
+        mut value: kernel::KernelDefinition,
         mode: ExecutionMode,
     ) -> wgsl::ComputeShader {
         self.strategy = mode;
@@ -1162,14 +1163,14 @@ impl WgslCompiler {
         }
     }
 
-    fn compile_location(value: compute::Location) -> wgsl::Location {
+    fn compile_location(value: kernel::Location) -> wgsl::Location {
         match value {
-            compute::Location::Storage => wgsl::Location::Storage,
-            compute::Location::Cube => wgsl::Location::Workgroup,
+            kernel::Location::Storage => wgsl::Location::Storage,
+            kernel::Location::Cube => wgsl::Location::Workgroup,
         }
     }
 
-    fn compile_binding(&mut self, value: compute::Binding) -> wgsl::Binding {
+    fn compile_binding(&mut self, value: kernel::Binding) -> wgsl::Binding {
         wgsl::Binding {
             id: value.id,
             visibility: value.visibility,

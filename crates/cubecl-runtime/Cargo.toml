@@ -29,11 +29,13 @@ std = ["cubecl-common/std", "toml", "dirs"]
 storage-bytes = []
 
 [dependencies]
-async-channel = { workspace = true }                                                       # Assume std
+async-channel = { workspace = true } # Assume std
 bytemuck = { workspace = true }
 cfg-if = { workspace = true }
 cubecl-common = { path = "../cubecl-common", version = "0.9.0-pre.2", default-features = false }
-cubecl-ir = { path = "../cubecl-ir", version = "0.9.0-pre.2", default-features = false }
+cubecl-ir = { path = "../cubecl-ir", version = "0.9.0-pre.2", default-features = false, features = [
+    "serde",
+] }
 derive-new = { workspace = true }
 dirs = { workspace = true, optional = true }
 enumset = { workspace = true }

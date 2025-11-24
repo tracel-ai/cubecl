@@ -36,7 +36,7 @@ where
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
@@ -61,7 +61,7 @@ where
         )
     }
 
-    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R::Server>) -> bool {
+    fn should_swizzle<R: Runtime>(_client: &ComputeClient<R>) -> bool {
         // Supported but need to find good settings for this tiling. Currently tuned for `ldmatrix`.
         // Need to profile at some point
         false
@@ -73,7 +73,7 @@ fn validate<R: Runtime>(
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     matmul_line_sizes: &MatmulLineSizes,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<PlaneVecMatInnerProductConfig, MatmulSetupError> {
     let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
@@ -128,7 +128,7 @@ fn validate<R: Runtime>(
 
 fn check_availability<R: Runtime>(
     tile_config: PlaneVecMatInnerProductConfig,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<PlaneVecMatInnerProductConfig, MatmulSetupError> {
     if !client.properties().features.plane.contains(Plane::Ops) {

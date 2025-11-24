@@ -566,7 +566,7 @@ enum ComputeTaskEnum {
 
 fn launch_ref<R: Runtime, E: Float>(
     strategy: CopyStrategyEnum,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     smem_size: u32,
@@ -797,7 +797,7 @@ struct MemcpyAsyncBench<R: Runtime, E> {
     strategy: CopyStrategyEnum,
     double_buffering: bool,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _e: PhantomData<E>,
 }
 

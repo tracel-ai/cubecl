@@ -8,7 +8,7 @@ pub fn tensor_coordinate(input: &Tensor<f32>, output: &mut Array<u32>) {
     output[UNIT_POS] = input.coordinate(index, dim);
 }
 
-pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
     let stride = [2, 1, 4];
     let shape = [2, 2, 3];
 

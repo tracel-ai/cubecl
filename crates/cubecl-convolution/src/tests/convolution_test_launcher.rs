@@ -23,7 +23,7 @@ use super::test_utils::TestPrecision;
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_convolution_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
@@ -50,7 +50,9 @@ pub fn test_convolution_algorithm<A, P, R>(
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
-        out: R::io_optimized_line_sizes_unchecked(size_of::<P::EG>()).collect(),
+        out: client
+            .io_optimized_line_sizes_unchecked(size_of::<P::EG>())
+            .collect(),
     }
     .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
@@ -157,7 +159,7 @@ pub fn test_convolution_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &ConvolutionProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

@@ -1,6 +1,6 @@
 use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
+use cubecl_runtime::runtime::Runtime;
 
-use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::BitwiseNot;

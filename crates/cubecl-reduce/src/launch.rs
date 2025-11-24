@@ -23,7 +23,7 @@ pub struct ReduceDtypes {
 /// with the appropriate assumptions.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
-    client: &ComputeClient<Run::Server>,
+    client: &ComputeClient<Run>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,

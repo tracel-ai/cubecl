@@ -53,7 +53,7 @@ impl<
     type Config = PartitionAttentionConfig<TA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,

@@ -40,7 +40,7 @@ impl<
     type Config = SimpleGlobalAttentionConfig<SA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,

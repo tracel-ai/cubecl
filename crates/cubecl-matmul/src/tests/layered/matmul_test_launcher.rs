@@ -34,7 +34,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_matmul_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: MatmulProblem,
     selection: MatmulSelection,
 ) where
@@ -56,7 +56,8 @@ pub fn test_matmul_algorithm<A, P, R>(
     let rhs = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Rhs);
     let out = tensor_raw_parts::<P, R>(&client, &problem, MatmulIdent::Out);
 
-    let line_sizes = AvailableLineSizes::from_type_sizes::<R>(
+    let line_sizes = AvailableLineSizes::from_type_sizes(
+        &client,
         size_of::<P::EG>(),
         size_of::<P::EG>(),
         size_of::<P::EG>(),
@@ -157,7 +158,7 @@ pub fn test_matmul_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {

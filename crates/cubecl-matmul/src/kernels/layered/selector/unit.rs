@@ -39,7 +39,7 @@ pub struct UnitMatmulSelectionOptions {
 
 /// Computes a [MatmulSelection] depending on the problem kind
 pub fn unit_matmul_selection<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     plane_dim: u32,
     double_buffering: bool,

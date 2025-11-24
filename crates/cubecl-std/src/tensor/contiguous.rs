@@ -245,7 +245,7 @@ fn into_contiguous_kernel_packed<N: Int>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
@@ -262,7 +262,7 @@ pub fn into_contiguous<R: Runtime>(
 /// Make a jit tensor contiguous, using the pitched allocator if available.
 /// See [create_tensor](cubecl_runtime::client::ComputeClient::create_tensor).
 pub fn into_contiguous_pitched<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     dtype: StorageType,
 ) -> TensorHandle<R> {
@@ -286,7 +286,7 @@ pub fn into_contiguous_pitched<R: Runtime>(
 /// # Warning
 /// This assumes `u32` or `u8` packing.
 pub fn into_contiguous_packed<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     shape: &[usize],
     packing: u32,
@@ -310,7 +310,7 @@ pub fn into_contiguous_packed<R: Runtime>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     dtype: StorageType,
@@ -386,7 +386,7 @@ pub fn into_contiguous_ref<R: Runtime>(
 
 /// Make a jit tensor contiguous.
 pub fn into_contiguous_packed_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<'_, R>,
     output: &TensorHandleRef<'_, R>,
     shape: &[usize],
@@ -398,7 +398,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
     // Vectorization is only enabled when the last dimension is contiguous.
     let rank = input.strides.len();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&dtype),
+        client.io_optimized_line_sizes(&dtype),
         output.shape,
         output.strides,
         rank - 1,

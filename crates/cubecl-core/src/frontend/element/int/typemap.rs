@@ -11,7 +11,7 @@ use derive_more::derive::{
 use num_traits::{NumCast, ToPrimitive};
 use serde::Serialize;
 
-use crate::{Runtime, compute::KernelLauncher, prelude::*};
+use crate::{compute::KernelLauncher, prelude::*};
 
 use super::{Int, into_mut_expand_element};
 

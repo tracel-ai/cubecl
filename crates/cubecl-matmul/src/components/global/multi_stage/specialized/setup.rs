@@ -54,7 +54,7 @@ where
     type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -165,7 +165,7 @@ where
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalMatmulConfig<S>,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
     LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;

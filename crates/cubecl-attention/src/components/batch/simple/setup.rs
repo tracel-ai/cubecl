@@ -23,7 +23,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
     type Config = SimpleBatchConfig<GA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -41,7 +41,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
     }
 
     unsafe fn launch_unchecked<'a, AA: AttentionArgs, R: cubecl_core::Runtime>(
-        client: &cubecl_core::prelude::ComputeClient<<R as cubecl_core::Runtime>::Server>,
+        client: &cubecl_core::prelude::ComputeClient<R>,
         cube_dim: cubecl_core::CubeDim,
         cube_count: cubecl_core::CubeCount,
         input: InputRuntimeArg<'a, AA, R>,

@@ -10,7 +10,6 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::future::DynFut;
 use cubecl_common::profile::ProfileDuration;
 use cubecl_common::stream_id::StreamId;
-use cubecl_core::compute::CubeTask;
 use cubecl_core::server::ServerCommunication;
 use cubecl_core::server::ServerUtilities;
 use cubecl_core::server::{
@@ -18,13 +17,13 @@ use cubecl_core::server::{
 };
 use cubecl_core::server::{Binding, Bindings};
 use cubecl_core::{MemoryConfiguration, future, prelude::*};
-use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, MemoryUsage};
 use cubecl_runtime::memory_management::{MemoryDeviceProperties, offset_handles};
 use cubecl_runtime::server::{self, ComputeServer};
 use cubecl_runtime::storage::BindingResource;
 use cubecl_runtime::stream::MultiStream;
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use std::sync::Arc;
 
 #[derive(Debug)]

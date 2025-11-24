@@ -24,7 +24,7 @@ pub struct AsyncPartialTmaLoading {}
 
 impl LoadingValidation for AsyncPartialTmaLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

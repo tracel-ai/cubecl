@@ -97,7 +97,7 @@ use cubecl_core::prelude::*;
 /// }
 /// ```
 pub fn reduce<R: Runtime, Inst: ReduceFamily>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: TensorHandleRef<R>,
     output: TensorHandleRef<R>,
     axis: usize,

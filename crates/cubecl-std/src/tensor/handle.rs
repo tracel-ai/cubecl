@@ -68,7 +68,7 @@ where
     }
 
     pub fn empty(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: Vec<usize>,
         storage: StorageType,
     ) -> Self {
@@ -158,7 +158,7 @@ impl<R> TensorHandle<R>
 where
     R: Runtime,
 {
-    pub fn zeros(client: &ComputeClient<R::Server>, shape: Vec<usize>, dtype: StorageType) -> Self {
+    pub fn zeros(client: &ComputeClient<R>, shape: Vec<usize>, dtype: StorageType) -> Self {
         let num_elements: usize = shape.iter().product();
         let rank = shape.len();
         let output = Self::empty(client, shape, dtype);

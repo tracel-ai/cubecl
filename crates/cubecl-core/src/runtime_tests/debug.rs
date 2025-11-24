@@ -13,7 +13,7 @@ fn simple_call_kernel<F: Float>(out: &mut Array<F>) {
     }
 }
 
-pub fn test_simple_call<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_simple_call<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
     let vectorization = 1;
@@ -43,7 +43,7 @@ fn nested_call_kernel<F: Float>(out: &mut Array<F>) {
     }
 }
 
-pub fn test_nested_call<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_nested_call<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 
     let vectorization = 1;
@@ -71,7 +71,7 @@ fn debug_print_kernel<F: Float>(out: &mut Array<F>) {
 }
 
 #[cfg(not(all(target_os = "macos")))]
-pub fn test_debug_print<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_debug_print<R: Runtime>(client: ComputeClient<R>) {
     //let logger = MemoryLogger::setup(log::Level::Info);
     let handle = client.create_from_slice(f32::as_bytes(&[10.0, 1.0]));
 

@@ -23,7 +23,7 @@ pub struct TensorRawParts<N: Numeric + CubeElement> {
 /// Test the correctness of the specified Attention on the given device,
 /// against a naive CPU implementation over the given problem
 pub fn test_attention_algorithm<A, P, R>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     problem: AttentionProblem,
     selection: AttentionSelection,
 ) where
@@ -57,7 +57,8 @@ pub fn test_attention_algorithm<A, P, R>(
     let out = tensor_raw_parts_output::<P, R>(&client, &problem);
 
     let attention_elems = AttentionElems::new::<P::AP>();
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types(
+        &client,
         attention_elems.query_global.size(),
         attention_elems.mask.size(),
         attention_elems.out_global.size(),
@@ -149,7 +150,7 @@ pub fn test_attention_algorithm<A, P, R>(
 }
 
 fn tensor_raw_parts_input<P: TestPrecision, R: Runtime, T>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &AttentionProblem,
     ident: AttentionIdent,
     sample_seed: u64,
@@ -177,7 +178,7 @@ where
 }
 
 fn tensor_raw_parts_output<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &AttentionProblem,
 ) -> TensorRawParts<P::EG> {
     let zero = P::EG::from_int(0);

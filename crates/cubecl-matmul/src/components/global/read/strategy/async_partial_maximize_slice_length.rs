@@ -23,7 +23,7 @@ pub struct AsyncPartialMaximizeSliceLengthLoading {}
 
 impl LoadingValidation for AsyncPartialMaximizeSliceLengthLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

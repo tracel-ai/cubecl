@@ -35,7 +35,7 @@ pub struct PlaneMatmulSelectionOptions {
 }
 
 pub fn plane_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
@@ -241,7 +241,7 @@ fn select_size(
 /// Will use 16x16 for balanced matrices, and 32x8 or 8x32 for degenerated ones.
 #[allow(clippy::type_complexity)]
 pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     elems: &MatmulElems,
     m: usize,
     n: usize,
@@ -287,7 +287,7 @@ pub fn find_instruction_size<R: Runtime, TMM: TileMatmulFamily>(
 }
 
 fn selection_tiny<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &MatmulProblem,
     tile_size: TileSize,
     plane_dim: u32,

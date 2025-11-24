@@ -25,7 +25,7 @@ pub struct AsyncFullCooperativeLoading {}
 
 impl LoadingValidation for AsyncFullCooperativeLoading {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

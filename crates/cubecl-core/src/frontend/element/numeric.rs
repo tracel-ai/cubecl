@@ -1,12 +1,13 @@
 use std::marker::PhantomData;
 
 use cubecl_ir::ExpandElement;
+use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
+use crate::compute::KernelBuilder;
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
 use crate::prelude::Clamp;
-use crate::{Runtime, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Max, Min, Remainder},

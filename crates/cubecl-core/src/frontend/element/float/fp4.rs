@@ -1,8 +1,8 @@
 use cubecl_common::{e2m1, e2m1x2};
 use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_runtime::runtime::Runtime;
 
 use crate::{
-    Runtime,
     compute::KernelLauncher,
     prelude::{
         CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,

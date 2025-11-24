@@ -184,7 +184,7 @@ impl<'a, R: Runtime> GlobalLayoutLaunch<'a, R> {
     }
 
     pub fn from_handle_batched(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
         line_size: u8,
@@ -212,7 +212,7 @@ impl<'a, R: Runtime> GlobalLayoutLaunch<'a, R> {
 
     #[allow(clippy::too_many_arguments)]
     pub fn from_quantized_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         values: &TensorHandleRef<'a, R>,
         scales: &TensorHandleRef<'a, R>,
         shape: &'a [usize],
@@ -349,7 +349,7 @@ impl Layout for NoopLayout {
 
 impl<'a, R: Runtime> BatchLayoutLaunch<'a, R> {
     pub fn from_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'a, R>,
         problem: &MatmulProblem,
     ) -> Self {

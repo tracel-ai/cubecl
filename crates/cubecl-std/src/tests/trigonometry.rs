@@ -11,7 +11,7 @@ fn kernel_to_degrees(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
     let input_data = vec![0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
     let expected = [0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
 
@@ -49,7 +49,7 @@ fn kernel_to_radians(input: &Array<f32>, output: &mut Array<f32>) {
     }
 }
 
-pub fn test_to_radians<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
     let input_data = vec![0.0, 30.0, 45.0, 90.0, 180.0, 360.0];
     let expected = [0.0, PI / 6.0, PI / 4.0, PI / 2.0, PI, TAU];
 
@@ -88,7 +88,7 @@ fn kernel_hypot(x: &Array<f32>, y: &Array<f32>, output: &mut Array<f32>) {
 }
 
 #[allow(clippy::approx_constant)]
-pub fn test_hypot<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_hypot<R: Runtime>(client: ComputeClient<R>) {
     let x_data = vec![3.0, 0.0, 1.0, 5.0, 0.0];
     let y_data = vec![4.0, 1.0, 1.0, 12.0, 0.0];
     let expected = [5.0, 1.0, 1.414_213_5, 13.0, 0.0];

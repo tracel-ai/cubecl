@@ -308,7 +308,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
         }
     }
 
-    pub fn into_contiguous(&self, client: &ComputeClient<R::Server>) -> MatmulInputHandle<R> {
+    pub fn into_contiguous(&self, client: &ComputeClient<R>) -> MatmulInputHandle<R> {
         match self {
             MatmulInputHandleRef::Normal(data, dtype) => {
                 MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, *dtype))
@@ -361,7 +361,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: MatmulInputHandle<R>,
     rhs: MatmulInputHandle<R>,
     out: TensorHandle<R>,
@@ -387,7 +387,7 @@ pub fn launch<R: Runtime>(
 /// Only the inner element types may change such as the stage or register element types.
 pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: &MatmulInputHandleRef<R>,
     rhs: &MatmulInputHandleRef<R>,
     out: &TensorHandleRef<R>,

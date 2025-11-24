@@ -11,7 +11,7 @@ macro_rules! test_binary_impl {
             lhs: $lhs:expr,
             rhs: $rhs:expr,
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R>) {
             #[cube(launch_unchecked, fast_math = FastMath::all())]
             fn test_function(lhs: &Array<$primitive_type>, rhs: &Array<$primitive_type>, output: &mut Array<u32>) {
                 if ABSOLUTE_POS < rhs.len() {

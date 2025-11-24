@@ -73,7 +73,7 @@ impl<
     type Config = PartitionMatmulConfig<TM::Config>;
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,

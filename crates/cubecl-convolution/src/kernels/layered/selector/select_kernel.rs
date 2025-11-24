@@ -26,7 +26,7 @@ use crate::{
 /// Only works for concrete tensor inputs and output.
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_kernel_concrete<R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &MatmulInputHandleRef<'_, R>,
     weight: &MatmulInputHandleRef<'_, R>,
     bias: &Option<TensorHandleRef<'_, R>>,
@@ -81,7 +81,7 @@ where
 
 /// Select which kernel to launch for the given Algorithm.
 pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: InputRuntimeArg<'a, MA, R>,
     output: OutputRuntimeArg<'a, MA, R>,
     problem: ConvolutionProblem,

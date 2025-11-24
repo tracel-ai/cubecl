@@ -12,8 +12,8 @@ use crate::{
     },
 };
 use cubecl_core::{
-    compute::{Location, Visibility},
     ir::{self as gpu},
+    prelude::{Location, Visibility},
 };
 use cubecl_runtime::MmaConfig;
 

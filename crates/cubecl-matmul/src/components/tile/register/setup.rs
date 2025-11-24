@@ -36,7 +36,7 @@ where
     }
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
@@ -62,7 +62,7 @@ where
         )
     }
 
-    fn should_swizzle<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
+    fn should_swizzle<R: Runtime>(client: &ComputeClient<R>) -> bool {
         // Selection isn't getting rid of all conflicts with the current load strategy, but does
         // reduce conflicts significantly (i.e. average 18 vs average 5). Should try to find more
         // optimal settings in the future.
@@ -79,7 +79,7 @@ fn validate<R: Runtime>(
     lhs_layout: MatrixLayout,
     rhs_layout: MatrixLayout,
     matmul_line_sizes: &MatmulLineSizes,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<RegisterMatmulConfig, MatmulSetupError> {
     let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
@@ -136,7 +136,7 @@ fn validate<R: Runtime>(
 
 fn check_availability<R: Runtime>(
     tile_config: RegisterMatmulConfig,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<RegisterMatmulConfig, MatmulSetupError> {
     let lhs = dtypes.lhs_register;

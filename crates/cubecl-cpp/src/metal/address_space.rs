@@ -1,4 +1,4 @@
-use cubecl_core::compute::{Location, Visibility};
+use cubecl_core::prelude::{Location, Visibility};
 
 use crate::{
     Dialect,

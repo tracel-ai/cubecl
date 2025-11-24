@@ -42,7 +42,7 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
         let client = R::client(&self.device);
 
         fn make_random<R: Runtime, T: Numeric>(
-            client: &ComputeClient<R::Server>,
+            client: &ComputeClient<R>,
             shape: Vec<usize>,
         ) -> TensorHandle<R, T> {
             let tensor = TensorHandle::<R, T>::empty(client, shape);
@@ -115,7 +115,7 @@ pub struct AttentionBench<R: Runtime, AP> {
     problem: AttentionProblem,
     strategy: Strategy,
     device: R::Device,
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     _phantom: PhantomData<AP>,
 }
 

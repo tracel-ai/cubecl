@@ -34,7 +34,7 @@ fn identity_kernel<C: Numeric>(
 /// Launch identity matrix kernel.
 /// Ensure output is a [`TensorHandle`] containing a square matrix.
 /// output will contain the identity matrix.
-pub fn launch<R: Runtime>(client: &ComputeClient<R::Server>, output: &TensorHandle<R>) {
+pub fn launch<R: Runtime>(client: &ComputeClient<R>, output: &TensorHandle<R>) {
     let dtype = output.dtype;
     launch_ref::<R>(client, &output.as_ref(), dtype);
 }
@@ -43,7 +43,7 @@ pub fn launch<R: Runtime>(client: &ComputeClient<R::Server>, output: &TensorHand
 /// Ensure output is a [`TensorHandleRef`] containing a square matrix.
 /// output will contain the identity matrix.
 pub fn launch_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     output: &TensorHandleRef<R>,
     dtype: StorageType,
 ) {

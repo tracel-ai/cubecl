@@ -1,13 +1,15 @@
 use std::sync::Arc;
 
+use crate::dummy::KernelTask;
+
 use super::DummyServer;
 use cubecl_common::device::{Device, DeviceState};
-use cubecl_runtime::client::ComputeClient;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{
     MemoryConfiguration, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
 };
 use cubecl_runtime::storage::BytesStorage;
+use cubecl_runtime::{client::ComputeClient, compiler::Compiler, runtime::Runtime};
 
 /// The dummy device.
 #[derive(Clone, Debug, Hash, PartialEq, Eq, Default)]
@@ -30,7 +32,7 @@ impl Device for DummyDevice {
     }
 }
 
-pub type DummyClient = ComputeClient<DummyServer>;
+pub type DummyClient = ComputeClient<DummyRuntime>;
 
 impl DeviceState for DummyServer {
     fn init(_device_id: cubecl_common::device::DeviceId) -> Self {
@@ -57,4 +59,65 @@ fn init_server() -> DummyServer {
 
 pub fn test_client(device: &DummyDevice) -> DummyClient {
     ComputeClient::load(device)
+}
+
+#[derive(Debug, Clone)]
+pub struct DummyCompiler;
+
+impl Compiler for DummyCompiler {
+    type Representation = KernelTask;
+
+    type CompilationOptions = ();
+
+    fn compile(
+        &mut self,
+        _kernel: cubecl_runtime::kernel::KernelDefinition,
+        _compilation_options: &Self::CompilationOptions,
+        _mode: cubecl_common::ExecutionMode,
+    ) -> Self::Representation {
+        unimplemented!()
+    }
+
+    fn elem_size(&self, _elem: cubecl_ir::ElemType) -> usize {
+        unimplemented!()
+    }
+
+    fn extension(&self) -> &'static str {
+        unimplemented!()
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DummyRuntime;
+
+impl Runtime for DummyRuntime {
+    type Compiler = DummyCompiler;
+
+    type Server = DummyServer;
+
+    type Device = DummyDevice;
+
+    fn client(_device: &Self::Device) -> ComputeClient<Self> {
+        unimplemented!()
+    }
+
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
+        unimplemented!()
+    }
+
+    fn supported_line_sizes() -> &'static [u8] {
+        unimplemented!()
+    }
+
+    fn max_cube_count() -> (u32, u32, u32) {
+        unimplemented!()
+    }
+
+    fn can_read_tensor(_shape: &[usize], _strides: &[usize]) -> bool {
+        unimplemented!()
+    }
+
+    fn target_properties() -> cubecl_ir::TargetProperties {
+        unimplemented!()
+    }
 }

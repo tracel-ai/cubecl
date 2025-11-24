@@ -31,7 +31,7 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

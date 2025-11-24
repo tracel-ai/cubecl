@@ -61,7 +61,7 @@ impl TileAttentionFamily for BlackboxAcceleratedTileAttention {
     }
 
     fn setup<R: cubecl_core::Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         _line_sizes: &AttentionLineSizes,

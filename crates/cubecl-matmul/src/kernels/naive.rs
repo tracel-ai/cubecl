@@ -103,7 +103,7 @@ fn matmul_kernel<I: Numeric, M: Numeric, O: Numeric>(
 /// Matrix multiplication using memory coalescing algorithm with custom cube dimensions
 #[allow(clippy::result_large_err)]
 pub fn launch<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: MatmulInputHandle<R>,
     rhs: MatmulInputHandle<R>,
     out: &TensorHandleRef<'_, R>,
@@ -114,7 +114,7 @@ pub fn launch<R: Runtime>(
 
 #[allow(clippy::result_large_err)]
 pub fn launch_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     lhs: &MatmulInputHandleRef<'_, R>,
     rhs: &MatmulInputHandleRef<'_, R>,
     out: &TensorHandleRef<'_, R>,
@@ -170,13 +170,13 @@ pub fn launch_ref<R: Runtime>(
     let cube_count = simple_cube_count(lhs_shape, rhs_shape, out_shape, cube_dim_x, cube_dim_y)?;
 
     let lhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&dtypes.lhs_global),
+        client.io_optimized_line_sizes(&dtypes.lhs_global),
         lhs.data().shape,
         lhs.data().strides,
         rank - 1,
     );
     let rhs_line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes(&dtypes.rhs_global),
+        client.io_optimized_line_sizes(&dtypes.rhs_global),
         rhs.data().shape,
         rhs.data().strides,
         rank - 2,
@@ -194,7 +194,7 @@ pub fn launch_ref<R: Runtime>(
     };
 
     fn view<'a, R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &'a MatmulInputHandleRef<'a, R>,
         layout: MatrixLayout,
         line_size: u8,

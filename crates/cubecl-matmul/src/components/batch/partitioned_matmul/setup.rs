@@ -25,7 +25,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     type Config = PartitionedBatchConfig<GMM::Config>;
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -44,7 +44,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
     }
 
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server>,
+        client: &ComputeClient<R>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MA, R>,

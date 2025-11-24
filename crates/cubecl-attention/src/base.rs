@@ -25,7 +25,7 @@ pub enum Strategy {
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: TensorHandle<R>,
     key: TensorHandle<R>,
     value: TensorHandle<R>,
@@ -48,7 +48,7 @@ pub fn launch<R: Runtime>(
 #[allow(clippy::result_large_err, clippy::too_many_arguments)]
 pub fn launch_ref<R: Runtime>(
     strategy: &Strategy,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
@@ -79,7 +79,7 @@ pub fn launch_ref<R: Runtime>(
 }
 
 pub fn launch_attention<R: Runtime, A: Algorithm>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     query: &TensorHandleRef<R>,
     key: &TensorHandleRef<R>,
     value: &TensorHandleRef<R>,
@@ -87,7 +87,8 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
     out: &TensorHandleRef<R>,
     attention_elems: &AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    let line_sizes = AvailableLineSizes::from_elem_types::<R>(
+    let line_sizes = AvailableLineSizes::from_elem_types(
+        client,
         query.elem_size,
         attention_elems.mask.size(),
         out.elem_size,
@@ -135,7 +136,7 @@ pub fn launch_attention<R: Runtime, A: Algorithm>(
         two_rows_in_array_tile: false,
     };
 
-    let config = BlackboxAcceleratedAlgorithm::setup::<R>(
+    let config = BlackboxAcceleratedAlgorithm::setup(
         client,
         &problem,
         &selection,
