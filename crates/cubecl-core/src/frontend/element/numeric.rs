@@ -4,10 +4,10 @@ use cubecl_ir::ExpandElement;
 use cubecl_runtime::runtime::Runtime;
 use num_traits::NumCast;
 
-use crate::compute::KernelBuilder;
 use crate::frontend::{CubePrimitive, CubeType};
 use crate::ir::{Scope, Variable};
 use crate::prelude::Clamp;
+use crate::{CubeScalar, compute::KernelBuilder};
 use crate::{compute::KernelLauncher, prelude::CompilationArg};
 use crate::{
     frontend::{Abs, Max, Min, Remainder},
@@ -27,7 +27,6 @@ pub trait Numeric:
     + Remainder
     + CubePrimitive
     + IntoRuntime
-    + ScalarArgSettings
     + ExpandElementIntoMut
     + Into<ExpandElementTyped<Self>>
     + num_traits::NumCast
@@ -96,6 +95,12 @@ pub trait ScalarArgSettings: Send + Sync + CubePrimitive {
         builder: &mut KernelBuilder,
     ) -> ExpandElementTyped<Self> {
         builder.scalar(Self::as_type(&builder.scope)).into()
+    }
+}
+
+impl<E: CubeScalar> ScalarArgSettings for E {
+    fn register<R: Runtime>(&self, launcher: &mut KernelLauncher<R>) {
+        launcher.register_scalar(*self);
     }
 }
 

@@ -1173,7 +1173,7 @@ impl DialectWmmaCompiler<Self> for MslDialect {
                 *scales_b,
                 *scales_factor,
             ),
-            WmmaInstruction::LdMatrix { .. } => {
+            WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
                 unimplemented!("Not supported on Metal");
             }
         }

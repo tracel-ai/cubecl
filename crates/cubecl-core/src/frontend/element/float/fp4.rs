@@ -1,13 +1,9 @@
 use cubecl_common::{e2m1, e2m1x2};
 use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
-use cubecl_runtime::runtime::Runtime;
 
-use crate::{
-    compute::KernelLauncher,
-    prelude::{
-        CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
-        ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
-    },
+use crate::prelude::{
+    CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, IntoRuntime,
+    into_mut_expand_element, into_runtime_expand_element,
 };
 
 impl CubeType for e2m1 {
@@ -71,11 +67,5 @@ impl IntoRuntime for e2m1x2 {
 impl ExpandElementIntoMut for e2m1x2 {
     fn elem_into_mut(scope: &mut Scope, elem: ExpandElement) -> ExpandElement {
         into_mut_expand_element(scope, elem)
-    }
-}
-
-impl ScalarArgSettings for e2m1x2 {
-    fn register<R: Runtime>(&self, _settings: &mut KernelLauncher<R>) {
-        todo!("Not yet supported for scalars")
     }
 }

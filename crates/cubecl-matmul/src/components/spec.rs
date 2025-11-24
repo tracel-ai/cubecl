@@ -1,7 +1,7 @@
 use cubecl_core::{ir::StorageType, prelude::*};
 use half::{bf16, f16};
 
-use crate::components::MatmulIdent;
+use crate::components::{MatmulIdent, tile::TileMatmulFamily};
 
 use super::global::args::MatmulArgs;
 
@@ -28,6 +28,12 @@ impl<EG: Numeric, ES: Numeric> MatrixPrecision for (EG, ES) {
     type Global = EG;
     type Stage = ES;
     type Register = ES;
+}
+
+impl<EG: Numeric, ES: Numeric, ER: Numeric> MatrixPrecision for (EG, ES, ER) {
+    type Global = EG;
+    type Stage = ES;
+    type Register = ER;
 }
 
 impl MatmulPrecision for f16 {
@@ -114,12 +120,12 @@ impl MatmulPrecision for i64 {
     type Acc = (i64, i64);
 }
 
-impl<LhsG: Numeric, RhsG: Numeric, AccG: Numeric, LhsS: Numeric, RhsS: Numeric, AccS: Numeric>
-    MatmulPrecision for (LhsG, RhsG, AccG, LhsS, RhsS, AccS)
+impl<Lhs: MatrixPrecision, Rhs: MatrixPrecision, Acc: MatrixPrecision> MatmulPrecision
+    for (Lhs, Rhs, Acc)
 {
-    type Lhs = (LhsG, LhsS);
-    type Rhs = (RhsG, RhsS);
-    type Acc = (AccG, AccS);
+    type Lhs = Lhs;
+    type Rhs = Rhs;
+    type Acc = Acc;
 }
 
 pub type LhsG<MP> = <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Global;
@@ -169,6 +175,28 @@ impl MatmulElems {
             lhs_stage: <MP::Lhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
             rhs_stage: <MP::Rhs as MatrixPrecision>::Stage::as_type_native_unchecked(),
             acc_stage: <MP::Acc as MatrixPrecision>::Stage::as_type_native_unchecked(),
+            lhs_register: <MP::Lhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            rhs_register: <MP::Rhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),
+        }
+    }
+
+    pub fn new_with_tile<MP: MatmulPrecision, TMM: TileMatmulFamily>() -> Self {
+        fn stage<MP: MatrixPrecision, TMM: TileMatmulFamily>() -> StorageType {
+            if TMM::can_cast_stage_element() {
+                MP::Global::as_type_native_unchecked()
+            } else {
+                MP::Register::as_type_native_unchecked()
+            }
+        }
+
+        Self {
+            lhs_global: <MP::Lhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            rhs_global: <MP::Rhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            acc_global: <MP::Acc as MatrixPrecision>::Global::as_type_native_unchecked(),
+            lhs_stage: stage::<MP::Lhs, TMM>(),
+            rhs_stage: stage::<MP::Rhs, TMM>(),
+            acc_stage: stage::<MP::Acc, TMM>(),
             lhs_register: <MP::Lhs as MatrixPrecision>::Register::as_type_native_unchecked(),
             rhs_register: <MP::Rhs as MatrixPrecision>::Register::as_type_native_unchecked(),
             acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),

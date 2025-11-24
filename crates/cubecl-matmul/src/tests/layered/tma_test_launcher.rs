@@ -53,17 +53,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .filter_rhs(|ls| *ls == 1)
         .pick_max()
         .unwrap();
-    let dtypes = MatmulElems {
-        lhs_global: P::EG::as_type_native_unchecked(),
-        rhs_global: P::EG::as_type_native_unchecked(),
-        acc_global: P::EA::as_type_native_unchecked(),
-        lhs_stage: P::ES::as_type_native_unchecked(),
-        rhs_stage: P::ES::as_type_native_unchecked(),
-        acc_stage: P::EA::as_type_native_unchecked(),
-        lhs_register: P::ES::as_type_native_unchecked(),
-        rhs_register: P::ES::as_type_native_unchecked(),
-        acc_register: P::EA::as_type_native_unchecked(),
-    };
+    let dtypes = MatmulElems::new_with_tile::<P::MP, A::TileMatmul>();
     let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
@@ -123,8 +113,6 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
     );
-
-    let dtypes = MatmulElems::new::<P::MP>();
 
     unsafe {
         A::BatchMatmul::launch_unchecked::<TensorMapArgs, R>(

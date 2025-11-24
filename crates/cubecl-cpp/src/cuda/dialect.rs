@@ -5,7 +5,7 @@ use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmet
 use crate::{
     Dialect,
     cuda::{
-        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension},
+        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
         processors::CudaMmaProcessor,
         ptx::*,
     },
@@ -155,6 +155,21 @@ alignas(64) unsigned long long int opaque[16];
             } => {
                 let ext = Extension::Mma(MmaExtension::LdMatrix(LdMatrix::new(
                     output.elem(),
+                    *factor,
+                    *transpose,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
+            shared::WmmaInstruction::StMatrix {
+                registers,
+                factor,
+                transpose,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::StMatrix(StMatrix::new(
+                    registers.elem(),
                     *factor,
                     *transpose,
                 )));
