@@ -133,6 +133,7 @@ pub trait StageAttentionConfig:
 
     fn elements_in_partition_seq_q(&self) -> u32;
     fn elements_in_partition_seq_kv(&self) -> u32;
+    fn elements_in_partition_head_dim(&self) -> u32;
     fn elements_in_partition_val_dim(&self) -> u32;
 
     fn elements_in_stage_seq_q(&self) -> u32;
@@ -216,6 +217,11 @@ impl<TC: TileAttentionConfig> StageAttentionConfig for PartitionAttentionConfig<
 
     fn elements_in_partition_seq_kv(&self) -> u32 {
         self.shared().partition_size.seq_kv * self.shared().tile_config.attention_tile_size().seq_kv
+    }
+
+    fn elements_in_partition_head_dim(&self) -> u32 {
+        self.shared().partition_size.head_dim
+            * self.shared().tile_config.attention_tile_size().head_dim
     }
 
     fn elements_in_partition_val_dim(&self) -> u32 {

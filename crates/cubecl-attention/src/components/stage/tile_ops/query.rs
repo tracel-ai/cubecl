@@ -22,6 +22,6 @@ impl<AP: AttentionPrecision, TA: TileAttention<AP>> QueryTile<AP, TA> {
 
     /// Loads the query data into the fragment
     pub fn update(&mut self, tile: &StridedTile<QG<AP>>) {
-        TA::fill_query(tile, &mut self.fragment)
+        TA::load_query(tile, &mut self.fragment)
     }
 }
