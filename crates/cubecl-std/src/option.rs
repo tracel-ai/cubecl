@@ -106,9 +106,7 @@ impl<T: LaunchArg> LaunchArg for CubeOption<T> {
 
     fn compilation_arg<R: Runtime>(runtime_arg: &Self::RuntimeArg<'_, R>) -> Self::CompilationArg {
         match runtime_arg {
-            CubeOptionArgs::Some(arg) => {
-                CubeOptionCompilationArg::Some(T::compilation_arg(arg))
-            }
+            CubeOptionArgs::Some(arg) => CubeOptionCompilationArg::Some(T::compilation_arg(arg)),
             CubeOptionArgs::None => CubeOptionCompilationArg::None,
         }
     }

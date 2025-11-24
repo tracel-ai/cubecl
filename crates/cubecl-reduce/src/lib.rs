@@ -110,8 +110,7 @@ pub fn reduce<R: Runtime, Inst: ReduceFamily>(
     let strategy = strategy
         .map(|s| s.validate(client))
         .unwrap_or(Ok(ReduceStrategy::new(client, true)))?;
-    let config =
-        ReduceConfig::generate(client, &input, &output, axis, &strategy, dtypes.input);
+    let config = ReduceConfig::generate(client, &input, &output, axis, &strategy, dtypes.input);
 
     if let CubeCount::Static(x, y, z) = config.cube_count {
         let (max_x, max_y, max_z) = R::max_cube_count();

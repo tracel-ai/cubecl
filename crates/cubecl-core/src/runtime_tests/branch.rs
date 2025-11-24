@@ -69,9 +69,7 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(1.0));
 }
 
-pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-) {
+pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
@@ -128,10 +126,7 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: Compute
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_select<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    cond: bool,
-) {
+pub fn test_select<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, cond: bool) {
     let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     let vectorization = 1;

@@ -16,8 +16,7 @@ pub fn test_identity<R: Runtime, C: Numeric + CubeElement + Display>(
 
     let expected = identity_cpu::<C>(dim);
 
-    let identity =
-        TensorHandle::empty(&client, [dim, dim].to_vec(), C::as_type_native_unchecked());
+    let identity = TensorHandle::empty(&client, [dim, dim].to_vec(), C::as_type_native_unchecked());
     tensor::identity::launch(&client, &identity);
 
     let actual = client.read_one_tensor(identity.handle.clone().copy_descriptor(

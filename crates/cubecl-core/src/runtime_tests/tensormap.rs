@@ -197,9 +197,8 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-) where
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.properties().features.tma.contains(Tma::Base) {

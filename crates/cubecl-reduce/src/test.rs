@@ -568,9 +568,8 @@ impl TestCase {
                 size_of::<F>(),
             )
         };
-        let output = unsafe {
-            TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
-        };
+        let output =
+            unsafe { TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>()) };
 
         let cube_count = 3;
         let result = shared_sum(

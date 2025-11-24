@@ -67,11 +67,7 @@ where
         }
     }
 
-    pub fn empty(
-        client: &ComputeClient<R>,
-        shape: Vec<usize>,
-        storage: StorageType,
-    ) -> Self {
+    pub fn empty(client: &ComputeClient<R>, shape: Vec<usize>, storage: StorageType) -> Self {
         let elem_size = storage.size();
         let Allocation { handle, strides } = client.empty_tensor(&shape, elem_size);
 

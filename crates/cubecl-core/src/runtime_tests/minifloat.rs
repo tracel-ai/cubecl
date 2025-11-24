@@ -47,10 +47,7 @@ pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) 
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    vectorization: u8,
-) {
+pub fn test_fp8<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -92,10 +89,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    vectorization: u8,
-) {
+pub fn test_fp6<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -137,10 +131,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 }
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
-pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R>,
-    vectorization: u8,
-) {
+pub fn test_fp4<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>, vectorization: u8) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;

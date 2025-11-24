@@ -17,10 +17,7 @@ pub struct ReduceStrategy {
 }
 
 impl ReduceStrategy {
-    pub fn validate<R: Runtime>(
-        self,
-        client: &ComputeClient<R>,
-    ) -> Result<Self, ReduceError> {
+    pub fn validate<R: Runtime>(self, client: &ComputeClient<R>) -> Result<Self, ReduceError> {
         if self.use_planes {
             if !support_plane(client) {
                 return Err(ReduceError::PlanesUnavailable);
