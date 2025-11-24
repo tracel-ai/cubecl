@@ -104,7 +104,7 @@ mod tests {
     #[test]
     fn test_format_debug() {
         let test = Test {
-            map: HashMap::from_iter([("Hey with space".to_string(), 8)].into_iter()),
+            map: HashMap::from_iter([("Hey with space".to_string(), 8)]),
         };
 
         let formatted = format_debug(&test);
