@@ -23,18 +23,19 @@ fn execute<F: Float>(lhs: &Tensor<F>, rhs: &Tensor<F>, out: &mut Tensor<F>) {
 }
 
 impl<R: Runtime, E: Float> Benchmark for UnaryBench<R, E> {
-    type Input = (TensorHandle<R, E>, TensorHandle<R, E>, TensorHandle<R, E>);
+    type Input = (TensorHandle<R>, TensorHandle<R>, TensorHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
+        let elem = E::as_type_native_unchecked();
 
-        let lhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), lhs.as_ref());
-        let rhs = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), rhs.as_ref());
-        let out = TensorHandle::<R, E>::empty(&client, self.shape.clone());
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), out.as_ref());
+        let lhs = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., lhs.as_ref(), elem);
+        let rhs = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., rhs.as_ref(), elem);
+        let out = TensorHandle::empty(&client, self.shape.clone(), elem);
+        random_uniform(&client, 0., 1., out.as_ref(), elem);
 
         (lhs, rhs, out)
     }

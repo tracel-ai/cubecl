@@ -7,23 +7,23 @@ use cubecl::{
     client::ComputeClient,
     future,
 };
-use cubecl_attention::Strategy;
 use cubecl_attention::components::attention_types::{KG, MSK, OG, QG, VG};
 use cubecl_attention::{
     self as attention,
     components::{AttentionIdent, AttentionPrecision, AttentionProblem},
 };
+use cubecl_attention::{Strategy, components::AttentionElems};
 use cubecl_random::random_uniform;
 use cubecl_std::tensor::TensorHandle;
 
-pub struct AttentionInputs<AP: AttentionPrecision, R: Runtime> {
-    query: TensorHandle<R, QG<AP>>,
-    key: TensorHandle<R, KG<AP>>,
-    value: TensorHandle<R, VG<AP>>,
-    mask: Option<TensorHandle<R, MSK<AP>>>,
+pub struct AttentionInputs<R: Runtime> {
+    query: TensorHandle<R>,
+    key: TensorHandle<R>,
+    value: TensorHandle<R>,
+    mask: Option<TensorHandle<R>>,
 }
 
-impl<AP: AttentionPrecision, R: Runtime> Clone for AttentionInputs<AP, R> {
+impl<R: Runtime> Clone for AttentionInputs<R> {
     fn clone(&self) -> Self {
         Self {
             query: self.query.clone(),
@@ -35,7 +35,7 @@ impl<AP: AttentionPrecision, R: Runtime> Clone for AttentionInputs<AP, R> {
 }
 
 impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
-    type Input = AttentionInputs<AP, R>;
+    type Input = AttentionInputs<R>;
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
@@ -44,9 +44,10 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
         fn make_random<R: Runtime, T: Numeric>(
             client: &ComputeClient<R>,
             shape: Vec<usize>,
-        ) -> TensorHandle<R, T> {
-            let tensor = TensorHandle::<R, T>::empty(client, shape);
-            random_uniform::<R, T>(client, T::from_int(0), T::from_int(1), tensor.as_ref());
+        ) -> TensorHandle<R> {
+            let dtype = T::as_type_native_unchecked();
+            let tensor = TensorHandle::empty(client, shape, dtype);
+            random_uniform(client, 0., 1., tensor.as_ref(), dtype);
             tensor
         }
 
@@ -70,10 +71,15 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
 
     fn execute(&self, input: Self::Input) -> Result<(), String> {
         let client = R::client(&self.device);
-        let out: TensorHandle<R, OG<AP>> =
-            TensorHandle::empty(&client, self.problem.shape(AttentionIdent::Out).to_vec());
+        let dtypes = AttentionElems::new::<AP>();
 
-        attention::launch_ref::<R, AP>(
+        let out: TensorHandle<R> = TensorHandle::empty(
+            &client,
+            self.problem.shape(AttentionIdent::Out).to_vec(),
+            dtypes.out_global,
+        );
+
+        attention::launch_ref(
             &Strategy::BlackboxAccelerated,
             &self.client,
             &input.query.as_ref(),
@@ -81,6 +87,7 @@ impl<R: Runtime, AP: AttentionPrecision> Benchmark for AttentionBench<R, AP> {
             &input.value.as_ref(),
             &None,
             &out.as_ref(),
+            &dtypes,
         )
         .map_err(|it| format!("{it:?}"))
     }

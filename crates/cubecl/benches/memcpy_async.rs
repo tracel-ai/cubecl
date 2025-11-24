@@ -138,7 +138,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -166,7 +166,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -196,7 +196,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_full(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -225,7 +225,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -259,7 +259,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -296,7 +296,7 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -331,7 +331,7 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -368,7 +368,7 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -407,7 +407,7 @@ impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
     type Barrier = Barrier;
 
     fn barrier() -> Self::Barrier {
-        Barrier::new(BarrierLevel::cube_manual(0u32))
+        Barrier::new(BarrierLevel::cube_full(UNIT_POS == 0u32))
     }
 
     fn memcpy<E: Float>(
@@ -726,30 +726,24 @@ fn launch_ref<R: Runtime, E: Float>(
 }
 
 impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
-    type Input = (TensorHandle<R, E>, TensorHandle<R, E>);
+    type Input = (TensorHandle<R>, TensorHandle<R>);
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let a = TensorHandle::<R>::empty(
+        let a = TensorHandle::empty(
             &client,
             vec![self.data_count],
             E::as_type_native_unchecked(),
         );
-        random_uniform::<R>(
-            &client,
-            E::from_int(0),
-            E::from_int(1),
-            a.as_ref(),
-            E::as_type_native_unchecked(),
-        );
-        let b = TensorHandle::<R>::empty(
+        random_uniform(&client, 0., 1., a.as_ref(), E::as_type_native_unchecked());
+        let b = TensorHandle::empty(
             &client,
             vec![self.window_size],
             E::as_type_native_unchecked(),
         );
-        random_uniform::<R, E>(&client, 0., 1., b.as_ref());
+        random_uniform(&client, 0., 1., b.as_ref(), E::as_type_native_unchecked());
 
         (a, b)
     }
