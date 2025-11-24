@@ -1,4 +1,5 @@
 use crate::{
+    DeviceProperties,
     kernel::KernelMetadata,
     logging::ServerLogger,
     memory_management::{
@@ -15,7 +16,8 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt::Debug;
 use cubecl_common::{
-    ExecutionMode, bytes::Bytes, future::DynFut, profile::ProfileDuration, stream_id::StreamId,
+    ExecutionMode, bytes::Bytes, device, future::DynFut, profile::ProfileDuration,
+    stream_id::StreamId,
 };
 use cubecl_ir::StorageType;
 use thiserror::Error;
@@ -29,11 +31,58 @@ pub enum ProfileError {
     NotRegistered,
 }
 
+#[derive(Debug)]
+/// Contains many different types that are useful for server implementations and compute clients.
+pub struct ServerUtilities<Server: ComputeServer> {
+    /// The time when `profile-tracy` is activated.
+    #[cfg(feature = "profile-tracy")]
+    pub epoch_time: web_time::Instant,
+    /// The GPU client when `profile-tracy` is activated.
+    #[cfg(feature = "profile-tracy")]
+    pub gpu_client: tracy_client::GpuContext,
+    /// Information shared between all servers.
+    pub properties: DeviceProperties,
+    /// Information specific to the current server.
+    pub info: Server::Info,
+    /// The logger based on global cubecl configs.
+    pub logger: Arc<ServerLogger>,
+}
+
+impl<S: ComputeServer> ServerUtilities<S> {
+    /// Creates a new server utilities.
+    pub fn new(properties: DeviceProperties, logger: Arc<ServerLogger>, info: S::Info) -> Self {
+        // Start a tracy client if needed.
+        #[cfg(feature = "profile-tracy")]
+        let client = tracy_client::Client::start();
+
+        Self {
+            properties,
+            logger,
+            // Create the GPU client if needed.
+            #[cfg(feature = "profile-tracy")]
+            gpu_client: client
+                .clone()
+                .new_gpu_context(
+                    Some(&format!("{info:?}")),
+                    // In the future should ask the server what makes sense here. 'Invalid' atm is a generic stand-in (Tracy doesn't have CUDA/RocM atm anyway).
+                    tracy_client::GpuContextType::Invalid,
+                    0,   // Timestamps are manually aligned to this epoch so start at 0.
+                    1.0, // Timestamps are manually converted to be nanoseconds so period is 1.
+                )
+                .unwrap(),
+            #[cfg(feature = "profile-tracy")]
+            epoch_time: web_time::Instant::now(),
+            info,
+        }
+    }
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
 /// [compute channel](crate::channel::ComputeChannel) for thread safety.
-pub trait ComputeServer: Send + core::fmt::Debug + ServerCommunication
+pub trait ComputeServer:
+    Send + core::fmt::Debug + ServerCommunication + device::DeviceState + 'static
 where
     Self: Sized,
 {
@@ -51,11 +100,46 @@ where
         stream_id: StreamId,
     ) -> Result<Vec<Allocation>, IoError>;
 
+    /// Reserves N [Bytes] of the provided sizes to be used as staging to load data.
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     /// Retrieve the server logger.
     fn logger(&self) -> Arc<ServerLogger>;
 
+    /// Retrieve the server utilities.
+    fn utilities(&self) -> Arc<ServerUtilities<Self>>;
+
     /// Utility to create a new buffer and immediately copy contiguous data into it
     fn create_with_data(&mut self, data: &[u8], stream_id: StreamId) -> Result<Handle, IoError> {
+        let alloc = self
+            .create(
+                vec![AllocationDescriptor::new(
+                    AllocationKind::Contiguous,
+                    &[data.len()],
+                    1,
+                )],
+                stream_id,
+            )?
+            .remove(0);
+        self.write(
+            vec![(
+                CopyDescriptor::new(
+                    alloc.handle.clone().binding(),
+                    &[data.len()],
+                    &alloc.strides,
+                    1,
+                ),
+                Bytes::from_bytes_vec(data.to_vec()),
+            )],
+            stream_id,
+        )?;
+        Ok(alloc.handle)
+    }
+
+    /// Utility to create a new buffer and immediately copy contiguous data into it
+    fn create_with_bytes(&mut self, data: Bytes, stream_id: StreamId) -> Result<Handle, IoError> {
         let alloc = self
             .create(
                 vec![AllocationDescriptor::new(
@@ -91,7 +175,7 @@ where
     /// Writes the specified bytes into the buffers given
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError>;
 
@@ -269,6 +353,9 @@ pub enum IoError {
     /// Unknown error happened during execution
     #[error("Unknown error happened during execution")]
     Unknown(String),
+    /// The current IO operation is not supported
+    #[error("The current IO operation is not supported")]
+    UnsupportedIoOperation,
 }
 
 impl Handle {

@@ -173,7 +173,7 @@ impl<E: CubePrimitive, IO: SliceVisibility> SliceOperatorExpand<E> for SliceExpa
             io: std::marker::PhantomData,
             offset,
             length,
-            line_size: None,
+            line_size: self.line_size,
         }
     }
 
@@ -204,7 +204,7 @@ impl<E: CubePrimitive> SliceMutOperatorExpand<E> for SliceExpand<E, ReadWrite> {
             io: std::marker::PhantomData,
             offset,
             length,
-            line_size: None,
+            line_size: self.line_size,
         }
     }
 

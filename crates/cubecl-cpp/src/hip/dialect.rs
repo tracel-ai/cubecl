@@ -152,6 +152,10 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                 shared::WmmaInstruction::Load { frag, layout, .. } => Extension::Wmma(
                     WmmaExtension::Load(WmmaLoad::new(variable_to_frag(frag), *layout)),
                 ),
+                shared::WmmaInstruction::LdMatrix { .. }
+                | shared::WmmaInstruction::StMatrix { .. } => {
+                    unimplemented!("Not supported for HIP");
+                }
                 shared::WmmaInstruction::Execute {
                     frag_a,
                     frag_b,
@@ -171,8 +175,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
                     ..
                 } => Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
                     *shape,
-                    frag_a[0].elem(),
-                    frag_c[0].elem(),
+                    frag_a.elem(),
+                    frag_c.elem(),
                 ))),
                 shared::WmmaInstruction::ExecuteScaled { .. } => {
                     unimplemented!("Not supported in HIP")
@@ -200,8 +204,8 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for HipDialect<M> {
         {
             let extension = Extension::Wmma(WmmaExtension::Execute(WmmaExecute::from_manual(
                 *shape,
-                frag_a[0].elem(),
-                frag_c[0].elem(),
+                frag_a.elem(),
+                frag_c.elem(),
             )));
 
             if !extensions.contains(&extension) {

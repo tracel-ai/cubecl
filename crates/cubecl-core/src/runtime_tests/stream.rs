@@ -14,9 +14,7 @@ pub fn big_task<F: Float>(input: &Array<u32>, output: &mut Array<F>, num_loop: u
     }
 }
 
-pub fn test_stream<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
+pub fn test_stream<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
     let client_1 = unsafe {
         let mut c = client.clone();
         c.set_stream(StreamId { value: 10000 });
@@ -30,7 +28,7 @@ pub fn test_stream<R: Runtime, F: Float + CubeElement>(
 
     let len = 4096;
     let input: Vec<u32> = (0..len as u32).collect();
-    let mut input = client_1.create(u32::as_bytes(&input));
+    let mut input = client_1.create_from_slice(u32::as_bytes(&input));
     let mut output = None;
 
     for _ in 0..300 {

@@ -184,6 +184,10 @@ impl<const POS: u8> CubePrimitive for ElemExpand<POS> {
     fn as_type(scope: &Scope) -> StorageType {
         scope.resolve_type::<Self>().expect("Type to be registered")
     }
+
+    fn from_const_value(_value: ConstantScalarValue) -> Self {
+        unimplemented!("Can't turn `ElemExpand` into a constant value")
+    }
 }
 
 impl<const POS: u8> From<ElemExpand<POS>> for Variable {
@@ -243,13 +247,27 @@ impl<const POS: u8> Log for ElemExpand<POS> {}
 impl<const POS: u8> Log1p for ElemExpand<POS> {}
 impl<const POS: u8> Cos for ElemExpand<POS> {}
 impl<const POS: u8> Sin for ElemExpand<POS> {}
+impl<const POS: u8> Tan for ElemExpand<POS> {}
 impl<const POS: u8> Tanh for ElemExpand<POS> {}
+impl<const POS: u8> Sinh for ElemExpand<POS> {}
+impl<const POS: u8> Cosh for ElemExpand<POS> {}
+impl<const POS: u8> ArcCos for ElemExpand<POS> {}
+impl<const POS: u8> ArcSin for ElemExpand<POS> {}
+impl<const POS: u8> ArcTan for ElemExpand<POS> {}
+impl<const POS: u8> ArcSinh for ElemExpand<POS> {}
+impl<const POS: u8> ArcCosh for ElemExpand<POS> {}
+impl<const POS: u8> ArcTanh for ElemExpand<POS> {}
+impl<const POS: u8> Degrees for ElemExpand<POS> {}
+impl<const POS: u8> Radians for ElemExpand<POS> {}
+impl<const POS: u8> ArcTan2 for ElemExpand<POS> {}
 impl<const POS: u8> Powf for ElemExpand<POS> {}
 impl<const POS: u8, I: CubePrimitive> Powi<I> for ElemExpand<POS> {}
 impl<const POS: u8> Sqrt for ElemExpand<POS> {}
+impl<const POS: u8> InverseSqrt for ElemExpand<POS> {}
 impl<const POS: u8> Round for ElemExpand<POS> {}
 impl<const POS: u8> Floor for ElemExpand<POS> {}
 impl<const POS: u8> Ceil for ElemExpand<POS> {}
+impl<const POS: u8> Trunc for ElemExpand<POS> {}
 impl<const POS: u8> IsNan for ElemExpand<POS> {}
 impl<const POS: u8> IsInf for ElemExpand<POS> {}
 
@@ -379,12 +397,6 @@ impl<const POS: u8> Not for ElemExpand<POS> {
 
     fn not(self) -> Self::Output {
         Self(Not::not(self.0 as i32) as f32)
-    }
-}
-
-impl<const POS: u8> ScalarArgSettings for ElemExpand<POS> {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f32(self.0);
     }
 }
 

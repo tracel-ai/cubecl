@@ -1,6 +1,7 @@
 mod hypercube;
 mod partition_buffering;
 mod specialized;
+mod swizzle;
 
 #[macro_export]
 macro_rules! testgen_matmul_advanced {

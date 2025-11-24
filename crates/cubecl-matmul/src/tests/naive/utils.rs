@@ -13,9 +13,9 @@ pub(crate) struct MatmulTestCase {
 impl MatmulTestCase {
     pub(crate) fn matmul_cpu<R: Runtime, F: Float + CubeElement>(
         &self,
-        lhs: &TensorHandle<R, F>,
-        rhs: &TensorHandle<R, F>,
-        client: &ComputeClient<R::Server, R::Channel>,
+        lhs: &TensorHandle<R>,
+        rhs: &TensorHandle<R>,
+        client: &ComputeClient<R::Server>,
     ) -> Vec<F> {
         let lhs_binding = &client.read_one_tensor(lhs.handle.clone().copy_descriptor(
             &lhs.shape,
@@ -60,30 +60,34 @@ impl MatmulTestCase {
 
     pub(crate) fn random_lhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, F> {
-        self.random_tensor(client, vec![self.batch, self.m, self.k])
+        client: &ComputeClient<R::Server>,
+    ) -> TensorHandle<R> {
+        self.random_tensor::<R, F>(client, vec![self.batch, self.m, self.k])
     }
 
     pub(crate) fn random_rhs<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, F> {
-        self.random_tensor(client, vec![self.batch, self.k, self.n])
+        client: &ComputeClient<R::Server>,
+    ) -> TensorHandle<R> {
+        self.random_tensor::<R, F>(client, vec![self.batch, self.k, self.n])
     }
 
     pub(crate) fn empty_out<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
-    ) -> TensorHandle<R, F> {
-        TensorHandle::empty(client, vec![self.batch, self.m, self.n])
+        client: &ComputeClient<R::Server>,
+    ) -> TensorHandle<R> {
+        TensorHandle::empty(
+            client,
+            vec![self.batch, self.m, self.n],
+            F::as_type_native_unchecked(),
+        )
     }
 
     pub(crate) fn random_tensor<R: Runtime, F: Float + CubeElement + Sample>(
         &self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: Vec<usize>,
-    ) -> TensorHandle<R, F> {
+    ) -> TensorHandle<R> {
         F::sample::<R>(client, &shape, 999)
     }
 }

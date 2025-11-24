@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use cubecl_core::MemoryConfiguration;
 use cubecl_hip_sys::HIP_SUCCESS;
 use cubecl_runtime::{
-    memory_management::{MemoryDeviceProperties, MemoryManagement},
+    logging::ServerLogger,
+    memory_management::{
+        MemoryAllocationMode, MemoryDeviceProperties, MemoryManagement, MemoryManagementOptions,
+    },
     stream::EventStreamBackend,
 };
 
@@ -23,6 +28,7 @@ pub struct HipStreamBackend {
     mem_props: MemoryDeviceProperties,
     mem_config: MemoryConfiguration,
     mem_alignment: usize,
+    logger: Arc<ServerLogger>,
 }
 
 impl EventStreamBackend for HipStreamBackend {
@@ -37,8 +43,13 @@ impl EventStreamBackend for HipStreamBackend {
             stream
         };
         let storage = GpuStorage::new(self.mem_alignment);
-        let memory_management_gpu =
-            MemoryManagement::from_configuration(storage, &self.mem_props, self.mem_config.clone());
+        let memory_management_gpu = MemoryManagement::from_configuration(
+            storage,
+            &self.mem_props,
+            self.mem_config.clone(),
+            self.logger.clone(),
+            MemoryManagementOptions::new("Main GPU Memory"),
+        );
         // We use the same page size and memory pools configuration for CPU pinned memory, since we
         // expect the CPU to have at least the same amount of RAM as GPU memory.
         let memory_management_cpu = MemoryManagement::from_configuration(
@@ -48,6 +59,8 @@ impl EventStreamBackend for HipStreamBackend {
                 alignment: PINNED_MEMORY_ALIGNMENT as u64,
             },
             self.mem_config.clone(),
+            self.logger.clone(),
+            MemoryManagementOptions::new("Pinned CPU Memory").mode(MemoryAllocationMode::Auto),
         );
 
         Stream {

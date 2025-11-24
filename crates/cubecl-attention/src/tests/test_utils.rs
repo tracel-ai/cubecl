@@ -33,7 +33,7 @@ pub trait TestPrecision {
         value: &[Self::EG],
         mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -56,9 +56,9 @@ where
         query: &[EG],
         key: &[EG],
         value: &[EG],
-        mask: Option<&[u8]>,
+        mask: Option<&[Self::EM]>,
         problem: &AttentionProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -100,14 +100,15 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
-    let actual = client.read_one_tensor(output.copy_descriptor(shape, strides, size_of::<F>()));
+    let actual =
+        client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
 
     // normalize to type epsilon
@@ -238,10 +239,10 @@ impl CastInto<u8> for i32 {
 
 pub trait Sampleable: Sized + CubePrimitive {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self>;
+    ) -> TensorHandle<R>;
 }
 
 macro_rules! sample_float {
@@ -249,11 +250,12 @@ macro_rules! sample_float {
         $(
             impl Sampleable for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server>, shape: &[usize], seed: u64) -> TensorHandle::<R> {
                     cubecl_random::seed(seed);
-                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
+                    let dtype = Self::as_type_native_unchecked();
+                    let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-50), Self::from_int(50), output.as_ref());
+                    cubecl_random::random_uniform::<R>(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
 
                     output
                 }
@@ -266,22 +268,23 @@ sample_float!(half::f16);
 sample_float!(half::bf16);
 sample_float!(f32);
 sample_float!(f64);
-sample_float!(u8);
 
 impl Sampleable for flex32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform::<R>(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
+            dtype,
         );
 
         output
@@ -290,18 +293,20 @@ impl Sampleable for flex32 {
 
 impl Sampleable for tf32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform::<R>(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
+            dtype,
         );
 
         output
@@ -310,14 +315,31 @@ impl Sampleable for tf32 {
 
 impl Sampleable for bool {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, bool>::empty(client, shape.to_vec());
+        let dtype = bool::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R, f32>(client, 0.5, output.as_ref());
+        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
+
+        output
+    }
+}
+
+impl Sampleable for u8 {
+    fn sample<R: Runtime>(
+        client: &ComputeClient<R::Server>,
+        shape: &[usize],
+        seed: u64,
+    ) -> TensorHandle<R> {
+        cubecl_random::seed(seed);
+        let dtype = u8::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+
+        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
 
         output
     }
@@ -334,11 +356,13 @@ where
 {
     let batch = problem.batch;
     let seq_q = problem.seq_q;
-    let seq_k = problem.seq_kv;
+    let seq_kv = problem.seq_kv;
     let num_heads = problem.num_heads;
     let head_dim = problem.head_dim;
     let val_dim = problem.val_dim;
+
     let masked = mask.is_some();
+    assert!(problem.masked == masked);
 
     // Precompute strides for indexing
     let query_strides = strides(problem, AttentionIdent::Query);
@@ -364,8 +388,8 @@ where
 
                 // For each K/V block
                 let mut k_block_start = 0usize;
-                while k_block_start < seq_k {
-                    let k_block_end = std::cmp::min(seq_k, k_block_start + seq_k);
+                while k_block_start < seq_kv {
+                    let k_block_end = std::cmp::min(seq_kv, k_block_start + seq_kv);
                     let cur_block_len = k_block_end - k_block_start;
 
                     // Step A: compute S_block[j'] = Q_i · K_{j'}  for j' in block
@@ -375,12 +399,12 @@ where
                         let mut dot = P::EA::from_int(0);
                         for d in 0..head_dim {
                             let q_idx = b * query_strides[0]
-                                + i * query_strides[1]
-                                + h * query_strides[2]
+                                + h * query_strides[1]
+                                + i * query_strides[2]
                                 + d * query_strides[3];
                             let k_idx = b * key_strides[0]
-                                + j * key_strides[1]
-                                + h * key_strides[2]
+                                + h * key_strides[1]
+                                + j * key_strides[2]
                                 + d * key_strides[3];
                             let q_val: P::ES = query[q_idx].cast_into();
                             let k_val: P::ES = key[k_idx].cast_into();
@@ -390,13 +414,15 @@ where
                         // apply scale (1/sqrt(dk))
                         dot *= scale;
 
-                        // apply mask (for masked positions set -inf)
-                        let s_val = if masked {
+                        let s_val = if problem.causal && j > i {
+                            P::EA::new(f32::NEG_INFINITY)
+                        } else if masked {
                             let m_idx = b * mask_strides[0]
-                                + i * mask_strides[1]
-                                + h * mask_strides[2]
+                                + h * mask_strides[1]
+                                + i * mask_strides[2]
                                 + j * mask_strides[3];
                             let m_val = mask.unwrap()[m_idx].cast_into();
+
                             if m_val != P::EM::from_int(0) {
                                 P::EA::new(f32::NEG_INFINITY)
                             } else {
@@ -449,8 +475,8 @@ where
                         let p_val = p_tilde[bj];
                         for d in 0..val_dim {
                             let v_idx = b * value_strides[0]
-                                + j * value_strides[1]
-                                + h * value_strides[2]
+                                + h * value_strides[1]
+                                + j * value_strides[2]
                                 + d * value_strides[3];
                             // cast v to EA so multiplication is in EA
                             let v_val: P::EA = value[v_idx].cast_into().cast_into();
@@ -468,7 +494,7 @@ where
 
                 // Step final: normalize accumulator: O_final = acc_row / l
                 // write into output
-                let out_base = b * out_strides[0] + i * out_strides[1] + h * out_strides[2];
+                let out_base = b * out_strides[0] + h * out_strides[1] + i * out_strides[2];
 
                 // guard against tiny l (numerical safety)
                 let eps = P::EA::new(1e-20f32);

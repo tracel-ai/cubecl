@@ -49,6 +49,7 @@ impl Scheduler {
         bindings: Bindings,
         kind: ExecutionMode,
         memory_management: &mut MemoryManagement<BytesStorage>,
+        memory_management_shared_memory: &mut MemoryManagement<BytesStorage>,
     ) {
         let kernel = self
             .compilation_cache
@@ -65,8 +66,12 @@ impl Scheduler {
         let cube_dim_size = cube_dim.num_elems();
 
         let mlir_engine = kernel.repr.clone().unwrap();
-        let mut mlir_data =
-            MlirData::new(bindings, &mlir_engine.0.shared_memories, memory_management);
+        let mut mlir_data = MlirData::new(
+            bindings,
+            &mlir_engine.0.shared_memories,
+            memory_management,
+            memory_management_shared_memory,
+        );
         mlir_data.builtin.set_cube_dim(cube_dim);
         mlir_data.builtin.set_cube_count(cube_count);
 

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use darling::usage::{CollectLifetimes as _, CollectTypeParams as _, GenericsExt as _, Purpose};
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote, quote_spanned};
@@ -5,7 +7,8 @@ use syn::{Ident, TypeParamBound};
 
 use crate::{
     parse::kernel::{
-        KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch, strip_ref,
+        DefinedGeneric, KernelBody, KernelFn, KernelParam, KernelReturns, KernelSignature, Launch,
+        strip_ref,
     },
     paths::{frontend_type, prelude_path, prelude_type},
 };
@@ -22,36 +25,46 @@ impl KernelFn {
         };
         let name = &self.full_name;
 
-        let (debug_source, debug_params) = if cfg!(debug_symbols) || self.debug_symbols {
-            let debug_source = frontend_type("debug_source_expand");
-            let cube_debug = frontend_type("CubeDebug");
-            let src_file = self.src_file.as_ref().map(|file| file.value());
-            let src_file = src_file.or_else(|| {
-                let span: proc_macro::Span = self.span.unwrap();
-                let source_path = span.local_file();
-                let source_file = source_path.as_ref().and_then(|path| path.file_name());
-                source_file.map(|file| file.to_string_lossy().into())
-            });
-            let source_text = match src_file {
-                Some(file) => quote![include_str!(#file)],
-                None => quote![""],
-            };
+        let (debug_source, debug_params) =
+            if cfg!(debug_symbols) || self.args.debug_symbols.is_present() {
+                let debug_source = frontend_type("debug_source_expand");
+                let cube_debug = frontend_type("CubeDebug");
+                let src_file = self.args.src_file.as_ref().map(|file| file.value());
+                let src_file = src_file.or_else(|| {
+                    let span: proc_macro::Span = self.span.unwrap();
+                    let source_path = span.local_file();
+                    let source_file = source_path.as_ref().and_then(|path| path.file_name());
+                    source_file.map(|file| file.to_string_lossy().into())
+                });
+                let source_text = match src_file {
+                    Some(file) => quote![include_str!(#file)],
+                    None => quote![""],
+                };
 
-            let debug_source = quote_spanned! {self.span=>
-                #debug_source(scope, #name, file!(), #source_text, line!(), column!())
+                let debug_source = quote_spanned! {self.span=>
+                    #debug_source(scope, #name, file!(), #source_text, line!(), column!())
+                };
+                let debug_params = sig
+                    .runtime_params()
+                    .map(|it| &it.name)
+                    .map(|name| {
+                        let name_str = name.to_string();
+                        quote! [#cube_debug::set_debug_name(&#name, scope, #name_str);]
+                    })
+                    .collect();
+                (debug_source, debug_params)
+            } else {
+                (TokenStream::new(), Vec::new())
             };
-            let debug_params = sig
-                .runtime_params()
-                .map(|it| &it.name)
-                .map(|name| {
-                    let name_str = name.to_string();
-                    quote! [#cube_debug::set_debug_name(&#name, scope, #name_str);]
-                })
-                .collect();
-            (debug_source, debug_params)
-        } else {
-            (TokenStream::new(), Vec::new())
-        };
+        let body = self
+            .args
+            .fast_math
+            .as_ref()
+            .map(|value| {
+                let fast_math = frontend_type("fast_math_expand");
+                quote![#fast_math(scope, #value, |scope| {#body})]
+            })
+            .unwrap_or_else(|| quote![#body]);
 
         let out = quote! {
             #vis #sig {
@@ -225,7 +238,20 @@ impl Launch {
     fn define_body(&self) -> TokenStream {
         let kernel_builder = prelude_type("KernelBuilder");
         let io_map = self.io_mappings();
-        let register_type = self.analysis.register_types();
+        let mut mapping = HashMap::new();
+        for param in self.func.sig.parameters.iter() {
+            for define in param.defines.iter() {
+                match define {
+                    DefinedGeneric::Single(ident) => {
+                        mapping.insert(ident.clone(), (param.name.clone(), None));
+                    }
+                    DefinedGeneric::Multiple(ident, index) => {
+                        mapping.insert(ident.clone(), (param.name.clone(), Some(*index)));
+                    }
+                }
+            }
+        }
+        let register_type = self.analysis.register_types(mapping);
         let runtime_args = self.runtime_params().map(|it| &it.name);
         let comptime_args = self.comptime_params().map(|it| &it.name);
         let generics = self.analysis.process_generics(&self.func.sig.generics);
@@ -354,9 +380,6 @@ impl Launch {
             let mut settings = quote![settings.kernel_name(#kernel_source_name)];
             if self.args.debug_symbols.is_present() {
                 settings.extend(quote![.debug_symbols()]);
-            }
-            if let Some(mode) = &self.args.fast_math {
-                settings.extend(quote![.fp_math_mode((#mode).into())]);
             }
             if let Some(cluster_dim) = &self.args.cluster_dim {
                 settings.extend(quote![.cluster_dim(#cluster_dim)]);

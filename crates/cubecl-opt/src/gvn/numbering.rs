@@ -128,7 +128,7 @@ impl ValueTable {
             | Operation::NonSemantic(_)
             | Operation::Barrier(_)
             | Operation::Tma(_)
-            | Operation::Free(_) => Err(None),
+            | Operation::Marker(_) => Err(None),
         }
     }
 
@@ -190,18 +190,7 @@ impl ValueTable {
         out: Variable,
     ) -> Result<(Expression, Option<Value>), Option<Value>> {
         let (expr, val) = match operator {
-            Operator::Index(op) | Operator::UncheckedIndex(op) => {
-                let out_val = value_of_var(&out);
-                if !op.list.is_immutable() {
-                    Err(out_val)?
-                }
-                let item = out.ty;
-                let lhs = self.lookup_or_add_var(&op.list)?;
-                let rhs = self.lookup_or_add_var(&op.index)?;
-                let id = OpCode::Operator(operator.op_code());
-                let expr = Instruction::new(id, &[lhs, rhs], item);
-                (expr.into(), out_val)
-            }
+            Operator::Index(_) | Operator::UncheckedIndex(_) => Err(value_of_var(&out))?,
 
             Operator::IndexAssign(_)
             | Operator::UncheckedIndexAssign(_)

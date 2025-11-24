@@ -11,16 +11,25 @@ use crate::precision::ReducePrecision;
 use crate::primitives::*;
 use crate::{LineMode, ReduceConfig, ReduceStrategy};
 
+#[derive(Clone, Copy, Debug)]
+pub struct ReduceDtypes {
+    pub input: StorageType,
+    pub output: StorageType,
+    pub accumulation: StorageType,
+}
+
 /// Launch a reduce kernel. This function assumes that all parameters are already validated.
 /// See the main entrypoint `reduce` in `lib.rs` for an example how to call this function
 /// with the appropriate assumptions.
-pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: ReduceFamily>(
-    client: &ComputeClient<Run::Server, Run::Channel>,
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn launch_reduce<Run: Runtime, Rd: ReduceFamily>(
+    client: &ComputeClient<Run::Server>,
     input: TensorHandleRef<Run>,
     output: TensorHandleRef<Run>,
     axis: u32,
     config: ReduceConfig,
     strategy: ReduceStrategy,
+    dtypes: ReduceDtypes,
     inst: Rd::Config,
 ) {
     let settings = ReduceParams {
@@ -39,7 +48,7 @@ pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: 
         bound_checks_inner: config.bound_checks_inner,
     };
     unsafe {
-        reduce_kernel::launch_unchecked::<P::EI, Out, P::EA, Rd, TensorArgs, Run>(
+        reduce_kernel::launch_unchecked::<Rd, TensorArgs, Run>(
             client,
             config.cube_count,
             config.cube_dim,
@@ -48,6 +57,9 @@ pub(crate) fn launch_reduce<Run: Runtime, P: ReducePrecision, Out: Numeric, Rd: 
             ScalarArg::new(axis),
             settings,
             inst,
+            dtypes.input,
+            dtypes.output,
+            dtypes.accumulation,
         );
     }
 }
@@ -70,6 +82,9 @@ pub fn reduce_kernel<In: Numeric, Out: Numeric, Acc: Numeric, R: ReduceFamily, R
     axis_reduce: u32,
     #[comptime] params: ReduceParams,
     #[comptime] config: R::Config,
+    #[define(In)] _input_dtype: StorageType,
+    #[define(Out)] _output_dtype: StorageType,
+    #[define(Acc)] _acc_dtype: StorageType,
 ) {
     let (input, mut output) = init_tensors::<RA, In, Out>(input, output);
     reduce_kernel_virtual::<In, Out, Acc, R>(&input, &mut output, axis_reduce, params, config);

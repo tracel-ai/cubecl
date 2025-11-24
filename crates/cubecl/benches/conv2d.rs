@@ -2,14 +2,22 @@ use std::marker::PhantomData;
 
 use cubecl::{
     Runtime,
-    benchmark::{Benchmark, TimingMethod},
+    benchmark::{Benchmark, ProfileDuration, TimingMethod},
     client::ComputeClient,
     future,
 };
-use cubecl_convolution as convolution;
-use cubecl_convolution::{ConvolutionArgs, algorithm::simple::SimpleConvAlgorithm};
-use cubecl_matmul::components::{MatmulPrecision, tile::accelerated_matmul::AcceleratedMatmul};
-use cubecl_std::tensor::TensorHandle;
+use cubecl_convolution::ConvolutionArgs;
+use cubecl_convolution::{
+    self as convolution, kernels::layered::algorithm::simple::SimpleConvAlgorithm,
+};
+use cubecl_matmul::{
+    MatmulInputHandleRef,
+    components::{
+        AccG, AccR, LhsG, LhsS, MatmulPrecision, RhsG,
+        tile::{cmma::CmmaMatmul, io::Strided},
+    },
+};
+use cubecl_std::{CubeOption, tensor::TensorHandle};
 
 use cubecl_random::random_uniform;
 
@@ -17,41 +25,41 @@ use cubecl::prelude::*;
 
 impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
     type Input = (
-        TensorHandle<R, MP::EI>,
-        TensorHandle<R, MP::EI>,
-        TensorHandle<R, MP::EI>,
+        TensorHandle<R, LhsG<MP>>,
+        TensorHandle<R, RhsG<MP>>,
+        TensorHandle<R, AccG<MP>>,
     );
     type Output = ();
 
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let input = TensorHandle::<R, MP::EI>::empty(&client, self.input_shape.to_vec());
-        random_uniform::<R, MP::EI>(
+        let input = TensorHandle::<R, LhsG<MP>>::empty(&client, self.input_shape.to_vec());
+        random_uniform::<R, LhsG<MP>>(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            LhsG::<MP>::from_int(0),
+            LhsG::<MP>::from_int(1),
             input.as_ref(),
         );
-        let weight = TensorHandle::<R, MP::EI>::empty(&client, self.weight_shape.to_vec());
-        random_uniform::<R, MP::EI>(
+        let weight = TensorHandle::<R, RhsG<MP>>::empty(&client, self.weight_shape.to_vec());
+        random_uniform::<R, RhsG<MP>>(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            RhsG::<MP>::from_int(0),
+            RhsG::<MP>::from_int(1),
             weight.as_ref(),
         );
-        let bias = TensorHandle::<R, MP::EI>::empty(&client, vec![self.bias_shape]);
-        random_uniform::<R, MP::EI>(
+        let bias = TensorHandle::<R, AccG<MP>>::empty(&client, vec![self.bias_shape]);
+        random_uniform::<R, AccG<MP>>(
             &client,
-            MP::EI::from_int(0),
-            MP::EI::from_int(1),
+            AccG::<MP>::from_int(0),
+            AccG::<MP>::from_int(1),
             bias.as_ref(),
         );
 
         (input, weight, bias)
     }
 
-    fn execute(&self, (input, weight, bias): Self::Input) {
+    fn execute(&self, (input, weight, bias): Self::Input) -> Result<(), String> {
         let client = R::client(&self.device);
         let [n, _, h_in, w_in] = self.input_shape;
         let [c_out, _, k_h, k_w] = self.weight_shape;
@@ -65,15 +73,16 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         let out: TensorHandle<R, AccG<MP>> =
             TensorHandle::empty(&client, vec![n, c_out, h_out, w_out]);
 
-        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<AcceleratedMatmul>, 2>(
+        convolution::launch_conv::<R, MP, SimpleConvAlgorithm<CmmaMatmul<CubeOption<Strided>>>, 2>(
             &self.client,
-            &input.as_ref(),
-            &weight.as_ref(),
+            &MatmulInputHandleRef::Normal(input.as_ref()),
+            &MatmulInputHandleRef::Normal(weight.as_ref()),
             &Some(bias.as_ref()),
             &out.as_ref(),
             self.args.clone(),
         )
-        .unwrap();
+        .map_err(|it| format!("{it:?}"))?;
+        Ok(())
     }
 
     fn name(&self) -> String {
@@ -81,10 +90,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         format!(
             "{}-conv2d-{}-{}-{}-{}",
             R::name(&client),
-            MP::EI::as_elem_native_unchecked(),
-            MP::ES::as_elem_native_unchecked(),
-            MP::EA::as_type_native_unchecked(),
-            AccG<MP>::as_type_native_unchecked(),
+            LhsG::<MP>::as_type_native_unchecked(),
+            LhsS::<MP>::as_type_native_unchecked(),
+            AccR::<MP>::as_type_native_unchecked(),
+            AccG::<MP>::as_type_native_unchecked(),
         )
         .to_lowercase()
     }
@@ -93,8 +102,10 @@ impl<R: Runtime, MP: MatmulPrecision> Benchmark for Conv2dBench<R, MP> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
-        self.client.profile(|| self.execute(args), "conv-bench")
+    fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
+        self.client
+            .profile(|| self.execute(args), "conv-bench")
+            .map_err(|it| format!("{it:?}"))
     }
 }
 
@@ -105,7 +116,7 @@ pub struct Conv2dBench<R: Runtime, MP> {
     bias_shape: usize,
     args: ConvolutionArgs<2>,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _phantom: PhantomData<MP>,
 }
 
@@ -148,7 +159,7 @@ fn run<R: Runtime, MP: MatmulPrecision>(device: R::Device) {
             bench.input_shape, bench.weight_shape
         );
         println!("{}", bench.name());
-        println!("{}", bench.run(TimingMethod::System));
+        println!("{}", bench.run(TimingMethod::System).unwrap());
     }
 }
 

@@ -7,7 +7,7 @@ use cubecl_core::{
     future::DynFut,
     server::{
         Allocation, AllocationDescriptor, Binding, Bindings, ComputeServer, CopyDescriptor, Handle,
-        IoError, ProfileError, ProfilingToken, ServerCommunication,
+        IoError, ProfileError, ProfilingToken, ServerCommunication, ServerUtilities,
     },
 };
 use cubecl_runtime::{
@@ -25,13 +25,13 @@ use super::scheduler::Scheduler;
 pub struct CpuServer {
     ctx: CpuContext,
     scheduler: Scheduler,
-    logger: Arc<ServerLogger>,
+    utilities: Arc<ServerUtilities<Self>>,
 }
 
 impl CpuServer {
-    pub fn new(ctx: CpuContext) -> Self {
+    pub fn new(ctx: CpuContext, utilities: ServerUtilities<Self>) -> Self {
         Self {
-            logger: Arc::new(ServerLogger::default()),
+            utilities: Arc::new(utilities),
             scheduler: Scheduler::default(),
             ctx,
         }
@@ -41,13 +41,18 @@ impl CpuServer {
 #[derive(Debug)]
 pub struct CpuContext {
     memory_management: MemoryManagement<BytesStorage>,
+    memory_management_shared_memory: MemoryManagement<BytesStorage>,
     timestamps: TimestampProfiler,
 }
 
 impl CpuContext {
-    pub fn new(memory_management: MemoryManagement<BytesStorage>) -> Self {
+    pub fn new(
+        memory_management: MemoryManagement<BytesStorage>,
+        memory_management_shared_memory: MemoryManagement<BytesStorage>,
+    ) -> Self {
         Self {
             memory_management,
+            memory_management_shared_memory,
             timestamps: TimestampProfiler::default(),
         }
     }
@@ -88,7 +93,15 @@ impl ComputeServer for CpuServer {
     type Info = ();
 
     fn logger(&self) -> Arc<ServerLogger> {
-        self.logger.clone()
+        self.utilities.logger.clone()
+    }
+
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        Err(IoError::UnsupportedIoOperation)
+    }
+
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
     }
 
     fn create(
@@ -131,7 +144,7 @@ impl ComputeServer for CpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         _stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
@@ -139,7 +152,7 @@ impl ComputeServer for CpuServer {
                 return Err(IoError::UnsupportedStrides);
             }
 
-            self.copy_to_binding(desc.binding, data);
+            self.copy_to_binding(desc.binding, &data);
         }
         Ok(())
     }
@@ -181,13 +194,14 @@ impl ComputeServer for CpuServer {
             bindings,
             kind,
             &mut self.ctx.memory_management,
+            &mut self.ctx.memory_management_shared_memory,
         );
     }
 
     fn flush(&mut self, _stream_id: StreamId) {}
 
     fn sync(&mut self, _stream_id: StreamId) -> DynFut<()> {
-        self.logger.profile_summary();
+        self.utilities.logger.profile_summary();
         Box::pin(async move {})
     }
 
@@ -201,7 +215,7 @@ impl ComputeServer for CpuServer {
         stream_id: StreamId,
         token: ProfilingToken,
     ) -> Result<ProfileDuration, ProfileError> {
-        self.logger.profile_summary();
+        self.utilities.logger.profile_summary();
         cubecl_common::future::block_on(self.sync(stream_id));
         self.ctx.timestamps.stop(token)
     }

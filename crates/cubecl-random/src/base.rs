@@ -22,10 +22,11 @@ pub fn seed(seed: u64) {
 }
 
 /// Pseudo-random generator
-pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
-    prng: F::Runtime<E>,
+pub(crate) fn random<F: RandomFamily, R: Runtime>(
+    client: &ComputeClient<R::Server>,
+    prng: F::Runtime,
     output: TensorHandleRef<'_, R>,
+    dtype: StorageType,
 ) {
     let seeds = get_seeds();
     let args = prng.args();
@@ -45,7 +46,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
 
     let output = linear_view(client, &output, output_line_size);
 
-    prng_kernel::launch::<F, E, R>(
+    prng_kernel::launch::<F, R>(
         client,
         cube_count,
         cube_dim,
@@ -57,6 +58,7 @@ pub(crate) fn random<F: RandomFamily, E: Numeric, R: Runtime>(
         args,
         N_VALUES_PER_THREAD as u32,
         output_line_size as u32,
+        dtype,
     );
 }
 
@@ -84,20 +86,20 @@ pub(crate) fn get_seeds() -> [u32; 4] {
     seeds.try_into().unwrap()
 }
 
-pub(crate) trait PrngArgs<E: Numeric>: Send + Sync + 'static {
+pub(crate) trait PrngArgs: Send + Sync + 'static {
     type Args: LaunchArg;
 
     fn args<'a, R: Runtime>(self) -> <Self::Args as LaunchArg>::RuntimeArg<'a, R>;
 }
 
 pub(crate) trait RandomFamily: Send + Sync + 'static + std::fmt::Debug {
-    type Runtime<E: Numeric>: PrngRuntime<E>;
+    type Runtime: PrngRuntime;
 }
 
 #[cube]
-pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
+pub(crate) trait PrngRuntime: Send + Sync + 'static + PrngArgs {
     #[allow(clippy::too_many_arguments)]
-    fn inner_loop(
+    fn inner_loop<E: Numeric>(
         args: Self::Args,
         write_index_base: u32,
         n_invocations: u32,
@@ -111,7 +113,7 @@ pub(crate) trait PrngRuntime<E: Numeric>: Send + Sync + 'static + PrngArgs<E> {
     );
 }
 
-type Args<F, E> = <<F as RandomFamily>::Runtime<E> as PrngArgs<E>>::Args;
+type Args<F> = <<F as RandomFamily>::Runtime as PrngArgs>::Args;
 
 #[cube(launch)]
 fn prng_kernel<F: RandomFamily, E: Numeric>(
@@ -120,9 +122,10 @@ fn prng_kernel<F: RandomFamily, E: Numeric>(
     seed_1: u32,
     seed_2: u32,
     seed_3: u32,
-    args: Args<F, E>,
+    args: Args<F>,
     #[comptime] n_values_per_thread: u32,
     #[comptime] line_size: u32,
+    #[define(E)] _dtype: StorageType,
 ) {
     let cube_offset = CUBE_POS * CUBE_DIM;
 

@@ -6,6 +6,8 @@ use alloc::vec::Vec;
 use bytemuck::Contiguous;
 use core::{alloc::LayoutError, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
+use super::AllocationProperty;
+
 /// The maximum supported alignment. The limit exists to not have to store alignment when serializing. Instead,
 /// the bytes are always over-aligned when deserializing to MAX_ALIGN.
 pub const MAX_ALIGN: usize = core::mem::align_of::<u128>();
@@ -176,6 +178,10 @@ impl AllocationController for NativeAllocationController<'_> {
         self.allocation = unsafe { Allocation::new_init(ptr, layout.size(), layout.align()) };
 
         Ok(())
+    }
+
+    fn property(&self) -> AllocationProperty {
+        AllocationProperty::Native
     }
 
     // SAFETY: Per type invariants, we only take in memory allocated with the rust core allocator.

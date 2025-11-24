@@ -83,8 +83,14 @@ impl<'a> Visitor<'a> {
                 self.visit_comparison(comparison, out);
             }
             Operation::Copy(copy) => {
-                let value = self.get_variable(*copy);
-                self.insert_variable(out, value);
+                if copy.ty == out.ty {
+                    let value = self.get_variable(*copy);
+                    self.insert_variable(out, value);
+                } else {
+                    // Other backends implicitly cast on copy, so we do it too
+                    // to ensure compatibility with emitted cubecl IR
+                    self.visit_cast(*copy, out);
+                }
             }
             Operation::Metadata(metadata) => {
                 self.visit_metadata(metadata, out);
@@ -98,7 +104,7 @@ impl<'a> Visitor<'a> {
             Operation::Branch(_) => {
                 unreachable!("Branch operation are removed in SSA form");
             }
-            Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Free(_) => {
+            Operation::Synchronization(_) | Operation::NonSemantic(_) | Operation::Marker(_) => {
                 unreachable!("{operation} doesn't have an out");
             }
         }

@@ -1,26 +1,9 @@
 use cubecl_core::{ir::StorageType, prelude::*};
 use half::{bf16, f16};
 
-use super::global::args::{MatmulArgs, TensorArgs};
+use crate::components::{MatmulIdent, tile::TileMatmulFamily};
 
-/// Matrix multiplication spec defining each element types used in the computation as well as
-/// how the arguments are passed to the kernel.
-pub trait MatmulSpec: Send + Sync + Clone + 'static {
-    type Precision: MatmulPrecision;
-    /// How the input and output tensors are passed as arguments.
-    type Args: MatmulArgs;
-}
-
-impl<MP: MatmulPrecision, Args: MatmulArgs> MatmulSpec for (MP, Args) {
-    type Precision = MP;
-    type Args = Args;
-}
-
-// A simple default for TensorArgs
-impl<MP: MatmulPrecision> MatmulSpec for MP {
-    type Precision = MP;
-    type Args = TensorArgs;
-}
+use super::global::args::MatmulArgs;
 
 /// Matrix multiplication precisions.
 pub trait MatmulPrecision: Send + Sync + Copy + 'static {
@@ -45,6 +28,12 @@ impl<EG: Numeric, ES: Numeric> MatrixPrecision for (EG, ES) {
     type Global = EG;
     type Stage = ES;
     type Register = ES;
+}
+
+impl<EG: Numeric, ES: Numeric, ER: Numeric> MatrixPrecision for (EG, ES, ER) {
+    type Global = EG;
+    type Stage = ES;
+    type Register = ER;
 }
 
 impl MatmulPrecision for f16 {
@@ -131,47 +120,40 @@ impl MatmulPrecision for i64 {
     type Acc = (i64, i64);
 }
 
-impl<LhsG: Numeric, RhsG: Numeric, AccG: Numeric, LhsS: Numeric, RhsS: Numeric, AccS: Numeric>
-    MatmulPrecision for (LhsG, RhsG, AccG, LhsS, RhsS, AccS)
+impl<Lhs: MatrixPrecision, Rhs: MatrixPrecision, Acc: MatrixPrecision> MatmulPrecision
+    for (Lhs, Rhs, Acc)
 {
-    type Lhs = (LhsG, LhsS);
-    type Rhs = (RhsG, RhsS);
-    type Acc = (AccG, AccS);
+    type Lhs = Lhs;
+    type Rhs = Rhs;
+    type Acc = Acc;
 }
 
+pub type LhsG<MP> = <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Global;
+pub type LhsS<MP> = <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Stage;
+pub type LhsR<MP> = <<MP as MatmulPrecision>::Lhs as MatrixPrecision>::Register;
+
+pub type RhsG<MP> = <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Global;
+pub type RhsS<MP> = <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Stage;
+pub type RhsR<MP> = <<MP as MatmulPrecision>::Rhs as MatrixPrecision>::Register;
+
+pub type AccG<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Global;
+pub type AccS<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Stage;
+pub type AccR<MP> = <<MP as MatmulPrecision>::Acc as MatrixPrecision>::Register;
+
 /// Input argument
-pub type InputArg<MS> = <Args<MS> as MatmulArgs>::Input<LhsG<MS>, RhsG<MS>, AccG<MS>>;
+pub type InputArg<MA> =
+    <MA as MatmulArgs>::Input<NumericExpand<0>, NumericExpand<1>, NumericExpand<2>>;
 
 /// Output argument
-pub type OutputArg<MS> = <Args<MS> as MatmulArgs>::Output<AccG<MS>>;
+pub type OutputArg<MA> = <MA as MatmulArgs>::Output<NumericExpand<2>>;
 
 /// Input runtime argument
-pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type InputRuntimeArg<'a, MA, R> = <InputArg<MA> as LaunchArg>::RuntimeArg<'a, R>;
 
 /// Output runtime argument
-pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type OutputRuntimeArg<'a, MA, R> = <OutputArg<MA> as LaunchArg>::RuntimeArg<'a, R>;
 
-pub type LhsG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Global;
-pub type LhsS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Stage;
-pub type LhsR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Lhs as MatrixPrecision>::Register;
-pub type RhsG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Global;
-pub type RhsS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Stage;
-pub type RhsR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Rhs as MatrixPrecision>::Register;
-pub type AccG<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Global;
-pub type AccS<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Stage;
-pub type AccR<MS> =
-    <<<MS as MatmulSpec>::Precision as MatmulPrecision>::Acc as MatrixPrecision>::Register;
-
-pub type Args<MS> = <MS as MatmulSpec>::Args;
-
+#[derive(Clone, Debug)]
 pub struct MatmulElems {
     pub lhs_global: StorageType,
     pub rhs_global: StorageType,
@@ -196,6 +178,76 @@ impl MatmulElems {
             lhs_register: <MP::Lhs as MatrixPrecision>::Register::as_type_native_unchecked(),
             rhs_register: <MP::Rhs as MatrixPrecision>::Register::as_type_native_unchecked(),
             acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),
+        }
+    }
+
+    pub fn new_with_tile<MP: MatmulPrecision, TMM: TileMatmulFamily>() -> Self {
+        fn stage<MP: MatrixPrecision, TMM: TileMatmulFamily>() -> StorageType {
+            if TMM::can_cast_stage_element() {
+                MP::Global::as_type_native_unchecked()
+            } else {
+                MP::Register::as_type_native_unchecked()
+            }
+        }
+
+        Self {
+            lhs_global: <MP::Lhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            rhs_global: <MP::Rhs as MatrixPrecision>::Global::as_type_native_unchecked(),
+            acc_global: <MP::Acc as MatrixPrecision>::Global::as_type_native_unchecked(),
+            lhs_stage: stage::<MP::Lhs, TMM>(),
+            rhs_stage: stage::<MP::Rhs, TMM>(),
+            acc_stage: stage::<MP::Acc, TMM>(),
+            lhs_register: <MP::Lhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            rhs_register: <MP::Rhs as MatrixPrecision>::Register::as_type_native_unchecked(),
+            acc_register: <MP::Acc as MatrixPrecision>::Register::as_type_native_unchecked(),
+        }
+    }
+
+    pub fn from_globals(lhs: StorageType, rhs: StorageType, out: StorageType) -> Self {
+        let acc_type = |dtype: StorageType| {
+            if dtype == half::f16::as_type_native_unchecked()
+                || dtype == half::bf16::as_type_native_unchecked()
+            {
+                return f32::as_type_native_unchecked();
+            }
+
+            dtype
+        };
+
+        Self {
+            lhs_global: lhs,
+            rhs_global: rhs,
+            acc_global: out,
+            lhs_stage: lhs,
+            rhs_stage: rhs,
+            acc_stage: acc_type(out),
+            lhs_register: lhs,
+            rhs_register: rhs,
+            acc_register: acc_type(out),
+        }
+    }
+
+    pub fn global(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_global,
+            MatmulIdent::Rhs => self.rhs_global,
+            MatmulIdent::Out => self.acc_global,
+        }
+    }
+
+    pub fn stage(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_stage,
+            MatmulIdent::Rhs => self.rhs_stage,
+            MatmulIdent::Out => self.acc_stage,
+        }
+    }
+
+    pub fn register(&self, ident: MatmulIdent) -> StorageType {
+        match ident {
+            MatmulIdent::Lhs => self.lhs_register,
+            MatmulIdent::Rhs => self.rhs_register,
+            MatmulIdent::Out => self.acc_register,
         }
     }
 }

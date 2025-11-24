@@ -8,14 +8,14 @@ use crate::{
         batch::{PartitionedBatchMatmulFamily, RowMajorGlobalPartitionMatmul},
         global::{
             UnitWriterFamily,
-            read::{SyncFullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
+            read::{FullLoadingStrategy, sync_full_cyclic::SyncFullCyclicLoading},
             single_stage::simple::SimpleMatmulFamily,
         },
         stage::{
             ColMajorTilingOrder, FilledStageFamily, RowMajorTilingOrder, StridedStageFamily,
             UnitMatmulFamily,
         },
-        tile::{io::Filled, register::RegisterMatmul},
+        tile::{TileMatmulFamily, io::Filled, register::RegisterMatmul},
     },
     kernels::layered::{
         TileSizeSelection,
@@ -43,8 +43,8 @@ pub struct SimpleUnitSelectionArgs {
 
 impl<LL, RL> Algorithm for SimpleUnitAlgorithm<LL, RL>
 where
-    LL: SyncFullLoadingStrategy,
-    RL: SyncFullLoadingStrategy,
+    LL: FullLoadingStrategy,
+    RL: FullLoadingStrategy<SyncStrategy = LL::SyncStrategy>,
 {
     type SelectionArgs = SimpleUnitSelectionArgs;
     type TileMatmul = RegisterMatmul<Filled>;
@@ -55,18 +55,19 @@ where
         PartitionedBatchMatmulFamily<Self::GlobalMatmul, RowMajorGlobalPartitionMatmul>;
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         plane_dim: u32,
-        _line_sizes: &MatmulLineSizes,
-        _elems: MatmulElems,
+        line_sizes: &MatmulLineSizes,
         args: &Self::SelectionArgs,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(unit_matmul_selection::<R>(
             client,
             problem,
             plane_dim,
             false,
+            line_sizes,
             UnitMatmulSelectionOptions {
                 tile: args.tile_size,
                 stage: match args.tile_size {
@@ -77,11 +78,13 @@ where
                     TileSizeSelection::MinTileSize => PartitionScaling::Disabled,
                     TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
                 },
+                swizzle: <RegisterMatmul as TileMatmulFamily>::should_swizzle::<R>(client),
             },
+            dtypes,
         ))
     }
 
-    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> u32 {
+    fn select_plane_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> u32 {
         client.properties().hardware.plane_size_min
     }
 }

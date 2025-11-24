@@ -16,7 +16,7 @@ pub fn launch<R: Runtime, F: Float + CubeElement>(device: &R::Device) {
     let client = R::client(device);
 
     let input = GpuTensor::<R, F>::arange(vec![3, 3], &client);
-    let output = GpuTensor::<R, F>::empty(vec![3, 3], &client);
+    let output = GpuTensor::<R, F>::empty(vec![3], &client);
 
     unsafe {
         reduce_matrix::launch_unchecked::<F, R>(

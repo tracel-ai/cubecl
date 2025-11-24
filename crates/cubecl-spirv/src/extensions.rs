@@ -10,13 +10,27 @@ pub trait TargetExtensions<T: SpirvTarget> {
     fn s_abs(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn floor(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn ceil(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn trunc(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn cos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn sinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn cosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn asin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn acos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn atan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn asinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn acosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn atanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn degrees(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn radians(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn exp(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn log(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
+    fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word);
     fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn u_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
     fn s_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word);
@@ -34,6 +48,7 @@ pub trait TargetExtensions<T: SpirvTarget> {
 }
 
 pub mod glcompute {
+
     use super::*;
 
     impl<T: SpirvTarget> TargetExtensions<T> for GLCompute {
@@ -57,6 +72,10 @@ pub mod glcompute {
             b.gl_ceil_id(ty, Some(out), input).unwrap();
         }
 
+        fn trunc(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_trunc_id(ty, Some(out), input).unwrap();
+        }
+
         fn sin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_sin_id(ty, Some(out), input).unwrap();
         }
@@ -65,8 +84,56 @@ pub mod glcompute {
             b.gl_cos_id(ty, Some(out), input).unwrap();
         }
 
+        fn tan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_tan_id(ty, Some(out), input).unwrap();
+        }
+
         fn tanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_tanh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn sinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_sinh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn cosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_cosh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn asin(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_asin_id(ty, Some(out), input).unwrap();
+        }
+
+        fn acos(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_acos_id(ty, Some(out), input).unwrap();
+        }
+
+        fn atan(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_atan_id(ty, Some(out), input).unwrap();
+        }
+
+        fn asinh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_asinh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn acosh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_acosh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn atanh(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_atanh_id(ty, Some(out), input).unwrap();
+        }
+
+        fn degrees(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_degrees_id(ty, Some(out), input).unwrap();
+        }
+
+        fn radians(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_radians_id(ty, Some(out), input).unwrap();
+        }
+
+        fn atan2(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
+            b.gl_atan2_id(ty, Some(out), lhs, rhs).unwrap();
         }
 
         fn pow(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {
@@ -83,6 +150,10 @@ pub mod glcompute {
 
         fn sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
             b.gl_sqrt_id(ty, Some(out), input).unwrap();
+        }
+
+        fn inverse_sqrt(b: &mut SpirvCompiler<T>, ty: Word, input: Word, out: Word) {
+            b.gl_inverse_sqrt_id(ty, Some(out), input).unwrap();
         }
 
         fn f_min(b: &mut SpirvCompiler<T>, ty: Word, lhs: Word, rhs: Word, out: Word) {

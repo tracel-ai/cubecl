@@ -1,15 +1,18 @@
 use std::marker::PhantomData;
 
-use crate::components::batch::partitioned_matmul::partition::{
-    GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
-};
 use crate::components::batch::{BatchConfig as _, BatchMatmul, CubeCountInput};
-use crate::components::global::{self, GlobalMatmul};
+use crate::components::global::{self, GlobalConfig, GlobalMatmul};
+use crate::components::stage::StageConfig as _;
 use crate::components::{AccG, batch::partitioned_matmul::config::PartitionedBatchConfig};
 use crate::components::{LhsG, MatmulPrecision, RhsG};
+use crate::components::{
+    batch::partitioned_matmul::partition::{
+        GlobalPartitionMatmul, PartitionRangeDim, PartitionRanges,
+    },
+    global::args::MatmulArgs,
+};
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
-use cubecl_std::{CubeOption, tensor::r#virtual::VirtualTensor};
 
 /// Executes matrix multiplication at the batch level,
 /// assigning each cube to handle multiple global matmuls.
@@ -32,44 +35,33 @@ impl<MP: MatmulPrecision, GMM: GlobalMatmul<MP>, GPMM: GlobalPartitionMatmul> Ba
 {
     type Config = PartitionedBatchConfig<GMM::Config>;
 
-    fn execute(
-        a: VirtualTensor<LhsG<MP>>,
-        b: VirtualTensor<RhsG<MP>>,
-        c: CubeOption<VirtualTensor<AccG<MP>>>,
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
+    fn execute<Args: MatmulArgs>(
+        state: &mut Args::State<LhsG<MP>, RhsG<MP>, AccG<MP>>,
         cube_count_args: CubeCountInput,
         #[comptime] config: Self::Config,
     ) {
-        let lhs_rank = a.rank();
-
-        let problem_k = a.shape(lhs_rank - 1);
+        let (_, _, problem_k) = Args::view_lhs(state).shape();
         let k_range = (0, problem_k);
 
-        let tiling_scheme = config.tiling_scheme();
         let (m_index, n_index, batch_index) =
             cube_count_args.cube_pos_to_tensor_pos(config.hypercube_config().global_order);
 
         let ranges = PartitionRanges::new(
             PartitionRangeDim::new(
                 m_index,
-                tiling_scheme.elements_in_stage_m(),
-                tiling_scheme.elements_in_global_partition_m(),
+                config.global_config().stage_config().elements_in_stage_m(),
+                config.global_partition_size.m,
             ),
             PartitionRangeDim::new(
                 n_index,
-                tiling_scheme.elements_in_stage_n(),
-                tiling_scheme.elements_in_global_partition_n(),
+                config.global_config().stage_config().elements_in_stage_n(),
+                config.global_partition_size.n,
             ),
-            PartitionRangeDim::new(
-                batch_index,
-                1u32,
-                tiling_scheme.global_partition_size.batches,
-            ),
+            PartitionRangeDim::new(batch_index, 1u32, config.global_partition_size.batches),
         );
 
         let global_config = config.global_config();
-        let acc = GMM::init_accumulators(global_config);
 
-        GPMM::execute::<MP, GMM>(a, b, c, out, ranges, acc, k_range, global_config);
+        GPMM::execute::<Args, MP, GMM>(state, ranges, k_range, global_config);
     }
 }

@@ -54,7 +54,7 @@ impl Optimizer {
             Operation::NonSemantic(non_semantic) => {
                 self.visit_nonsemantic(non_semantic, visit_read)
             }
-            Operation::Free(_) => {}
+            Operation::Marker(_) => {}
         }
     }
 
@@ -84,7 +84,8 @@ impl Optimizer {
             | Arithmetic::Min(binary_operator)
             | Arithmetic::Remainder(binary_operator)
             | Arithmetic::Dot(binary_operator)
-            | Arithmetic::MulHi(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            | Arithmetic::MulHi(binary_operator)
+            | Arithmetic::ArcTan2(binary_operator) => self.visit_binop(binary_operator, visit_read),
 
             Arithmetic::Abs(unary_operator)
             | Arithmetic::Exp(unary_operator)
@@ -92,11 +93,24 @@ impl Optimizer {
             | Arithmetic::Log1p(unary_operator)
             | Arithmetic::Cos(unary_operator)
             | Arithmetic::Sin(unary_operator)
+            | Arithmetic::Tan(unary_operator)
             | Arithmetic::Tanh(unary_operator)
+            | Arithmetic::Sinh(unary_operator)
+            | Arithmetic::Cosh(unary_operator)
+            | Arithmetic::ArcCos(unary_operator)
+            | Arithmetic::ArcSin(unary_operator)
+            | Arithmetic::ArcTan(unary_operator)
+            | Arithmetic::ArcSinh(unary_operator)
+            | Arithmetic::ArcCosh(unary_operator)
+            | Arithmetic::ArcTanh(unary_operator)
+            | Arithmetic::Degrees(unary_operator)
+            | Arithmetic::Radians(unary_operator)
             | Arithmetic::Sqrt(unary_operator)
+            | Arithmetic::InverseSqrt(unary_operator)
             | Arithmetic::Round(unary_operator)
             | Arithmetic::Floor(unary_operator)
             | Arithmetic::Ceil(unary_operator)
+            | Arithmetic::Trunc(unary_operator)
             | Arithmetic::Erf(unary_operator)
             | Arithmetic::Recip(unary_operator)
             | Arithmetic::Neg(unary_operator)
@@ -260,7 +274,11 @@ impl Optimizer {
     fn visit_plane(&mut self, plane: &mut Plane, visit_read: impl FnMut(&mut Self, &mut Variable)) {
         match plane {
             Plane::Elect => {}
-            Plane::Broadcast(binary_operator) => self.visit_binop(binary_operator, visit_read),
+            Plane::Broadcast(binary_operator)
+            | Plane::Shuffle(binary_operator)
+            | Plane::ShuffleXor(binary_operator)
+            | Plane::ShuffleUp(binary_operator)
+            | Plane::ShuffleDown(binary_operator) => self.visit_binop(binary_operator, visit_read),
             Plane::All(unary_operator)
             | Plane::Any(unary_operator)
             | Plane::Sum(unary_operator)
@@ -324,21 +342,25 @@ impl Optimizer {
                 visit_read(self, lane_id);
                 visit_read(self, i);
             }
+            CoopMma::LoadMatrix { buffer, offset, .. } => {
+                visit_read(self, buffer);
+                visit_read(self, offset);
+            }
+            CoopMma::StoreMatrix {
+                offset, registers, ..
+            } => {
+                visit_read(self, offset);
+                visit_read(self, registers);
+            }
             CoopMma::ExecuteManual {
                 registers_a,
                 registers_b,
                 registers_c,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
             }
             CoopMma::ExecuteScaled {
                 registers_a,
@@ -348,15 +370,9 @@ impl Optimizer {
                 scales_b,
                 ..
             } => {
-                for reg in registers_a {
-                    visit_read(self, reg);
-                }
-                for reg in registers_b {
-                    visit_read(self, reg);
-                }
-                for reg in registers_c {
-                    visit_read(self, reg);
-                }
+                visit_read(self, registers_a);
+                visit_read(self, registers_b);
+                visit_read(self, registers_c);
                 visit_read(self, scales_a);
                 visit_read(self, scales_b);
             }
@@ -369,10 +385,51 @@ impl Optimizer {
         mut visit_read: impl FnMut(&mut Self, &mut Variable),
     ) {
         match barrier_ops {
-            BarrierOps::Init { barrier, .. } => {
+            BarrierOps::Declare { barrier } => visit_read(self, barrier),
+            BarrierOps::Init {
+                barrier,
+                is_elected,
+                arrival_count,
+                ..
+            } => {
                 visit_read(self, barrier);
+                visit_read(self, is_elected);
+                visit_read(self, arrival_count);
+            }
+            BarrierOps::InitManual {
+                barrier,
+                arrival_count,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, arrival_count);
             }
             BarrierOps::MemCopyAsync {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
+            BarrierOps::MemCopyAsyncCooperative {
+                barrier,
+                source,
+                source_length,
+                offset_source,
+                offset_out,
+            } => {
+                visit_read(self, barrier);
+                visit_read(self, source_length);
+                visit_read(self, source);
+                visit_read(self, offset_source);
+                visit_read(self, offset_out);
+            }
+            BarrierOps::MemCopyAsyncTx {
                 barrier,
                 source,
                 source_length,
@@ -433,8 +490,13 @@ impl Optimizer {
                 visit_read(self, barrier);
                 visit_read(self, transaction_count_update);
             }
-            BarrierOps::Wait { barrier } => {
+            BarrierOps::Wait { barrier, token } => {
                 visit_read(self, barrier);
+                visit_read(self, token);
+            }
+            BarrierOps::WaitParity { barrier, phase } => {
+                visit_read(self, barrier);
+                visit_read(self, phase);
             }
         }
     }

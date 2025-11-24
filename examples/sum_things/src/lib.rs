@@ -102,7 +102,7 @@ impl<K: SumKind> CreateSeries for SumThenMul<K> {
 }
 
 fn launch_basic<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -120,7 +120,7 @@ fn launch_basic<R: Runtime>(
 }
 
 fn launch_subgroup<R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -139,7 +139,7 @@ fn launch_subgroup<R: Runtime>(
 }
 
 fn launch_trait<R: Runtime, K: SumKind>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -157,7 +157,7 @@ fn launch_trait<R: Runtime, K: SumKind>(
 }
 
 fn launch_series<R: Runtime, S: CreateSeries>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &Handle,
     output: &Handle,
     len: usize,
@@ -188,7 +188,7 @@ pub fn launch<R: Runtime>(device: &R::Device) {
     let len = input.len();
 
     let output = client.empty(input.len() * core::mem::size_of::<f32>());
-    let input = client.create(f32::as_bytes(input));
+    let input = client.create_from_slice(f32::as_bytes(input));
 
     for kind in [
         KernelKind::Basic,

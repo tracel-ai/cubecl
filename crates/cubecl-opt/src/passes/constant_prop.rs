@@ -416,11 +416,44 @@ fn try_const_eval_arithmetic(op: &mut Arithmetic) -> Option<ConstantScalarValue>
         Arithmetic::Log1p(op) => const_eval_float!(op.input; num::Float::ln_1p),
         Arithmetic::Cos(op) => const_eval_float!(op.input; num::Float::cos),
         Arithmetic::Sin(op) => const_eval_float!(op.input; num::Float::sin),
+        Arithmetic::Tan(op) => const_eval_float!(op.input; num::Float::tan),
         Arithmetic::Tanh(op) => const_eval_float!(op.input; num::Float::tanh),
+        Arithmetic::Sinh(op) => const_eval_float!(op.input; num::Float::sinh),
+        Arithmetic::Cosh(op) => const_eval_float!(op.input; num::Float::cosh),
+        Arithmetic::ArcCos(op) => const_eval_float!(op.input; num::Float::acos),
+        Arithmetic::ArcSin(op) => const_eval_float!(op.input; num::Float::asin),
+        Arithmetic::ArcTan(op) => const_eval_float!(op.input; num::Float::atan),
+        Arithmetic::ArcSinh(op) => const_eval_float!(op.input; num::Float::asinh),
+        Arithmetic::ArcCosh(op) => const_eval_float!(op.input; num::Float::acosh),
+        Arithmetic::ArcTanh(op) => const_eval_float!(op.input; num::Float::atanh),
+        Arithmetic::Degrees(op) => const_eval_float!(op.input; num::Float::to_degrees),
+        Arithmetic::Radians(op) => const_eval_float!(op.input; num::Float::to_radians),
+        Arithmetic::ArcTan2(op) => {
+            use ConstantScalarValue::*;
+            if let (Some(lhs), Some(rhs)) = (op.lhs.as_const(), op.rhs.as_const()) {
+                let rhs = rhs.cast_to(lhs.storage_type());
+                Some(match (lhs, rhs) {
+                    (Float(lhs, kind), Float(rhs, _)) => {
+                        ConstantScalarValue::Float(lhs.atan2(rhs), kind)
+                    }
+                    _ => unreachable!(),
+                })
+            } else {
+                None
+            }
+        }
         Arithmetic::Sqrt(op) => const_eval_float!(op.input; num::Float::sqrt),
+        Arithmetic::InverseSqrt(op) => {
+            let sqrt = const_eval_float!(op.input; num::Float::sqrt)?;
+            let ConstantScalarValue::Float(val, kind) = sqrt else {
+                unreachable!()
+            };
+            Some(ConstantScalarValue::Float(1.0 / val, kind))
+        }
         Arithmetic::Round(op) => const_eval_float!(op.input; num::Float::round),
         Arithmetic::Floor(op) => const_eval_float!(op.input; num::Float::floor),
         Arithmetic::Ceil(op) => const_eval_float!(op.input; num::Float::ceil),
+        Arithmetic::Trunc(op) => const_eval_float!(op.input; num::Float::trunc),
         Arithmetic::Recip(op) => const_eval_float!(op.input; num::Float::recip),
         Arithmetic::Neg(op) => {
             use ConstantScalarValue::*;

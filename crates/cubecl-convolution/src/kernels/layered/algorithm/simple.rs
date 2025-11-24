@@ -1,23 +1,16 @@
-use std::marker::PhantomData;
-
-use cubecl_core::{
-    Runtime,
-    client::ComputeClient,
-    prelude::{Numeric, TensorHandleRef},
-};
+use cubecl_core::{Runtime, client::ComputeClient, ir::StorageType, prelude::TensorHandleRef};
+use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
     MatmulElems, MatmulSelection, MatmulSetupError, stage::StridedStageFamily, tile::io::Strided,
 };
-
-use cubecl_matmul::components::stage::NumStages;
 use cubecl_matmul::components::{
     MatmulIdent, global::args::TensorArgs, stage::PlaneMatmulFamily, tile::TileMatmulFamily,
 };
-
 use cubecl_std::{
     CubeOption,
     tensor::{TensorHandle, into_contiguous},
 };
+use std::marker::PhantomData;
 
 use crate::components::{
     ConvolutionProblem, convolution_matmul_selection,
@@ -51,15 +44,16 @@ impl<
 
     type Args = TensorArgs;
 
-    fn into_tensor_handle<R: Runtime, E: Numeric>(
-        client: &ComputeClient<R::Server, R::Channel>,
+    fn into_tensor_handle<R: Runtime>(
+        client: &ComputeClient<R::Server>,
         handle: &TensorHandleRef<'_, R>,
         ident: MatmulIdent,
-    ) -> TensorHandle<R, E> {
+        dtype: StorageType,
+    ) -> TensorHandle<R> {
         if has_valid_layout(handle, ident) {
-            TensorHandle::from_ref(handle)
+            TensorHandle::from_ref(handle, dtype)
         } else {
-            into_contiguous(client, handle)
+            into_contiguous(client, handle, dtype)
         }
     }
 
@@ -69,17 +63,14 @@ impl<
     }
 
     fn selection<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         plane_dim: u32,
-        matmul_elems: MatmulElems,
+        dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
         Ok(convolution_matmul_selection::<TMM, R>(
-            client,
-            problem,
-            plane_dim,
-            matmul_elems,
-        ))
+            client, problem, plane_dim, dtypes,
+        )?)
     }
 }
 

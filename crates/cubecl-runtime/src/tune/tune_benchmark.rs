@@ -3,7 +3,6 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 
-use crate::channel::ComputeChannel;
 use crate::client::ComputeClient;
 use crate::server::ComputeServer;
 
@@ -11,10 +10,10 @@ use super::{AutotuneError, TuneFn};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
-pub struct TuneBenchmark<S: ComputeServer, C, In: Clone + Send + 'static, Out: Send + 'static> {
+pub struct TuneBenchmark<S: ComputeServer, In: Clone + Send + 'static, Out: Send + 'static> {
     operation: Arc<dyn TuneFn<Inputs = In, Output = Out>>,
     inputs: In,
-    client: ComputeClient<S, C>,
+    client: ComputeClient<S>,
 }
 
 /// The trait to be implemented by an autotune output.
@@ -32,12 +31,8 @@ impl AutotuneOutput for () {
     }
 }
 
-impl<
-    S: ComputeServer + 'static,
-    C: ComputeChannel<S> + 'static,
-    In: Clone + Send + 'static,
-    Out: AutotuneOutput,
-> TuneBenchmark<S, C, In, Out>
+impl<S: ComputeServer + 'static, In: Clone + Send + 'static, Out: AutotuneOutput>
+    TuneBenchmark<S, In, Out>
 {
     /// Benchmark how long this operation takes for a number of samples.
     ///

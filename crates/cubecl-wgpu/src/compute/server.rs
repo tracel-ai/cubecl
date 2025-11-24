@@ -6,7 +6,7 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
-use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication};
+use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
@@ -36,6 +36,7 @@ pub struct WgpuServer {
     scheduler: SchedulerMultiStream<ScheduledWgpuBackend>,
     pub compilation_options: WgpuCompilationOptions,
     pub(crate) backend: wgpu::Backend,
+    pub(crate) utilities: Arc<ServerUtilities<Self>>,
 }
 
 impl ServerCommunication for WgpuServer {
@@ -54,7 +55,7 @@ impl WgpuServer {
         tasks_max: usize,
         backend: wgpu::Backend,
         timing_method: TimingMethod,
-        logger: Arc<ServerLogger>,
+        utilities: ServerUtilities<Self>,
     ) -> Self {
         let backend_scheduler = ScheduledWgpuBackend::new(
             device.clone(),
@@ -63,6 +64,7 @@ impl WgpuServer {
             memory_config,
             timing_method,
             tasks_max,
+            utilities.logger.clone(),
         );
 
         let config = GlobalConfig::get();
@@ -73,7 +75,7 @@ impl WgpuServer {
             device,
             pipelines: HashMap::new(),
             scheduler: SchedulerMultiStream::new(
-                logger,
+                utilities.logger.clone(),
                 backend_scheduler,
                 SchedulerMultiStreamOptions {
                     max_streams,
@@ -82,6 +84,7 @@ impl WgpuServer {
                 },
             ),
             backend,
+            utilities: Arc::new(utilities),
         }
     }
 
@@ -164,6 +167,15 @@ impl ComputeServer for WgpuServer {
         self.scheduler.logger.clone()
     }
 
+    fn utilities(&self) -> Arc<ServerUtilities<Self>> {
+        self.utilities.clone()
+    }
+
+    fn staging(&mut self, _sizes: &[usize], _stream_id: StreamId) -> Result<Vec<Bytes>, IoError> {
+        // TODO: Check if using a staging buffer is useful here.
+        Err(IoError::UnsupportedIoOperation)
+    }
+
     fn create(
         &mut self,
         descriptors: Vec<AllocationDescriptor<'_>>,
@@ -220,7 +232,7 @@ impl ComputeServer for WgpuServer {
 
     fn write(
         &mut self,
-        descriptors: Vec<(CopyDescriptor<'_>, &[u8])>,
+        descriptors: Vec<(CopyDescriptor<'_>, Bytes)>,
         stream_id: StreamId,
     ) -> Result<(), IoError> {
         for (desc, data) in descriptors {
@@ -231,7 +243,7 @@ impl ComputeServer for WgpuServer {
             let stream = self.scheduler.stream(&desc.binding.stream);
             let resource = stream.mem_manage.get_resource(desc.binding.clone());
             let task = ScheduleTask::Write {
-                data: data.to_vec(),
+                data,
                 buffer: resource,
             };
 

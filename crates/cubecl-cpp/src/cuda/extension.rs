@@ -17,6 +17,8 @@ pub enum Extension<D: Dialect> {
 pub enum MmaExtension<D: Dialect> {
     Execute(MmaExecute<D>),
     ExecuteScaled(MmaExecuteScaled<D>),
+    LdMatrix(LdMatrix<D>),
+    StMatrix(StMatrix<D>),
 }
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -48,11 +50,27 @@ pub struct MmaExecuteScaled<D: Dialect> {
     pub scales_factor: u32,
 }
 
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct LdMatrix<D: Dialect> {
+    pub elem: Elem<D>,
+    pub factor: u32,
+    pub transpose: bool,
+}
+
+#[derive(new, Debug, Clone, PartialEq)]
+pub struct StMatrix<D: Dialect> {
+    pub elem: Elem<D>,
+    pub factor: u32,
+    pub transpose: bool,
+}
+
 impl<D: Dialect> MmaExtension<D> {
     pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             MmaExtension::Execute(mma_execute) => mma_execute.format_extension(f),
             MmaExtension::ExecuteScaled(mma_execute) => mma_execute.format_extension(f),
+            MmaExtension::LdMatrix(ld_matrix) => ld_matrix.format_extension(f),
+            MmaExtension::StMatrix(st_matrix) => st_matrix.format_extension(f),
         }
     }
 }
@@ -108,6 +126,22 @@ impl<D: Dialect> MmaExecuteScaled<D> {
             self.scales_elem,
             self.scales_factor,
         );
+
+        f.write_str(&ptx)
+    }
+}
+
+impl<D: Dialect> LdMatrix<D> {
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ptx = ptx::ldmatrix_template(self.elem, self.factor, self.transpose);
+
+        f.write_str(&ptx)
+    }
+}
+
+impl<D: Dialect> StMatrix<D> {
+    pub fn format_extension(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let ptx = ptx::stmatrix_template(self.elem, self.factor, self.transpose);
 
         f.write_str(&ptx)
     }

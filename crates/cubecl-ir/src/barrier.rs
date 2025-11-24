@@ -10,8 +10,7 @@ use super::Variable;
 #[derive(Debug, Clone, TypeHash, PartialEq, Eq, Hash, Copy)]
 pub enum BarrierLevel {
     Unit,
-    CubeCoop(u32),
-    CubeManual(u32),
+    Cube,
 }
 
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -19,13 +18,40 @@ pub enum BarrierLevel {
 #[operation(opcode_name = BarrierOpCode)]
 /// Operations available on a barrier
 pub enum BarrierOps {
+    /// Declare the barrier, without doing any initialization
+    Declare {
+        barrier: Variable,
+    },
     /// Initialize the barrier, optionally with a cta proxy fence
     Init {
         barrier: Variable,
-        with_cta_fence: bool,
+        is_elected: Variable,
+        arrival_count: Variable,
+        with_async_proxy_fence: bool,
+    },
+    /// Manually initialize the barrier with an arrival count, without any sync or election handling
+    InitManual {
+        barrier: Variable,
+        arrival_count: Variable,
     },
     /// Copy source to destination
     MemCopyAsync {
+        barrier: Variable,
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+    },
+    /// Copy source to destination, with cooperative behaviour
+    MemCopyAsyncCooperative {
+        barrier: Variable,
+        source: Variable,
+        source_length: Variable,
+        offset_source: Variable,
+        offset_out: Variable,
+    },
+    /// Copy source to destination, with transaction count
+    MemCopyAsyncTx {
         barrier: Variable,
         source: Variable,
         source_length: Variable,
@@ -60,6 +86,11 @@ pub enum BarrierOps {
     },
     Wait {
         barrier: Variable,
+        token: Variable,
+    },
+    WaitParity {
+        barrier: Variable,
+        phase: Variable,
     },
     /// Waits until data is loaded
     ArriveAndWait {
@@ -70,13 +101,22 @@ pub enum BarrierOps {
 impl Display for BarrierOps {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            BarrierOps::Declare { .. } => Ok(()),
             BarrierOps::Init {
                 barrier,
-                with_cta_fence,
-            } => match with_cta_fence {
-                true => write!(f, "init_barrier_tma({barrier})"),
-                false => write!(f, "init_barrier({barrier})"),
+                arrival_count,
+                with_async_proxy_fence,
+                ..
+            } => match with_async_proxy_fence {
+                true => write!(f, "init_barrier_tma({barrier}, {arrival_count})"),
+                false => write!(f, "init_barrier({barrier}, {arrival_count})"),
             },
+            BarrierOps::InitManual {
+                barrier,
+                arrival_count,
+            } => {
+                write!(f, "init_barrier({barrier}, {arrival_count})")
+            }
             BarrierOps::MemCopyAsync {
                 barrier,
                 source,
@@ -87,6 +127,30 @@ impl Display for BarrierOps {
                 write!(
                     f,
                     "out[{offset_out}] = mem_copy_async({barrier}, source: {source}[{offset_source}])",
+                )
+            }
+            BarrierOps::MemCopyAsyncCooperative {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+                ..
+            } => {
+                write!(
+                    f,
+                    "out[{offset_out}] = mem_copy_async_cooperative({barrier}, source: {source}[{offset_source}])",
+                )
+            }
+            BarrierOps::MemCopyAsyncTx {
+                barrier,
+                source,
+                offset_source,
+                offset_out,
+                ..
+            } => {
+                write!(
+                    f,
+                    "out[{offset_out}] = mem_copy_async_tx({barrier}, source: {source}[{offset_source}])",
                 )
             }
             BarrierOps::ArriveAndWait { barrier } => write!(f, "arrive_and_wait({barrier})"),
@@ -140,7 +204,10 @@ impl Display for BarrierOps {
                 barrier,
                 transaction_count_update,
             } => write!(f, "expect_tx({barrier}, {transaction_count_update})"),
-            BarrierOps::Wait { barrier } => write!(f, "wait({barrier})"),
+            BarrierOps::Wait { barrier, token } => write!(f, "wait({barrier}, {token})"),
+            BarrierOps::WaitParity { barrier, phase } => {
+                write!(f, "wait_parity({barrier}, {phase})")
+            }
         }
     }
 }

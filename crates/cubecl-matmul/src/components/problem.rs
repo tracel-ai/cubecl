@@ -17,6 +17,8 @@ pub struct MatmulProblem {
     pub lhs_batches: Vec<usize>,
     /// Batch shape for Rhs tensor
     pub rhs_batches: Vec<usize>,
+    /// Batch shape for Out tensor
+    pub out_batches: Vec<usize>,
     /// Memory layout of the Lhs matrix.
     pub lhs_layout: MatrixLayout,
     /// Memory layout of the Rhs matrix.
@@ -145,10 +147,11 @@ impl From<&MatmulProblem> for MatmulKind {
     }
 }
 
-#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(CubeType, Copy, Clone, PartialEq, Eq, Hash, Debug, Default)]
 /// Layout of a 2D structure such as a tensor, shared memory or slice,
 /// used within any matmul kernel level
 pub enum MatrixLayout {
+    #[default]
     RowMajor,
     ColMajor,
 }
@@ -159,5 +162,15 @@ pub fn as_cmma_layout(#[comptime] layout: MatrixLayout) -> cmma::MatrixLayout {
     match layout {
         MatrixLayout::RowMajor => cmma::MatrixLayout::RowMajor,
         MatrixLayout::ColMajor => cmma::MatrixLayout::ColMajor,
+    }
+}
+
+#[cube]
+/// Maps the cmma's MatrixLayout to matmul MatrixLayout.
+pub fn from_cmma_layout(#[comptime] layout: cmma::MatrixLayout) -> comptime_type!(MatrixLayout) {
+    match layout {
+        cmma::MatrixLayout::RowMajor => MatrixLayout::RowMajor,
+        cmma::MatrixLayout::ColMajor => MatrixLayout::ColMajor,
+        cmma::MatrixLayout::Undefined => MatrixLayout::RowMajor,
     }
 }

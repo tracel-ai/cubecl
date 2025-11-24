@@ -1,8 +1,10 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    MatrixLayout, StageIdent,
-    stage::{StageMemoryConfig, StridedStage, TilingLayout},
+    InvalidConfigError, MatrixLayout,
+    stage::{
+        StageMemoryConfig, StridedStageMemory, TilingLayout, TilingLayoutEnum, TilingValidation,
+    },
     tile::StridedTile,
 };
 use cubecl_std::tensor::layout::Coords2d;
@@ -14,10 +16,8 @@ pub struct BiasTilingLayout {}
 #[cube]
 impl TilingLayout for BiasTilingLayout {
     fn get_tile<ES: Numeric>(
-        stage: &StridedStage<ES, Self>,
+        stage: &StridedStageMemory<ES, Self>,
         tile: Coords2d,
-        _buffer_index: u32,
-        #[comptime] _ident: StageIdent,
         #[comptime] config: StageMemoryConfig,
     ) -> StridedTile<ES> {
         if comptime!(config.num_stages > 1) {
@@ -26,16 +26,34 @@ impl TilingLayout for BiasTilingLayout {
 
         let (_, col) = tile;
 
-        let stage_line_size = config.stage_line_size;
-        let tile_size_col = config.elements_in_tile_col / stage_line_size;
+        let stage_line_size = config.line_size;
+        let tile_size_col = config.elements_per_tile_along_col / stage_line_size;
 
         let length = tile_size_col;
         let start = col * tile_size_col;
 
         StridedTile::new_strided(
-            stage.as_slice(stage_line_size).slice(start, start + length),
+            stage.as_slice(stage_line_size),
+            start,
+            start + length,
             0,
+            stage.swizzle,
             MatrixLayout::RowMajor,
+            stage_line_size,
         )
+    }
+
+    fn to_enum() -> comptime_type!(TilingLayoutEnum) {
+        comptime![TilingLayoutEnum::Other]
+    }
+}
+
+impl TilingValidation for BiasTilingLayout {
+    fn check(config: StageMemoryConfig) -> Result<(), InvalidConfigError> {
+        let stage_width = config.elements_per_stage_along_col();
+        if config.line_size > stage_width {
+            return Err(Box::new("Invalid line size"));
+        }
+        Ok(())
     }
 }

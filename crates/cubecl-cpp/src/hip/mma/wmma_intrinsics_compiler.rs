@@ -2,7 +2,6 @@ use std::fmt::Formatter;
 
 use crate::{
     Dialect,
-    cuda::ptx::comma_separated,
     hip::{HipDialect, arch::AMDArchitecture},
     shared::{
         Architecture, Component, DialectWmmaCompiler, Elem, Flags, FmtLeft, Fragment,
@@ -11,7 +10,7 @@ use crate::{
         wmma_api_base,
     },
 };
-use cubecl_core::ir::{self as gpu};
+use cubecl_core::ir::{self as gpu, Matrix, MatrixIdent};
 use cubecl_runtime::MmaConfig;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -385,6 +384,9 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let value_ptr = frag_as_ptr(f, value, offset);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
+            WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
+                unimplemented!("Not supported in HIP")
+            }
             WmmaInstruction::Execute {
                 frag_a,
                 frag_b,
@@ -538,52 +540,91 @@ fn get_output_accumulator_index_step<D: Dialect>(
 pub(super) fn compile_manual_mma<D: Dialect>(
     f: &mut std::fmt::Formatter<'_>,
     shape: MmaShape<D>,
-    frag_a: &[Variable<D>],
-    frag_b: &[Variable<D>],
-    frag_c: &[Variable<D>],
+    frag_a: &Variable<D>,
+    frag_b: &Variable<D>,
+    frag_c: &Variable<D>,
     frag_d: &Variable<D>,
 ) -> std::fmt::Result {
-    let extension = WmmaExecute::from_manual(shape, frag_a[0].elem(), frag_c[0].elem());
-    let frag_d_len = frag_c.len();
+    let extension = WmmaExecute::from_manual(shape, frag_a.elem(), frag_c.elem());
 
-    let frag_a = comma_separated(
-        frag_a
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
-    let frag_b = comma_separated(
-        frag_b
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
-    let frag_c = comma_separated(
-        frag_c
-            .iter()
-            .flat_map(|it| (0..it.item().vectorization).map(|i| it.index(i)))
-            .map(|it| format!("{it}")),
-    );
+    let cd_elems = shape.num_elems(FragmentIdent::<D>::Accumulator) / 32;
 
-    // Item is irrelevant
+    let frag_cd_step = 4usize.div_ceil(frag_c.elem().size());
     let frag_d_tmp = Variable::tmp_declared(Item::new(Elem::<D>::I32, 1, true)).fmt_left();
 
+    // Need to reconstruct the fragments from an array of lines to a single vector type.
+    // This requires double indexing over both the array index and the line index.
+    // Will generate something like
+    // `float8_t {arr[0].i_0, arr[0].i_1, arr[1].i_0, ...}`
+    let frag = |var: &Variable<D>, len: usize| {
+        let vec = var.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..len)
+                .map(|i| format!("{var}[{}].i_{}", i / vec, i % vec))
+                .collect()
+        } else {
+            (0..len).map(|i| format!("{var}[{}]", i)).collect()
+        };
+        frag.join(", ")
+    };
+
+    let frag_a = frag(frag_a, 16);
+    let frag_b = frag(frag_b, 16);
+    // C matrix needs to be padded for f16, because it only uses the low bytes. The simplest way is
+    // to just replicate the same f16 in both halves of the register.
+    let frag_c = {
+        let vec = frag_c.item().vectorization;
+        let frag: Vec<_> = if vec > 1 {
+            (0..cd_elems as usize)
+                .flat_map(|i| {
+                    (0..frag_cd_step).map(move |_| format!("{frag_c}[{}].i_{}", i / vec, i % vec))
+                })
+                .collect()
+        } else {
+            (0..cd_elems as usize)
+                .flat_map(|i| (0..frag_cd_step).map(move |_| format!("{frag_c}[{}]", i)))
+                .collect()
+        };
+        frag.join(", ")
+    };
+
+    // Should optimize out
     let name = extension.fn_name();
-    writeln!(f, "{ty} {frag_d_tmp} = {ty}{{}};", ty = extension.frag_d)?;
+
+    // Item is irrelevant
+    writeln!(f, "{} {frag_d_tmp} = {{}};", extension.frag_d)?;
+
     writeln!(
         f,
         "{name}({}{{{frag_a}}}, {}{{{frag_b}}}, {}{{{frag_c}}}, {frag_d_tmp});",
         extension.frag_a, extension.frag_b, extension.frag_c
     )?;
 
-    for i in 0..frag_d_len {
-        writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i}];")?;
+    for i in 0..cd_elems as usize {
+        let vec = frag_d.item().vectorization;
+        if vec > 1 {
+            writeln!(
+                f,
+                "{frag_d}[{}].i_{} = {frag_d_tmp}[{i} * {frag_cd_step}];",
+                i / vec,
+                i % vec
+            )?;
+        } else {
+            writeln!(f, "{frag_d}[{i}] = {frag_d_tmp}[{i} * {frag_cd_step}];")?;
+        }
     }
 
     Ok(())
 }
 
 pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMmaCombinations {
+    // Correctness is wrong.
+    const ENABLED: bool = true;
+
+    if !ENABLED {
+        return Vec::new();
+    }
+
     // Reference: https://gpuopen.com/learn/wmma_on_rdna3/
     // Feel free to add more if additional intrinsics are supported for execute
     let mut result: SupportedMmaCombinations = vec![];
@@ -610,6 +651,15 @@ pub(super) fn supported_mma_combinations(arch: &AMDArchitecture) -> SupportedMma
         result.extend(combinations);
     }
     result
+}
+
+pub fn contiguous_elements_rdna3(ident: MatrixIdent, matrix: Matrix) -> u32 {
+    // Don't exceed swizzle atom and load width
+    let max_line_size = 16 / matrix.storage.size();
+    match ident {
+        MatrixIdent::A | MatrixIdent::B => 16.min(max_line_size) as u32,
+        MatrixIdent::Accumulator => 1,
+    }
 }
 
 // threads 0-15 and threads 16-31 of the wavefront hold the same fragments respectively

@@ -1,11 +1,11 @@
 use cubecl_common::flex32;
-use cubecl_ir::{ElemType, ExpandElement, FloatKind, Scope, StorageType};
+use cubecl_ir::{ConstantScalarValue, ElemType, ExpandElement, FloatKind, Scope, StorageType};
 
 use crate::prelude::{Numeric, into_runtime_expand_element};
 
 use super::{
     CubePrimitive, CubeType, ExpandElementIntoMut, ExpandElementTyped, Float, IntoRuntime,
-    KernelLauncher, Runtime, ScalarArgSettings, into_mut_expand_element,
+    into_mut_expand_element,
 };
 
 impl CubeType for flex32 {
@@ -16,6 +16,13 @@ impl CubePrimitive for flex32 {
     /// Return the element type to use on GPU
     fn as_type_native() -> Option<StorageType> {
         Some(ElemType::Float(FloatKind::Flex32).into())
+    }
+
+    fn from_const_value(value: ConstantScalarValue) -> Self {
+        let ConstantScalarValue::Float(value, _) = value else {
+            unreachable!()
+        };
+        flex32::from_f64(value)
     }
 }
 
@@ -70,11 +77,5 @@ impl Float for flex32 {
 
     fn new(val: f32) -> Self {
         flex32::from_f32(val)
-    }
-}
-
-impl ScalarArgSettings for flex32 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f32(self.to_f32());
     }
 }

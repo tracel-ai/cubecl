@@ -1,22 +1,24 @@
 use cubecl_core::prelude::*;
 use cubecl_core::{self as cubecl};
 
+use crate::components::StageIdent;
 use crate::components::global::memory::GlobalMemoryConfig;
-use crate::components::{AccG, error::MatmulSetupError};
-use crate::components::{
-    AvailableLineSizes, MatmulPrecision, MatmulProblem, MatrixLayout, TilingScheme,
-    global::{PlaneRoleConfig, SpecializedLoadingSides, multi_stage::EventLoadingMode},
-    stage::StageConfig,
+use crate::components::global::multi_stage::EventLoadingMode;
+use crate::components::global::read::ReaderMode;
+use crate::components::global::{
+    GlobalWriterConfig, LoadSpecializationConfig, PlaneRoleConfig, SpecializationTensorConfig,
+    SpecializedLoadingSides,
 };
-use crate::components::{LhsG, MatmulIdent, MatmulLineSizes, MatmulSelection, RhsG};
-use crate::components::{global::RoleRuleConfig, stage::StageMemoryConfig};
+use crate::components::stage::{StageConfig, StageMemoryConfig};
+use crate::components::{AccG, error::MatmulSetupError};
+use crate::components::{AvailableLineSizes, MatmulPrecision, MatmulProblem};
+use crate::components::{LhsG, MatmulElems, MatmulLineSizes, MatmulSelection, RhsG};
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+    tensor::{View, layout::Coords2d},
 };
-use std::{fmt::Debug, hash::Hash};
-
-use super::read::ReaderMode;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 /// A family of [matmuls](GlobalMatmul) working with any [precision](MatmulPrecision).
 pub trait GlobalMatmulFamily: Send + Sync + 'static {
@@ -29,11 +31,12 @@ pub trait GlobalMatmulFamily: Send + Sync + 'static {
     /// Constructs the configuration based on the matmul problem, selection, and line sizes.
     ///
     /// This function may return an error if the configuration cannot be supported on the current runtime.
-    fn setup<MP: MatmulPrecision, R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+    fn setup<R: Runtime>(
+        client: &ComputeClient<R::Server>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         matmul_line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 
     /// Filters out line sizes that are incompatible with this matmul family.
@@ -89,38 +92,25 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
         rhs_reader: Self::RhsGlobalReader,
         acc_reader: Self::AccGlobalReader,
         writer: Self::GlobalWriter,
-        acc: &mut Self::Accumulators,
         k_range: (u32, u32),
         #[comptime] config: Self::Config,
     );
 
     /// Initialize the global reader for Lhs, starting at row m and column k
     fn init_lhs_global_reader(
-        lhs: VirtualTensor<LhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        lhs: View<Line<LhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader;
 
     /// Initialize the global reader for Rhs, starting at row k and column n
     fn init_rhs_global_reader(
-        rhs: VirtualTensor<RhsG<MP>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader;
 
     /// Initialize the global reader for Rhs, starting at row k and column n
     fn init_acc_global_reader(
-        rhs: CubeOption<VirtualTensor<AccG<MP>>>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        acc: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader;
 
@@ -129,98 +119,119 @@ pub trait GlobalMatmul<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initialize the global writer at row m and column n
     fn init_global_writer(
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
-        batch_offset: u32,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        nth_batch: u32,
+        out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter;
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct SharedGlobalMatmulConfig<S: StageConfig> {
+    pub stage_config: S,
+    pub num_planes: u32,
+    pub lhs_reader_config: GlobalReaderConfig,
+    pub rhs_reader_config: GlobalReaderConfig,
+    pub writer_config: GlobalWriterConfig,
+    pub must_sync_plane_after_execution: bool,
+}
+
+impl<S: StageConfig> SharedGlobalMatmulConfig<S> {
+    pub fn check_k_bounds(&self) -> bool {
+        let from_lhs = self.lhs_reader_config.gmem_config.check_col_bounds;
+        let from_rhs = self.rhs_reader_config.gmem_config.check_row_bounds;
+        assert!(from_lhs == from_rhs);
+        from_lhs
+    }
+
+    pub fn plane_dim(&self) -> u32 {
+        self.stage_config.plane_dim()
+    }
+
+    pub fn plane_role_config(&self) -> PlaneRoleConfig {
+        self.stage_config.plane_role_config()
+    }
+
+    pub fn specialized_loading_sides(&self) -> SpecializedLoadingSides {
+        LoadSpecializationConfig {
+            lhs: self.lhs_reader_config.specialization_tensor_config,
+            rhs: self.rhs_reader_config.specialization_tensor_config,
+        }
+        .into()
+    }
+}
+
+impl<S: StageConfig> GlobalConfig for SharedGlobalMatmulConfig<S> {
+    type StageConfig = S;
+
+    fn stage_config(&self) -> Self::StageConfig {
+        self.stage_config
+    }
+
+    fn lhs_reader_config(&self) -> GlobalReaderConfig {
+        self.lhs_reader_config
+    }
+
+    fn rhs_reader_config(&self) -> GlobalReaderConfig {
+        self.rhs_reader_config
+    }
+
+    fn cube_dim(&self) -> CubeDim {
+        CubeDim::new_2d(self.plane_dim(), self.num_planes)
+    }
+
+    fn global_line_sizes(&self) -> MatmulLineSizes {
+        MatmulLineSizes {
+            lhs: self.lhs_reader_config.gmem_config.line_size as u8,
+            rhs: self.rhs_reader_config.gmem_config.line_size as u8,
+            out: self.writer_config.gmem_config.line_size as u8,
+        }
+    }
+
+    fn writer_config(&self) -> GlobalWriterConfig {
+        self.writer_config
+    }
+
+    fn must_sync_plane_after_execution(&self) -> bool {
+        self.must_sync_plane_after_execution
+    }
 }
 
 /// Configuration for the [global matmul](GlobalMatmul) level.
 pub trait GlobalConfig:
     Copy + Clone + Eq + PartialEq + Hash + Debug + Send + Sync + 'static
 {
-    /// Underlying Stage matmul config
     type StageConfig: StageConfig;
 
     /// Convert itself to the underlying stage matmul config
     fn stage_config(&self) -> Self::StageConfig;
-
-    fn stage_memory_config(&self, ident: MatmulIdent) -> StageMemoryConfig {
-        self.stage_config().stage_memory_config(ident.into_stage())
-    }
-
-    fn global_memory_config(&self, ident: MatmulIdent) -> GlobalMemoryConfig {
-        GlobalMemoryConfig {
-            elements_in_tile_row: self.tiling_scheme().elements_in_tile_row(ident),
-            elements_in_tile_col: self.tiling_scheme().elements_in_tile_col(ident),
-            elements_in_stage_row: self.tiling_scheme().elements_in_stage_row(ident),
-            elements_in_stage_col: self.tiling_scheme().elements_in_stage_col(ident),
-            global_line_size: self.global_line_size(ident),
-            check_row_bounds: self.check_row_bounds(ident),
-            check_col_bounds: self.check_col_bounds(ident),
-            matrix_layout: self.matrix_layout(ident),
-        }
-    }
-
-    /// Returns the line size for the global memory corresponding to the given ident
-    fn global_line_size(&self, ident: MatmulIdent) -> u32;
-
-    /// Returns the [TilingScheme]
-    fn tiling_scheme(&self) -> TilingScheme {
-        self.stage_config().tiling_scheme()
-    }
-
-    /// Returns the [MatrixLayout] for the given ident
-    fn matrix_layout(&self, ident: MatmulIdent) -> MatrixLayout;
-
-    /// Returns the number of planes participating in loading `ident`
-    fn num_loading_planes(&self, ident: MatmulIdent) -> u32;
-
-    /// Indicates the specialization roles for the planes
-    fn plane_role_config(&self) -> PlaneRoleConfig;
-
-    /// Indicates plane roles are associated to loading which tensor input
-    fn specialized_loading_sides(&self) -> SpecializedLoadingSides;
-
-    /// How to identify the role of the plane depending on its index
-    fn role_rule_config(&self) -> RoleRuleConfig {
-        self.plane_role_config().rule
-    }
-
-    /// Returns the size of the plane dimension
-    fn plane_dim(&self) -> u32;
-
-    /// Whether to check if accessing a row would exceed bounds.
-    fn check_row_bounds(&self, ident: MatmulIdent) -> bool;
-
-    /// Whether to check if accessing a col would exceed bounds.
-    fn check_col_bounds(&self, ident: MatmulIdent) -> bool;
-
-    /// Whether to check if accessing a col for lhs or row for rhs would exceed bounds.
-    fn check_k_bounds(&self) -> bool;
-
-    /// Whether to put common computations for loading tasks once before loop
-    fn precompute_job(&self) -> bool;
-
-    /// The number of stages in stage memory
-    fn num_stages(&self, ident: MatmulIdent) -> u32;
-
-    /// Whether to check reader is balanced in comptime or runtime.
-    ///
-    /// Not supported by all loading strategies
-    fn reader_mode(&self) -> ReaderMode;
-
-    /// Whether event loading is constrained to be ordered
-    fn event_loading_mode(&self, ident: MatmulIdent) -> EventLoadingMode;
-
-    /// Whether the matmul is quantized
-    fn quantized(&self) -> bool {
-        self.stage_config().quantized()
-    }
-
-    /// The [CubeDim] arising from the [TilingScheme]
+    fn lhs_reader_config(&self) -> GlobalReaderConfig;
+    fn rhs_reader_config(&self) -> GlobalReaderConfig;
+    fn writer_config(&self) -> GlobalWriterConfig;
     fn cube_dim(&self) -> CubeDim;
+    fn global_line_sizes(&self) -> MatmulLineSizes;
+    fn must_sync_plane_after_execution(&self) -> bool;
+}
+
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
+pub struct GlobalReaderConfig {
+    pub gmem_config: GlobalMemoryConfig,
+    pub smem_config: StageMemoryConfig,
+    pub precompute_job: bool,
+    pub plane_dim: u32,
+    pub reader_mode: ReaderMode,
+    pub event_loading_mode: EventLoadingMode,
+    pub specialization_tensor_config: SpecializationTensorConfig,
+    pub plane_role_config: PlaneRoleConfig,
+
+    // ideally remove because doesn't apply to any kind of problem
+    pub stage_ident: StageIdent,
+}
+
+impl GlobalReaderConfig {
+    pub fn loading_planes_count(&self) -> u32 {
+        self.smem_config.num_planes
+    }
+
+    pub fn loading_units_count(&self) -> u32 {
+        self.plane_dim * self.loading_planes_count()
+    }
 }

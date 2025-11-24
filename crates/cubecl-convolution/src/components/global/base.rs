@@ -1,14 +1,14 @@
 use cubecl::prelude::*;
 use cubecl_core as cubecl;
 use cubecl_matmul::components::{
-    AccG, AvailableLineSizes, LhsG, MatmulLineSizes, MatmulPrecision, MatmulSelection,
+    AccG, AvailableLineSizes, LhsG, MatmulElems, MatmulLineSizes, MatmulPrecision, MatmulSelection,
     MatmulSetupError, RhsG,
     global::GlobalWriter,
     stage::{ContiguousTilingLayout, RowMajorTilingOrder},
 };
 use cubecl_std::{
     CubeOption,
-    tensor::{layout::Coords2d, r#virtual::VirtualTensor},
+    tensor::{View, layout::Coords2d},
 };
 
 use crate::{
@@ -27,11 +27,12 @@ pub trait GlobalConvolutionFamily: ConvolutionLaunch<Self::Config> + 'static {
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes;
 
-    fn setup<R: Runtime, MP: MatmulPrecision>(
-        client: &ComputeClient<R::Server, R::Channel>,
+    fn setup<R: Runtime>(
+        client: &ComputeClient<R::Server>,
         problem: &ConvolutionProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
+        dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError>;
 }
 
@@ -69,36 +70,28 @@ pub trait GlobalConvolution<MP: MatmulPrecision>: 'static + Send + Sync {
 
     /// Initializes the global reader for the input feature map with an appropriate layout
     fn init_lhs_global_reader(
-        lhs: VirtualTensor<LhsG<MP>>,
+        lhs: View<Line<LhsG<MP>>, Coords2d>,
         offset: Coords2d,
-        view_shape: Coords2d,
+        slice_size: Coords2d,
         runtime_args: &RuntimeArgs,
         #[comptime] config: Self::Config,
     ) -> Self::LhsGlobalReader;
 
     /// Initializes the global reader for the weights with an appropriate layout
     fn init_rhs_global_reader(
-        rhs: VirtualTensor<RhsG<MP>>,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        runtime_args: &RuntimeArgs,
+        rhs: View<Line<RhsG<MP>>, Coords2d>,
         #[comptime] config: Self::Config,
     ) -> Self::RhsGlobalReader;
 
     /// Initializes the global reader for the bias with an appropriate layout
     fn init_bias_global_reader(
-        bias: CubeOption<VirtualTensor<AccG<MP>>>,
-        n_offset: u32,
-        slice_size: u32,
+        bias: CubeOption<View<Line<AccG<MP>>, Coords2d>>,
         #[comptime] config: Self::Config,
     ) -> Self::AccGlobalReader;
 
     /// Initializes the output feature map global writer with an appropriate layout
     fn init_global_writer(
-        out: VirtualTensor<AccG<MP>, ReadWrite>,
-        offset: Coords2d,
-        view_shape: Coords2d,
-        runtime_args: &RuntimeArgs,
+        out: View<Line<AccG<MP>>, Coords2d, ReadWrite>,
         #[comptime] config: Self::Config,
     ) -> Self::GlobalWriter;
 

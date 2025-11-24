@@ -96,6 +96,10 @@ pub enum Variable<D: Dialect> {
         id: Id,
         level: BarrierLevel,
     },
+    BarrierToken {
+        id: Id,
+        level: BarrierLevel,
+    },
     Tmp {
         id: Id,
         item: Item<D>,
@@ -178,7 +182,9 @@ impl<D: Dialect> Component<D> for Variable<D> {
             Variable::GlobalScalar { elem, .. } => Item::scalar(*elem, false),
             Variable::WmmaFragment { frag, .. } => Item::scalar(frag.elem, false),
             Variable::Tmp { item, .. } => *item,
-            Variable::Pipeline { .. } | Variable::Barrier { .. } => Item::new(Elem::Bool, 1, false),
+            Variable::Pipeline { .. }
+            | Variable::Barrier { .. }
+            | Variable::BarrierToken { .. } => Item::new(Elem::Bool, 1, false),
             Variable::TensorMap(_) => unreachable!(),
         }
     }
@@ -302,6 +308,7 @@ impl<D: Dialect> Display for Variable<D> {
             Variable::Tmp { id, .. } => write!(f, "_tmp_{id}"),
             Variable::Pipeline { id, .. } => write!(f, "pipeline_{id}"),
             Variable::Barrier { id, .. } => write!(f, "barrier_{id}"),
+            Variable::BarrierToken { id, .. } => write!(f, "barrier_{id}_token"),
         }
     }
 }
@@ -503,6 +510,7 @@ impl<D: Dialect> Variable<D> {
             Variable::ClusterIndexZ => true,
 
             Variable::Barrier { .. } => false,
+            Variable::BarrierToken { .. } => false,
             Variable::ConstantArray(_, _, _) => false,
             Variable::ConstantScalar(_, _) => true,
             Variable::GlobalInputArray(_, _) => false,

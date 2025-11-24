@@ -117,8 +117,57 @@ pub enum Instruction {
         input: Variable,
         out: Variable,
     },
+    Tan {
+        input: Variable,
+        out: Variable,
+    },
     Tanh {
         input: Variable,
+        out: Variable,
+    },
+    Sinh {
+        input: Variable,
+        out: Variable,
+    },
+    Cosh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcCos {
+        input: Variable,
+        out: Variable,
+    },
+    ArcSin {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan {
+        input: Variable,
+        out: Variable,
+    },
+    ArcSinh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcCosh {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTanh {
+        input: Variable,
+        out: Variable,
+    },
+    Degrees {
+        input: Variable,
+        out: Variable,
+    },
+    Radians {
+        input: Variable,
+        out: Variable,
+    },
+    ArcTan2 {
+        lhs: Variable,
+        rhs: Variable,
         out: Variable,
     },
     Powf {
@@ -127,6 +176,10 @@ pub enum Instruction {
         out: Variable,
     },
     Sqrt {
+        input: Variable,
+        out: Variable,
+    },
+    InverseSqrt {
         input: Variable,
         out: Variable,
     },
@@ -262,6 +315,10 @@ pub enum Instruction {
         out: Variable,
     },
     Ceil {
+        input: Variable,
+        out: Variable,
+    },
+    Trunc {
         input: Variable,
         out: Variable,
     },
@@ -540,10 +597,12 @@ impl Display for Instruction {
             Instruction::Remainder { lhs, rhs, out } => {
                 let f_type = out.item().with_elem(Elem::F32);
                 let ty = out.item();
-                let lhs = lhs.fmt_cast_to(f_type);
-                let rhs = rhs.fmt_cast_to(f_type);
+                let lhs_f = lhs.fmt_cast_to(f_type);
+                let rhs_f = rhs.fmt_cast_to(f_type);
+                let lhs = lhs.fmt_cast_to(ty);
+                let rhs = rhs.fmt_cast_to(ty);
                 let out = out.fmt_left();
-                let floor = f_type.fmt_cast_to(ty, format!("floor({lhs} / {rhs})"));
+                let floor = f_type.fmt_cast_to(ty, format!("floor({lhs_f} / {rhs_f})"));
                 writeln!(f, "{out} = {lhs} - {rhs} * {floor};")
             }
             Instruction::Sub { lhs, rhs, out } => {
@@ -599,6 +658,10 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sqrt({input});")
             }
+            Instruction::InverseSqrt { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = inverseSqrt({input});")
+            }
             Instruction::Log1p { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = log({input} + 1.0);")
@@ -611,6 +674,10 @@ impl Display for Instruction {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = sin({input});")
             }
+            Instruction::Tan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = tan({input});")
+            }
             Instruction::Tanh { input, out } => {
                 #[cfg(target_os = "macos")]
                 let result = super::call_safe_tanh(f, input, out);
@@ -621,6 +688,50 @@ impl Display for Instruction {
                 };
 
                 result
+            }
+            Instruction::Sinh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = sinh({input});")
+            }
+            Instruction::Cosh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = cosh({input});")
+            }
+            Instruction::ArcCos { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = acos({input});")
+            }
+            Instruction::ArcSin { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = asin({input});")
+            }
+            Instruction::ArcTan { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan({input});")
+            }
+            Instruction::ArcSinh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = asinh({input});")
+            }
+            Instruction::ArcCosh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = acosh({input});")
+            }
+            Instruction::ArcTanh { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atanh({input});")
+            }
+            Instruction::Degrees { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = degrees({input});")
+            }
+            Instruction::Radians { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = radians({input});")
+            }
+            Instruction::ArcTan2 { lhs, rhs, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = atan2({lhs}, {rhs});")
             }
             Instruction::Recip { input, out } => {
                 let item = input.item();
@@ -853,6 +964,10 @@ for (var {i}: {i_ty} = {start}; {i} {cmp} {end}; {increment}) {{
             Instruction::Ceil { input, out } => {
                 let out = out.fmt_left();
                 writeln!(f, "{out} = ceil({input});")
+            }
+            Instruction::Trunc { input, out } => {
+                let out = out.fmt_left();
+                writeln!(f, "{out} = trunc({input});")
             }
             Instruction::Subgroup(op) => write!(f, "{op}"),
             Instruction::Bitcast { input, out } => {

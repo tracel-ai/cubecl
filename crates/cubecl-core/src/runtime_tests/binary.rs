@@ -1,16 +1,19 @@
-use std::fmt::Display;
+#![allow(clippy::approx_constant)]
+
+use std::{fmt::Display, sync::LazyLock};
 
 use crate::{self as cubecl, as_type};
 
 use cubecl::prelude::*;
 use cubecl_runtime::server::Handle;
+use enumset::EnumSet;
 
 #[track_caller]
 pub(crate) fn assert_equals_approx<
     R: Runtime,
     F: Float + num_traits::Float + CubeElement + Display,
 >(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: Handle,
     expected: &[F],
     epsilon: f32,
@@ -45,6 +48,10 @@ expected: {:?}",
     }
 }
 
+// Needs lazy because const trait fns aren't stable
+static FAST_MATH: LazyLock<EnumSet<FastMath>> =
+    LazyLock::new(|| FastMath::all().difference(FastMath::NotNaN.into()));
+
 macro_rules! test_binary_impl {
     (
         $test_name:ident,
@@ -57,8 +64,8 @@ macro_rules! test_binary_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
-            #[cube(launch_unchecked, fast_math = FastMath::AllowTransform | FastMath::UnsignedZero)]
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
+            #[cube(launch_unchecked, fast_math = *FAST_MATH)]
             fn test_function<$float_type: Float>(lhs: &Array<$float_type>, rhs: &Array<$float_type>, output: &mut Array<$float_type>) {
                 if ABSOLUTE_POS < rhs.len() {
                     output[ABSOLUTE_POS] = $binary_func(lhs[ABSOLUTE_POS], rhs[ABSOLUTE_POS]);
@@ -70,8 +77,8 @@ macro_rules! test_binary_impl {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create($float_type::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice($float_type::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice($float_type::as_bytes(rhs));
 
                 unsafe {
                     test_function::launch_unchecked::<$float_type, R>(
@@ -150,6 +157,35 @@ test_binary_impl!(
     ]
 );
 
+test_binary_impl!(
+    test_atan2,
+    F,
+    F::atan2,
+    [
+        {
+            input_vectorization: 1,
+            out_vectorization: 1,
+            lhs: as_type![F: 0., 1., -1., 1., -1.],
+            rhs: as_type![F: 1., 0., 0., 1., -1.],
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2, -2.356_194_5]
+        },
+        {
+            input_vectorization: 2,
+            out_vectorization: 2,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
+        },
+        {
+            input_vectorization: 4,
+            out_vectorization: 4,
+            lhs: as_type![F: 0., 1., -1., 1.],
+            rhs: as_type![F: 1., 0., 0., 1.],
+            expected: as_type![F: 0., 1.570_796_4, -1.570_796_4, 0.785_398_2]
+        }
+    ]
+);
+
 #[cube(launch_unchecked)]
 fn test_powi_kernel<F: Float>(
     lhs: &Array<Line<F>>,
@@ -172,14 +208,14 @@ macro_rules! test_powi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime, $float_type: Float + num_traits::Float + CubeElement + Display>(client: ComputeClient<R::Server>) {
             $(
             {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<$float_type>());
-                let lhs_handle = client.create($float_type::as_bytes(lhs));
-                let rhs_handle = client.create(i32::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice($float_type::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice(i32::as_bytes(rhs));
 
                 unsafe {
                     test_powi_kernel::launch_unchecked::<F, R>(
@@ -241,14 +277,14 @@ macro_rules! test_mulhi_impl {
             rhs: $rhs:expr,
             expected: $expected:expr
         }),*]) => {
-        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+        pub fn $test_name<R: Runtime>(client: ComputeClient<R::Server>) {
             $(
             {
                 let lhs = $lhs;
                 let rhs = $rhs;
                 let output_handle = client.empty($expected.len() * core::mem::size_of::<u32>());
-                let lhs_handle = client.create(u32::as_bytes(lhs));
-                let rhs_handle = client.create(u32::as_bytes(rhs));
+                let lhs_handle = client.create_from_slice(u32::as_bytes(lhs));
+                let rhs_handle = client.create_from_slice(u32::as_bytes(rhs));
 
                 unsafe {
                     test_mulhi_kernel::launch_unchecked::<R>(
@@ -321,6 +357,7 @@ macro_rules! testgen_binary {
             add_test!(test_dot);
             add_test!(test_powf);
             add_test!(test_powi);
+            add_test!(test_atan2);
         }
     };
 }

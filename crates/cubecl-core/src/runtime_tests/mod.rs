@@ -11,11 +11,13 @@ pub mod constants;
 pub mod debug;
 pub mod different_rank;
 pub mod enums;
+pub mod file;
 pub mod index;
 pub mod launch;
 pub mod line;
 pub mod metadata;
 pub mod minifloat;
+pub mod numeric;
 pub mod plane;
 pub mod saturating;
 pub mod sequence;
@@ -129,6 +131,8 @@ macro_rules! testgen_uint {
 macro_rules! testgen_untyped {
     () => {
         cubecl_core::testgen_cmma!();
+        cubecl_core::testgen_numeric!();
+        cubecl_core::testgen_file!();
         cubecl_core::testgen_metadata!();
         cubecl_core::testgen_topology!();
 

@@ -8,6 +8,7 @@ use crate::{expression::Expression, paths::prelude_path, scope::Context};
 
 pub struct Unroll {
     pub value: Expression,
+    pub always_true: bool,
 }
 
 impl Unroll {
@@ -29,16 +30,23 @@ impl Unroll {
         let res = match &attr.meta {
             syn::Meta::Path(_) => Self {
                 value: Expression::from_expr(parse_quote![true], context).unwrap(),
+                always_true: true,
             },
             syn::Meta::List(list) => {
                 let expr = syn::parse2(list.tokens.clone())?;
                 let expr = Expression::from_expr(expr, context)?;
-                Self { value: expr }
+                Self {
+                    value: expr,
+                    always_true: false,
+                }
             }
             meta => {
                 let expr = NameVal::from_meta(meta)?;
                 let expr = Expression::from_expr(expr.value, context)?;
-                Self { value: expr }
+                Self {
+                    value: expr,
+                    always_true: false,
+                }
             }
         };
         Ok(Some(res))
@@ -65,8 +73,12 @@ pub struct RemoveHelpers;
 impl VisitMut for RemoveHelpers {
     fn visit_fn_arg_mut(&mut self, i: &mut syn::FnArg) {
         match i {
-            syn::FnArg::Receiver(recv) => recv.attrs.retain(|it| !is_comptime_attr(it)),
-            syn::FnArg::Typed(typed) => typed.attrs.retain(|it| !is_comptime_attr(it)),
+            syn::FnArg::Receiver(recv) => recv
+                .attrs
+                .retain(|it| !is_comptime_attr(it) && !is_define_attribute(it)),
+            syn::FnArg::Typed(typed) => typed
+                .attrs
+                .retain(|it| !is_comptime_attr(it) && !is_define_attribute(it)),
         }
         visit_mut::visit_fn_arg_mut(self, i);
     }
@@ -197,6 +209,13 @@ pub fn is_expr_attribute(attr: &Attribute) -> bool {
     attr.path().is_ident("expr")
 }
 
+pub fn is_define_attribute(attr: &Attribute) -> bool {
+    attr.path().is_ident("define")
+}
+
 pub fn is_helper(attr: &Attribute) -> bool {
-    is_comptime_attr(attr) || is_unroll_attr(attr) || is_expr_attribute(attr)
+    is_comptime_attr(attr)
+        || is_unroll_attr(attr)
+        || is_expr_attribute(attr)
+        || is_define_attribute(attr)
 }

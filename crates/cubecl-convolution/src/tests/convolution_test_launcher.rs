@@ -1,40 +1,37 @@
+use crate::components::ConvGemmConfig;
 use cubecl_core::prelude::*;
 use cubecl_core::{CubeElement, server::Allocation};
-use cubecl_matmul::components::MatmulIdent;
-use cubecl_matmul::components::MatmulSelection;
-use cubecl_matmul::components::global::GlobalConfig;
-use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
-
-use cubecl_matmul::components::global::args::{ConcreteOutputFactory, MatmulArgs};
+use cubecl_matmul::components::{InputArg, MatmulSelection, OutputArg};
+use cubecl_matmul::components::{MatmulElems, MatmulIdent};
 use cubecl_matmul::tests::layered::matmul_test_launcher::TensorRawParts;
 use cubecl_matmul::tests::test_utils::Sample;
+use cubecl_matmul::{MatmulInputHandleRef, components::AvailableLineSizes};
 
 use crate::{
     components::{
-        ConvGemmConfig as _, ConvolutionProblem,
-        global::{args::ConcreteInputsFactory, entry_point::ConvolutionLaunch},
+        ConvolutionProblem,
+        global::{
+            args::{ConcreteInputsFactory, ConcreteOutputFactory},
+            entry_point::ConvolutionLaunch,
+        },
     },
     kernels::layered::algorithm::Algorithm,
 };
 
 use super::test_utils::TestPrecision;
 
-type Input<Args, Lhs, Rhs, EO> = <Args as MatmulArgs>::Input<Lhs, Rhs, EO>;
-type Output<Args, EO> = <Args as MatmulArgs>::Output<EO>;
-
 /// Test the correctness of the specified Matmul on the given device,
 /// against a naive CPU implementation over the given problem
-pub fn test_convolution_algorithm<A, Args, P, R>(
-    client: ComputeClient<R::Server, R::Channel>,
+pub fn test_convolution_algorithm<A, P, R>(
+    client: ComputeClient<R::Server>,
     problem: ConvolutionProblem,
     selection: MatmulSelection,
 ) where
     A: Algorithm,
-    Args: MatmulArgs,
     P: TestPrecision,
     R: Runtime,
-    Args::Input<P::EG, P::EG, P::EG>: ConcreteInputsFactory,
-    Args::Output<P::EG>: ConcreteOutputFactory,
+    InputArg<A::Args>: ConcreteInputsFactory,
+    OutputArg<A::Args>: ConcreteOutputFactory,
 {
     let env = std::env::var("MATMUL_TEST_MODE");
 
@@ -53,7 +50,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     let line_sizes = AvailableLineSizes {
         lhs: vec![1],
         rhs: vec![1],
-        out: R::io_optimized_line_sizes_unchecked(&P::EG::as_type_native_unchecked()).collect(),
+        out: R::io_optimized_line_sizes_unchecked(size_of::<P::EG>()).collect(),
     }
     .filter_lhs_with_tensor(&lhs.strides, &lhs.shape, problem.lhs_layout)
     .filter_rhs_with_tensor(&rhs.strides, &rhs.shape, problem.rhs_layout)
@@ -61,12 +58,8 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
     .pick_max()
     .unwrap();
 
-    let config = match A::setup::<R, (P::EG, P::EG, P::EG, P::ES, P::ES, f32)>(
-        &client,
-        &problem,
-        &selection,
-        &line_sizes,
-    ) {
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, f32))>();
+    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -98,32 +91,49 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &lhs_handle, MatmulIdent::Lhs);
-    let rhs_handle = A::into_tensor_handle::<R, P::EG>(&client, &rhs_handle, MatmulIdent::Rhs);
+    let lhs_handle = A::into_tensor_handle::<R>(
+        &client,
+        &lhs_handle,
+        MatmulIdent::Lhs,
+        P::EG::as_type_native_unchecked(),
+    );
+    let rhs_handle = A::into_tensor_handle::<R>(
+        &client,
+        &rhs_handle,
+        MatmulIdent::Rhs,
+        P::EG::as_type_native_unchecked(),
+    );
 
-    let lhs_handle = MatmulInputHandleRef::new(lhs_handle.as_ref());
-    let rhs_handle = MatmulInputHandleRef::new(rhs_handle.as_ref());
+    let lhs_handle =
+        MatmulInputHandleRef::new(lhs_handle.as_ref(), P::EG::as_type_native_unchecked());
+    let rhs_handle =
+        MatmulInputHandleRef::new(rhs_handle.as_ref(), P::EG::as_type_native_unchecked());
 
-    let inputs = <Input<Args, P::EG, P::EG, P::EG> as ConcreteInputsFactory>::create(
+    let inputs = <InputArg<A::Args> as ConcreteInputsFactory>::create(
+        &client,
         &lhs_handle,
         &rhs_handle,
         None,
         &selection,
         &problem,
         &config.line_sizes(),
+        config,
+        &dtypes,
     );
-    let output = <Output<Args, P::EG> as ConcreteOutputFactory>::create(
+    let output = <OutputArg<A::Args> as ConcreteOutputFactory>::create(
+        &client,
         &out_handle,
         &selection,
-        &problem.as_matmul_problem(),
+        &problem,
         &config.line_sizes(),
+        config,
+        &dtypes,
     );
 
+    let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, P::EA))>();
+
     unsafe {
-        A::GlobalConvolution::launch_unchecked::<
-            ((P::EG, P::EG, P::EG, P::ES, P::ES, P::EA), Args),
-            R,
-        >(
+        A::GlobalConvolution::launch_unchecked::<A::Args, R>(
             &client,
             config.cube_dim(),
             A::cube_count(&selection, &problem),
@@ -131,6 +141,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
             output,
             &problem,
             config,
+            &dtypes,
         );
     }
 
@@ -146,7 +157,7 @@ pub fn test_convolution_algorithm<A, Args, P, R>(
 }
 
 fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     problem: &ConvolutionProblem,
     ident: MatmulIdent,
 ) -> TensorRawParts<P::EG> {
@@ -192,7 +203,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
 
             let shape = shape(problem, MatmulIdent::Out);
             let Allocation { handle, strides } =
-                client.create_tensor(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
+                client.create_tensor_from_slice(P::EG::as_bytes(&data), &shape, size_of::<P::EG>());
 
             TensorRawParts {
                 handle,

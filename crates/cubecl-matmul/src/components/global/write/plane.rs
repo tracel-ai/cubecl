@@ -1,12 +1,11 @@
 use crate::components::{
-    MatrixPrecision, StageIdent,
+    MatrixPrecision,
     global::{
-        GlobalWriter, GlobalWriterFamily, PartitionedStage, PartitionedStageFamily, WriteEvent,
-        WriteEventExpand, WriteEventListener,
-        memory::GlobalMemoryConfig,
+        GlobalWriter, GlobalWriterConfig, GlobalWriterFamily, PartitionedStage,
+        PartitionedStageFamily, WriteEvent, WriteEventExpand, WriteEventListener,
         read::tiled::{TiledCoords, TiledLayout},
     },
-    stage::{PlanePartitioner, StageConfig, StageMemoryConfig, StagePartitioner},
+    stage::{PlanePartitioner, StageMemoryConfig, StagePartitioner},
     tile::StridedTile,
 };
 use cubecl_core as cubecl;
@@ -24,24 +23,29 @@ pub struct PlaneWriter<IP: MatrixPrecision> {
     #[cube(comptime)]
     plane_dim: u32,
     #[cube(comptime)]
-    config: GlobalMemoryConfig,
+    smem_config: StageMemoryConfig,
 }
 
 #[cube]
 impl<IP: MatrixPrecision> PlaneWriter<IP> {
-    pub fn new<S: StageConfig>(
+    pub fn new(
         global: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] global_config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        let stage_mem_config = comptime![stage_memory_config(stage_config)];
-        let stage = PartitionedStage::new(tile_pos::<S>(stage_config), stage_mem_config);
+        let stage = PartitionedStage::new(
+            PlanePartitioner::coordinates(
+                config.role_rule_config,
+                config.plane_dim,
+                config.smem_config.partitions_per_stage_along_col,
+            ),
+            config.smem_config,
+        );
 
         PlaneWriter::<IP> {
-            global: global.view_mut(TiledLayout::new(global_config)),
+            global: global.view_mut(TiledLayout::new(config.smem_config)),
             stage,
-            plane_dim: stage_config.plane_dim(),
-            config: global_config,
+            plane_dim: config.plane_dim,
+            smem_config: config.smem_config,
         }
     }
 
@@ -50,25 +54,9 @@ impl<IP: MatrixPrecision> PlaneWriter<IP> {
             &mut self.global,
             &self.stage.unit_tile,
             tile_pos,
-            comptime![self.plane_dim],
-            comptime![self.config],
+            comptime!(self.plane_dim),
+            comptime!(self.smem_config.elements_per_tile()),
         )
-    }
-}
-
-#[cube]
-fn tile_pos<S: StageConfig>(#[comptime] config: S) -> (u32, u32) {
-    PlanePartitioner::coordinates::<S>(config)
-}
-
-fn stage_memory_config<S: StageConfig>(config: S) -> StageMemoryConfig {
-    let planes = config.num_main_flow_planes();
-    let size_n = config.tiling_scheme().stage_partitions_in_stage_n();
-    let base = config.stage_memory_config(StageIdent::Acc);
-    StageMemoryConfig {
-        tiles_in_stage_row: planes / size_n,
-        tiles_in_stage_col: size_n,
-        ..base
     }
 }
 
@@ -89,12 +77,11 @@ impl<IP: MatrixPrecision> WriteEventListener for PlaneWriter<IP> {
 impl<IP: MatrixPrecision> GlobalWriter<IP> for PlaneWriter<IP> {
     type Stage = PartitionedStage<IP::Stage>;
 
-    fn init<S: StageConfig>(
+    fn init(
         tensor: View<Line<IP::Global>, Coords2d, ReadWrite>,
-        #[comptime] config: GlobalMemoryConfig,
-        #[comptime] stage_config: S,
+        #[comptime] config: GlobalWriterConfig,
     ) -> Self {
-        Self::new::<S>(tensor, config, stage_config)
+        Self::new(tensor, config)
     }
 
     fn stage(this: &Self) -> Self::Stage {
@@ -108,14 +95,13 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
     smem_tile: &StridedTile<ES, ReadWrite>,
     tile_pos: Coords2d,
     #[comptime] plane_dim: u32,
-    #[comptime] config: GlobalMemoryConfig,
+    #[comptime] elements_in_tile: u32,
 ) {
-    let tile_size = config.elements_in_tile_row * config.elements_in_tile_col;
-    let output_line_size = config.global_line_size;
+    let output_line_size = global.line_size();
 
     let unit_step = comptime![plane_dim * output_line_size];
-    let num_unit_writes = comptime!(tile_size.div_ceil(unit_step));
-    let balanced_workload = comptime!(tile_size.is_multiple_of(unit_step));
+    let num_unit_writes = comptime!(elements_in_tile.div_ceil(unit_step));
+    let balanced_workload = comptime!(elements_in_tile.is_multiple_of(unit_step));
 
     #[unroll(num_unit_writes == 1)]
     for i in 0..num_unit_writes {
@@ -123,10 +109,10 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
 
         #[allow(clippy::collapsible_else_if)]
         if comptime!(balanced_workload) {
-            write_line(global, &smem_tile.slice, unit_write, tile_pos);
+            write_line(global, smem_tile, unit_write, tile_pos);
         } else {
-            if unit_write < tile_size {
-                write_line(global, &smem_tile.slice, unit_write, tile_pos);
+            if unit_write < elements_in_tile {
+                write_line(global, smem_tile, unit_write, tile_pos);
             }
         }
     }
@@ -135,15 +121,15 @@ pub fn plane_write<ES: Numeric, EG: Numeric>(
 #[cube]
 fn write_line<ES: Numeric, EG: Numeric>(
     view: &mut View<Line<EG>, TiledCoords, ReadWrite>,
-    out_smem_slice: &Slice<Line<ES>, ReadWrite>,
+    out_smem_tile: &StridedTile<ES, ReadWrite>,
     unit_write: u32,
     tile: Coords2d,
 ) {
     let output_line_size = view.line_size();
-    let out_smem_line_size = out_smem_slice.line_size();
+    let out_smem_line_size = out_smem_tile.stage.line_size();
 
     let value = if comptime!(output_line_size == out_smem_line_size) {
-        out_smem_slice[unit_write / output_line_size]
+        out_smem_tile.stage[out_smem_tile.stage_offset(unit_write / output_line_size)]
     } else if comptime!(
         out_smem_line_size < output_line_size
             && output_line_size.is_multiple_of(out_smem_line_size)
@@ -151,9 +137,10 @@ fn write_line<ES: Numeric, EG: Numeric>(
         let mut value = Line::empty(output_line_size);
         #[unroll]
         for i in 0..comptime!(output_line_size / out_smem_line_size) {
+            let offs = out_smem_tile.stage_offset(unit_write + i);
             #[unroll]
             for j in 0..out_smem_line_size {
-                value[i * out_smem_line_size + j] = out_smem_slice[unit_write + i][j];
+                value[i * out_smem_line_size + j] = out_smem_tile.stage[offs][j];
             }
         }
         value

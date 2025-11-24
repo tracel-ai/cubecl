@@ -78,7 +78,6 @@ mod tests {
     cubecl_std::testgen!();
 
     cubecl_matmul::testgen_matmul_plane_accelerated!();
-    cubecl_matmul::testgen_matmul_plane_mma!();
     cubecl_matmul::testgen_matmul_plane_vecmat!();
     cubecl_matmul::testgen_matmul_unit!();
     cubecl_matmul::testgen_matmul_tma!();
@@ -87,6 +86,7 @@ mod tests {
     // TODO: re-instate matmul quantized tests
     cubecl_matmul::testgen_matmul_simple!([f16, bf16, f32]);
     cubecl_std::testgen_tensor_identity!([f16, bf16, f32, u32]);
+    cubecl_std::testgen_quantized_view!(f16);
     cubecl_convolution::testgen_conv2d_accelerated!([f16: f16, bf16: bf16, f32: tf32]);
     cubecl_reduce::testgen_reduce!([f16, bf16, f32, f64]);
     cubecl_random::testgen_random!();

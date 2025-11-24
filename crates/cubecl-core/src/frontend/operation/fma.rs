@@ -1,8 +1,4 @@
-use crate::{
-    ir::{Arithmetic, ExpandElement, FmaOperator, Instruction, Scope},
-    prelude::CubePrimitive,
-    unexpanded,
-};
+use crate::{prelude::CubePrimitive, unexpanded};
 
 /// Fused multiply-add `A*B+C`.
 #[allow(unused_variables)]
@@ -11,24 +7,26 @@ pub fn fma<C: CubePrimitive>(a: C, b: C, c: C) -> C {
 }
 
 /// Expand method of [fma].
-#[allow(unused_variables)]
-pub fn fma_expand<C: CubePrimitive>(
-    scope: &mut Scope,
-    a: ExpandElement,
-    b: ExpandElement,
-    c: ExpandElement,
-) -> ExpandElement {
-    let output = scope.create_local(a.ty);
+pub mod fma {
+    use cubecl_ir::{Arithmetic, ExpandElement, FmaOperator, Instruction, Scope};
 
-    let out = *output;
-    let a = *a;
-    let b = *b;
-    let c = *c;
+    pub fn expand(
+        scope: &mut Scope,
+        a: ExpandElement,
+        b: ExpandElement,
+        c: ExpandElement,
+    ) -> ExpandElement {
+        let output = scope.create_local(a.ty);
+        let out = *output;
+        let a = *a;
+        let b = *b;
+        let c = *c;
 
-    scope.register(Instruction::new(
-        Arithmetic::Fma(FmaOperator { a, b, c }),
-        out,
-    ));
+        scope.register(Instruction::new(
+            Arithmetic::Fma(FmaOperator { a, b, c }),
+            out,
+        ));
 
-    output
+        output
+    }
 }

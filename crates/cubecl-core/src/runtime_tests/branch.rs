@@ -48,10 +48,8 @@ pub fn kernel_select<F: Float>(output: &mut Array<F>, cond: u32) {
     }
 }
 
-pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 1;
 
@@ -72,9 +70,9 @@ pub fn test_switch_statement<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
@@ -92,10 +90,8 @@ pub fn test_switch_used_as_value<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual[0], F::new(3.0));
 }
 
-pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
@@ -113,10 +109,8 @@ pub fn test_switch_default<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual[0], F::new(5.0));
 }
 
-pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
-) {
-    let handle = client.create(as_bytes![F: 0.0, 1.0]);
+pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>) {
+    let handle = client.create_from_slice(as_bytes![F: 0.0, 1.0]);
 
     let vectorization = 2;
 
@@ -135,10 +129,10 @@ pub fn test_switch_or_branch<R: Runtime, F: Float + CubeElement>(
 }
 
 pub fn test_select<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     cond: bool,
 ) {
-    let handle = client.create(as_bytes![F: 0.0]);
+    let handle = client.create_from_slice(as_bytes![F: 0.0]);
 
     let vectorization = 1;
 

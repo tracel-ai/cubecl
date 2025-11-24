@@ -48,7 +48,7 @@ pub fn kernel_scale(input: &mut Array<Line<f32>>, out: &mut Array<Line<ue8m0>>) 
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     vectorization: u8,
 ) {
     if !e4m3::supported_uses(&client).contains(TypeUsage::Conversion) {
@@ -58,7 +58,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(F::as_bytes(&data[..num_out]));
+    let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
     unsafe {
@@ -93,7 +93,7 @@ pub fn test_fp8<R: Runtime, F: Float + CubeElement>(
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     vectorization: u8,
 ) {
     if !e2m3::supported_uses(&client).contains(TypeUsage::Conversion) {
@@ -103,7 +103,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(F::as_bytes(&data[..num_out]));
+    let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(2 * num_out * size_of::<u8>());
 
     unsafe {
@@ -138,7 +138,7 @@ pub fn test_fp6<R: Runtime, F: Float + CubeElement>(
 
 #[allow(clippy::unusual_byte_groupings, reason = "Split by float components")]
 pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     vectorization: u8,
 ) {
     if !e2m1x2::supported_uses(&client).contains(TypeUsage::Conversion) {
@@ -148,7 +148,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
 
     let data = as_type![F: -2.1, 1.8, 0.4, 1.2];
     let num_out = vectorization as usize;
-    let handle1 = client.create(F::as_bytes(&data[..num_out]));
+    let handle1 = client.create_from_slice(F::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out / 2 * size_of::<u8>());
 
     unsafe {
@@ -178,7 +178,7 @@ pub fn test_fp4<R: Runtime, F: Float + CubeElement>(
     assert_eq!(&actual_2[..num_out], &expected_data[..num_out]);
 }
 
-pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vectorization: u8) {
+pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server>, vectorization: u8) {
     if !ue8m0::supported_uses(&client).contains(TypeUsage::Conversion) {
         println!("Unsupported, skipping");
         return;
@@ -186,7 +186,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R::Server, R::Channel>, vect
 
     let data = [2.0, 1024.0, 57312.0, f32::from_bits(0x7F000000)];
     let num_out = vectorization as usize;
-    let handle1 = client.create(f32::as_bytes(&data[..num_out]));
+    let handle1 = client.create_from_slice(f32::as_bytes(&data[..num_out]));
     let handle2 = client.empty(num_out * size_of::<u8>());
 
     unsafe {

@@ -149,13 +149,33 @@ macro_rules! function {
 }
 
 function!(Log, "log");
-function!(Cos, "cos");
+function!(FastLog, "__logf", false);
 function!(Sin, "sin");
+function!(Cos, "cos");
+function!(Tan, "tan", false);
+function!(Sinh, "sinh", false);
+function!(Cosh, "cosh", false);
+// Tanh is separete below, idk why
+function!(ArcCos, "acos", false);
+function!(ArcSin, "asin", false);
+function!(ArcTan, "atan", false);
+function!(ArcSinh, "asinh", false);
+function!(ArcCosh, "acosh", false);
+function!(ArcTanh, "atanh", false);
+function!(FastSin, "__sinf", false);
+function!(FastCos, "__cosf", false);
 function!(Sqrt, "sqrt");
+function!(InverseSqrt, "rsqrt");
+function!(FastSqrt, "__fsqrt_rn", false);
+function!(FastInverseSqrt, "__frsqrt_rn", false);
 function!(Exp, "exp");
+function!(FastExp, "__expf", false);
 function!(Ceil, "ceil");
+function!(Trunc, "trunc");
 function!(Floor, "floor");
 function!(Round, "rint");
+function!(FastRecip, "__frcp_rn", false);
+function!(FastTanh, "__tanhf", false);
 
 function!(Erf, "erf", false);
 function!(Abs, "abs", false);
@@ -185,6 +205,38 @@ impl<D: Dialect> Unary<D> for Tanh {
         _out_elem: Elem<D>,
     ) -> std::fmt::Result {
         D::compile_instruction_tanh_scalar(f, input)
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Degrees;
+
+impl<D: Dialect> Unary<D> for Degrees {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        write!(f, "{input}*{elem}(57.29577951308232f)")
+    }
+
+    fn can_optimize() -> bool {
+        false
+    }
+}
+
+pub struct Radians;
+
+impl<D: Dialect> Unary<D> for Radians {
+    fn format_scalar<Input: Component<D>>(
+        f: &mut std::fmt::Formatter<'_>,
+        input: Input,
+        elem: Elem<D>,
+    ) -> std::fmt::Result {
+        write!(f, "{input}*{elem}(0.017453292519943295f)")
     }
 
     fn can_optimize() -> bool {

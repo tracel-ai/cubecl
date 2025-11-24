@@ -93,11 +93,7 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadOnly> {
         view: V::ExpandType,
         layout: VirtualLayoutExpand<C, S>,
     ) -> ViewExpand<E, C, ReadOnly> {
-        let virt = VirtualView::<E, C, S, V>::__expand_new(scope, view, layout);
-        ViewExpand::<E, C, ReadOnly> {
-            inner: ViewType::Read(Arc::new(virt)),
-            _io: PhantomData,
-        }
+        ViewExpand::new(VirtualView::<E, C, S, V>::__expand_new(scope, view, layout))
     }
 }
 
@@ -125,6 +121,20 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         layout: VirtualLayoutExpand<T, C>,
     ) -> ViewExpand<E, T, ReadOnly> {
         View::__expand_new::<View<E, C, IO>, C>(scope, self, layout)
+    }
+
+    pub fn new<V: ViewOperationsExpand<E, C> + 'static>(view: V) -> Self {
+        ViewExpand {
+            inner: ViewType::Read(Arc::new(view)),
+            _io: PhantomData,
+        }
+    }
+
+    pub fn new_mut<V: ViewOperationsMutExpand<E, C> + 'static>(view: V) -> Self {
+        ViewExpand {
+            inner: ViewType::ReadWrite(Arc::new(view)),
+            _io: PhantomData,
+        }
     }
 }
 
@@ -174,11 +184,9 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
         view: V::ExpandType,
         layout: VirtualLayoutExpand<C, S>,
     ) -> ViewExpand<E, C, ReadWrite> {
-        let virt = VirtualViewMut::<E, C, S, V>::__expand_new(scope, view, layout);
-        ViewExpand::<E, C, ReadWrite> {
-            inner: ViewType::ReadWrite(Arc::new(virt)),
-            _io: PhantomData,
-        }
+        ViewExpand::new_mut(VirtualViewMut::<E, C, S, V>::__expand_new(
+            scope, view, layout,
+        ))
     }
 }
 
@@ -338,6 +346,15 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C,
         unexpanded!()
     }
 
+    /// Create a slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    /// Size and pos will be clamped to the current layout size.
+    /// #Safety
+    /// Access is always unchecked
+    pub fn slice_unchecked(&self, _pos: C, _size: C) -> View<E, C, ReadOnly> {
+        unexpanded!()
+    }
+
     pub fn __expand_slice(
         scope: &mut Scope,
         this: ViewExpand<E, C, IO>,
@@ -346,19 +363,19 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C,
     ) -> ViewExpand<E, C, ReadOnly> {
         this.__expand_slice_method(scope, pos, size)
     }
+
+    pub fn __expand_slice_unchecked(
+        scope: &mut Scope,
+        this: ViewExpand<E, C, IO>,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadOnly> {
+        this.__expand_slice_unchecked_method(scope, pos, size)
+    }
 }
 
 #[cube]
-impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {
-    /// Create a slice starting from `pos`, with `size`.
-    /// The layout handles translation into concrete indices.
-    /// #Safety
-    /// Size is not checked and may exceed bounds!
-    pub fn slice_unchecked(&self, pos: C, size: C) -> View<E, C, ReadOnly> {
-        let layout = SliceLayout::new(pos, size, false);
-        self.view(layout)
-    }
-}
+impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> View<E, C, IO> {}
 
 impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand<E, C, IO> {
     pub fn __expand_slice_method(
@@ -367,11 +384,30 @@ impl<E: CubePrimitive, C: Coordinates + 'static, IO: Clone + 'static> ViewExpand
         pos: C::ExpandType,
         size: C::ExpandType,
     ) -> ViewExpand<E, C, ReadOnly> {
+        self.slice(scope, pos, size, true)
+    }
+
+    pub fn __expand_slice_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadOnly> {
+        self.slice(scope, pos, size, false)
+    }
+
+    fn slice(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+        checked: bool,
+    ) -> ViewExpand<E, C, ReadOnly> {
         let shape = self.__expand_shape_method(scope);
         let pos = C::__expand_min(scope, pos, shape.clone());
         let max_size = C::__expand_sub(scope, shape, pos.clone());
         let size = C::__expand_min(scope, size, max_size);
-        let layout = SliceLayout::__expand_new(scope, pos, size, true);
+        let layout = SliceLayout::__expand_new(scope, pos, size, checked);
         self.clone().__expand_view_method(scope, layout.into())
     }
 }
@@ -456,6 +492,16 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
         unexpanded!()
     }
 
+    /// Create a mutable slice starting from `pos`, with `size`.
+    /// The layout handles translation into concrete indices.
+    /// Size and pos will be clamped to the current layout size.
+    ///
+    /// # Safety
+    /// Access is always unchecked.
+    pub fn slice_mut_unchecked(&self, _pos: C, _size: C) -> View<E, C, ReadWrite> {
+        unexpanded!()
+    }
+
     pub fn __expand_slice_mut(
         scope: &mut Scope,
         this: ViewExpand<E, C, ReadWrite>,
@@ -464,20 +510,19 @@ impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
     ) -> ViewExpand<E, C, ReadWrite> {
         this.__expand_slice_mut_method(scope, pos, size)
     }
+
+    pub fn __expand_slice_mut_unchecked(
+        scope: &mut Scope,
+        this: ViewExpand<E, C, ReadWrite>,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadWrite> {
+        this.__expand_slice_mut_unchecked_method(scope, pos, size)
+    }
 }
 
 #[cube]
-impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {
-    /// Create a mutable slice starting from `pos`, with `size`.
-    /// The layout handles translation into concrete indices.
-    ///
-    /// # Safety
-    /// Size is unchecked and may exceed bounds
-    pub fn slice_mut_unchecked(&self, pos: C, size: C) -> View<E, C, ReadWrite> {
-        let layout = SliceLayout::new(pos, size, false);
-        self.view_mut(layout)
-    }
-}
+impl<E: CubePrimitive, C: Coordinates + 'static> View<E, C, ReadWrite> {}
 
 impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
     pub fn __expand_slice_mut_method(
@@ -486,11 +531,30 @@ impl<E: CubePrimitive, C: Coordinates + 'static> ViewExpand<E, C, ReadWrite> {
         pos: C::ExpandType,
         size: C::ExpandType,
     ) -> ViewExpand<E, C, ReadWrite> {
+        self.slice_mut(scope, pos, size, true)
+    }
+
+    pub fn __expand_slice_mut_unchecked_method(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+    ) -> ViewExpand<E, C, ReadWrite> {
+        self.slice_mut(scope, pos, size, false)
+    }
+
+    fn slice_mut(
+        &self,
+        scope: &mut Scope,
+        pos: C::ExpandType,
+        size: C::ExpandType,
+        checked: bool,
+    ) -> ViewExpand<E, C, ReadWrite> {
         let shape = self.__expand_shape_method(scope);
         let pos = C::__expand_min(scope, pos, shape.clone());
         let max_size = C::__expand_sub(scope, shape, pos.clone());
         let size = C::__expand_min(scope, size, max_size);
-        let layout = SliceLayout::__expand_new(scope, pos, size, true);
+        let layout = SliceLayout::__expand_new(scope, pos, size, checked);
         self.clone().__expand_view_mut_method(scope, layout.into())
     }
 }

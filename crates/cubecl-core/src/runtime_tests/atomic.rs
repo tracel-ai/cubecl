@@ -12,7 +12,7 @@ pub fn kernel_atomic_add<I: Numeric>(output: &mut Array<Atomic<I>>) {
 }
 
 fn supports_feature<R: Runtime, F: Numeric>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     feat: TypeUsage,
 ) -> bool {
     let ty = StorageType::Atomic(F::as_type_native_unchecked().elem_type());
@@ -20,7 +20,7 @@ fn supports_feature<R: Runtime, F: Numeric>(
 }
 
 pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicAdd) {
         println!(
@@ -29,7 +29,7 @@ pub fn test_kernel_atomic_add<R: Runtime, F: Numeric + CubeElement>(
         );
         return;
     }
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client.create_from_slice(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_add::launch::<F, R>(
         &client,
@@ -52,7 +52,7 @@ pub fn kernel_atomic_min<I: Numeric>(output: &mut Array<Atomic<I>>) {
 }
 
 pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
@@ -61,7 +61,7 @@ pub fn test_kernel_atomic_min<R: Runtime, F: Numeric + CubeElement>(
         );
         return;
     }
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client.create_from_slice(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_min::launch::<F, R>(
         &client,
@@ -84,7 +84,7 @@ pub fn kernel_atomic_max<I: Numeric>(output: &mut Array<Atomic<I>>) {
 }
 
 pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
 ) {
     if !supports_feature::<R, F>(&client, TypeUsage::AtomicMinMax) {
         println!(
@@ -93,7 +93,7 @@ pub fn test_kernel_atomic_max<R: Runtime, F: Numeric + CubeElement>(
         );
         return;
     }
-    let handle = client.create(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
+    let handle = client.create_from_slice(F::as_bytes(&[F::from_int(12), F::from_int(1)]));
 
     kernel_atomic_max::launch::<F, R>(
         &client,

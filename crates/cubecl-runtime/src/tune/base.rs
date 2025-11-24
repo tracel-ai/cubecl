@@ -24,7 +24,12 @@ impl<K, Inputs, Output> Tunable<K, Inputs, Output> {
     }
 
     /// Tag the current tunable as part of the given [group](TuneGroup).
-    pub fn group<F: Fn(&K) -> u8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
+    /// `group` is a tuning group with a corresponding priority function.
+    /// `priority` is the intra-group priority, applied after the group priority to further sort entries
+    ///
+    /// Groups are tuned in order of priority, and then each entry in the group is tuned based on the
+    /// intra-group priority. Negative priorities ensure the entry is never tuned for this key.
+    pub fn group<F: Fn(&K) -> i8 + 'static>(mut self, group: &TuneGroup<K>, priority: F) -> Self {
         self.groups.push((group.clone(), Arc::new(priority)));
         self
     }
@@ -43,6 +48,12 @@ pub struct TuneGroup<K> {
     pub(crate) priority: PriorityFunc<K>,
 }
 
+impl<K> core::fmt::Debug for TuneGroup<K> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("TuneGroup").field("id", &self.id).finish()
+    }
+}
+
 impl<K> Clone for TuneGroup<K> {
     fn clone(&self) -> Self {
         Self {
@@ -54,7 +65,7 @@ impl<K> Clone for TuneGroup<K> {
 
 impl<K> TuneGroup<K> {
     /// Create a new group based on a priority function.
-    pub fn new<F: Fn(&K) -> u8 + 'static>(f: F) -> Self {
+    pub fn new<F: Fn(&K) -> i8 + 'static>(f: F) -> Self {
         let id = GROUP_COUNTER.fetch_add(1, Ordering::Relaxed);
 
         Self {
@@ -67,27 +78,30 @@ impl<K> TuneGroup<K> {
 #[derive(Debug)]
 /// A group plan dictates which [tunables](Tunable) should be executed, and in what order.
 pub(crate) struct TunePlan {
-    priorities: Vec<u8>,
+    priorities: Vec<i8>,
     no_groups: Vec<usize>,
-    groups: HashMap<u8, GroupPlan>,
+    groups: HashMap<i8, GroupPlan>,
 }
 
 #[derive(Default, Debug)]
 struct GroupPlan {
-    priorities: Vec<u8>,
-    indices: HashMap<u8, Vec<usize>>,
+    priorities: Vec<i8>,
+    indices: HashMap<i8, Vec<usize>>,
 }
 
+#[derive(Debug)]
 struct Cleanup {
-    groups: Vec<u8>,
-    tunables: Vec<(u8, u8)>,
+    groups: Vec<i8>,
+    tunables: Vec<(i8, i8)>,
+    /// Within group priority is too low to even try.
+    skipped: bool,
 }
 
 impl TunePlan {
     pub fn new<K: AutotuneKey, In, Out>(key: &K, tunables: &[Tunable<K, In, Out>]) -> Self {
-        let mut priorities = Vec::<u8>::new();
+        let mut priorities = Vec::<i8>::new();
         let mut no_groups = Vec::new();
-        let mut groups = HashMap::<u8, GroupPlan>::new();
+        let mut groups = HashMap::<i8, GroupPlan>::new();
 
         for (index, tunable) in tunables.iter().enumerate() {
             if tunable.groups.is_empty() {
@@ -144,15 +158,27 @@ impl TunePlan {
         let priority = self.priorities.last();
 
         let priority = match priority {
-            Some(val) => val,
+            Some(val) => *val,
             None => return indices,
         };
 
-        let (mut group_indices, cleanup) = self.group_plan_next(*priority);
-        self.cleanup(cleanup);
-        indices.append(&mut group_indices);
+        let (mut group_indices, cleanup) = self.group_plan_next(priority);
+        // Some entries are skipped for this round of prioritizing.
+        let skipped = cleanup.skipped || priority < 0;
 
-        indices
+        self.cleanup(cleanup);
+
+        if priority >= 0 {
+            indices.append(&mut group_indices);
+        }
+
+        // The indices list is empty, but it doesn't mean we should stop
+        // autotuning, since some entries were skipped.
+        if indices.is_empty() && skipped {
+            self.next()
+        } else {
+            indices
+        }
     }
 
     fn cleanup(&mut self, cleanup: Cleanup) {
@@ -182,10 +208,10 @@ impl TunePlan {
         }
     }
 
-    fn group_plan_next(&mut self, priority: u8) -> (Vec<usize>, Cleanup) {
+    fn group_plan_next(&mut self, priority: i8) -> (Vec<usize>, Cleanup) {
         let plan = self.groups.get_mut(&priority).expect("To be filled");
         let within_group_prio = plan.priorities.pop().unwrap();
-        let next_indices = plan.indices.remove(&within_group_prio).unwrap();
+        let mut next_indices = plan.indices.remove(&within_group_prio).unwrap();
 
         let mut cleanup_groups = Vec::new();
         let mut cleanup_tunables = Vec::new();
@@ -213,17 +239,23 @@ impl TunePlan {
             }
         }
 
+        if within_group_prio < 0 {
+            // Discard algorithms with negative priority
+            next_indices.clear();
+        }
+
         (
             next_indices,
             Cleanup {
                 groups: cleanup_groups,
                 tunables: cleanup_tunables,
+                skipped: within_group_prio < 0,
             },
         )
     }
 }
 
-type PriorityFunc<K> = Arc<dyn Fn(&K) -> u8>;
+type PriorityFunc<K> = Arc<dyn Fn(&K) -> i8>;
 
 static GROUP_COUNTER: AtomicU32 = AtomicU32::new(0);
 
@@ -304,6 +336,24 @@ mod tests {
         assert_eq!(plan.next(), vec![0, 3]);
         assert_eq!(plan.next(), vec![1]);
         assert_eq!(plan.next(), vec![2]);
+        assert!(plan.next().is_empty());
+    }
+
+    #[test]
+    fn test_plan_negative_priority() {
+        let group0 = TuneGroup::<FakeAutotuneKey>::new(|_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new(|_| 1);
+
+        let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel);
+        let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| -1);
+        let tunable2 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group0, |_| 2);
+        let tunable3 = Tunable::<FakeAutotuneKey, (), ()>::new(fake_kernel).group(&group1, |_| 2);
+
+        let key = FakeAutotuneKey;
+        let mut plan = TunePlan::new(&key, &[tunable0, tunable1, tunable2, tunable3]);
+
+        assert_eq!(plan.next(), vec![0, 2]);
+        assert_eq!(plan.next(), vec![3]);
         assert!(plan.next().is_empty());
     }
 

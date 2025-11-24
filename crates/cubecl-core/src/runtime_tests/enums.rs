@@ -69,7 +69,7 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
     };
 }
 
-pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R::Server>) {
     let array = client.empty(std::mem::size_of::<f32>());
 
     kernel_scalar_enum::launch::<R>(
@@ -102,7 +102,7 @@ fn kernel_array_float_int(array: &mut ArrayFloatInt) {
 }
 
 pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     expected: T,
 ) {
     let array = client.empty(std::mem::size_of::<T>());
@@ -140,9 +140,9 @@ fn kernel_tuple_enum(first: &mut SimpleEnum<Array<u32>>, second: SimpleEnum<Arra
     }
 }
 
-pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) {
-    let first = client.create(as_bytes![u32: 20]);
-    let second = client.create(as_bytes![u32: 5]);
+pub fn test_tuple_enum<R: Runtime>(client: &ComputeClient<R::Server>) {
+    let first = client.create_from_slice(as_bytes![u32: 20]);
+    let second = client.create_from_slice(as_bytes![u32: 5]);
 
     kernel_tuple_enum::launch(
         client,

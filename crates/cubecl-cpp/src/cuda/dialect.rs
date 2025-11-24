@@ -5,7 +5,7 @@ use cubecl_core::{ir::Processor, post_processing::saturating::SaturatingArithmet
 use crate::{
     Dialect,
     cuda::{
-        extension::{Fragment, MmaExecute, MmaExecuteScaled, MmaExtension},
+        extension::{Fragment, LdMatrix, MmaExecute, MmaExecuteScaled, MmaExtension, StMatrix},
         processors::CudaMmaProcessor,
         ptx::*,
     },
@@ -63,6 +63,9 @@ impl<M: DialectWmmaCompiler<Self>> DialectIncludes<Self> for CudaDialect<M> {
             f.write_str("#include <cooperative_groups/memcpy_async.h>\n")?;
             f.write_str("#include <cuda/barrier>\n")?;
         }
+        if flags.inst_ptx_wrappers {
+            f.write_str("#include <cuda/ptx>\n")?;
+        }
         if flags.inst_tma {
             f.write_str(
                 "typedef struct CUtensorMap_st {
@@ -112,9 +115,9 @@ alignas(64) unsigned long long int opaque[16];
             } => {
                 let ext = Extension::Mma(MmaExtension::Execute(MmaExecute::new(
                     *shape,
-                    vars_to_frag(frag_a),
-                    vars_to_frag(frag_b),
-                    vars_to_frag(frag_c),
+                    Fragment(frag_a.elem()),
+                    Fragment(frag_b.elem()),
+                    Fragment(frag_c.elem()),
                     Fragment(frag_d.elem()),
                 )));
                 if !extensions.contains(&ext) {
@@ -133,9 +136,9 @@ alignas(64) unsigned long long int opaque[16];
             } => {
                 let ext = Extension::Mma(MmaExtension::ExecuteScaled(MmaExecuteScaled::new(
                     *shape,
-                    vars_to_frag(frag_a),
-                    vars_to_frag(frag_b),
-                    vars_to_frag(frag_c),
+                    Fragment(frag_a.elem()),
+                    Fragment(frag_b.elem()),
+                    Fragment(frag_c.elem()),
                     Fragment(frag_d.elem()),
                     scales_a.elem(),
                     *scales_factor,
@@ -144,14 +147,39 @@ alignas(64) unsigned long long int opaque[16];
                     extensions.push(ext);
                 }
             }
+            shared::WmmaInstruction::LdMatrix {
+                output,
+                factor,
+                transpose,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::LdMatrix(LdMatrix::new(
+                    output.elem(),
+                    *factor,
+                    *transpose,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
+            shared::WmmaInstruction::StMatrix {
+                registers,
+                factor,
+                transpose,
+                ..
+            } => {
+                let ext = Extension::Mma(MmaExtension::StMatrix(StMatrix::new(
+                    registers.elem(),
+                    *factor,
+                    *transpose,
+                )));
+                if !extensions.contains(&ext) {
+                    extensions.push(ext);
+                }
+            }
             _ => {}
         }
     }
-}
-
-fn vars_to_frag<D: Dialect>(vars: &[Variable<D>]) -> Fragment<D> {
-    let elem = vars[0].elem();
-    Fragment(elem)
 }
 
 // Types
@@ -546,6 +574,28 @@ impl<M: DialectWmmaCompiler<Self>> DialectInstructions<Self> for CudaDialect<M> 
         _out_elem: &Elem<Self>,
     ) -> std::fmt::Result {
         write!(f, "__ballot_sync(-1, {input})")
+    }
+
+    fn compile_warp_elect(f: &mut std::fmt::Formatter<'_>, out: &str) -> std::fmt::Result {
+        let elem = Elem::<Self>::Bool;
+        let uint32 = Elem::<Self>::U32;
+        // Used to have a wrapper but it has been removed in newer version due to being
+        // "incomplete". We only need the predicate and have a fixed mask, so it's trivial to
+        // implement.
+        writeln!(
+            f,
+            r#"{out} = {elem}([&]() -> {uint32} {{
+    {uint32} pred = 0;
+    asm volatile(
+        "{{\n"
+        "     .reg .pred %%px;\n"
+        "     elect.sync _|%%px, 0xffffffff;\n"
+        "     selp.b32 %0, 1, 0, %%px;\n"
+        "}}\n"
+        : "+r"(pred));
+    return pred;
+        }}());"#
+        )
     }
 }
 

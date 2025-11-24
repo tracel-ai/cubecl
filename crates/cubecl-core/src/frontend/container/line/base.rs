@@ -8,7 +8,7 @@ use crate::{
     prelude::{Dot, Numeric, binary_expand_fixed_output},
     unexpanded,
 };
-use cubecl_ir::{Comparison, ExpandElement, StorageType};
+use cubecl_ir::{Comparison, ConstantScalarValue, ExpandElement, StorageType};
 use cubecl_macros::{cube, intrinsic};
 use derive_more::derive::Neg;
 /// A contiguous list of elements that supports auto-vectorized operations.
@@ -79,7 +79,7 @@ mod fill {
                 let length = self.expand.ty.line_size();
                 let output = scope.create_local(Type::new(P::as_type(scope)).line(length));
 
-                cast::expand::<P>(scope, value, output.clone().into());
+                cast::expand::<P, Line<P>>(scope, value, output.clone().into());
 
                 output.into()
             })
@@ -264,6 +264,10 @@ impl<P: CubePrimitive> CubePrimitive for Line<P> {
 
     fn size() -> Option<usize> {
         P::size()
+    }
+
+    fn from_const_value(value: ConstantScalarValue) -> Self {
+        Self::new(P::from_const_value(value))
     }
 }
 

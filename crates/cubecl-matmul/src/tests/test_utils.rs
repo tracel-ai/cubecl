@@ -27,7 +27,7 @@ pub trait TestPrecision {
         lhs: &[Self::EG],
         rhs: &[Self::EG],
         problem: &MatmulProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -49,7 +49,7 @@ where
         lhs: &[EG],
         rhs: &[EG],
         problem: &MatmulProblem,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         out: server::Handle,
         shape: &[usize],
         strides: &[usize],
@@ -92,7 +92,7 @@ where
 
 /// Compares the content of a handle to a given slice of f32.
 pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>(
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     output: server::Handle,
     shape: &[usize],
     strides: &[usize],
@@ -228,10 +228,10 @@ impl CastInto<u8> for i32 {
 
 pub trait Sample: Sized + CubePrimitive {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self>;
+    ) -> TensorHandle<R>;
 }
 
 macro_rules! sample_float {
@@ -239,11 +239,12 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shape: &[usize], seed: u64) -> TensorHandle::<R, Self> {
+                fn sample<R: Runtime>(client: &ComputeClient<R::Server>, shape: &[usize], seed: u64) -> TensorHandle::<R> {
                     cubecl_random::seed(seed);
-                    let output = TensorHandle::<R, Self>::empty(client, shape.to_vec());
+                    let dtype = Self::as_type_native_unchecked();
+                    let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R, Self>(&client, Self::from_int(-1), Self::from_int(1), output.as_ref());
+                    cubecl_random::random_uniform::<R>(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
 
                     output
                 }
@@ -260,18 +261,20 @@ sample_float!(u8);
 
 impl Sample for flex32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, flex32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform::<R>(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
+            dtype,
         );
 
         output
@@ -280,18 +283,20 @@ impl Sample for flex32 {
 
 impl Sample for tf32 {
     fn sample<R: Runtime>(
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
         shape: &[usize],
         seed: u64,
-    ) -> TensorHandle<R, Self> {
+    ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
-        let output = TensorHandle::<R, tf32>::empty(client, shape.to_vec());
+        let dtype = f32::as_type_native_unchecked();
+        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R, f32>(
+        cubecl_random::random_uniform::<R>(
             client,
             f32::from_int(-1),
             f32::from_int(1),
             output.as_ref(),
+            dtype,
         );
 
         output

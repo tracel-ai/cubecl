@@ -107,7 +107,7 @@ fn calculate_block_sets(opt: &mut Optimizer, block: NodeIndex) -> BlockSets {
 
 /// Shared memory liveness analysis and allocation
 pub mod shared {
-    use cubecl_ir::{Operation, Type, Variable, VariableKind};
+    use cubecl_ir::{Marker, Operation, Type, Variable, VariableKind};
 
     use crate::Uniformity;
 
@@ -245,7 +245,7 @@ pub mod shared {
                 let slice_0 = &live_slices[i];
                 let slice_1 = &live_slices[i + 1];
                 let end_0 = (slice_0.offset + slice_0.smem.size()).next_multiple_of(align);
-                let gap = slice_1.offset - end_0;
+                let gap = slice_1.offset.saturating_sub(end_0);
                 if gap >= size {
                     return end_0;
                 }
@@ -331,10 +331,10 @@ pub mod shared {
                     }
                 });
 
-                if let Operation::Free(Variable {
+                if let Operation::Marker(Marker::Free(Variable {
                     kind: VariableKind::SharedMemory { id, .. },
                     ..
-                }) = &op.operation
+                })) = &op.operation
                 {
                     kill.insert(*id);
                     generated.remove(id);

@@ -1,4 +1,4 @@
-use cubecl_ir::{Scope, StorageType};
+use cubecl_ir::{ConstantScalarValue, Scope, StorageType};
 use half::{bf16, f16};
 
 use crate::{
@@ -25,13 +25,27 @@ pub trait Float:
     + Log1p
     + Cos
     + Sin
+    + Tan
     + Tanh
+    + Sinh
+    + Cosh
+    + ArcCos
+    + ArcSin
+    + ArcTan
+    + ArcSinh
+    + ArcCosh
+    + ArcTanh
+    + Degrees
+    + Radians
+    + ArcTan2
     + Powf
     + Powi<i32>
     + Sqrt
+    + InverseSqrt
     + Round
     + Floor
     + Ceil
+    + Trunc
     + Erf
     + Recip
     + Magnitude
@@ -73,7 +87,7 @@ pub trait Float:
 
 macro_rules! impl_float {
     (half $primitive:ident, $kind:ident) => {
-        impl_float!($primitive, $kind, |val| $primitive::from_f32(val));
+        impl_float!($primitive, $kind, |val| $primitive::from_f64(val));
     };
     ($primitive:ident, $kind:ident) => {
         impl_float!($primitive, $kind, |val| val as $primitive);
@@ -87,6 +101,13 @@ macro_rules! impl_float {
             /// Return the element type to use on GPU
             fn as_type_native() -> Option<StorageType> {
                 Some(StorageType::Scalar(ElemType::Float(FloatKind::$kind)))
+            }
+
+            fn from_const_value(value: ConstantScalarValue) -> Self {
+                let ConstantScalarValue::Float(value, _) = value else {
+                    unreachable!()
+                };
+                $new(value)
             }
         }
 
@@ -133,7 +154,7 @@ macro_rules! impl_float {
             const RADIX: u32 = $primitive::RADIX;
 
             fn new(val: f32) -> Self {
-                $new(val)
+                $new(val as f64)
             }
         }
     };
@@ -143,27 +164,3 @@ impl_float!(half f16, F16);
 impl_float!(half bf16, BF16);
 impl_float!(f32, F32);
 impl_float!(f64, F64);
-
-impl ScalarArgSettings for f16 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f16(*self);
-    }
-}
-
-impl ScalarArgSettings for bf16 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_bf16(*self);
-    }
-}
-
-impl ScalarArgSettings for f32 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f32(*self);
-    }
-}
-
-impl ScalarArgSettings for f64 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_f64(*self);
-    }
-}

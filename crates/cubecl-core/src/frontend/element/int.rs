@@ -1,18 +1,14 @@
-use cubecl_ir::{ExpandElement, StorageType};
+use cubecl_ir::{ConstantScalarValue, ExpandElement, StorageType};
 
-use crate::Runtime;
 use crate::frontend::{CubeType, Numeric};
 use crate::ir::{ElemType, IntKind, Scope};
 use crate::prelude::BitwiseNot;
+use crate::prelude::{CountOnes, ReverseBits};
 use crate::prelude::{FindFirstSet, LeadingZeros, SaturatingAdd, SaturatingSub};
-use crate::{
-    compute::KernelLauncher,
-    prelude::{CountOnes, ReverseBits},
-};
 
 use super::{
     __expand_new, CubePrimitive, ExpandElementIntoMut, ExpandElementTyped, IntoMut, IntoRuntime,
-    ScalarArgSettings, into_mut_expand_element, into_runtime_expand_element,
+    into_mut_expand_element, into_runtime_expand_element,
 };
 
 mod typemap;
@@ -70,6 +66,13 @@ macro_rules! impl_int {
             fn as_type_native() -> Option<StorageType> {
                 Some(ElemType::Int(IntKind::$kind).into())
             }
+
+            fn from_const_value(value: ConstantScalarValue) -> Self {
+                let ConstantScalarValue::Int(value, _) = value else {
+                    unreachable!()
+                };
+                value as $type
+            }
         }
 
         impl IntoRuntime for $type {
@@ -114,27 +117,3 @@ impl_int!(i8, I8);
 impl_int!(i16, I16);
 impl_int!(i32, I32);
 impl_int!(i64, I64);
-
-impl ScalarArgSettings for i8 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_i8(*self);
-    }
-}
-
-impl ScalarArgSettings for i16 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_i16(*self);
-    }
-}
-
-impl ScalarArgSettings for i32 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_i32(*self);
-    }
-}
-
-impl ScalarArgSettings for i64 {
-    fn register<R: Runtime>(&self, settings: &mut KernelLauncher<R>) {
-        settings.register_i64(*self);
-    }
-}

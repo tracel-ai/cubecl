@@ -204,17 +204,24 @@ impl<
     type Out = (OG, OS);
 }
 
+// TODO make sure the numbers are the right ones
+
 /// Input argument
-pub type InputArg<AS> = <Args<AS> as AttentionArgs>::Input<QG<AS>, KG<AS>, VG<AS>>;
+pub type InputArg<AA> = <AA as AttentionArgs>::Input<
+    NumericExpand<0>,
+    NumericExpand<2>,
+    NumericExpand<4>,
+    NumericExpand<9>,
+>;
 
 /// Output argument
-pub type OutputArg<AS> = <Args<AS> as AttentionArgs>::Output<OG<AS>>;
+pub type OutputArg<AA> = <AA as AttentionArgs>::Output<NumericExpand<10>>;
 
 /// Input runtime argument
-pub type InputRuntimeArg<'a, MS, R> = <InputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type InputRuntimeArg<'a, AA, R> = <InputArg<AA> as LaunchArg>::RuntimeArg<'a, R>;
 
 /// Output runtime argument
-pub type OutputRuntimeArg<'a, MS, R> = <OutputArg<MS> as LaunchArg>::RuntimeArg<'a, R>;
+pub type OutputRuntimeArg<'a, AA, R> = <OutputArg<AA> as LaunchArg>::RuntimeArg<'a, R>;
 
 pub mod attention_types {
     use crate::components::{
@@ -239,8 +246,62 @@ pub mod attention_types {
     pub type ACC<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Accumulator;
     pub type MSK<AS> = <<AS as AttentionSpec>::Precision as AttentionPrecision>::Mask;
 
-    pub type OG<AS> =    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Global;
-    pub type OS<AS> =    <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Stage;
+    pub type OG<AS> = <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Global;
+    pub type OS<AS> = <<<AS as AttentionSpec>::Precision as AttentionPrecision>::Out as StagedMatrixPrecision>::Stage;
 }
 
 pub type Args<MS> = <MS as AttentionSpec>::Args;
+
+#[derive(Clone, Debug)]
+pub struct AttentionElems {
+    pub query_global: StorageType,
+    pub query_tile: StorageType,
+    pub key_global: StorageType,
+    pub key_stage: StorageType,
+    pub value_global: StorageType,
+    pub value_stage: StorageType,
+    pub key_value_tile: StorageType,
+    pub softmax: StorageType,
+    pub accumulator: StorageType,
+    pub mask: StorageType,
+    pub out_global: StorageType,
+    pub out_stage: StorageType,
+}
+
+impl AttentionElems {
+    pub fn new<AP: AttentionPrecision>() -> Self {
+        Self {
+            query_global: QG::<AP>::as_type_native_unchecked(),
+            query_tile: QT::<AP>::as_type_native_unchecked(),
+            key_global: KG::<AP>::as_type_native_unchecked(),
+            key_stage: KS::<AP>::as_type_native_unchecked(),
+            value_global: VG::<AP>::as_type_native_unchecked(),
+            value_stage: VS::<AP>::as_type_native_unchecked(),
+            key_value_tile: KVT::<AP>::as_type_native_unchecked(),
+            softmax: SM::<AP>::as_type_native_unchecked(),
+            accumulator: ACC::<AP>::as_type_native_unchecked(),
+            mask: MSK::<AP>::as_type_native_unchecked(),
+            out_global: OG::<AP>::as_type_native_unchecked(),
+            out_stage: OS::<AP>::as_type_native_unchecked(),
+        }
+    }
+}
+
+impl From<&AttentionElems> for [StorageType; 12] {
+    fn from(elems: &AttentionElems) -> Self {
+        [
+            elems.query_global,
+            elems.query_tile,
+            elems.key_global,
+            elems.key_stage,
+            elems.value_global,
+            elems.value_stage,
+            elems.key_value_tile,
+            elems.softmax,
+            elems.accumulator,
+            elems.mask,
+            elems.out_global,
+            elems.out_stage,
+        ]
+    }
+}

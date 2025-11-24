@@ -19,7 +19,7 @@ pub struct ReduceStrategy {
 impl ReduceStrategy {
     pub fn validate<R: Runtime>(
         self,
-        client: &ComputeClient<R::Server, R::Channel>,
+        client: &ComputeClient<R::Server>,
     ) -> Result<Self, ReduceError> {
         if self.use_planes {
             if !support_plane::<R>(client) {
@@ -33,7 +33,7 @@ impl ReduceStrategy {
         Ok(self)
     }
 
-    pub fn new<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>, shared: bool) -> Self {
+    pub fn new<R: Runtime>(client: &ComputeClient<R::Server>, shared: bool) -> Self {
         Self {
             use_planes: support_plane::<R>(client) && precise_plane_dim::<R>(client),
             shared,
@@ -41,11 +41,11 @@ impl ReduceStrategy {
     }
 }
 
-fn support_plane<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
+fn support_plane<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
     client.properties().features.plane.contains(Plane::Ops)
 }
 
-fn precise_plane_dim<R: Runtime>(client: &ComputeClient<R::Server, R::Channel>) -> bool {
+fn precise_plane_dim<R: Runtime>(client: &ComputeClient<R::Server>) -> bool {
     let hw_props = &client.properties().hardware;
     hw_props.plane_size_min == hw_props.plane_size_max
 }

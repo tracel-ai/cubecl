@@ -380,7 +380,7 @@ impl WgslCompiler {
             cube::VariableKind::Pipeline { .. } => {
                 panic!("Pipeline not supported.")
             }
-            cube::VariableKind::Barrier { .. } => {
+            cube::VariableKind::Barrier { .. } | cube::VariableKind::BarrierToken { .. } => {
                 panic!("Barrier not supported.")
             }
             cube::VariableKind::TensorMapInput(_) => panic!("Tensor map not supported."),
@@ -469,7 +469,7 @@ impl WgslCompiler {
                 panic!("Barrier isn't supported on wgpu.")
             }
             cube::Operation::Tma(_) => panic!("TMA isn't supported on wgpu."),
-            cube::Operation::Free(_) => {}
+            cube::Operation::Marker(_) => {}
         }
     }
 
@@ -498,15 +498,18 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::Broadcast(op) => Subgroup::Broadcast {
                 lhs: self.compile_variable(op.lhs),
                 rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::Sum(op) => Subgroup::Sum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             },
+
             cube::Plane::ExclusiveSum(op) => Subgroup::ExclusiveSum {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -533,6 +536,26 @@ impl WgslCompiler {
             },
             cube::Plane::Max(op) => Subgroup::Max {
                 input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::Shuffle(op) => Subgroup::Shuffle {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleXor(op) => Subgroup::ShuffleXor {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleUp(op) => Subgroup::ShuffleUp {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
+                out: self.compile_variable(out),
+            },
+            cube::Plane::ShuffleDown(op) => Subgroup::ShuffleDown {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             },
         };
@@ -595,7 +618,7 @@ impl WgslCompiler {
             cube::Synchronization::SyncStorage => {
                 instructions.push(wgsl::Instruction::StorageBarrier)
             }
-            cube::Synchronization::SyncProxyShared => panic!("TMA is not supported in WGSL"),
+            cube::Synchronization::SyncAsyncProxyShared => panic!("TMA is not supported in WGSL"),
         };
     }
 
@@ -759,8 +782,57 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::Tan(op) => instructions.push(wgsl::Instruction::Tan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
             cube::Arithmetic::Tanh(op) => instructions.push(wgsl::Instruction::Tanh {
                 input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Sinh(op) => instructions.push(wgsl::Instruction::Sinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Cosh(op) => instructions.push(wgsl::Instruction::Cosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCos(op) => instructions.push(wgsl::Instruction::ArcCos {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSin(op) => instructions.push(wgsl::Instruction::ArcSin {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan(op) => instructions.push(wgsl::Instruction::ArcTan {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcSinh(op) => instructions.push(wgsl::Instruction::ArcSinh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcCosh(op) => instructions.push(wgsl::Instruction::ArcCosh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTanh(op) => instructions.push(wgsl::Instruction::ArcTanh {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Degrees(op) => instructions.push(wgsl::Instruction::Degrees {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Radians(op) => instructions.push(wgsl::Instruction::Radians {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::ArcTan2(op) => instructions.push(wgsl::Instruction::ArcTan2 {
+                lhs: self.compile_variable(op.lhs),
+                rhs: self.compile_variable(op.rhs),
                 out: self.compile_variable(out),
             }),
             // No powi in WGSL
@@ -775,6 +847,12 @@ impl WgslCompiler {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),
+            cube::Arithmetic::InverseSqrt(op) => {
+                instructions.push(wgsl::Instruction::InverseSqrt {
+                    input: self.compile_variable(op.input),
+                    out: self.compile_variable(out),
+                })
+            }
             cube::Arithmetic::Round(op) => instructions.push(wgsl::Instruction::Round {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
@@ -784,6 +862,10 @@ impl WgslCompiler {
                 out: self.compile_variable(out),
             }),
             cube::Arithmetic::Ceil(op) => instructions.push(wgsl::Instruction::Ceil {
+                input: self.compile_variable(op.input),
+                out: self.compile_variable(out),
+            }),
+            cube::Arithmetic::Trunc(op) => instructions.push(wgsl::Instruction::Trunc {
                 input: self.compile_variable(op.input),
                 out: self.compile_variable(out),
             }),

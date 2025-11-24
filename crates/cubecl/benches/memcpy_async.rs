@@ -1,5 +1,8 @@
-use cubecl::prelude::barrier::{Barrier, BarrierLevel};
 use cubecl::prelude::*;
+use cubecl::{
+    benchmark::ProfileDuration,
+    prelude::barrier::{Barrier, BarrierLevel},
+};
 use std::marker::PhantomData;
 
 use cubecl::benchmark::{Benchmark, TimingMethod};
@@ -55,18 +58,18 @@ impl ComputeTask for DummyCompute {
 
 #[cube]
 trait CopyStrategy: Send + Sync + 'static {
-    type Barrier<E: Float>: CubeType + Copy + Clone;
+    type Barrier: CubeType + Copy + Clone;
 
-    fn barrier<E: Float>() -> Self::Barrier<E>;
+    fn barrier() -> Self::Barrier;
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     );
 
-    fn wait<E: Float>(_barrier: Self::Barrier<E>);
+    fn wait(_barrier: Self::Barrier);
 }
 
 #[derive(CubeType)]
@@ -75,14 +78,14 @@ trait CopyStrategy: Send + Sync + 'static {
 struct DummyCopy {}
 #[cube]
 impl CopyStrategy for DummyCopy {
-    type Barrier<E: Float> = ();
+    type Barrier = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {}
+    fn barrier() -> Self::Barrier {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Self::Barrier<E>,
+        _barrier: Self::Barrier,
         #[comptime] _config: Config,
     ) {
         for i in 0..source.len() {
@@ -90,7 +93,7 @@ impl CopyStrategy for DummyCopy {
         }
     }
 
-    fn wait<E: Float>(_barrier: Self::Barrier<E>) {
+    fn wait(_barrier: Self::Barrier) {
         sync_cube();
     }
 }
@@ -101,14 +104,14 @@ impl CopyStrategy for DummyCopy {
 struct CoalescedCopy {}
 #[cube]
 impl CopyStrategy for CoalescedCopy {
-    type Barrier<E: Float> = ();
+    type Barrier = ();
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {}
+    fn barrier() -> Self::Barrier {}
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        _barrier: Self::Barrier<E>,
+        _barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let num_units = config.num_planes * config.plane_dim;
@@ -119,7 +122,7 @@ impl CopyStrategy for CoalescedCopy {
         }
     }
 
-    fn wait<E: Float>(_barrier: Self::Barrier<E>) {
+    fn wait(_barrier: Self::Barrier) {
         sync_cube();
     }
 }
@@ -132,22 +135,22 @@ impl CopyStrategy for CoalescedCopy {
 struct MemcpyAsyncSingleSliceDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] _config: Config,
     ) {
         barrier.memcpy_async(source, destination)
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -160,16 +163,16 @@ impl CopyStrategy for MemcpyAsyncSingleSliceDuplicatedAll {
 struct MemcpyAsyncSingleSliceElected {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElected {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] _config: Config,
     ) {
         if UNIT_POS == 0 {
@@ -177,7 +180,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -190,16 +193,16 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElected {
 struct MemcpyAsyncSingleSliceElectedCooperative {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_coop(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_full(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] _config: Config,
     ) {
         if UNIT_POS == 0 {
@@ -207,7 +210,7 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -219,16 +222,16 @@ impl CopyStrategy for MemcpyAsyncSingleSliceElectedCooperative {
 struct MemcpyAsyncSplitPlaneDuplicatedUnit {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let sub_length = source.len() / config.num_planes;
@@ -241,7 +244,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
         )
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -253,16 +256,16 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneDuplicatedUnit {
 struct MemcpyAsyncSplitPlaneElectedUnit {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let sub_length = source.len() / config.num_planes;
@@ -277,7 +280,7 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -290,16 +293,16 @@ impl CopyStrategy for MemcpyAsyncSplitPlaneElectedUnit {
 struct MemcpyAsyncSplitDuplicatedAll {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let sub_length = source.len() / config.num_planes;
@@ -314,7 +317,7 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -325,16 +328,16 @@ impl CopyStrategy for MemcpyAsyncSplitDuplicatedAll {
 struct MemcpyAsyncSplitLargeUnitWithIdle {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let sub_length = source.len() / config.num_planes;
@@ -350,7 +353,7 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -362,16 +365,16 @@ impl CopyStrategy for MemcpyAsyncSplitLargeUnitWithIdle {
 struct MemcpyAsyncSplitSmallUnitCoalescedLoop {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let num_units = config.num_planes * config.plane_dim;
@@ -388,7 +391,7 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
         }
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -401,16 +404,16 @@ impl CopyStrategy for MemcpyAsyncSplitSmallUnitCoalescedLoop {
 struct MemcpyAsyncSplitMediumUnitCoalescedOnce {}
 #[cube]
 impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
-    type Barrier<E: Float> = Barrier<E>;
+    type Barrier = Barrier;
 
-    fn barrier<E: Float>() -> Self::Barrier<E> {
-        Barrier::<E>::new(BarrierLevel::cube_manual(0u32))
+    fn barrier() -> Self::Barrier {
+        Barrier::new(BarrierLevel::cube_manual(0u32))
     }
 
     fn memcpy<E: Float>(
         source: &Slice<Line<E>>,
         destination: &mut SliceMut<Line<E>>,
-        barrier: Self::Barrier<E>,
+        barrier: Self::Barrier,
         #[comptime] config: Config,
     ) {
         let sub_length = source.len() / (config.num_planes * config.plane_dim);
@@ -424,7 +427,7 @@ impl CopyStrategy for MemcpyAsyncSplitMediumUnitCoalescedOnce {
         )
     }
 
-    fn wait<E: Float>(barrier: Self::Barrier<E>) {
+    fn wait(barrier: Self::Barrier) {
         barrier.arrive_and_wait();
     }
 }
@@ -459,7 +462,7 @@ fn memcpy_test_single_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
 ) {
     let data_count = input.shape(0);
     let mut acc = Array::<Line<E>>::new(config.acc_len);
-    let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
+    let num_iterations = data_count.div_ceil(config.smem_size);
 
     let mut smem = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let barrier = Cpy::barrier();
@@ -495,7 +498,7 @@ fn memcpy_test_double_buffer<E: Float, Cpy: CopyStrategy, Cpt: ComputeTask>(
     let mut smem1 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let mut smem2 = SharedMemory::<E>::new_lined(config.smem_size, 1u32);
     let mut acc = Array::<Line<E>>::new(config.acc_len);
-    let num_iterations = (data_count + config.smem_size - 1) / config.smem_size;
+    let num_iterations = data_count.div_ceil(config.smem_size);
 
     let barrier1 = Cpy::barrier();
     let barrier2 = Cpy::barrier();
@@ -563,7 +566,7 @@ enum ComputeTaskEnum {
 
 fn launch_ref<R: Runtime, E: Float>(
     strategy: CopyStrategyEnum,
-    client: &ComputeClient<R::Server, R::Channel>,
+    client: &ComputeClient<R::Server>,
     input: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     smem_size: u32,
@@ -729,15 +732,29 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
     fn prepare(&self) -> Self::Input {
         let client = R::client(&self.device);
 
-        let a = TensorHandle::<R, E>::empty(&client, vec![self.data_count]);
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), a.as_ref());
-        let b = TensorHandle::<R, E>::empty(&client, vec![self.window_size]);
-        random_uniform::<R, E>(&client, E::from_int(0), E::from_int(1), b.as_ref());
+        let a = TensorHandle::<R>::empty(
+            &client,
+            vec![self.data_count],
+            E::as_type_native_unchecked(),
+        );
+        random_uniform::<R>(
+            &client,
+            E::from_int(0),
+            E::from_int(1),
+            a.as_ref(),
+            E::as_type_native_unchecked(),
+        );
+        let b = TensorHandle::<R>::empty(
+            &client,
+            vec![self.window_size],
+            E::as_type_native_unchecked(),
+        );
+        random_uniform::<R, E>(&client, 0., 1., b.as_ref());
 
         (a, b)
     }
 
-    fn execute(&self, args: Self::Input) {
+    fn execute(&self, args: Self::Input) -> Result<(), String> {
         let smem_size = args.1.shape[0] as u32;
         launch_ref::<R, E>(
             self.strategy,
@@ -747,6 +764,7 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
             smem_size,
             self.double_buffering,
         );
+        Ok(())
     }
 
     fn name(&self) -> String {
@@ -765,9 +783,10 @@ impl<R: Runtime, E: Float> Benchmark for MemcpyAsyncBench<R, E> {
         future::block_on(self.client.sync())
     }
 
-    fn profile(&self, args: Self::Input) -> cubecl::benchmark::ProfileDuration {
+    fn profile(&self, args: Self::Input) -> Result<ProfileDuration, String> {
         self.client
             .profile(|| self.execute(args), "memcpy-async-bench")
+            .map_err(|it| format!("{it:?}"))
     }
 }
 
@@ -778,7 +797,7 @@ struct MemcpyAsyncBench<R: Runtime, E> {
     strategy: CopyStrategyEnum,
     double_buffering: bool,
     device: R::Device,
-    client: ComputeClient<R::Server, R::Channel>,
+    client: ComputeClient<R::Server>,
     _e: PhantomData<E>,
 }
 
@@ -800,7 +819,7 @@ fn run<R: Runtime, E: Float>(device: R::Device, strategy: CopyStrategyEnum) {
     };
     println!("Data count: {data_count:?}, strategy: {strategy:?}");
     println!("{}", bench.name());
-    println!("{}", bench.run(TimingMethod::Full));
+    println!("{}", bench.run(TimingMethod::Device).unwrap());
 }
 
 fn main() {

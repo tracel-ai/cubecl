@@ -19,7 +19,7 @@ pub struct GlobalIterator<EI: CubePrimitive> {
 unsafe impl<EG: CubePrimitive> Sync for GlobalIterator<EG> {}
 unsafe impl<EG: CubePrimitive> Send for GlobalIterator<EG> {}
 
-#[derive(CubeType, Clone, Copy)]
+#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
 pub enum ViewDirection {
     Row,
     Col,
@@ -74,5 +74,10 @@ impl<EG: CubePrimitive> GlobalIterator<EG> {
         } else {
             self.global_view.slice_unchecked(offset, self.view_size)
         }
+    }
+
+    /// Returns the line size of the global view
+    pub fn line_size(&self) -> comptime_type!(u32) {
+        self.global_view.line_size()
     }
 }
