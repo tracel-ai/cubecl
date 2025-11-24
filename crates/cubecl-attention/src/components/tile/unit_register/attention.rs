@@ -332,10 +332,19 @@ fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
+    let line_size = strided_tile.line_size;
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let col_iterations = comptime!(unit_tile.layout.num_cols / strided_tile.line_size);
+
     for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            unit_tile.data[row * unit_tile.layout.num_cols + col] =
-                E2::cast_from(strided_tile.get_line(row, col))
+        for col in 0..col_iterations {
+            let line_read = strided_tile.get_line(row, col);
+            #[unroll]
+            for i in 0..line_size {
+                unit_tile.data[row * unit_tile.layout.num_cols + col * line_size + i] =
+                    E2::cast_from(line_read[i]);
+            }
         }
     }
 }

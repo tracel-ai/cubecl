@@ -124,7 +124,7 @@ impl<
     ) -> QueryReader<AP> {
         let layout = AttentionGlobalLayout::new(&query, batch_index, config.query_gmem_config);
 
-        QueryReader::<AP>::new(stage_q_offset, query.view(layout))
+        QueryReader::<AP>::new(stage_q_offset, query.view(layout), config.query_gmem_config)
     }
 
     fn init_key_reader(

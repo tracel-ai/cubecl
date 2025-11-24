@@ -281,7 +281,7 @@ impl<
             #[unroll]
             for hd in 0..partition_head_dim {
                 let tile_to_write = registers.get_at_mut(q, hd, config);
-                let tile_read = reader.get_tile::<P, Self::Config>(
+                let tile_read = reader.get_tile::<P>(
                     (q, hd).runtime(),
                     attention_tile_size,
                     partition_seq_q,

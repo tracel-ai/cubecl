@@ -25,7 +25,7 @@ impl Algorithm for UnitAlgorithm {
 
     fn filter_line_sizes(_available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {
         AvailableLineSizes {
-            query: vec![1],
+            query: vec![4],
             key: vec![1],
             value: vec![1],
             mask: vec![1],
