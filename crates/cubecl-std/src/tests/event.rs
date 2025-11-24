@@ -130,20 +130,27 @@ fn test_3(items: SliceMut<f32>) {
 
 #[cube(launch_unchecked)]
 fn launch_test_1(output: &mut Array<f32>) {
+    output[0] = 0.0;
+    output[1] = 0.0;
     test_1(output.to_slice_mut());
 }
 
 #[cube(launch_unchecked)]
 fn launch_test_2(output: &mut Array<f32>) {
+    output[0] = 0.0;
+    output[1] = 0.0;
     test_2(output.to_slice_mut());
 }
 
 #[cube(launch_unchecked)]
 fn launch_test_3(output: &mut Array<f32>) {
+    output[0] = 0.0;
+    output[1] = 0.0;
+    output[3] = 0.0;
     test_3(output.to_slice_mut());
 }
 
-pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(8);
 
     unsafe {
@@ -161,7 +168,7 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     assert_eq!(actual, &[20.0, 50.0]);
 }
 
-pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(8);
 
     unsafe {
@@ -179,7 +186,7 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
     assert_eq!(actual, &[15.0, 30.0]);
 }
 
-pub fn event_test_3<R: Runtime>(client: ComputeClient<R::Server, R::Channel>) {
+pub fn event_test_3<R: Runtime>(client: ComputeClient<R::Server>) {
     let output = client.empty(12);
 
     unsafe {
