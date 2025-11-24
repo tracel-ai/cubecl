@@ -326,7 +326,7 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_1_lined::launch::<R>(
+        kernel_simple_1_lined::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -342,10 +342,7 @@ pub fn test_simple_1_lined<R: Runtime>(client: ComputeClient<R>, cube_dimensions
     assert_eq!(test_simple_1_expected(), actual);
 }
 
-pub fn test_simple_1_lined_offset<R: Runtime>(
-    client: ComputeClient<R>,
-    cube_dimensions: CubeDim,
-) {
+pub fn test_simple_1_lined_offset<R: Runtime>(client: ComputeClient<R>, cube_dimensions: CubeDim) {
     if !client.properties().features.cmma.contains(&MmaConfig {
         a_type: ElemType::Float(FloatKind::F16).into(),
         b_type: ElemType::Float(FloatKind::F16).into(),
@@ -378,7 +375,7 @@ pub fn test_simple_1_lined_offset<R: Runtime>(
     let out = client.empty(core::mem::size_of::<f32>() * line_size * out_len);
 
     unsafe {
-        kernel_simple_1_lined_offset::launch::<R>(
+        kernel_simple_1_lined_offset::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -421,7 +418,7 @@ pub fn test_simple_1<R: Runtime>(client: ComputeClient<R>, cube_dimensions: Cube
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_f16_m16n16k16_gmem::launch::<R>(
+        kernel_simple_f16_m16n16k16_gmem::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -487,7 +484,7 @@ pub fn test_simple_1_expected() -> Vec<f32> {
 //     let out = client.empty(core::mem::size_of::<f16>() * 64);
 
 //     unsafe {
-//         kernel_simple_2::launch::<R>(
+//         kernel_simple_2::launch(
 //             &client,
 //             CubeCount::Static(1, 1, 1),
 //             cube_dimensions,
@@ -523,7 +520,7 @@ pub fn test_cmma_cast_f16<R: Runtime>(client: ComputeClient<R>, cube_dimensions:
     let out = client.empty(core::mem::size_of::<f16>() * 256);
 
     unsafe {
-        cast_matrix_f16::launch::<R>(
+        cast_matrix_f16::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -557,7 +554,7 @@ pub fn test_cmma_cast_bf16<R: Runtime>(client: ComputeClient<R>, cube_dimensions
     let out = client.empty(core::mem::size_of::<f16>() * 256);
 
     unsafe {
-        cast_matrix_bf16::launch::<R>(
+        cast_matrix_bf16::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -594,7 +591,7 @@ pub fn test_simple_tf32<R: Runtime>(client: ComputeClient<R>, cube_dimensions: C
     let out = client.empty(core::mem::size_of::<f32>() * 256);
 
     unsafe {
-        kernel_simple_tf32::launch::<R>(
+        kernel_simple_tf32::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,
@@ -709,7 +706,7 @@ pub fn test_cmma_strided<R: Runtime>(client: ComputeClient<R>, cube_dimensions: 
     let out = client.empty(core::mem::size_of::<f32>() * m * n);
 
     unsafe {
-        kernel_strided::launch::<R>(
+        kernel_strided::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             cube_dimensions,

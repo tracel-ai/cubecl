@@ -46,7 +46,7 @@ impl<
         line_sizes: &AttentionLineSizes,
         dtypes: &AttentionElems,
     ) -> Result<Self::Config, AttentionSetupError> {
-        let stage_config = SA::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
+        let stage_config = SA::setup(client, problem, selection, line_sizes, dtypes)?;
 
         let precompute_job = LoadingPrecomputeStrategy::Never.into();
         let plane_dim = stage_config.plane_dim();

@@ -254,7 +254,7 @@ pub fn into_contiguous<R: Runtime>(
     let handle = client.empty(num_elems * dtype.size());
     let output = TensorHandle::new_contiguous(input.shape.to_vec(), handle, dtype);
 
-    into_contiguous_ref::<R>(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype);
 
     output
 }
@@ -272,7 +272,7 @@ pub fn into_contiguous_pitched<R: Runtime>(
 
     let output = TensorHandle::empty(client, input.shape.to_vec(), dtype);
 
-    into_contiguous_ref::<R>(client, input, &output.as_ref(), dtype);
+    into_contiguous_ref(client, input, &output.as_ref(), dtype);
 
     output
 }
@@ -299,11 +299,11 @@ pub fn into_contiguous_packed<R: Runtime>(
 
     let mut out_shape = shape.to_vec();
     out_shape[rank - 1] = out_shape[rank - 1].div_ceil(packing as usize);
-    let output = TensorHandle::<R>::empty(client, out_shape, dtype);
+    let output = TensorHandle::empty(client, out_shape, dtype);
 
     // Should reinterpret as u8 if possible at some point, but requires modifying shape/strides so
     // keep it simple for now
-    into_contiguous_packed_ref::<R>(client, input, &output.as_ref(), shape, packing, dtype);
+    into_contiguous_packed_ref(client, input, &output.as_ref(), shape, packing, dtype);
 
     output
 }
@@ -367,9 +367,9 @@ pub fn into_contiguous_ref<R: Runtime>(
         calculate_cube_count_elemwise(num_elems.div_ceil(num_elems_per_unit as usize), cube_dim);
 
     let launch = if line_size != out_vec && out_vec > 1 {
-        into_contiguous_kernel_pack::launch::<R>
+        into_contiguous_kernel_pack::launch
     } else {
-        into_contiguous_kernel::launch::<R>
+        into_contiguous_kernel::launch
     };
 
     launch(
@@ -446,7 +446,7 @@ pub fn into_contiguous_packed_ref<R: Runtime>(
         .map(|s| FastDivmodArgs::new(client, *s as u32))
         .collect();
 
-    into_contiguous_kernel_packed::launch::<R>(
+    into_contiguous_kernel_packed::launch(
         client,
         cube_count,
         cube_dim,

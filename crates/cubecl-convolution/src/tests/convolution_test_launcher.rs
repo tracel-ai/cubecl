@@ -61,7 +61,7 @@ pub fn test_convolution_algorithm<A, P, R>(
     .unwrap();
 
     let dtypes = MatmulElems::new::<((P::EG, P::ES), (P::EG, P::ES), (P::EG, f32))>();
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -93,13 +93,13 @@ pub fn test_convolution_algorithm<A, P, R>(
         TensorHandleRef::from_raw_parts(&out.handle, &out.strides, &out.shape, elem_size)
     };
 
-    let lhs_handle = A::into_tensor_handle::<R>(
+    let lhs_handle = A::into_tensor_handle(
         &client,
         &lhs_handle,
         MatmulIdent::Lhs,
         P::EG::as_type_native_unchecked(),
     );
-    let rhs_handle = A::into_tensor_handle::<R>(
+    let rhs_handle = A::into_tensor_handle(
         &client,
         &rhs_handle,
         MatmulIdent::Rhs,
@@ -147,7 +147,7 @@ pub fn test_convolution_algorithm<A, P, R>(
         );
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -167,7 +167,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Lhs => {
             let shape = shape(problem, ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
@@ -184,7 +184,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Rhs => {
             let shape = shape(problem, ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);

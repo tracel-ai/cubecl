@@ -238,11 +238,8 @@ impl CastInto<u8> for i32 {
 }
 
 pub trait Sampleable: Sized + CubePrimitive {
-    fn sample<R: Runtime>(
-        client: &ComputeClient<R>,
-        shape: &[usize],
-        seed: u64,
-    ) -> TensorHandle<R>;
+    fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64)
+    -> TensorHandle<R>;
 }
 
 macro_rules! sample_float {
@@ -250,12 +247,12 @@ macro_rules! sample_float {
         $(
             impl Sampleable for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle::<R> {
+                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle<R> {
                     cubecl_random::seed(seed);
                     let dtype = Self::as_type_native_unchecked();
-                    let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+                    let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R>(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
+                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
 
                     output
                 }
@@ -277,9 +274,9 @@ impl Sampleable for flex32 {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
@@ -299,9 +296,9 @@ impl Sampleable for tf32 {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
@@ -321,9 +318,9 @@ impl Sampleable for bool {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = bool::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype);
 
         output
     }
@@ -337,9 +334,9 @@ impl Sampleable for u8 {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = u8::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_bernoulli::<R>(client, 0.5, output.as_ref(), dtype);
+        cubecl_random::random_bernoulli(client, 0.5, output.as_ref(), dtype);
 
         output
     }

@@ -19,7 +19,7 @@ pub fn test_to_degrees<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_to_degrees::launch_unchecked::<R>(
+        kernel_to_degrees::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input_data.len() as u32, 1, 1),
@@ -57,7 +57,7 @@ pub fn test_to_radians<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(input_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_to_radians::launch_unchecked::<R>(
+        kernel_to_radians::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(input_data.len() as u32, 1, 1),
@@ -98,7 +98,7 @@ pub fn test_hypot<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(x_data.len() * core::mem::size_of::<f32>());
 
     unsafe {
-        kernel_hypot::launch_unchecked::<R>(
+        kernel_hypot::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(x_data.len() as u32, 1, 1),

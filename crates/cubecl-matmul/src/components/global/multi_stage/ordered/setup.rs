@@ -82,7 +82,7 @@ where
                 )
             });
 
-        let stage_config = SMM::setup::<R>(
+        let stage_config = SMM::setup(
             client,
             problem,
             selection,
@@ -184,8 +184,8 @@ fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Run
     tiling_scheme: TilingScheme,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;
-    RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     if tiling_scheme.partitions_per_stage_along_n() > 1 {

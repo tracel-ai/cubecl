@@ -32,7 +32,7 @@ use crate::ReduceError;
 /// let input_handle = client.create(f32::as_bytes(&[0, 1, 2, 3]));
 /// let output_handle = client.empty(size_of::<F>());
 /// let input = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(
+///     TensorHandleRef::from_raw_parts(
 ///         &input_handle,
 ///         &[2, 1],
 ///         &[2, 2],
@@ -40,7 +40,7 @@ use crate::ReduceError;
 ///     )
 /// };
 /// let output = unsafe {
-///     TensorHandleRef::<R>::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
+///     TensorHandleRef::from_raw_parts(&output_handle, &[1], &[1], size_of::<F>())
 /// };
 ///
 /// // Here `R` is a `cubecl::Runtime`.
@@ -86,7 +86,7 @@ pub fn shared_sum<R: Runtime>(
 
     // Launch kernel
     unsafe {
-        shared_sum_kernel::launch_unchecked::<R>(
+        shared_sum_kernel::launch_unchecked(
             client,
             cube_count,
             cube_dim,

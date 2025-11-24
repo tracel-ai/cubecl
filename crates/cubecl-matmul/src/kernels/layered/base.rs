@@ -287,7 +287,7 @@ where
         if plane_dim == 0 { 32 } else { plane_dim }
     };
 
-    let plane_dim = fix_plane_dim(A::select_plane_dim::<R>(client));
+    let plane_dim = fix_plane_dim(A::select_plane_dim(client));
 
     launch_kernel_concrete::<MA, R, A>(
         client, lhs_handle, rhs_handle, out, problem, line_sizes, plane_dim, selection, dtypes,

@@ -236,12 +236,12 @@ macro_rules! sample_float {
         $(
             impl Sample for $t
             {
-                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle::<R> {
+                fn sample<R: Runtime>(client: &ComputeClient<R>, shape: &[usize], seed: u64) -> TensorHandle<R> {
                     cubecl_random::seed(seed);
                     let dtype = Self::as_type_native_unchecked();
-                    let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+                    let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-                    cubecl_random::random_uniform::<R>(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
+                    cubecl_random::random_uniform(&client, f32::from_int(-1), f32::from_int(1), output.as_ref(), dtype);
 
                     output
                 }
@@ -264,9 +264,9 @@ impl Sample for flex32 {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),
@@ -286,9 +286,9 @@ impl Sample for tf32 {
     ) -> TensorHandle<R> {
         cubecl_random::seed(seed);
         let dtype = f32::as_type_native_unchecked();
-        let output = TensorHandle::<R>::empty(client, shape.to_vec(), dtype);
+        let output = TensorHandle::empty(client, shape.to_vec(), dtype);
 
-        cubecl_random::random_uniform::<R>(
+        cubecl_random::random_uniform(
             client,
             f32::from_int(-1),
             f32::from_int(1),

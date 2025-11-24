@@ -40,7 +40,7 @@ where
     InputArg<A::Args>: ConcreteInputsFactory,
     OutputArg<A::Args>: ConcreteOutputFactory,
 {
-    let config = A::setup::<R>(client, &problem, &selection, &line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &line_sizes, dtypes)?;
 
     let input = <InputArg<A::Args> as ConcreteInputsFactory>::create(
         client,
@@ -89,7 +89,7 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     selection: MatmulSelection,
     dtypes: &MatmulElems,
 ) -> Result<(), ConvSetupError> {
-    let config = A::setup::<R>(client, &problem, &selection, &line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &line_sizes, dtypes)?;
 
     unsafe {
         A::GlobalConvolution::launch_unchecked::<MA, R>(

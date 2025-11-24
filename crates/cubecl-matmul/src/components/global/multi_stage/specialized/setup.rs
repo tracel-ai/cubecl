@@ -66,7 +66,7 @@ where
             selection.plane_dim,
         );
 
-        let stage_config = SMM::setup::<R>(
+        let stage_config = SMM::setup(
             client,
             problem,
             selection,
@@ -168,8 +168,8 @@ fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Run
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;
-    RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     Ok(config)

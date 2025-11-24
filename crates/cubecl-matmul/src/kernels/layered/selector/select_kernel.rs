@@ -53,10 +53,10 @@ where
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
+            A::selection(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
-    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &view_line_sizes, dtypes)?;
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,
         client.properties().hardware.max_cube_count.clone(),
@@ -115,10 +115,10 @@ pub fn launch_kernel_virtual<'a, MA: MatmulArgs, R: Runtime, A: Algorithm>(
     let selection = match selection {
         Selection::Forced(selection) => selection.clone(),
         Selection::Inferred(args) => {
-            A::selection::<R>(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
+            A::selection(client, &problem, plane_dim, &view_line_sizes, args, dtypes)?
         }
     };
-    let config = A::setup::<R>(client, &problem, &selection, &view_line_sizes, dtypes)?;
+    let config = A::setup(client, &problem, &selection, &view_line_sizes, dtypes)?;
 
     let cube_count_plan = config.hypercube_config().cube_count_plan(
         &problem,

@@ -56,7 +56,7 @@ where
             ),
         );
 
-        validate::<R>(
+        validate(
             tile_config,
             problem.lhs_layout,
             problem.rhs_layout,
@@ -86,7 +86,7 @@ fn validate<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<RegisterMatmulConfig, MatmulSetupError> {
-    let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
+    let tile_config = check_availability(tile_config, client, dtypes)?;
 
     let m = tile_config.shared.tile_size.m();
     let n = tile_config.shared.tile_size.n();

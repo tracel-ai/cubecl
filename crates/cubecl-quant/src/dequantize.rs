@@ -182,7 +182,7 @@ pub fn launch_ref<R: Runtime>(
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => dequantize_packed::<R>(
+        } => dequantize_packed(
             client,
             values,
             *scheme,
@@ -208,7 +208,7 @@ pub fn launch_ref<R: Runtime>(
                 );
             }
 
-            dequantize_native::<R>(
+            dequantize_native(
                 client,
                 values,
                 *scheme,
@@ -265,7 +265,7 @@ fn dequantize_packed<R: Runtime>(
             ..
         } => {
             unsafe {
-                dequantize_symmetric_packed_kernel::launch_unchecked::<R>(
+                dequantize_symmetric_packed_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
@@ -318,7 +318,7 @@ fn dequantize_native<R: Runtime>(
 
             println!("{input_dtype:?} {scale_dtype:?} {quant_dtype:?}");
             unsafe {
-                dequantize_symmetric_native_kernel::launch_unchecked::<R>(
+                dequantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,

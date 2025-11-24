@@ -54,7 +54,7 @@ impl LoadingValidation for AsyncFullMaximizeUnitCountLoading {
         }
 
         StridedTilingLayout::check(config.smem_config)?;
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
         validate_noswizzle(config.smem_config)?;
 
         Ok(())

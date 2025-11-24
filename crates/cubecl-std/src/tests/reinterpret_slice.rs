@@ -22,7 +22,7 @@ pub fn run_test_read_global<R: Runtime>(client: ComputeClient<R>, line_size: usi
     let input = client.create_from_slice(i8::as_bytes(&casted));
     let output = client.empty(4);
     unsafe {
-        kernel_read_global::launch_unchecked::<R>(
+        kernel_read_global::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -55,7 +55,7 @@ pub fn run_test_write_global<R: Runtime>(client: ComputeClient<R>, line_size: us
     let input = client.create_from_slice(f16::as_bytes(&source));
 
     unsafe {
-        kernel_write_global::launch_unchecked::<R>(
+        kernel_write_global::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -96,7 +96,7 @@ pub fn run_test_read_shared_memory<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(4);
 
     unsafe {
-        kernel_read_shared_memory::launch_unchecked::<R>(
+        kernel_read_shared_memory::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),
@@ -131,7 +131,7 @@ pub fn run_test_write_shared_memory<R: Runtime>(client: ComputeClient<R>) {
     let input = client.create_from_slice(f16::as_bytes(&source));
 
     unsafe {
-        kernel_write_shared_memory::launch_unchecked::<R>(
+        kernel_write_shared_memory::launch_unchecked(
             &client,
             CubeCount::new_single(),
             CubeDim::new_1d(2),

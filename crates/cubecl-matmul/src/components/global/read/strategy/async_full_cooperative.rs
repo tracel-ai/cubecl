@@ -30,7 +30,7 @@ impl LoadingValidation for AsyncFullCooperativeLoading {
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         StridedTilingLayout::check(config.smem_config)?;
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
         validate_noswizzle(config.smem_config)?;
 
         Ok(())

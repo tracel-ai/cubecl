@@ -23,7 +23,7 @@ pub trait Algorithm {
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<<Self::BatchMatmul as BatchMatmulFamily>::Config, MatmulSetupError> {
-        Self::BatchMatmul::setup::<R>(client, problem, selection, line_sizes, dtypes)
+        Self::BatchMatmul::setup(client, problem, selection, line_sizes, dtypes)
     }
 
     fn selection<R: Runtime>(

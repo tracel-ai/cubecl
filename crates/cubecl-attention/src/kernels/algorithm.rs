@@ -25,6 +25,6 @@ pub trait Algorithm {
         line_sizes: &AttentionLineSizes,
         dtypes: &AttentionElems,
     ) -> Result<<Self::BatchAttention as BatchAttentionFamily>::Config, AttentionSetupError> {
-        Self::BatchAttention::setup::<R>(client, problem, selection, line_sizes, dtypes)
+        Self::BatchAttention::setup(client, problem, selection, line_sizes, dtypes)
     }
 }

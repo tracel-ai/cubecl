@@ -190,7 +190,7 @@ pub fn test_scale<R: Runtime>(client: ComputeClient<R>, vectorization: u8) {
     let handle2 = client.empty(num_out * size_of::<u8>());
 
     unsafe {
-        kernel_scale::launch_unchecked::<R>(
+        kernel_scale::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),

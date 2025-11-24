@@ -187,7 +187,7 @@ pub fn launch_ref<R: Runtime>(
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => quantize_packed::<R>(
+        } => quantize_packed(
             client, input, scheme, scale, out_scale, output, input_elem, param_elem,
         ),
         QuantScheme {
@@ -207,7 +207,7 @@ pub fn launch_ref<R: Runtime>(
                 );
             }
 
-            quantize_native::<R>(
+            quantize_native(
                 client, input, scheme, scale, out_scale, output, input_elem, param_elem,
             )
         }
@@ -255,7 +255,7 @@ fn quantize_native<R: Runtime>(
             let quant_type = ElemType::from_quant_value(scheme.value);
 
             unsafe {
-                quantize_symmetric_native_kernel::launch_unchecked::<R>(
+                quantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
@@ -305,7 +305,7 @@ fn quantize_packed<R: Runtime>(
         } => {
             check_block_size_compat(scheme, num_quants as usize); // 32 / 8 = 4
             unsafe {
-                quantize_symmetric_packed_kernel::launch_unchecked::<R>(
+                quantize_symmetric_packed_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,

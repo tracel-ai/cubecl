@@ -130,7 +130,7 @@ pub fn test_slice_mut_len<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(core::mem::size_of::<u32>() * 4);
 
     unsafe {
-        slice_mut_len::launch::<R>(
+        slice_mut_len::launch(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),

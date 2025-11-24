@@ -62,8 +62,7 @@ impl<
         let num_planes = selection.tiling_scheme.stage_size.seq_q
             * TA::computation_resources()?.num_planes(selection.plane_dim)?;
 
-        let tile_config =
-            TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+        let tile_config = TA::setup(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
         let key_smem_config = StageMemoryConfig {
             num_planes,

@@ -59,13 +59,13 @@ where
                 plane_dim: selection.plane_dim,
                 swizzle_config: selection.shared_swizzle,
             },
-            load_method::<R>(client, dtypes.lhs_stage),
-            load_method::<R>(client, dtypes.rhs_stage),
-            load_method::<R>(client, dtypes.acc_stage),
-            store_method::<R>(client, dtypes.acc_stage),
+            load_method(client, dtypes.lhs_stage),
+            load_method(client, dtypes.rhs_stage),
+            load_method(client, dtypes.acc_stage),
+            store_method(client, dtypes.acc_stage),
         );
 
-        validate::<R>(tile_config, client, dtypes)
+        validate(tile_config, client, dtypes)
     }
 
     fn should_swizzle<R: Runtime>(client: &ComputeClient<R>) -> bool {

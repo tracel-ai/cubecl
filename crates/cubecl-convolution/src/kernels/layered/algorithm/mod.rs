@@ -66,7 +66,7 @@ pub trait Algorithm {
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<GlobalConfig<Self::GlobalConvolution>, MatmulSetupError> {
-        Self::GlobalConvolution::setup::<R>(client, problem, selection, line_sizes, dtypes)
+        Self::GlobalConvolution::setup(client, problem, selection, line_sizes, dtypes)
     }
 
     fn filter_line_sizes(available_line_sizes: AvailableLineSizes) -> AvailableLineSizes {

@@ -109,7 +109,7 @@ pub fn launch<R: Runtime>(
     out: &TensorHandleRef<'_, R>,
     dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R>(client, &lhs.as_ref(), &rhs.as_ref(), out, &dtypes)
+    launch_ref(client, &lhs.as_ref(), &rhs.as_ref(), out, &dtypes)
 }
 
 #[allow(clippy::result_large_err)]
@@ -247,7 +247,7 @@ pub fn launch_ref<R: Runtime>(
     );
 
     unsafe {
-        matmul_kernel::launch_unchecked::<R>(
+        matmul_kernel::launch_unchecked(
             client,
             cube_count,
             CubeDim::new(cube_dim_x as u32, cube_dim_y as u32, 1),

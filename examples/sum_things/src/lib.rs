@@ -197,8 +197,8 @@ pub fn launch<R: Runtime>(device: &R::Device) {
         KernelKind::SeriesSumThenMul,
     ] {
         match kind {
-            KernelKind::Basic => launch_basic::<R>(&client, &input, &output, len),
-            KernelKind::Plane => launch_subgroup::<R>(&client, &input, &output, len),
+            KernelKind::Basic => launch_basic(&client, &input, &output, len),
+            KernelKind::Plane => launch_subgroup(&client, &input, &output, len),
             KernelKind::TraitSum => {
                 // When using trait, it's normally a good idea to check if the variation can be
                 // executed.

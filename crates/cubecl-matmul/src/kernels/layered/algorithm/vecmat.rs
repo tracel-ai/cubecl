@@ -54,7 +54,7 @@ impl Algorithm for SimpleVecMatAlgorithm {
         _args: &Self::SelectionArgs,
         _dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        Ok(selection_vecmat::<R>(
+        Ok(selection_vecmat(
             client,
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),
@@ -91,7 +91,7 @@ impl Algorithm for DoubleVecMatAlgorithm {
         _args: &Self::SelectionArgs,
         _dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        Ok(selection_vecmat::<R>(
+        Ok(selection_vecmat(
             client,
             problem,
             (1, line_sizes.out as u32, plane_dim * line_sizes.lhs as u32).into(),

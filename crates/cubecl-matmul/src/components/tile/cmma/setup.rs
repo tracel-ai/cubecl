@@ -50,7 +50,7 @@ where
             selection.shared_swizzle,
         );
 
-        validate::<R>(tile_config, client, dtypes)
+        validate(tile_config, client, dtypes)
     }
 
     fn should_swizzle<R: Runtime>(_client: &ComputeClient<R>) -> bool {

@@ -68,9 +68,9 @@ pub fn test_quantized_per_tensor_int<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::<R>::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
+    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
 
     let values_view = ViewArg::new::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },
@@ -137,9 +137,9 @@ pub fn test_quantized_per_tensor_fp4<R: Runtime, F: Float + CubeElement>(
     let float_values = client.create_from_slice(F::as_bytes(&float_data));
     let float_output = client.empty(16 * size_of::<F>());
 
-    let values_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));
-    let scales_layout = TestPerTensorScaleLayoutLaunch::<R>::new(ScalarArg::new(16));
-    let float_layout = PlainLayoutLaunch::<R>::new(ScalarArg::new(values_lines));
+    let values_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
+    let scales_layout = TestPerTensorScaleLayoutLaunch::new(ScalarArg::new(16));
+    let float_layout = PlainLayoutLaunch::new(ScalarArg::new(values_lines));
 
     let values_view = ViewArg::new::<PlainLayout>(
         unsafe { ArrayArg::from_raw_parts::<u32>(&values, 2, line_size_values) },

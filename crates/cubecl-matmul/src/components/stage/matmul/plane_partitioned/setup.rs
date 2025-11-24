@@ -84,7 +84,7 @@ impl<
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
+        let tile_config = TM::setup(client, problem, selection, line_sizes, dtypes)?;
 
         let compute_resources =
             if let ComputeResources::Planes(planes) = TM::computation_resources()? {

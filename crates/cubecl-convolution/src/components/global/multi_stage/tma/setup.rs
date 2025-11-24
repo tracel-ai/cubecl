@@ -60,14 +60,14 @@ where
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
         check_problem_tma(problem)?;
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
 
         // We need smem to be unlined so slicing is simpler. TMA doesn't use the vector
         // type anyways and treats it as a void* with the actual type being set by the `TensorMap`
         assert!(line_sizes.lhs == 1);
         assert!(line_sizes.rhs == 1);
 
-        let stage_config = SMM::setup::<R>(
+        let stage_config = SMM::setup(
             client,
             &problem.as_matmul_problem(),
             selection,
@@ -88,7 +88,7 @@ where
             plane_role_config.plane_roles,
         );
 
-        let num_stages = num_stages::<R>(
+        let num_stages = num_stages(
             client,
             problem,
             stage_config.num_main_flow_planes(),
@@ -125,10 +125,10 @@ where
         };
 
         let lhs_smem_config = stage_config.lhs_smem_config();
-        validate_tma::<R>(client, lhs_smem_config, StageIdent::Lhs, dtypes)?;
+        validate_tma(client, lhs_smem_config, StageIdent::Lhs, dtypes)?;
 
         let rhs_smem_config = stage_config.rhs_smem_config();
-        validate_tma::<R>(client, rhs_smem_config, StageIdent::Rhs, dtypes)?;
+        validate_tma(client, rhs_smem_config, StageIdent::Rhs, dtypes)?;
 
         let out_smem_config = stage_config.out_smem_config();
 

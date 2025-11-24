@@ -55,7 +55,7 @@ where
             matmul_line_sizes.lhs as u32,
         );
 
-        validate::<R>(
+        validate(
             tile_config,
             problem.lhs_layout,
             problem.rhs_layout,
@@ -80,7 +80,7 @@ fn validate<R: Runtime>(
     client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<PlaneVecMatInnerProductConfig, MatmulSetupError> {
-    let tile_config = check_availability::<R>(tile_config, client, dtypes)?;
+    let tile_config = check_availability(tile_config, client, dtypes)?;
 
     if lhs_layout != MatrixLayout::RowMajor {
         return Err(MatmulSetupError::InvalidConfig(Box::new(

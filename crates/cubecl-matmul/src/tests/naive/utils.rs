@@ -88,6 +88,6 @@ impl MatmulTestCase {
         client: &ComputeClient<R>,
         shape: Vec<usize>,
     ) -> TensorHandle<R> {
-        F::sample::<R>(client, &shape, 999)
+        F::sample(client, &shape, 999)
     }
 }

@@ -54,7 +54,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         .pick_max()
         .unwrap();
     let dtypes = MatmulElems::new_with_tile::<P::MP, A::TileMatmul>();
-    let config = match A::setup::<R>(&client, &problem, &selection, &line_sizes, &dtypes) {
+    let config = match A::setup(&client, &problem, &selection, &line_sizes, &dtypes) {
         Ok(config) => config,
         Err(err) => {
             let msg = format!("Can't launch the test: {err}");
@@ -127,7 +127,7 @@ pub fn test_tma_matmul_algorithm<A, P, R>(
         );
     }
 
-    P::assert_result::<R>(
+    P::assert_result(
         &lhs.original_data.unwrap(),
         &rhs.original_data.unwrap(),
         &problem,
@@ -147,7 +147,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Lhs => {
             let mut shape = problem.shape(ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 1234);
+            let handle = P::EG::sample(client, &shape, 1234);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);
@@ -184,7 +184,7 @@ fn tensor_raw_parts<P: TestPrecision, R: Runtime>(
         MatmulIdent::Rhs => {
             let mut shape = problem.shape(ident);
 
-            let handle = P::EG::sample::<R>(client, &shape, 5678);
+            let handle = P::EG::sample(client, &shape, 5678);
 
             let data = client.read_one_tensor(handle.as_copy_descriptor());
             let data = P::EG::from_bytes(&data);

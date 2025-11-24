@@ -287,7 +287,7 @@ macro_rules! test_mulhi_impl {
                 let rhs_handle = client.create_from_slice(u32::as_bytes(rhs));
 
                 unsafe {
-                    test_mulhi_kernel::launch_unchecked::<R>(
+                    test_mulhi_kernel::launch_unchecked(
                         &client,
                         CubeCount::Static(1, 1, 1),
                         CubeDim::new((lhs.len() / $input_vectorization as usize) as u32, 1, 1),

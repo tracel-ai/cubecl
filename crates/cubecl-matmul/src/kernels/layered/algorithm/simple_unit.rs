@@ -62,7 +62,7 @@ where
         args: &Self::SelectionArgs,
         dtypes: &mut MatmulElems,
     ) -> Result<MatmulSelection, MatmulSetupError> {
-        Ok(unit_matmul_selection::<R>(
+        Ok(unit_matmul_selection(
             client,
             problem,
             plane_dim,
@@ -78,7 +78,7 @@ where
                     TileSizeSelection::MinTileSize => PartitionScaling::Disabled,
                     TileSizeSelection::MaxTileSize => PartitionScaling::Enabled,
                 },
-                swizzle: <RegisterMatmul as TileMatmulFamily>::should_swizzle::<R>(client),
+                swizzle: <RegisterMatmul as TileMatmulFamily>::should_swizzle(client),
             },
             dtypes,
         ))

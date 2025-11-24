@@ -33,7 +33,7 @@ pub fn launch<R: Runtime>(
     out: TensorHandle<R>,
     attention_elems: AttentionElems,
 ) -> Result<(), AttentionSetupError> {
-    launch_ref::<R>(
+    launch_ref(
         strategy,
         client,
         &query.as_ref(),

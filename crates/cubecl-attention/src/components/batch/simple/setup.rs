@@ -29,7 +29,7 @@ impl<GA: GlobalAttentionFamily> BatchAttentionFamily for SimpleBatchAttentionFam
         line_sizes: &AttentionLineSizes,
         dtypes: &AttentionElems,
     ) -> Result<Self::Config, crate::components::AttentionSetupError> {
-        let global_config = GA::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
+        let global_config = GA::setup(client, problem, selection, line_sizes, dtypes)?;
 
         SimpleBatchConfig::new(
             global_config,

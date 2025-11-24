@@ -98,9 +98,9 @@ where
     let out_shape = &out.shape[1..dim_c];
 
     let input_data =
-        Alg::into_tensor_handle::<R>(client, input.data(), MatmulIdent::Lhs, dtypes.lhs_global);
+        Alg::into_tensor_handle(client, input.data(), MatmulIdent::Lhs, dtypes.lhs_global);
     let weight_data =
-        Alg::into_tensor_handle::<R>(client, weight.data(), MatmulIdent::Rhs, dtypes.rhs_global);
+        Alg::into_tensor_handle(client, weight.data(), MatmulIdent::Rhs, dtypes.rhs_global);
 
     let mut input = *input;
     let mut weight = *weight;
@@ -129,7 +129,7 @@ where
         dimensionality,
     };
 
-    let selection = Alg::selection::<R>(client, &problem, plane_dim, &mut dtypes)?;
+    let selection = Alg::selection(client, &problem, plane_dim, &mut dtypes)?;
 
     launch_kernel::<R, Alg>(
         client, &input, &weight, bias, out, problem, selection, dtypes,
@@ -167,7 +167,7 @@ where
 
     let line_sizes = Alg::filter_line_sizes(line_sizes).pick_max()?;
 
-    let config = Alg::setup::<R>(client, &problem, &selection, &line_sizes, &dtypes)?;
+    let config = Alg::setup(client, &problem, &selection, &line_sizes, &dtypes)?;
 
     let line_sizes = config.line_sizes();
 

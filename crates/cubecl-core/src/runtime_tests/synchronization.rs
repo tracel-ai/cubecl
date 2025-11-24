@@ -19,7 +19,7 @@ pub fn test_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
     let vectorization = 1;
 
-    kernel_test_sync_cube::launch::<R>(
+    kernel_test_sync_cube::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_2d(8, 2),
@@ -58,7 +58,7 @@ pub fn test_finished_sync_cube<R: Runtime>(client: ComputeClient<R>) {
 
     let vectorization = 1;
 
-    kernel_test_finished_sync_cube::launch::<R>(
+    kernel_test_finished_sync_cube::launch(
         &client,
         CubeCount::Static(2, 1, 1),
         CubeDim::new_2d(8, 2),

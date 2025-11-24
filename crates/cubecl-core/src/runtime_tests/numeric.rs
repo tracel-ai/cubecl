@@ -21,7 +21,7 @@ pub fn test_kernel_define<R: Runtime>(client: ComputeClient<R>) {
 
     let elem = ElemType::Float(FloatKind::F32);
 
-    kernel_define::launch::<R>(
+    kernel_define::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),
@@ -43,7 +43,7 @@ pub fn test_kernel_define_many<R: Runtime>(client: ComputeClient<R>) {
     let elem_first = ElemType::Float(FloatKind::F32);
     let elem_second = ElemType::UInt(UIntKind::U32);
 
-    kernel_define_many::launch::<R>(
+    kernel_define_many::launch(
         &client,
         CubeCount::Static(1, 1, 1),
         CubeDim::new_1d(2),

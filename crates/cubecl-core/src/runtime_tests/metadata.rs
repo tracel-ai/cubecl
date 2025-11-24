@@ -85,7 +85,7 @@ pub fn test_shape_dim_4<R: Runtime>(client: ComputeClient<R>) {
     let handle3 = client.empty(12 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_shape_dim_4::launch_unchecked::<R>(
+        kernel_shape_dim_4::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -108,7 +108,7 @@ pub fn test_shape_different_ranks<R: Runtime>(client: ComputeClient<R>) {
     let handle3 = client.empty(12 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_shape_different_ranks::launch_unchecked::<R>(
+        kernel_shape_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -131,7 +131,7 @@ pub fn test_stride_different_ranks<R: Runtime>(client: ComputeClient<R>) {
     let handle3 = client.empty(9 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_stride_different_ranks::launch_unchecked::<R>(
+        kernel_stride_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -154,7 +154,7 @@ pub fn test_len_different_ranks<R: Runtime>(client: ComputeClient<R>) {
     let handle3 = client.empty(3 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_len_different_ranks::launch_unchecked::<R>(
+        kernel_len_different_ranks::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -175,7 +175,7 @@ pub fn test_buffer_len_discontiguous<R: Runtime>(client: ComputeClient<R>) {
     let handle1 = client.empty(64 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_buffer_len::launch_unchecked::<R>(
+        kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -193,7 +193,7 @@ pub fn test_buffer_len_vectorized<R: Runtime>(client: ComputeClient<R>) {
     let handle1 = client.empty(32 * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_buffer_len::launch_unchecked::<R>(
+        kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),
@@ -216,7 +216,7 @@ pub fn test_buffer_len_offset<R: Runtime>(client: ComputeClient<R>) {
         .offset_end(64 * core::mem::size_of::<u32>() as u64);
 
     unsafe {
-        kernel_buffer_len::launch_unchecked::<R>(
+        kernel_buffer_len::launch_unchecked(
             &client,
             CubeCount::Static(1, 1, 1),
             CubeDim::new(1, 1, 1),

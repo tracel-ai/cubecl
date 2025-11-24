@@ -19,7 +19,7 @@ pub fn test_kernel_topology_absolute_pos<R: Runtime>(client: ComputeClient<R>) {
     let handle1 = client.empty(length as usize * core::mem::size_of::<u32>());
 
     unsafe {
-        kernel_absolute_pos::launch::<R>(
+        kernel_absolute_pos::launch(
             &client,
             CubeCount::Static(cube_count.0, cube_count.1, cube_count.2),
             CubeDim::new(cube_dim.0, cube_dim.1, cube_dim.2),

@@ -36,7 +36,7 @@ fn identity_kernel<C: Numeric>(
 /// output will contain the identity matrix.
 pub fn launch<R: Runtime>(client: &ComputeClient<R>, output: &TensorHandle<R>) {
     let dtype = output.dtype;
-    launch_ref::<R>(client, &output.as_ref(), dtype);
+    launch_ref(client, &output.as_ref(), dtype);
 }
 
 /// Launch identity matrix kernel by ref.
@@ -67,7 +67,7 @@ pub fn launch_ref<R: Runtime>(
     let cube_count = CubeCount::new_2d(cube_count_x, cube_count_y);
 
     unsafe {
-        identity_kernel::launch_unchecked::<R>(
+        identity_kernel::launch_unchecked(
             client,
             cube_count,
             cube_dim,

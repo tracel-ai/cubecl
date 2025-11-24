@@ -72,12 +72,12 @@ pub fn kernel_scalar_enum(test: TestEnum<i32>, output: &mut Array<f32>) {
 pub fn test_scalar_enum<R: Runtime>(client: ComputeClient<R>) {
     let array = client.empty(std::mem::size_of::<f32>());
 
-    kernel_scalar_enum::launch::<R>(
+    kernel_scalar_enum::launch(
         &client,
         CubeCount::new_single(),
         CubeDim::new_single(),
         TestEnumArgs::<i32, R>::C(ScalarArg::new(10)),
-        unsafe { ArrayArg::<R>::from_raw_parts::<f32>(&array, 1, 1) },
+        unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) },
     );
     let bytes = client.read_one(array);
     let actual = f32::from_bytes(&bytes);
@@ -112,9 +112,9 @@ pub fn test_array_float_int<R: Runtime, T: CubePrimitive + CubeElement>(
         CubeCount::new_single(),
         CubeDim::new_single(),
         if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f32>() {
-            ArrayFloatIntArgs::Float(unsafe { ArrayArg::<R>::from_raw_parts::<f32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Float(unsafe { ArrayArg::from_raw_parts::<f32>(&array, 1, 1) })
         } else {
-            ArrayFloatIntArgs::Int(unsafe { ArrayArg::<R>::from_raw_parts::<i32>(&array, 1, 1) })
+            ArrayFloatIntArgs::Int(unsafe { ArrayArg::from_raw_parts::<i32>(&array, 1, 1) })
         },
     );
 

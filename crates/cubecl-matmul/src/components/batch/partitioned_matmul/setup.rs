@@ -31,7 +31,7 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let global_config = GMM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
+        let global_config = GMM::setup(client, problem, selection, line_sizes, dtypes)?;
 
         PartitionedBatchConfig::new(
             global_config,

@@ -54,7 +54,7 @@ where
         line_sizes: &MatmulLineSizes,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let stage_config = SMM::setup::<R>(
+        let stage_config = SMM::setup(
             client,
             &problem.as_matmul_problem(),
             selection,

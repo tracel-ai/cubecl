@@ -26,8 +26,8 @@ impl LoadingValidation for AsyncFullTmaLoading {
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
         TmaTilingLayout::check(config.smem_config)?;
-        validate_tma::<R>(client, config.smem_config, config.stage_ident, dtypes)?;
-        validate_async_barrier::<R>(client)?;
+        validate_tma(client, config.smem_config, config.stage_ident, dtypes)?;
+        validate_async_barrier(client)?;
 
         Ok(())
     }

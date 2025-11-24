@@ -13,13 +13,13 @@ macro_rules! testgen_random_uniform {
             ) -> Vec<E> {
                 seed(0);
                 let client = R::client(&Default::default());
-                let output = TensorHandle::<R>::empty(
+                let output = TensorHandle::empty(
                     &client,
                     shape.to_vec(),
                     E::as_type_native_unchecked(),
                 );
 
-                random_uniform::<R>(
+                random_uniform(
                     &client,
                     lower_bound,
                     upper_bound,

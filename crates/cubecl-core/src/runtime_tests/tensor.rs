@@ -30,7 +30,7 @@ pub fn test_tensor_coordinate<R: Runtime>(client: ComputeClient<R>) {
     for &line_size in R::supported_line_sizes() {
         let output = client.empty(core::mem::size_of::<u32>() * output_size);
         unsafe {
-            tensor_coordinate::launch::<R>(
+            tensor_coordinate::launch(
                 &client,
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new(input_size as u32, shape.len() as u32, 1),

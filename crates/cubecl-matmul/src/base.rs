@@ -311,7 +311,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
     pub fn into_contiguous(&self, client: &ComputeClient<R>) -> MatmulInputHandle<R> {
         match self {
             MatmulInputHandleRef::Normal(data, dtype) => {
-                MatmulInputHandle::Normal(into_contiguous_pitched::<R>(client, data, *dtype))
+                MatmulInputHandle::Normal(into_contiguous_pitched(client, data, *dtype))
             }
             MatmulInputHandleRef::Quantized {
                 data,
@@ -324,7 +324,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                 let data = match scheme.store {
                     // e2m1 has native packing (e2m1x2) so also needs to be re-packed
                     QuantStore::Native if scheme.value == QuantValue::E2M1 => {
-                        let data = into_contiguous_packed::<R>(
+                        let data = into_contiguous_packed(
                             client,
                             data,
                             shape,
@@ -335,7 +335,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                         TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
                     QuantStore::U32 => {
-                        let data = into_contiguous_packed::<R>(
+                        let data = into_contiguous_packed(
                             client,
                             data,
                             shape,
@@ -345,7 +345,7 @@ impl<'a, R: Runtime> MatmulInputHandleRef<'a, R> {
                         // Unsafely cast to E
                         TensorHandle::from_ref(&data.as_ref(), *data_dtype)
                     }
-                    _ => into_contiguous_pitched::<R>(client, data, *data_dtype),
+                    _ => into_contiguous_pitched(client, data, *data_dtype),
                 };
                 MatmulInputHandle::Quantized {
                     data,
@@ -367,7 +367,7 @@ pub fn launch<R: Runtime>(
     out: TensorHandle<R>,
     mut dtypes: MatmulElems,
 ) -> Result<(), MatmulSetupError> {
-    launch_ref::<R>(
+    launch_ref(
         strategy,
         client,
         &lhs.as_ref(),
@@ -517,7 +517,7 @@ pub fn launch_ref<R: Runtime>(
             layered::launch_ref::<R, DoubleUnitAlgorithm>(client, lhs, rhs, out, selection, dtypes)
         }
         Strategy::Naive => {
-            naive::launch_ref::<R>(client, lhs, rhs, out, dtypes)?;
+            naive::launch_ref(client, lhs, rhs, out, dtypes)?;
             Ok(())
         }
         Strategy::Auto => {

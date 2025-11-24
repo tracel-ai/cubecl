@@ -175,7 +175,7 @@ where
         let array_len = output.handle.size() as usize / dtype.size();
 
         unsafe {
-            init::zeros_array::launch_unchecked::<R>(
+            init::zeros_array::launch_unchecked(
                 client,
                 cube_count,
                 cube_dim,

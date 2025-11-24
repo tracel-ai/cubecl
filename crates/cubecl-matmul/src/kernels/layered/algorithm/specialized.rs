@@ -66,7 +66,7 @@ where
                 multi_row_strategy: MultiRowStrategy::Adaptive {
                     minimum_stage_count: 8,
                 },
-                swizzled: TMM::should_swizzle::<R>(client),
+                swizzled: TMM::should_swizzle(client),
                 ..Default::default()
             },
         )

@@ -92,7 +92,7 @@ where
                 PlaneMatmulSelectionOptions {
                     partition_buffering: Some(PartitionBuffering::Single),
                     tiny_selection_enabled: true,
-                    swizzled: TMM::should_swizzle::<R>(client),
+                    swizzled: TMM::should_swizzle(client),
                     ..Default::default()
                 },
             )
@@ -107,10 +107,10 @@ fn selection_multi_rows<R: Runtime, TMM: TileMatmulFamily>(
     dtypes: &mut MatmulElems,
     line_sizes: &MatmulLineSizes,
 ) -> Result<MatmulSelection, MatmulSetupError> {
-    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+    adjust_dtypes(client, dtypes, TMM::requires_accelerator());
 
     let supported = |m: u32, n: u32, k: u32| {
-        TMM::is_supported::<R>(
+        TMM::is_supported(
             client,
             MmaConfig {
                 a_type: dtypes.lhs_register,
