@@ -62,12 +62,13 @@ impl<GMM: GlobalMatmulFamily, S: GlobalPartitionMatmul> BatchMatmulFamily
                 output,
                 cube_count_input,
                 config,
-                dtypes.lhs_global,
-                dtypes.rhs_global,
-                dtypes.acc_global,
-                dtypes.lhs_stage,
-                dtypes.rhs_stage,
-                dtypes.acc_stage,
+                [dtypes.lhs_global, dtypes.rhs_global, dtypes.acc_global],
+                [dtypes.lhs_stage, dtypes.rhs_stage, dtypes.acc_stage],
+                [
+                    dtypes.lhs_register,
+                    dtypes.rhs_register,
+                    dtypes.acc_register,
+                ],
             );
         }
     }

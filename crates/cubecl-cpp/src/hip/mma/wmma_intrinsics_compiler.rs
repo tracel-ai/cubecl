@@ -384,7 +384,7 @@ impl DialectWmmaCompiler<HipDialect<Self>> for WmmaIntrinsicCompiler {
                 let value_ptr = frag_as_ptr(f, value, offset);
                 writeln!(f, "{name}({frag}, {value_ptr}, {stride});")
             }
-            WmmaInstruction::LdMatrix { .. } => {
+            WmmaInstruction::LdMatrix { .. } | WmmaInstruction::StMatrix { .. } => {
                 unimplemented!("Not supported in HIP")
             }
             WmmaInstruction::Execute {

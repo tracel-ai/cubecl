@@ -1,11 +1,11 @@
-use std::marker::PhantomData;
+use std::{collections::BTreeMap, marker::PhantomData};
 
-use crate::MetadataBuilder;
+use crate::KernelSettings;
 use crate::Runtime;
 use crate::compute::KernelTask;
 use crate::prelude::{ArrayArg, TensorArg, TensorMapArg};
-use crate::{KernelSettings, prelude::CubePrimitive};
-use bytemuck::{AnyBitPattern, NoUninit};
+use crate::{CubeScalar, MetadataBuilder};
+use cubecl_ir::StorageType;
 use cubecl_runtime::server::{Binding, CubeCount, ScalarBinding, TensorMapBinding};
 use cubecl_runtime::{client::ComputeClient, server::Bindings};
 
@@ -14,18 +14,7 @@ use super::CubeKernel;
 /// Prepare a kernel for [launch](KernelLauncher::launch).
 pub struct KernelLauncher<R: Runtime> {
     tensors: TensorState<R>,
-    scalar_bf16: ScalarState<half::bf16>,
-    scalar_f16: ScalarState<half::f16>,
-    scalar_f32: ScalarState<f32>,
-    scalar_f64: ScalarState<f64>,
-    scalar_u64: ScalarState<u64>,
-    scalar_u32: ScalarState<u32>,
-    scalar_u16: ScalarState<u16>,
-    scalar_u8: ScalarState<u8>,
-    scalar_i64: ScalarState<i64>,
-    scalar_i32: ScalarState<i32>,
-    scalar_i16: ScalarState<i16>,
-    scalar_i8: ScalarState<i8>,
+    scalars: ScalarState,
     pub settings: KernelSettings,
     runtime: PhantomData<R>,
 }
@@ -46,64 +35,14 @@ impl<R: Runtime> KernelLauncher<R> {
         self.tensors.push_array(array);
     }
 
-    /// Register a u8 scalar to be launched.
-    pub fn register_u8(&mut self, scalar: u8) {
-        self.scalar_u8.push(scalar);
+    /// Register a scalar to be launched.
+    pub fn register_scalar<C: CubeScalar>(&mut self, scalar: C) {
+        self.scalars.push(scalar);
     }
 
-    /// Register a u16 scalar to be launched.
-    pub fn register_u16(&mut self, scalar: u16) {
-        self.scalar_u16.push(scalar);
-    }
-
-    /// Register a u32 scalar to be launched.
-    pub fn register_u32(&mut self, scalar: u32) {
-        self.scalar_u32.push(scalar);
-    }
-
-    /// Register a u64 scalar to be launched.
-    pub fn register_u64(&mut self, scalar: u64) {
-        self.scalar_u64.push(scalar);
-    }
-
-    /// Register a i8 scalar to be launched.
-    pub fn register_i8(&mut self, scalar: i8) {
-        self.scalar_i8.push(scalar);
-    }
-
-    /// Register a i16 scalar to be launched.
-    pub fn register_i16(&mut self, scalar: i16) {
-        self.scalar_i16.push(scalar);
-    }
-
-    /// Register a i32 scalar to be launched.
-    pub fn register_i32(&mut self, scalar: i32) {
-        self.scalar_i32.push(scalar);
-    }
-
-    /// Register a i64 scalar to be launched.
-    pub fn register_i64(&mut self, scalar: i64) {
-        self.scalar_i64.push(scalar);
-    }
-
-    /// Register a bf16 scalar to be launched.
-    pub fn register_bf16(&mut self, scalar: half::bf16) {
-        self.scalar_bf16.push(scalar);
-    }
-
-    /// Register a f16 scalar to be launched.
-    pub fn register_f16(&mut self, scalar: half::f16) {
-        self.scalar_f16.push(scalar);
-    }
-
-    /// Register a f32 scalar to be launched.
-    pub fn register_f32(&mut self, scalar: f32) {
-        self.scalar_f32.push(scalar);
-    }
-
-    /// Register a f64 scalar to be launched.
-    pub fn register_f64(&mut self, scalar: f64) {
-        self.scalar_f64.push(scalar);
+    /// Register a scalar to be launched from raw data.
+    pub fn register_scalar_raw(&mut self, bytes: &[u8], dtype: StorageType) {
+        self.scalars.push_raw(bytes, dtype);
     }
 
     /// Launch the kernel.
@@ -156,19 +95,7 @@ impl<R: Runtime> KernelLauncher<R> {
         let mut bindings = Bindings::new();
 
         self.tensors.register(&mut bindings);
-
-        self.scalar_u8.register(&mut bindings);
-        self.scalar_u16.register(&mut bindings);
-        self.scalar_u32.register(&mut bindings);
-        self.scalar_u64.register(&mut bindings);
-        self.scalar_i8.register(&mut bindings);
-        self.scalar_i16.register(&mut bindings);
-        self.scalar_i32.register(&mut bindings);
-        self.scalar_i64.register(&mut bindings);
-        self.scalar_f16.register(&mut bindings);
-        self.scalar_bf16.register(&mut bindings);
-        self.scalar_f32.register(&mut bindings);
-        self.scalar_f64.register(&mut bindings);
+        self.scalars.register(&mut bindings);
 
         bindings
     }
@@ -190,12 +117,13 @@ pub enum TensorState<R: Runtime> {
 /// Handles the scalar state of an element type
 ///
 /// The scalars are grouped to reduce the number of buffers needed to send data to the compute device.
-pub enum ScalarState<T> {
-    /// No scalar of that type is registered yet.
-    Empty,
-    /// The registered scalars.
-    Some(Vec<T>),
+#[derive(Default, Clone)]
+pub struct ScalarState {
+    data: BTreeMap<StorageType, ScalarValues>,
 }
+
+/// Stores the data and type for a scalar arg
+pub type ScalarValues = Vec<u8>;
 
 impl<R: Runtime> TensorState<R> {
     fn maybe_init(&mut self) {
@@ -316,26 +244,36 @@ impl<R: Runtime> TensorState<R> {
     }
 }
 
-impl<T: NoUninit + AnyBitPattern + CubePrimitive> ScalarState<T> {
+impl ScalarState {
     /// Add a new scalar value to the state.
-    pub fn push(&mut self, val: T) {
-        match self {
-            ScalarState::Empty => *self = Self::Some(vec![val]),
-            ScalarState::Some(values) => values.push(val),
-        }
+    pub fn push<T: CubeScalar>(&mut self, val: T) {
+        let val = [val];
+        let bytes = T::as_bytes(&val);
+        self.data
+            .entry(T::cube_type())
+            .or_default()
+            .extend(bytes.iter().copied());
+    }
+
+    /// Add a new raw value to the state.
+    pub fn push_raw(&mut self, bytes: &[u8], dtype: StorageType) {
+        self.data
+            .entry(dtype)
+            .or_default()
+            .extend(bytes.iter().copied());
     }
 
     fn register(&self, bindings: &mut Bindings) {
-        if let ScalarState::Some(values) = self {
-            let len = values.len();
-            let len_u64 = len.div_ceil(size_of::<u64>() / size_of::<T>());
+        for (ty, values) in self.data.iter() {
+            let len = values.len() / ty.size();
+            let len_u64 = len.div_ceil(size_of::<u64>() / ty.size());
+
             let mut data = vec![0; len_u64];
-            let slice = bytemuck::cast_slice_mut::<u64, T>(&mut data);
+            let slice = bytemuck::cast_slice_mut::<u64, u8>(&mut data);
             slice[0..values.len()].copy_from_slice(values);
-            let elem = T::as_type_native_unchecked();
             bindings
                 .scalars
-                .insert(elem, ScalarBinding::new(elem, len, data));
+                .insert(*ty, ScalarBinding::new(*ty, len, data));
         }
     }
 }
@@ -344,18 +282,7 @@ impl<R: Runtime> Default for KernelLauncher<R> {
     fn default() -> Self {
         Self {
             tensors: TensorState::Empty,
-            scalar_bf16: ScalarState::Empty,
-            scalar_f16: ScalarState::Empty,
-            scalar_f32: ScalarState::Empty,
-            scalar_f64: ScalarState::Empty,
-            scalar_u64: ScalarState::Empty,
-            scalar_u32: ScalarState::Empty,
-            scalar_u16: ScalarState::Empty,
-            scalar_u8: ScalarState::Empty,
-            scalar_i64: ScalarState::Empty,
-            scalar_i32: ScalarState::Empty,
-            scalar_i16: ScalarState::Empty,
-            scalar_i8: ScalarState::Empty,
+            scalars: Default::default(),
             settings: Default::default(),
             runtime: PhantomData,
         }
