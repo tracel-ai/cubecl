@@ -1,7 +1,7 @@
 use cubecl_core as cubecl;
 use cubecl_core::prelude::*;
 use cubecl_matmul::components::{
-    global::{WriteEventListener, WriteTiling},
+    global::{WriteEventListener, WriteTiling, read::sync_full_cyclic::SyncFullCyclicLoading},
     stage::{ContiguousTilingLayout, RowMajorTilingOrder, StageFamily, StageMemoryConfig},
 };
 use std::{fmt::Debug, hash::Hash};
@@ -21,6 +21,7 @@ use cubecl_std::CubeOption;
 use cubecl_std::tensor::layout::Coords2d;
 
 pub type AttentionTilingLayout = ContiguousTilingLayout<RowMajorTilingOrder>;
+pub type AttentionLoadingStrategy = SyncFullCyclicLoading<RowMajorTilingOrder>;
 
 /// A family of [TileAttention] implementations that operate with any [precision](AttentionPrecision).
 pub trait StageAttentionFamily: Send + Sync + 'static {
