@@ -146,7 +146,7 @@ fn launch_test_2(output: &mut Array<f32>) {
 fn launch_test_3(output: &mut Array<f32>) {
     output[0] = 0.0;
     output[1] = 0.0;
-    output[3] = 0.0;
+    output[2] = 0.0;
     test_3(output.to_slice_mut());
 }
 
