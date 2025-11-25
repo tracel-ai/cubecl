@@ -1,8 +1,7 @@
-use core::marker::PhantomData;
-
-use variadics_please::all_tuples;
-
 use super::{AutotuneError, IntoTuneFn, TuneFn};
+use alloc::string::String;
+use core::marker::PhantomData;
+use variadics_please::all_tuples;
 
 /// Tunable implemented as a function or closure
 ///

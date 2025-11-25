@@ -1,11 +1,10 @@
+use super::{AutotuneError, TuneFn};
+use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::format;
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
-
-use crate::{client::ComputeClient, runtime::Runtime};
-
-use super::{AutotuneError, TuneFn};
 
 /// A benchmark that runs on server handles
 #[derive(new)]

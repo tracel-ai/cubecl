@@ -1,4 +1,6 @@
 use super::{AutotuneKey, IntoTuneFn, TuneFn};
+use alloc::format;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
