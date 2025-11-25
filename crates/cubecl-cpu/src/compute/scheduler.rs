@@ -2,8 +2,10 @@ use std::fmt::Debug;
 use std::sync::atomic::Ordering;
 use std::{collections::HashMap, sync::mpsc};
 
-use cubecl_core::{ExecutionMode, compute::CubeTask, prelude::CompiledKernel, server::Bindings};
-use cubecl_runtime::{id::KernelId, memory_management::MemoryManagement, storage::BytesStorage};
+use cubecl_core::{ExecutionMode, prelude::CompiledKernel, server::Bindings};
+use cubecl_runtime::{
+    compiler::CubeTask, id::KernelId, memory_management::MemoryManagement, storage::BytesStorage,
+};
 
 use crate::{
     CpuCompiler,

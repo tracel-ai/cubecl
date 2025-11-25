@@ -12,10 +12,9 @@ use core::time::Duration;
 use alloc::string::{String, ToString};
 use cubecl_common::benchmark::{BenchmarkComputations, BenchmarkDurations};
 
-use crate::client::ComputeClient;
 use crate::config::{Logger, autotune::AutotuneLogLevel};
-use crate::server::ComputeServer;
 use crate::tune::{TuneBenchmark, TuneCache};
+use crate::{client::ComputeClient, runtime::Runtime};
 
 use super::{AutotuneKey, AutotuneOutput, TunableSet, TuneCacheResult, TuneFn, TunePlan};
 
@@ -215,16 +214,12 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     /// Execute benchmarks to find out what the fastest operation is.
-    pub fn prepare_autotune<
-        S: ComputeServer + 'static,
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-    >(
+    pub fn prepare_autotune<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput>(
         &self,
         key: K,
         inputs: &In,
         tunables: &TunableSet<K, In, Out>,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
     ) -> Box<dyn FnOnce()> {
         log::info!("Tuning {key}");
 
@@ -316,13 +311,9 @@ impl<K: AutotuneKey> Tuner<K> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    async fn generate_tune_message<
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-        S: ComputeServer + 'static,
-    >(
+    async fn generate_tune_message<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
         key: K,
-        client: &ComputeClient<S>,
+        client: &ComputeClient<R>,
         mut plan: TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: In,
@@ -377,12 +368,8 @@ impl<K: AutotuneKey> Tuner<K> {
         }
     }
 
-    async fn execute_tune_plan<
-        In: Clone + Send + 'static,
-        Out: AutotuneOutput,
-        S: ComputeServer + 'static,
-    >(
-        client: &ComputeClient<S>,
+    async fn execute_tune_plan<In: Clone + Send + 'static, Out: AutotuneOutput, R: Runtime>(
+        client: &ComputeClient<R>,
         plan: &mut TunePlan,
         autotunables: Vec<Arc<dyn TuneFn<Inputs = In, Output = Out> + 'static>>,
         test_inputs: &In,

@@ -31,7 +31,7 @@ pub struct AsyncFullCyclicLoading<T: TilingOrder> {
 
 impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
     fn check<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         _dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {
@@ -46,7 +46,7 @@ impl<T: TilingOrder> LoadingValidation for AsyncFullCyclicLoading<T> {
         }
 
         ContiguousTilingLayout::<T>::check(config.smem_config)?;
-        validate_async_barrier::<R>(client)?;
+        validate_async_barrier(client)?;
         validate_noswizzle(config.smem_config)?;
 
         Ok(())

@@ -73,7 +73,7 @@ impl PrngArgs for Bernoulli {
 
 /// Pseudo-random generator with bernoulli distribution
 pub fn random_bernoulli<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     probability: f32,
     out: TensorHandleRef<R>,
     dtype: StorageType,

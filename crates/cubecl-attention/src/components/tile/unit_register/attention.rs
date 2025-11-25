@@ -290,11 +290,11 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         ))
     }
 
-    fn fill_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
+    fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_key_transposed<E: Float>(
+    fn load_key_transposed<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -302,7 +302,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         strided_tile_to_transposed_unit_tile(tile, fragment);
     }
 
-    fn fill_value<E: Float>(
+    fn load_value<E: Float>(
         tile: &StridedTile<E>,
         fragment: &mut Self::KeyValue,
         #[comptime] _config: Self::Config,
@@ -310,7 +310,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         strided_tile_to_unit_tile(tile, fragment);
     }
 
-    fn fill_mask<E: Numeric>(
+    fn load_mask<E: Numeric>(
         tile: &StridedTile<E>,
         fragment: &mut Self::Mask,
         #[comptime] _config: Self::Config,
@@ -332,10 +332,19 @@ fn strided_tile_to_unit_tile<E: Numeric, E2: Numeric>(
     strided_tile: &StridedTile<E>,
     unit_tile: &mut UnitTile<E2>,
 ) {
+    let line_size = strided_tile.line_size;
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let col_iterations = comptime!(unit_tile.layout.num_cols / strided_tile.line_size);
+
     for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            unit_tile.data[row * unit_tile.layout.num_cols + col] =
-                E2::cast_from(strided_tile.get_line(row, col))
+        for col in 0..col_iterations {
+            let line_read = strided_tile.get_line(row, col);
+            #[unroll]
+            for i in 0..line_size {
+                unit_tile.data[row * unit_tile.layout.num_cols + col * line_size + i] =
+                    E2::cast_from(line_read[i]);
+            }
         }
     }
 }

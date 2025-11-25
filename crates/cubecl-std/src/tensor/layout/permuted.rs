@@ -24,7 +24,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shape_strides(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         strides: &[usize],
         line_size: u8,
@@ -46,7 +46,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     /// Create a new permuted layout for a possibly broadcast tensor, with a reference shape to be
     /// broadcast to.
     pub fn from_shapes_strides_ref(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         shape: &[usize],
         reference_shape: &[usize],
         strides: &[usize],
@@ -74,7 +74,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     }
 
     pub fn from_handles_ref(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         reference_handle: &TensorHandleRef<'_, R>,
         line_size: u8,
@@ -89,7 +89,7 @@ impl<'a, R: Runtime> PermutedLayoutLaunch<'a, R> {
     }
 
     pub fn from_handle(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         handle: &TensorHandleRef<'_, R>,
         line_size: u8,
     ) -> Self {

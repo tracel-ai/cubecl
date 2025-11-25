@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
 
 use cubecl_core::{
-    compute::{Binding, Location, Visibility},
     ir::{self, Id, Type, VariableKind},
-    prelude::KernelDefinition,
+    prelude::{Binding, KernelDefinition, Location, Visibility},
 };
 use cubecl_opt::{ConstArray, NodeIndex};
 use hashbrown::{HashMap, HashSet};

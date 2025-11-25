@@ -104,7 +104,7 @@ fn tensormap_metadata<F: Float>(
     output_2[3] = output_2.shape(0);
 }
 
-pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_load<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -144,7 +144,7 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_store<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
@@ -197,9 +197,8 @@ where
     assert_eq!(actual, &expected);
 }
 
-pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
-    client: ComputeClient<R::Server>,
-) where
+pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
+where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {
     if !client.properties().features.tma.contains(Tma::Base) {
@@ -285,7 +284,7 @@ pub fn test_tensormap_load_im2col<R: Runtime, F: Float + CubeElement>(
     assert_eq!(actual, &expected_actual);
 }
 
-pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R::Server>)
+pub fn test_tensormap_metadata<R: Runtime, F: Float + CubeElement>(client: ComputeClient<R>)
 where
     <<R::Server as ComputeServer>::Storage as ComputeStorage>::Resource: Debug,
 {

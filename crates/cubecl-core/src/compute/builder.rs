@@ -6,14 +6,15 @@ use std::{
 use alloc::collections::BTreeMap;
 
 use cubecl_ir::{ExpandElement, Scope, StorageType, TargetProperties, Variable, VariableKind};
-use cubecl_runtime::config::{GlobalConfig, compilation::CompilationLogLevel};
+use cubecl_runtime::{
+    config::{GlobalConfig, compilation::CompilationLogLevel},
+    kernel::Visibility,
+};
 
 use crate::ir::{Id, Type};
 use crate::prelude::KernelDefinition;
 use crate::{BufferInfo, KernelSettings, ScalarInfo};
 use crate::{KernelExpansion, KernelIntegrator};
-
-use super::Visibility;
 
 /// Prepare a kernel to create a [kernel definition](crate::KernelDefinition).
 pub struct KernelBuilder {

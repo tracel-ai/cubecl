@@ -334,7 +334,7 @@ pub fn stmatrix_template<D: Dialect>(elem: Elem<D>, factor: u32, transpose: bool
     let arg_ty = Elem::<D>::U32;
 
     let args_regs = (0..factor).map(|i| format!("{arg_ty} const &reg_{i}"));
-    let arg_addr = ["void const *row_addr".to_string()];
+    let arg_addr = ["void *row_addr".to_string()];
     let args = args_regs.chain(arg_addr).collect::<Vec<_>>().join(", ");
 
     let mut idx = 0usize;

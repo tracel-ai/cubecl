@@ -169,7 +169,7 @@ fn dequantize_symmetric_native_kernel<F: Float, FS: Numeric, Q: Numeric>(
 #[allow(clippy::result_large_err)]
 /// Convert the tensor back to a higher precision data type.
 pub fn launch_ref<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     values: &TensorHandleRef<R>,
     output: &TensorHandleRef<R>,
     params: &TensorHandleRef<'_, R>,
@@ -182,7 +182,7 @@ pub fn launch_ref<R: Runtime>(
         QuantScheme {
             store: QuantStore::U32,
             ..
-        } => dequantize_packed::<R>(
+        } => dequantize_packed(
             client,
             values,
             *scheme,
@@ -208,7 +208,7 @@ pub fn launch_ref<R: Runtime>(
                 );
             }
 
-            dequantize_native::<R>(
+            dequantize_native(
                 client,
                 values,
                 *scheme,
@@ -229,7 +229,7 @@ pub fn launch_ref<R: Runtime>(
 }
 
 fn dequantize_packed<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -240,7 +240,7 @@ fn dequantize_packed<R: Runtime>(
     let num_elems_input: usize = input.shape.iter().product();
 
     let mut line_size_in = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(input.elem_size),
+        client.io_optimized_line_sizes_unchecked(input.elem_size),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -265,7 +265,7 @@ fn dequantize_packed<R: Runtime>(
             ..
         } => {
             unsafe {
-                dequantize_symmetric_packed_kernel::launch_unchecked::<R>(
+                dequantize_symmetric_packed_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,
@@ -282,7 +282,7 @@ fn dequantize_packed<R: Runtime>(
 }
 
 fn dequantize_native<R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     input: &TensorHandleRef<R>,
     scheme: QuantScheme,
     scale: &TensorHandleRef<'_, R>,
@@ -292,7 +292,7 @@ fn dequantize_native<R: Runtime>(
 ) {
     let num_elems: usize = input.shape.iter().product();
     let line_size = tensor_line_size_parallel(
-        R::io_optimized_line_sizes_unchecked(input_dtype.size()),
+        client.io_optimized_line_sizes_unchecked(input_dtype.size()),
         input.shape,
         input.strides,
         input.shape.len() - 1,
@@ -318,7 +318,7 @@ fn dequantize_native<R: Runtime>(
 
             println!("{input_dtype:?} {scale_dtype:?} {quant_dtype:?}");
             unsafe {
-                dequantize_symmetric_native_kernel::launch_unchecked::<R>(
+                dequantize_symmetric_native_kernel::launch_unchecked(
                     client,
                     cube_count,
                     cube_dim,

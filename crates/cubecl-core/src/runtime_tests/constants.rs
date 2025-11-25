@@ -10,7 +10,7 @@ fn constant_array_kernel<F: Float>(out: &mut Array<F>, #[comptime] data: Vec<u32
     }
 }
 
-pub fn test_constant_array<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn test_constant_array<R: Runtime>(client: ComputeClient<R>) {
     let handle = client.create_from_slice(f32::as_bytes(&[0.0, 1.0]));
 
     let vectorization = 1;

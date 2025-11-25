@@ -73,7 +73,7 @@ impl<
     type Config = PartitionMatmulConfig<TM::Config>;
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -81,7 +81,7 @@ impl<
         max_global_readers: Option<MaxGlobalReaderPlanes>,
         dtypes: &MatmulElems,
     ) -> Result<Self::Config, MatmulSetupError> {
-        let tile_config = TM::setup::<R>(client, problem, selection, line_sizes, dtypes)?;
+        let tile_config = TM::setup(client, problem, selection, line_sizes, dtypes)?;
 
         let compute_resources = if let ComputeResources::Units(units) = TM::computation_resources()?
         {

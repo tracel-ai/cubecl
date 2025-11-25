@@ -100,6 +100,8 @@ pub struct MemoryDeviceProperties {
 /// be assumed.
 #[derive(Debug, Clone)]
 pub struct HardwareProperties {
+    /// The maximum size of a single load instruction, in bits. Used for optimized line sizes.
+    pub load_width: u32,
     /// The minimum size of a plane on this device
     pub plane_size_min: u32,
     /// The maximum size of a plane on this device

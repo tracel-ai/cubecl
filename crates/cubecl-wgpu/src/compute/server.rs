@@ -6,22 +6,19 @@ use cubecl_common::bytes::Bytes;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
 use cubecl_common::stream_id::StreamId;
 use cubecl_core::future::DynFut;
+use cubecl_core::server::{Allocation, AllocationDescriptor, IoError};
 use cubecl_core::server::{ProfileError, ProfilingToken, ServerCommunication, ServerUtilities};
 use cubecl_core::{
     MemoryConfiguration, WgpuCompilationOptions,
     prelude::*,
     server::{Binding, Bindings, CopyDescriptor},
 };
-use cubecl_core::{
-    compute::{CubeTask, DebugInformation},
-    server::{Allocation, AllocationDescriptor, IoError},
-};
-use cubecl_runtime::config::GlobalConfig;
 use cubecl_runtime::logging::ServerLogger;
 use cubecl_runtime::memory_management::{MemoryAllocationMode, offset_handles};
 use cubecl_runtime::stream::scheduler::{
     SchedulerMultiStream, SchedulerMultiStreamOptions, SchedulerStrategy,
 };
+use cubecl_runtime::{compiler::CubeTask, config::GlobalConfig};
 use cubecl_runtime::{
     memory_management::MemoryDeviceProperties, server::ComputeServer, storage::BindingResource,
 };

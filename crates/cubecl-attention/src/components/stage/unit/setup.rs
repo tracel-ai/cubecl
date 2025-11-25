@@ -53,7 +53,7 @@ impl<
     type Config = PartitionAttentionConfig<TA::Config>;
 
     fn setup<R: cubecl_core::Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &AttentionProblem,
         selection: &AttentionSelection,
         line_sizes: &AttentionLineSizes,
@@ -70,8 +70,7 @@ impl<
         };
 
         let num_planes = compute_resources.num_planes(selection.plane_dim)?;
-        let tile_config =
-            TA::setup::<R>(client, problem, selection, line_sizes, num_planes, dtypes)?;
+        let tile_config = TA::setup(client, problem, selection, line_sizes, num_planes, dtypes)?;
 
         let key_smem_config = StageMemoryConfig {
             num_planes,

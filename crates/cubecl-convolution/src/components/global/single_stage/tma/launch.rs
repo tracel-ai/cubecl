@@ -28,7 +28,7 @@ impl<
 > ConvolutionLaunch<GlobalConfig<Self>> for SimpleTmaConvolutionFamily<SMM>
 {
     unsafe fn launch_unchecked<'a, MA: MatmulArgs, R: Runtime>(
-        client: &ComputeClient<<R as Runtime>::Server>,
+        client: &ComputeClient<R>,
         cube_dim: CubeDim,
         cube_count: CubeCount,
         input: InputRuntimeArg<'a, MA, R>,

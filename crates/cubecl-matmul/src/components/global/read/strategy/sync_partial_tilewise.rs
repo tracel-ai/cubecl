@@ -46,7 +46,7 @@ impl<TO: TilingOrder> LoadMaxRoundPlaneCount for SyncPartialTilewiseLoading<TO> 
 
 impl<T: TilingOrder> LoadingValidation for SyncPartialTilewiseLoading<T> {
     fn check<R: Runtime>(
-        _client: &ComputeClient<R::Server>,
+        _client: &ComputeClient<R>,
         config: &GlobalReaderConfig,
         dtypes: &MatmulElems,
     ) -> Result<(), InvalidConfigError> {

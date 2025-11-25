@@ -54,7 +54,7 @@ where
     type Config = SharedGlobalMatmulConfig<SMM::Config>;
 
     fn setup<R: Runtime>(
-        client: &ComputeClient<R::Server>,
+        client: &ComputeClient<R>,
         problem: &MatmulProblem,
         selection: &MatmulSelection,
         line_sizes: &MatmulLineSizes,
@@ -71,7 +71,7 @@ where
                 )
             });
 
-        let stage_config = SMM::setup::<R>(
+        let stage_config = SMM::setup(
             client,
             problem,
             selection,
@@ -171,11 +171,11 @@ where
 
 fn validate<LL: LoadingValidation, RL: LoadingValidation, S: StageConfig, R: Runtime>(
     config: SharedGlobalMatmulConfig<S>,
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     dtypes: &MatmulElems,
 ) -> Result<SharedGlobalMatmulConfig<S>, MatmulSetupError> {
-    LL::check::<R>(client, &config.lhs_reader_config, dtypes)?;
-    RL::check::<R>(client, &config.rhs_reader_config, dtypes)?;
+    LL::check(client, &config.lhs_reader_config, dtypes)?;
+    RL::check(client, &config.rhs_reader_config, dtypes)?;
     cube_dim_validation(config)?;
 
     Ok(config)

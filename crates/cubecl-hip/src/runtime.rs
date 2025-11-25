@@ -120,6 +120,7 @@ impl DeviceState for HipServer {
             HipWmmaCompiler::supported_scaled_mma_combinations(&arch);
 
         let topology = HardwareProperties {
+            load_width: 128,
             plane_size_min: prop_warp_size as u32,
             plane_size_max: prop_warp_size as u32,
             max_bindings: crate::device::AMD_MAX_BINDINGS,
@@ -183,11 +184,11 @@ impl Runtime for HipRuntime {
     type Server = HipServer;
     type Device = AmdDevice;
 
-    fn client(device: &Self::Device) -> ComputeClient<Self::Server> {
+    fn client(device: &Self::Device) -> ComputeClient<Self> {
         ComputeClient::load(device)
     }
 
-    fn name(_client: &ComputeClient<Self::Server>) -> &'static str {
+    fn name(_client: &ComputeClient<Self>) -> &'static str {
         "hip"
     }
 

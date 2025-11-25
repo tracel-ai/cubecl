@@ -1,4 +1,4 @@
-use cubecl_core::{Compiler, compute::Visibility};
+use cubecl_core::{Compiler, prelude::Visibility};
 #[cfg(not(all(target_os = "macos", feature = "msl")))]
 use cubecl_core::{
     WgpuCompilationOptions,

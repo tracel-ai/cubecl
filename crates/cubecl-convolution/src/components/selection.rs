@@ -77,12 +77,12 @@ pub(crate) fn find_stage_size_m_n(
 }
 
 pub fn convolution_matmul_selection<TMM: TileMatmulFamily, R: Runtime>(
-    client: &ComputeClient<R::Server>,
+    client: &ComputeClient<R>,
     problem: &ConvolutionProblem,
     plane_dim: u32,
     dtypes: &mut MatmulElems,
 ) -> Result<MatmulSelection, MatmulAvailabilityError> {
-    adjust_dtypes::<R>(client, dtypes, TMM::requires_accelerator());
+    adjust_dtypes(client, dtypes, TMM::requires_accelerator());
 
     // rough heuristic based on previous bench results where 512 channels with a 3x3 kernel seemed
     // to be the rough cutoff for the k=4 size.

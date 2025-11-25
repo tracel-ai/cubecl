@@ -113,6 +113,8 @@ pub enum Tma {
     Base,
     /// im2colWide encoding for tensor map.
     Im2colWide,
+    /// Different atomicities for 128-byte swizzle, i.e. 128-byte with 32-byte atomicity.
+    SwizzleAtomicity,
 }
 
 impl Features {

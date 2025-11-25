@@ -39,7 +39,7 @@ pub mod tiling_scheme_ops {
 }
 
 pub fn attention_test_launch<A: Algorithm, R: Runtime>(
-    client: ComputeClient<R::Server>,
+    client: ComputeClient<R>,
     tiling_scheme: AttentionTilingScheme,
     problem: AttentionProblem,
     test_options: TestOptions,
@@ -52,7 +52,7 @@ pub fn attention_test_launch<A: Algorithm, R: Runtime>(
         two_rows_in_array_tile: test_options.two_rows_in_array_tile,
     };
 
-    test_attention_algorithm::<A, (f32, f32), R>(client, problem, selection);
+    test_attention_algorithm::<A, (half::f16, half::f16), R>(client, problem, selection);
 }
 
 #[macro_export]
