@@ -28,7 +28,7 @@ impl Algorithm for UnitAlgorithm {
             query: available_line_sizes.query,
             key: vec![1],
             value: vec![1],
-            mask: available_line_sizes.mask,
+            mask: vec![1],
             out: available_line_sizes.out,
         }
     }

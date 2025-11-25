@@ -323,7 +323,7 @@ impl<AP: AttentionPrecision> TileAttention<AP> for UnitRegisterTileAttention {
         slice: &mut SliceMut<Line<E>>,
         #[comptime] _config: Self::Config,
     ) {
-        array_tile_to_slice(out, slice)
+        unit_tile_to_slice(out, slice)
     }
 }
 
@@ -363,14 +363,27 @@ fn strided_tile_to_transposed_unit_tile<E: Numeric, E2: Numeric>(
 }
 
 #[cube]
-fn array_tile_to_slice<E: Numeric, E2: Numeric>(
+fn unit_tile_to_slice<E: Numeric, E2: Numeric>(
     unit_tile: &UnitTile<E>,
     slice: &mut SliceMut<Line<E2>>,
 ) {
+    let line_size = slice.line_size();
+    assert!(unit_tile.layout.num_cols % line_size == 0);
+
+    let col_iterations = comptime!(unit_tile.layout.num_cols / line_size);
+
     for row in 0..unit_tile.layout.num_rows {
-        for col in 0..unit_tile.layout.num_cols {
-            let index = row * unit_tile.layout.num_cols + col;
-            slice[index] = Line::cast_from(unit_tile.data[index]);
+        for col in 0..col_iterations {
+            let mut out_line = Line::empty(line_size);
+
+            #[unroll]
+            for i in 0..line_size {
+                let index = row * unit_tile.layout.num_cols + col * line_size + i;
+                out_line[i] = E2::cast_from(unit_tile.data[index]);
+            }
+
+            let line_index = row * col_iterations + col;
+            slice[line_index] = out_line;
         }
     }
 }
