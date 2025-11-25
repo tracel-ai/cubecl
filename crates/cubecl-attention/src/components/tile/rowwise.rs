@@ -8,7 +8,7 @@ use cubecl_core::prelude::*;
 /// every unit holds 8 values in the tile.
 ///
 /// In the following layout, values are held contiguously, and num_rows=1 because
-/// every two occurences of the same plane id are in the same row
+/// every two occurrences of the same plane id are in the same row
 ///  0,  0,  1,  1,  2,  2,  3,  3,
 ///  4,  4,  5,  5,  6,  6,  7,  7,
 ///  8,  8,  9,  9, 10, 10, 11, 11,
@@ -19,7 +19,7 @@ use cubecl_core::prelude::*;
 /// 28, 28, 29, 29, 30, 30, 31, 31,
 ///
 /// In the following layout, values are held disjointly, and num_rows=2 because
-/// the two occurences of the same plane id are not in the same row
+/// the two occurrences of the same plane id are not in the same row
 ///  0,  1,  2,  3,  4,  5,  6,  7,
 ///  8,  9, 10, 11, 12, 13, 14, 15,
 /// 16, 17, 18, 19, 20, 21, 22, 23,

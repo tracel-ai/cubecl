@@ -344,7 +344,7 @@ mod tests {
     #[test]
     fn test_plan_order_tunable_multiple_groups() {
         let group0 = TuneGroup::<FakeAutotuneKey>::new("group0", |_| 1);
-        let group1 = TuneGroup::<FakeAutotuneKey>::new("gorup1", |_| 2);
+        let group1 = TuneGroup::<FakeAutotuneKey>::new("group1", |_| 2);
 
         let tunable0 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel);
         let tunable1 = Tunable::<FakeAutotuneKey, (), ()>::new("fake", fake_kernel)
