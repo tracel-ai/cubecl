@@ -150,7 +150,7 @@ fn launch_test_3(output: &mut Array<f32>) {
     test_3(output.to_slice_mut());
 }
 
-pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn event_test_1<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(8);
 
     unsafe {
@@ -168,7 +168,7 @@ pub fn event_test_1<R: Runtime>(client: ComputeClient<R::Server>) {
     assert_eq!(actual, &[20.0, 50.0]);
 }
 
-pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn event_test_2<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(8);
 
     unsafe {
@@ -186,7 +186,7 @@ pub fn event_test_2<R: Runtime>(client: ComputeClient<R::Server>) {
     assert_eq!(actual, &[15.0, 30.0]);
 }
 
-pub fn event_test_3<R: Runtime>(client: ComputeClient<R::Server>) {
+pub fn event_test_3<R: Runtime>(client: ComputeClient<R>) {
     let output = client.empty(12);
 
     unsafe {

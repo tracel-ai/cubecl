@@ -127,7 +127,6 @@ impl<AP: AttentionPrecision> TileAttention<AP> for BlackboxAcceleratedTileAttent
 
     fn load_query<E: Numeric>(tile: &StridedTile<E>, fragment: &mut Self::Query) {
         let (slice, stride) = tile.as_unlined();
-
         cmma::load(fragment, &slice, stride);
     }
 
