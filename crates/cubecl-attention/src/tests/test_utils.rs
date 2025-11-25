@@ -108,6 +108,16 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     expected: &[F],
     epsilon: f32,
 ) -> Result<(), String> {
+    let env = std::env::var("ATTENTION_TEST_MODE");
+
+    let print_instead_of_compare = match env {
+        Ok(val) => match val.as_str() {
+            "print" => true,
+            _ => false,
+        },
+        Err(_) => false,
+    };
+
     let actual =
         client.read_one_tensor(output.copy_descriptor(shape, strides, F::type_size() as usize));
     let actual = F::from_bytes(&actual);
@@ -115,11 +125,9 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
     // normalize to type epsilon
     let epsilon = (epsilon / f32::EPSILON * F::EPSILON.to_f32().unwrap()).max(epsilon);
 
-    let print_values = false;
-
     for (i, (a, e)) in actual.iter().zip(expected.iter()).enumerate() {
         // account for lower precision at higher values
-        if print_values {
+        if print_instead_of_compare {
             println!("{:?}: {:?}, {:?}", i, a, e);
         } else {
             let allowed_error = (epsilon * e.to_f32().unwrap()).max(epsilon);
@@ -146,7 +154,7 @@ pub(crate) fn assert_equals_approx<R: Runtime, F: Float + CubeElement + Display>
         }
     }
 
-    if print_values {
+    if print_instead_of_compare {
         Err("".to_string())
     } else {
         Ok(())
