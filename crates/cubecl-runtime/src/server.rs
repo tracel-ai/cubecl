@@ -77,6 +77,21 @@ impl<S: ComputeServer> ServerUtilities<S> {
     }
 }
 
+/// Error that can happen when calling [ComputeServer::execute];
+///
+/// # Notes
+///
+/// Not all errors are going to be catched when calling [ComputeServer::execute] only the one that
+/// won't block the compute queue.
+#[derive(Debug)]
+pub enum ExecutionError {
+    /// The given kernel can't be compiled.
+    CompilationError {
+        /// The details of the compilation error.
+        context: String,
+    },
+}
+
 /// The compute server is responsible for handling resources and computations over resources.
 ///
 /// Everything in the server is mutable, therefore it should be solely accessed through the
@@ -204,7 +219,7 @@ where
         bindings: Bindings,
         kind: ExecutionMode,
         stream_id: StreamId,
-    );
+    ) -> Result<(), ExecutionError>;
 
     /// Flush all outstanding tasks in the server.
     fn flush(&mut self, stream_id: StreamId);

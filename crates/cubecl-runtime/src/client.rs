@@ -7,8 +7,8 @@ use crate::{
     runtime::Runtime,
     server::{
         Allocation, AllocationDescriptor, AllocationKind, Binding, Bindings, ComputeServer,
-        CopyDescriptor, CubeCount, Handle, IoError, ProfileError, ServerCommunication,
-        ServerUtilities,
+        CopyDescriptor, CubeCount, ExecutionError, Handle, IoError, ProfileError,
+        ServerCommunication, ServerUtilities,
     },
     storage::{BindingResource, ComputeStorage},
 };
@@ -516,7 +516,7 @@ impl<R: Runtime> ComputeClient<R> {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), ExecutionError> {
         let level = self.utilities.logger.profile_level();
 
         match level {
@@ -524,17 +524,18 @@ impl<R: Runtime> ComputeClient<R> {
                 let mut state = self.context.lock();
                 let name = kernel.name();
 
-                unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
+                let result = unsafe { state.execute(kernel, count, bindings, mode, stream_id) };
 
                 if matches!(level, Some(ProfileLevel::ExecutionOnly)) {
                     let info = type_name_format(name, TypeNameFormatLevel::Balanced);
                     self.utilities.logger.register_execution(info);
                 }
+                result
             }
             Some(level) => {
                 let name = kernel.name();
                 let kernel_id = kernel.id();
-                let profile = self
+                let (result, profile) = self
                     .profile(
                         || unsafe {
                             let mut state = self.context.lock();
@@ -550,6 +551,7 @@ impl<R: Runtime> ComputeClient<R> {
                     _ => type_name_format(name, TypeNameFormatLevel::Balanced),
                 };
                 self.utilities.logger.register_profiled(info, profile);
+                result
             }
         }
     }
@@ -561,7 +563,7 @@ impl<R: Runtime> ComputeClient<R> {
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) {
+    ) -> Result<(), ExecutionError> {
         // SAFETY: Using checked execution mode.
         unsafe {
             self.execute_inner(
@@ -570,7 +572,7 @@ impl<R: Runtime> ComputeClient<R> {
                 bindings,
                 ExecutionMode::Checked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
@@ -587,7 +589,7 @@ impl<R: Runtime> ComputeClient<R> {
         kernel: <R::Server as ComputeServer>::Kernel,
         count: CubeCount,
         bindings: Bindings,
-    ) {
+    ) -> Result<(), ExecutionError> {
         // SAFETY: Caller has to uphold kernel being safe.
         unsafe {
             self.execute_inner(
@@ -596,7 +598,7 @@ impl<R: Runtime> ComputeClient<R> {
                 bindings,
                 ExecutionMode::Unchecked,
                 self.stream_id(),
-            );
+            )
         }
     }
 
@@ -685,7 +687,7 @@ impl<R: Runtime> ComputeClient<R> {
         &self,
         func: impl FnOnce() -> O,
         #[allow(unused)] func_name: &str,
-    ) -> Result<ProfileDuration, ProfileError> {
+    ) -> Result<(O, ProfileDuration), ProfileError> {
         // Get the outer caller. For execute() this points straight to the
         // cube kernel. For general profiling it points to whoever calls profile.
         #[cfg(feature = "profile-tracy")]
@@ -721,8 +723,6 @@ impl<R: Runtime> ComputeClient<R> {
 
         let result = self.context.lock().end_profile(self.stream_id(), token);
 
-        core::mem::drop(out);
-
         #[cfg(feature = "profile-tracy")]
         if let Some(mut gpu_span) = gpu_span {
             gpu_span.end_zone();
@@ -744,7 +744,10 @@ impl<R: Runtime> ComputeClient<R> {
         }
         core::mem::drop(device_guard);
 
-        result
+        match result {
+            Ok(result) => Ok((out, result)),
+            Err(err) => Err(err),
+        }
     }
 
     /// Transfer data from one client to another

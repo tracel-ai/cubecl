@@ -1,11 +1,9 @@
+use super::{AutotuneError, TuneFn};
+use crate::{client::ComputeClient, runtime::Runtime};
 use alloc::format;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use cubecl_common::profile::{ProfileDuration, TimingMethod};
-
-use crate::{client::ComputeClient, runtime::Runtime};
-
-use super::{AutotuneError, TuneFn};
 
 /// A benchmark that runs on server handles
 #[derive(new)]
@@ -50,20 +48,26 @@ impl<R: Runtime, In: Clone + Send + 'static, Out: AutotuneOutput> TuneBenchmark<
         let num_samples = 10;
         let durations: Vec<_> = (0..num_samples)
             .filter_map(|_| {
-                let result: Result<ProfileDuration, crate::server::ProfileError> =
-                    self.client.profile(
-                        || {
-                            // It is important to return the output since otherwise deadcode elimination
-                            // might optimize away code that needs to be profiled.
-                            operation
-                                .execute(self.inputs.clone())
-                                .expect("Should not fail when previously tried during the warmup.")
-                        },
-                        operation.name(),
-                    );
+                let result: Result<
+                    (Result<Out, AutotuneError>, ProfileDuration),
+                    crate::server::ProfileError,
+                > = self.client.profile(
+                    || {
+                        // It is important to return the output since otherwise deadcode elimination
+                        // might optimize away code that needs to be profiled.
+                        operation.execute(self.inputs.clone())
+                    },
+                    operation.name(),
+                );
 
                 match result {
-                    Ok(val) => Some(val),
+                    Ok((out, duration)) => match out {
+                        Ok(_) => Some(duration),
+                        Err(err) => {
+                            log::warn!("Error while autotuning {err:?}");
+                            None
+                        }
+                    },
                     Err(err) => {
                         log::warn!("Error while autotuning {err:?}");
                         None

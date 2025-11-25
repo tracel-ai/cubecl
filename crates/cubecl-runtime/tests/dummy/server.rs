@@ -26,7 +26,7 @@ use super::DummyKernel;
 use cubecl_runtime::memory_management::{
     HardwareProperties, MemoryAllocationMode, MemoryDeviceProperties, MemoryUsage,
 };
-use cubecl_runtime::server::CubeCount;
+use cubecl_runtime::server::{CubeCount, ExecutionError};
 use cubecl_runtime::storage::{BindingResource, BytesResource, ComputeStorage};
 use cubecl_runtime::{
     memory_management::MemoryManagement,
@@ -199,7 +199,7 @@ impl ComputeServer for DummyServer {
         bindings: Bindings,
         mode: ExecutionMode,
         stream_id: StreamId,
-    ) {
+    ) -> Result<(), ExecutionError> {
         let mut resources: Vec<_> = bindings
             .buffers
             .into_iter()
@@ -231,6 +231,8 @@ impl ComputeServer for DummyServer {
         let mut resources: Vec<_> = resources.iter_mut().collect();
         let kernel = kernel.compile(&mut DummyCompiler, &(), mode);
         kernel.repr.unwrap().compute(resources.as_mut_slice());
+
+        Ok(())
     }
 
     fn flush(&mut self, _stream_id: StreamId) {
